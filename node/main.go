@@ -2,15 +2,19 @@ package main
 
 import (
 	"context"
-	"github.com/dgraph-io/badger"
-	"github.com/golang/protobuf/proto"
-	"github.com/ngaut/faketikv/tikv"
-	"github.com/ngaut/log"
+	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"time"
 
+	"github.com/dgraph-io/badger"
+	"github.com/golang/protobuf/proto"
+	"github.com/ngaut/faketikv/tikv"
+	"github.com/ngaut/log"
 	"github.com/pingcap/kvproto/pkg/metapb"
+	"github.com/pingcap/kvproto/pkg/tikvpb"
+	"google.golang.org/grpc"
 )
 
 const (
@@ -44,12 +48,16 @@ type Node struct {
 	storeMeta metapb.Store
 	// currently, we have just a region
 	regions map[uint64]*metapb.Region
+
+	tikvServer *tikv.Server
+	grpcServer *grpc.Server
 }
 
 func NewNode() *Node {
 	n := &Node{regions: make(map[uint64]*metapb.Region)}
 	var err error
-	n.pdc, _, err = tikv.NewClient("127.0.0.1:2379", "")
+	n.storeMeta.Address = "127.0.0.1:9191"
+	n.pdc, err = tikv.NewClient("127.0.0.1:2379", "", n.regions, &n.storeMeta)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -179,6 +187,15 @@ func (n *Node) start() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	n.tikvServer = tikv.NewServer(n.storeMeta, n.db)
+	n.grpcServer = grpc.NewServer()
+	tikvpb.RegisterTikvServer(n.grpcServer, n.tikvServer)
+	l, err := net.Listen("tcp", n.storeMeta.Address)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(n.grpcServer.Serve(l))
 }
 
 func (n *Node) Close() {
@@ -186,8 +203,8 @@ func (n *Node) Close() {
 }
 
 func main() {
+	log.SetLevelByString("debug")
 	n := NewNode()
 	n.start()
-	time.Sleep(10 * time.Second)
 	n.Close()
 }
