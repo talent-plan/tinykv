@@ -2,7 +2,6 @@ package tikv
 
 import (
 	"github.com/dgraph-io/badger"
-	"github.com/ngaut/log"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
@@ -60,7 +59,6 @@ func (svr *Server) checkKeyInRegion(key []byte) bool {
 }
 
 func (svr *Server) KvGet(ctx context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb.GetResponse, error) {
-	log.Debug("get", req.String())
 	if !svr.checkKeyInRegion(req.Key) {
 		panic("KvGet: key not in region")
 	}
@@ -76,7 +74,6 @@ func (svr *Server) KvGet(ctx context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb
 }
 
 func (svr *Server) KvScan(ctx context.Context, req *kvrpcpb.ScanRequest) (*kvrpcpb.ScanResponse, error) {
-	log.Debug("scan", req.String())
 	if !svr.checkKeyInRegion(req.GetStartKey()) {
 		panic("KvScan: startKey not in region")
 	}
@@ -87,7 +84,6 @@ func (svr *Server) KvScan(ctx context.Context, req *kvrpcpb.ScanRequest) (*kvrpc
 }
 
 func (svr *Server) KvPrewrite(ctx context.Context, req *kvrpcpb.PrewriteRequest) (*kvrpcpb.PrewriteResponse, error) {
-	log.Debug("prewrite", req.String())
 	for _, m := range req.Mutations {
 		if !svr.checkKeyInRegion(m.Key) {
 			panic("KvPrewrite: key not in region")
@@ -100,7 +96,6 @@ func (svr *Server) KvPrewrite(ctx context.Context, req *kvrpcpb.PrewriteRequest)
 }
 
 func (svr *Server) KvCommit(ctx context.Context, req *kvrpcpb.CommitRequest) (*kvrpcpb.CommitResponse, error) {
-	log.Debug("commit", req.String())
 	for _, k := range req.Keys {
 		if !svr.checkKeyInRegion(k) {
 			panic("KvCommit: key not in region")
@@ -115,12 +110,13 @@ func (svr *Server) KvCommit(ctx context.Context, req *kvrpcpb.CommitRequest) (*k
 }
 
 func (svr *Server) KvImport(context.Context, *kvrpcpb.ImportRequest) (*kvrpcpb.ImportResponse, error) {
-	return nil, nil
+	// TODO
+	return &kvrpcpb.ImportResponse{}, nil
 }
 
 func (svr *Server) KvCleanup(ctx context.Context, req *kvrpcpb.CleanupRequest) (*kvrpcpb.CleanupResponse, error) {
-	log.Debug(req.String())
-	return nil, nil
+	// TODO
+	return &kvrpcpb.CleanupResponse{}, nil
 }
 
 func (svr *Server) KvBatchGet(ctx context.Context, req *kvrpcpb.BatchGetRequest) (*kvrpcpb.BatchGetResponse, error) {
@@ -136,7 +132,6 @@ func (svr *Server) KvBatchGet(ctx context.Context, req *kvrpcpb.BatchGetRequest)
 }
 
 func (svr *Server) KvBatchRollback(ctx context.Context, req *kvrpcpb.BatchRollbackRequest) (*kvrpcpb.BatchRollbackResponse, error) {
-	log.Debug("rollback", req.String())
 	err := svr.mvccStore.Rollback(req.Keys, req.StartVersion)
 	if err != nil {
 		return &kvrpcpb.BatchRollbackResponse{
@@ -147,66 +142,69 @@ func (svr *Server) KvBatchRollback(ctx context.Context, req *kvrpcpb.BatchRollba
 }
 
 func (svr *Server) KvScanLock(context.Context, *kvrpcpb.ScanLockRequest) (*kvrpcpb.ScanLockResponse, error) {
-	return nil, nil
+	// TODO
+	return &kvrpcpb.ScanLockResponse{}, nil
 }
 
 func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRequest) (*kvrpcpb.ResolveLockResponse, error) {
-	log.Debug(req.String())
-	return nil, nil
+	// TODO
+	return &kvrpcpb.ResolveLockResponse{}, nil
 }
 
 func (svr *Server) KvGC(context.Context, *kvrpcpb.GCRequest) (*kvrpcpb.GCResponse, error) {
-	return nil, nil
+	// TODO
+	return &kvrpcpb.GCResponse{}, nil
 }
 
-func (svr *Server) KvDeleteRange(context.Context, *kvrpcpb.DeleteRangeRequest) (*kvrpcpb.DeleteRangeResponse, error) {
-	return nil, nil
+func (svr *Server) KvDeleteRange(ctx context.Context, req *kvrpcpb.DeleteRangeRequest) (*kvrpcpb.DeleteRangeResponse, error) {
+	// TODO
+	return &kvrpcpb.DeleteRangeResponse{}, nil
 }
 
 // RawKV commands.
 func (svr *Server) RawGet(context.Context, *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
-	return nil, nil
+	return &kvrpcpb.RawGetResponse{}, nil
 }
 
 func (svr *Server) RawPut(context.Context, *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
-	return nil, nil
+	return &kvrpcpb.RawPutResponse{}, nil
 }
 
 func (svr *Server) RawDelete(context.Context, *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
-	return nil, nil
+	return &kvrpcpb.RawDeleteResponse{}, nil
 }
 
 func (svr *Server) RawScan(context.Context, *kvrpcpb.RawScanRequest) (*kvrpcpb.RawScanResponse, error) {
-	return nil, nil
+	return &kvrpcpb.RawScanResponse{}, nil
 }
 
 func (svr *Server) RawBatchDelete(context.Context, *kvrpcpb.RawBatchDeleteRequest) (*kvrpcpb.RawBatchDeleteResponse, error) {
-	return nil, nil
+	return &kvrpcpb.RawBatchDeleteResponse{}, nil
 }
 
 func (svr *Server) RawBatchGet(context.Context, *kvrpcpb.RawBatchGetRequest) (*kvrpcpb.RawBatchGetResponse, error) {
-	return nil, nil
+	return &kvrpcpb.RawBatchGetResponse{}, nil
 }
 
 func (svr *Server) RawBatchPut(context.Context, *kvrpcpb.RawBatchPutRequest) (*kvrpcpb.RawBatchPutResponse, error) {
-	return nil, nil
+	return &kvrpcpb.RawBatchPutResponse{}, nil
 }
 
 func (svr *Server) RawBatchScan(context.Context, *kvrpcpb.RawBatchScanRequest) (*kvrpcpb.RawBatchScanResponse, error) {
-	return nil, nil
+	return &kvrpcpb.RawBatchScanResponse{}, nil
 }
 
 func (svr *Server) RawDeleteRange(context.Context, *kvrpcpb.RawDeleteRangeRequest) (*kvrpcpb.RawDeleteRangeResponse, error) {
-	return nil, nil
+	return &kvrpcpb.RawDeleteRangeResponse{}, nil
 }
 
 // SQL push down commands.
 func (svr *Server) Coprocessor(ctx context.Context, req *coprocessor.Request) (*coprocessor.Response, error) {
-	log.Debug("cop", req.String())
-	return nil, nil
+	return svr.handleCopDAGRequest(req), nil
 }
 
 func (svr *Server) CoprocessorStream(*coprocessor.Request, tikvpb.Tikv_CoprocessorStreamServer) error {
+	// TODO
 	return nil
 }
 
@@ -220,16 +218,18 @@ func (svr *Server) Snapshot(tikvpb.Tikv_SnapshotServer) error {
 
 // Region commands.
 func (svr *Server) SplitRegion(ctx context.Context, req *kvrpcpb.SplitRegionRequest) (*kvrpcpb.SplitRegionResponse, error) {
-	log.Debug("slitRegion", req.String())
+	// TODO
 	return &kvrpcpb.SplitRegionResponse{}, nil
 }
 
 // transaction debugger commands.
 func (svr *Server) MvccGetByKey(context.Context, *kvrpcpb.MvccGetByKeyRequest) (*kvrpcpb.MvccGetByKeyResponse, error) {
+	// TODO
 	return nil, nil
 }
 
 func (svr *Server) MvccGetByStartTs(context.Context, *kvrpcpb.MvccGetByStartTsRequest) (*kvrpcpb.MvccGetByStartTsResponse, error) {
+	// TODO
 	return nil, nil
 }
 

@@ -295,7 +295,6 @@ func (store *MVCCStore) Scan(startKey, endKey []byte, limit int, startTS uint64)
 			if pair.Key == nil {
 				return nil
 			}
-			log.Debugf("%q %q", pair.Key, pair.Value)
 			pairs = append(pairs, pair)
 			if pair.Err != nil {
 				return nil
@@ -373,8 +372,96 @@ func isVisibleKey(mvKey []byte, startTS uint64) bool {
 }
 
 // ReverseScan implements the MVCCStore interface. The search range is [startKey, endKey).
-func (mvcc *MVCCStore) ReverseScan(startKey, endKey []byte, limit int, startTS uint64) []Pair {
+func (store *MVCCStore) ReverseScan(startKey, endKey []byte, limit int, startTS uint64) []Pair {
+	var pairs []Pair
+	store.db.View(func(txn *badger.Txn) error {
+		var opts badger.IteratorOptions
+		opts.Reverse = true
+		opts.PrefetchValues = false
+		iter := txn.NewIterator(opts)
+		defer iter.Close()
+		seekKey := mvccEncode(endKey, lockVer)
+		mvStartKey := mvccEncode(startKey, lockVer)
+		for len(pairs) < limit {
+			iter.Seek(seekKey)
+			pair := getPairWithStartTSReverse(iter, mvStartKey, startTS)
+			if pair.Key == nil {
+				return nil
+			}
+			pairs = append(pairs, pair)
+			if pair.Err != nil {
+				return nil
+			}
+			seekKey = mvccEncode(pair.Key, lockVer)
+		}
+		return nil
+	})
 	return nil
+}
+
+func getPairWithStartTSReverse(iter *badger.Iterator, mvStartKey []byte, startTS uint64) (pair Pair) {
+	var keyBuf, valBuf []byte
+	for iter.Valid() {
+		item := iter.Item()
+		mvFoundKey := item.Key()
+		if bytes.Compare(mvFoundKey, mvStartKey) < 0 {
+			return
+		}
+		if isLockKey(mvFoundKey) {
+			var lock mvccLock
+			val, err1 := item.Value()
+			if err1 != nil {
+				pair.Err = err1
+				return
+			}
+			err1 = lock.UnmarshalBinary(val)
+			if err1 != nil {
+				pair.Err = err1
+				return
+			}
+			if lock.startTS < startTS {
+				pair.Err = &ErrLocked{
+					Key:     mvFoundKey,
+					Primary: lock.primary,
+					StartTS: lock.startTS,
+					TTL:     lock.ttl,
+				}
+				return
+			}
+			iter.Next()
+			if len(keyBuf) > 0 {
+				break
+			}
+			continue
+		}
+		if isVisibleKey(item.Key(), startTS) {
+			keyBuf = item.KeyCopy(keyBuf)
+			var err error
+			valBuf, err = item.ValueCopy(valBuf)
+			if err != nil {
+				pair.Err = err
+				return
+			}
+			iter.Next()
+			continue
+		}
+		iter.Next()
+		if len(keyBuf) > 0 {
+			break
+		}
+	}
+	if len(keyBuf) != 0 {
+		foundKey, _, err := mvDecode(keyBuf)
+		if err != nil {
+			pair.Err = err
+			return
+		}
+		pair.Key = foundKey
+		var mvVal mvccValue
+		pair.Err = mvVal.UnmarshalBinary(valBuf)
+		pair.Value = mvVal.value
+	}
+	return
 }
 
 func (store *MVCCStore) Cleanup(key []byte, startTS uint64) error {
