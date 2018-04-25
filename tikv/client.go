@@ -192,7 +192,7 @@ func (c *client) storeHeartbeatLoop() {
 func (c *client) receiveRegionHeartbeat(ctx context.Context, stream pdpb.PD_RegionHeartbeatClient, errCh chan error, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
-		resp, err := stream.Recv()
+		_, err := stream.Recv()
 		if err != nil {
 			errCh <- err
 			return
