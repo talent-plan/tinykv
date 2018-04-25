@@ -197,7 +197,6 @@ func (c *client) receiveRegionHeartbeat(ctx context.Context, stream pdpb.PD_Regi
 			errCh <- err
 			return
 		}
-		log.Debugf("%s", resp)
 	}
 }
 
