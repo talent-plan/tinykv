@@ -2,15 +2,19 @@ package main
 
 import (
 	"context"
-	"github.com/dgraph-io/badger"
-	"github.com/golang/protobuf/proto"
-	"github.com/ngaut/faketikv/tikv"
-	"github.com/ngaut/log"
+	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"time"
 
+	"github.com/dgraph-io/badger"
+	"github.com/golang/protobuf/proto"
+	"github.com/ngaut/faketikv/tikv"
+	"github.com/ngaut/log"
 	"github.com/pingcap/kvproto/pkg/metapb"
+	"github.com/pingcap/kvproto/pkg/tikvpb"
+	"google.golang.org/grpc"
 )
 
 const (
@@ -44,12 +48,16 @@ type Node struct {
 	storeMeta metapb.Store
 	// currently, we have just a region
 	regions map[uint64]*metapb.Region
+
+	tikvServer *tikv.Server
+	grpcServer *grpc.Server
 }
 
 func NewNode() *Node {
 	n := &Node{regions: make(map[uint64]*metapb.Region)}
 	var err error
-	n.pdc, _, err = tikv.NewClient("127.0.0.1:2379", "")
+	n.storeMeta.Address = "127.0.0.1:9191"
+	n.pdc, err = tikv.NewClient("127.0.0.1:2379", "", n.regions, &n.storeMeta)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -105,66 +113,89 @@ func (n *Node) loadMeta() {
 	})
 
 	if err != nil && err != badger.ErrKeyNotFound {
-		panic(err)
+		log.Fatal(err)
 	}
 
 	log.Infof("meta in local store: %+v", n)
 }
 
+func (n *Node) initStore() error {
+	log.Info("initializing store")
+	// allocate store id
+	storeID, err := n.pdc.AllocID(context.Background())
+	if err != nil {
+		return err
+	}
+	n.storeMeta.Id = storeID
+
+	// allocate retion id
+	rid, err := n.pdc.AllocID(context.Background())
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	rootRegion := &metapb.Region{
+		Id:          rid,
+		RegionEpoch: &metapb.RegionEpoch{ConfVer: 1, Version: 1},
+		Peers:       []*metapb.Peer{&metapb.Peer{Id: rid, StoreId: n.storeMeta.Id}},
+	}
+	n.regions[rootRegion.Id] = rootRegion
+	err = n.pdc.Bootstrap(ctx, &n.storeMeta, rootRegion)
+	cancel()
+	if err != nil {
+		log.Fatal("Initialize failed: ", err)
+	} else {
+		log.Info("Initialize success")
+		storeBuf, err := proto.Marshal(&n.storeMeta)
+		if err != nil {
+			log.Fatal("%+v", err)
+		}
+
+		err = n.db.Update(func(txn *badger.Txn) error {
+			txn.Set(InternalStoreMetaKey, storeBuf)
+			for rid, region := range n.regions {
+				regionBuf, err := proto.Marshal(region)
+				if err != nil {
+					log.Fatal("%+v", err)
+				}
+				err = txn.Set(InternalRegionMetaKey(rid), regionBuf)
+				if err != nil {
+					log.Fatal("%+v", err)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	return nil
+}
+
 func (n *Node) start() {
 	n.loadMeta()
 	if needInit(&n.storeMeta) {
-		// allocate store id
-		storeID, err := n.pdc.AllocID(context.Background())
+		err := n.initStore()
 		if err != nil {
-			log.Error(err)
+			log.Fatal(err)
 		}
-		n.storeMeta.Id = storeID
-
-		// allocate retion id
-		rid, err := n.pdc.AllocID(context.Background())
-		if err != nil {
-			log.Error(err)
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		rootRegion := &metapb.Region{
-			Id:          rid,
-			RegionEpoch: &metapb.RegionEpoch{ConfVer: 1, Version: 1},
-			Peers:       []*metapb.Peer{&metapb.Peer{Id: rid, StoreId: n.storeMeta.Id}},
-		}
-		n.regions[rootRegion.Id] = rootRegion
-		err = n.pdc.Bootstrap(ctx, &n.storeMeta, rootRegion)
-		cancel()
-		if err != nil {
-			log.Fatal("bootstrapped error: ", err)
-		} else {
-			log.Debug("Bootstrap success")
-			storeBuf, err := proto.Marshal(&n.storeMeta)
-			if err != nil {
-				log.Fatal("%+v", err)
-			}
-
-			err = n.db.Update(func(txn *badger.Txn) error {
-				txn.Set(InternalStoreMetaKey, storeBuf)
-				for rid, region := range n.regions {
-					regionBuf, err := proto.Marshal(region)
-					if err != nil {
-						log.Fatal("%+v", err)
-					}
-					err = txn.Set(InternalRegionMetaKey(rid), regionBuf)
-					if err != nil {
-						log.Fatal("%+v", err)
-					}
-				}
-				return nil
-			})
-			if err != nil {
-				log.Fatal(err)
-			}
-		}
-
 	}
+
+	err := n.pdc.PutStore(context.Background(), &n.storeMeta)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	n.tikvServer = tikv.NewServer(n.storeMeta, n.db)
+	n.grpcServer = grpc.NewServer()
+	tikvpb.RegisterTikvServer(n.grpcServer, n.tikvServer)
+	l, err := net.Listen("tcp", n.storeMeta.Address)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(n.grpcServer.Serve(l))
 }
 
 func (n *Node) Close() {
@@ -172,8 +203,8 @@ func (n *Node) Close() {
 }
 
 func main() {
+	log.SetLevelByString("debug")
 	n := NewNode()
 	n.start()
-	time.Sleep(10 * time.Second)
 	n.Close()
 }

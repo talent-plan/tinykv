@@ -53,6 +53,8 @@ type client struct {
 	clientConn *grpc.ClientConn
 
 	receiveRegionHeartbeatCh chan *pdpb.RegionHeartbeatResponse
+	regions                  map[uint64]*metapb.Region
+	store                    *metapb.Store
 
 	wg     sync.WaitGroup
 	ctx    context.Context
@@ -60,29 +62,32 @@ type client struct {
 }
 
 // NewClient creates a PD client.
-func NewClient(pdAddr string, tag string) (Client, <-chan *pdpb.RegionHeartbeatResponse, error) {
+func NewClient(pdAddr string, tag string, regions map[uint64]*metapb.Region, store *metapb.Store) (Client, error) {
 	log.Infof("[%s][pd] create pd client with endpoints %v", tag, pdAddr)
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &client{
 		url: pdAddr,
 		receiveRegionHeartbeatCh: make(chan *pdpb.RegionHeartbeatResponse, 1),
-		ctx:    ctx,
-		cancel: cancel,
-		tag:    tag,
+		ctx:     ctx,
+		cancel:  cancel,
+		tag:     tag,
+		regions: regions,
+		store:   store,
 	}
 	cc, err := c.createConn()
 	if err != nil {
-		return nil, nil, errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
 	c.clientConn = cc
 	if err := c.initClusterID(); err != nil {
-		return nil, nil, errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
 	log.Infof("[%s][pd] init cluster id %v", tag, c.clusterID)
 	c.wg.Add(1)
 	go c.heartbeatStreamLoop()
+	go c.storeHeartbeatLoop()
 
-	return c, c.receiveRegionHeartbeatCh, nil
+	return c, nil
 }
 
 func (c *client) pdClient() pdpb.PDClient {
@@ -171,6 +176,19 @@ func (c *client) heartbeatStreamLoop() {
 	}
 }
 
+func (c *client) storeHeartbeatLoop() {
+	ticker := time.Tick(time.Second * 3)
+	for {
+		<-ticker
+		storeStats := new(pdpb.StoreStats)
+		storeStats.StoreId = c.store.Id
+		storeStats.Available = 100000
+		storeStats.RegionCount = 1
+		storeStats.Capacity = 1000000
+		c.StoreHeartbeat(context.Background(), storeStats)
+	}
+}
+
 func (c *client) receiveRegionHeartbeat(ctx context.Context, stream pdpb.PD_RegionHeartbeatClient, errCh chan error, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
@@ -179,16 +197,34 @@ func (c *client) receiveRegionHeartbeat(ctx context.Context, stream pdpb.PD_Regi
 			errCh <- err
 			return
 		}
-		select {
-		case c.receiveRegionHeartbeatCh <- resp:
-		case <-ctx.Done():
-			return
-		}
+		log.Debugf("%s", resp)
 	}
 }
 
 func (c *client) reportRegionHeartbeat(ctx context.Context, stream pdpb.PD_RegionHeartbeatClient, errCh chan error, wg *sync.WaitGroup) {
-	//TODO
+	for {
+		var region *metapb.Region
+		for _, r := range c.regions {
+			region = r
+			break
+		}
+		if region != nil {
+			request := &pdpb.RegionHeartbeatRequest{
+				Header: c.requestHeader(),
+				Region: region,
+				Leader: region.Peers[0],
+			}
+			err := stream.Send(request)
+			if err != nil {
+				log.Warn(err)
+			}
+		}
+		select {
+		case <-time.After(3 * time.Second):
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 func (c *client) Close() {
