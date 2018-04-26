@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"io"
 	"math"
+	"sync"
 
 	"github.com/dgraph-io/badger"
 	"github.com/juju/errors"
@@ -15,10 +16,14 @@ import (
 
 // MVCCStore is a wrapper of badger.DB to provide MVCC functions.
 type MVCCStore struct {
+	mu sync.RWMutex
 	db *badger.DB
 }
 
 func (store *MVCCStore) Get(key []byte, startTS uint64) ([]byte, error) {
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
 	var val []byte
 	err := store.db.View(func(txn *badger.Txn) error {
 		txnIt := store.newIterator(txn)
@@ -69,6 +74,9 @@ func (store *MVCCStore) BatchGet(ks [][]byte, startTS uint64) []Pair {
 }
 
 func (store *MVCCStore) Prewrite(mutations []*kvrpcpb.Mutation, primary []byte, startTS uint64, ttl uint64) []error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
 	anyError := false
 	errs := make([]error, 0, len(mutations))
 	err := store.db.Update(func(txn *badger.Txn) error {
@@ -156,6 +164,9 @@ func (store *MVCCStore) checkPrewriteConflict(iter *badger.Iterator, lockKey, ke
 
 // Commit implements the MVCCStore interface.
 func (store *MVCCStore) Commit(keys [][]byte, startTS, commitTS uint64) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
 	return store.db.Update(func(txn *badger.Txn) error {
 		for _, key := range keys {
 			err := store.commitKey(txn, key, startTS, commitTS)
@@ -218,12 +229,15 @@ func (store *MVCCStore) commitKey(txn *badger.Txn, key []byte, startTS, commitTS
 	return txn.Delete(lockKey)
 }
 
-func (mvcc *MVCCStore) Rollback(keys [][]byte, startTS uint64) error {
-	return mvcc.db.Update(func(txn *badger.Txn) error {
-		iter := mvcc.newIterator(txn)
+func (store *MVCCStore) Rollback(keys [][]byte, startTS uint64) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	return store.db.Update(func(txn *badger.Txn) error {
+		iter := store.newIterator(txn)
 		defer iter.Close()
 		for _, key := range keys {
-			err := mvcc.rollbackKey(iter, txn, key, startTS)
+			err := store.rollbackKey(iter, txn, key, startTS)
 			if err != nil {
 				return err
 			}
@@ -232,7 +246,7 @@ func (mvcc *MVCCStore) Rollback(keys [][]byte, startTS uint64) error {
 	})
 }
 
-func (mvcc *MVCCStore) rollbackKey(iter *badger.Iterator, txn *badger.Txn, key []byte, startTS uint64) error {
+func (store *MVCCStore) rollbackKey(iter *badger.Iterator, txn *badger.Txn, key []byte, startTS uint64) error {
 	lockKey := mvccEncode(key, lockVer)
 	iter.Seek(lockKey)
 	if iter.Valid() {
@@ -280,6 +294,9 @@ func (mvcc *MVCCStore) rollbackKey(iter *badger.Iterator, txn *badger.Txn, key [
 }
 
 func (store *MVCCStore) Scan(startKey, endKey []byte, limit int, startTS uint64) []Pair {
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
 	var pairs []Pair
 	store.db.View(func(txn *badger.Txn) error {
 		iter := store.newIterator(txn)
@@ -373,6 +390,9 @@ func isVisibleKey(mvKey []byte, startTS uint64) bool {
 
 // ReverseScan implements the MVCCStore interface. The search range is [startKey, endKey).
 func (store *MVCCStore) ReverseScan(startKey, endKey []byte, limit int, startTS uint64) []Pair {
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
 	var pairs []Pair
 	store.db.View(func(txn *badger.Txn) error {
 		var opts badger.IteratorOptions
