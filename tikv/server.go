@@ -2,11 +2,13 @@ package tikv
 
 import (
 	"github.com/dgraph-io/badger"
+	"github.com/ngaut/log"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/tikvpb"
+	"github.com/pingcap/tidb/kv"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 )
@@ -115,8 +117,10 @@ func (svr *Server) KvImport(context.Context, *kvrpcpb.ImportRequest) (*kvrpcpb.I
 }
 
 func (svr *Server) KvCleanup(ctx context.Context, req *kvrpcpb.CleanupRequest) (*kvrpcpb.CleanupResponse, error) {
-	// TODO
-	return &kvrpcpb.CleanupResponse{}, nil
+	err := svr.mvccStore.Cleanup(req.Key, req.StartVersion)
+	if err != nil {
+	}
+	return &kvrpcpb.CleanupResponse{Error: convertToKeyError(err)}, nil
 }
 
 func (svr *Server) KvBatchGet(ctx context.Context, req *kvrpcpb.BatchGetRequest) (*kvrpcpb.BatchGetResponse, error) {
@@ -141,14 +145,16 @@ func (svr *Server) KvBatchRollback(ctx context.Context, req *kvrpcpb.BatchRollba
 	return &kvrpcpb.BatchRollbackResponse{}, nil
 }
 
-func (svr *Server) KvScanLock(context.Context, *kvrpcpb.ScanLockRequest) (*kvrpcpb.ScanLockResponse, error) {
-	// TODO
-	return &kvrpcpb.ScanLockResponse{}, nil
+func (svr *Server) KvScanLock(ctx context.Context, req *kvrpcpb.ScanLockRequest) (*kvrpcpb.ScanLockResponse, error) {
+	log.Debug("kv scan lock")
+	locks, err := svr.mvccStore.ScanLock(req.StartKey, []byte{255}, int(req.Limit), req.MaxVersion)
+	return &kvrpcpb.ScanLockResponse{Error: convertToKeyError(err), Locks: locks}, nil
 }
 
 func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRequest) (*kvrpcpb.ResolveLockResponse, error) {
-	// TODO
-	return &kvrpcpb.ResolveLockResponse{}, nil
+	log.Debug("kv resolve lock", extractPhysicalTime(req.StartVersion))
+	err := svr.mvccStore.ResolveLock([]byte{0}, []byte{255}, req.StartVersion, req.CommitVersion)
+	return &kvrpcpb.ResolveLockResponse{Error: convertToKeyError(err)}, nil
 }
 
 func (svr *Server) KvGC(context.Context, *kvrpcpb.GCRequest) (*kvrpcpb.GCResponse, error) {
@@ -157,7 +163,10 @@ func (svr *Server) KvGC(context.Context, *kvrpcpb.GCRequest) (*kvrpcpb.GCRespons
 }
 
 func (svr *Server) KvDeleteRange(ctx context.Context, req *kvrpcpb.DeleteRangeRequest) (*kvrpcpb.DeleteRangeResponse, error) {
-	// TODO
+	err := svr.mvccStore.DeleteRange(req.StartKey, req.EndKey)
+	if err != nil {
+		log.Error(err)
+	}
 	return &kvrpcpb.DeleteRangeResponse{}, nil
 }
 
@@ -200,7 +209,13 @@ func (svr *Server) RawDeleteRange(context.Context, *kvrpcpb.RawDeleteRangeReques
 
 // SQL push down commands.
 func (svr *Server) Coprocessor(ctx context.Context, req *coprocessor.Request) (*coprocessor.Response, error) {
-	return svr.handleCopDAGRequest(req), nil
+	switch req.Tp {
+	case kv.ReqTypeDAG:
+		return svr.handleCopDAGRequest(req), nil
+	case kv.ReqTypeAnalyze:
+		return svr.handleCopAnalyzeRequest(req), nil
+	}
+	return nil, errors.Errorf("unsupported request type %d", req.GetTp())
 }
 
 func (svr *Server) CoprocessorStream(*coprocessor.Request, tikvpb.Tikv_CoprocessorStreamServer) error {
@@ -234,10 +249,13 @@ func (svr *Server) MvccGetByStartTs(context.Context, *kvrpcpb.MvccGetByStartTsRe
 }
 
 func convertToKeyError(err error) *kvrpcpb.KeyError {
+	if err == nil {
+		return nil
+	}
 	if locked, ok := errors.Cause(err).(*ErrLocked); ok {
 		return &kvrpcpb.KeyError{
 			Locked: &kvrpcpb.LockInfo{
-				Key:         locked.Key.Raw(),
+				Key:         locked.Key,
 				PrimaryLock: locked.Primary,
 				LockVersion: locked.StartTS,
 				LockTtl:     locked.TTL,
@@ -255,7 +273,7 @@ func convertToKeyError(err error) *kvrpcpb.KeyError {
 }
 
 func convertToKeyErrors(errs []error) []*kvrpcpb.KeyError {
-	var keyErrors = make([]*kvrpcpb.KeyError, 0)
+	var keyErrors []*kvrpcpb.KeyError
 	for _, err := range errs {
 		if err != nil {
 			keyErrors = append(keyErrors, convertToKeyError(err))

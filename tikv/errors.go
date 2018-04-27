@@ -5,7 +5,7 @@ import "fmt"
 // ErrLocked is returned when trying to Read/Write on a locked key. Client should
 // backoff or cleanup the lock then retry.
 type ErrLocked struct {
-	Key     MvccKey
+	Key     []byte
 	Primary []byte
 	StartTS uint64
 	TTL     uint64
