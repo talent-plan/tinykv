@@ -149,21 +149,17 @@ func (store *MVCCStore) updateWithRetry(updateFunc func(txn *badger.Txn) error) 
 }
 
 func (store *MVCCStore) Prewrite(mutations []*kvrpcpb.Mutation, primary []byte, startTS uint64, ttl uint64) []error {
-	anyError := false
 	errs := make([]error, 0, len(mutations))
-	prewriteFunc := func(txn *badger.Txn) error {
+	err := store.updateWithRetry(func(txn *badger.Txn) error {
+		errs = errs[:0]
 		iter := store.newIterator(txn)
 		defer iter.Close()
 		for _, m := range mutations {
 			err1 := store.prewriteMutation(txn, iter, m, primary, startTS, ttl)
 			errs = append(errs, err1)
-			if err1 != nil {
-				anyError = true
-			}
 		}
 		return nil
-	}
-	err := store.updateWithRetry(prewriteFunc)
+	})
 	if err != nil {
 		log.Error(err)
 		return []error{err}
@@ -289,7 +285,7 @@ func (store *MVCCStore) commitKey(txn *badger.Txn, key []byte, startTS, commitTS
 }
 
 func (store *MVCCStore) Rollback(keys [][]byte, startTS uint64) error {
-	rollbackFunc := func(txn *badger.Txn) error {
+	err1 := store.updateWithRetry(func(txn *badger.Txn) error {
 		iter := store.newIterator(txn)
 		defer iter.Close()
 		for _, key := range keys {
@@ -299,12 +295,11 @@ func (store *MVCCStore) Rollback(keys [][]byte, startTS uint64) error {
 			}
 		}
 		return nil
+	})
+	if err1 != nil {
+		log.Error(err1)
 	}
-	err := store.updateWithRetry(rollbackFunc)
-	if err != nil {
-		log.Error(err)
-	}
-	return err
+	return err1
 }
 
 func (store *MVCCStore) rollbackKey(iter *badger.Iterator, txn *badger.Txn, key []byte, startTS uint64) error {
@@ -357,7 +352,7 @@ func (store *MVCCStore) rollbackKey(iter *badger.Iterator, txn *badger.Txn, key 
 
 func (store *MVCCStore) Scan(startKey, endKey []byte, limit int, startTS uint64) []Pair {
 	var pairs []Pair
-	store.db.View(func(txn *badger.Txn) error {
+	err := store.db.View(func(txn *badger.Txn) error {
 		iter := store.newIterator(txn)
 		defer iter.Close()
 		seekKey := mvEncode(startKey, lockVer)
@@ -379,6 +374,9 @@ func (store *MVCCStore) Scan(startKey, endKey []byte, limit int, startTS uint64)
 		}
 		return nil
 	})
+	if err != nil {
+		return []Pair{{Err: err}}
+	}
 	return pairs
 }
 
@@ -442,7 +440,7 @@ func isVisibleKey(mvKey []byte, startTS uint64) bool {
 // ReverseScan implements the MVCCStore interface. The search range is [startKey, endKey).
 func (store *MVCCStore) ReverseScan(startKey, endKey []byte, limit int, startTS uint64) []Pair {
 	var pairs []Pair
-	store.db.View(func(txn *badger.Txn) error {
+	err := store.db.View(func(txn *badger.Txn) error {
 		var opts badger.IteratorOptions
 		opts.Reverse = true
 		opts.PrefetchValues = false
@@ -464,6 +462,9 @@ func (store *MVCCStore) ReverseScan(startKey, endKey []byte, limit int, startTS 
 		}
 		return nil
 	})
+	if err != nil {
+		return []Pair{{Err: err}}
+	}
 	return nil
 }
 
@@ -533,12 +534,11 @@ func getPairWithStartTSReverse(iter *badger.Iterator, mvStartKey []byte, startTS
 }
 
 func (store *MVCCStore) Cleanup(key []byte, startTS uint64) error {
-	cleanFunc := func(txn *badger.Txn) error {
+	err := store.updateWithRetry(func(txn *badger.Txn) error {
 		iter := store.newIterator(txn)
 		defer iter.Close()
 		return store.rollbackKey(iter, txn, key, startTS)
-	}
-	err := store.updateWithRetry(cleanFunc)
+	})
 	if err != nil {
 		log.Error(err)
 	}
@@ -608,7 +608,7 @@ func (store *MVCCStore) scanOneLock(iter *badger.Iterator, mvEndKey []byte, maxT
 func (store *MVCCStore) ResolveLock(startKey, endKey []byte, startTS, commitTS uint64) error {
 	var lockKeys [][]byte
 	var lockValues []mvccLock
-	store.db.View(func(txn *badger.Txn) error {
+	err := store.db.View(func(txn *badger.Txn) error {
 		mvStartKey := mvEncode(startKey, lockVer)
 		mvEndKey := mvEncode(endKey, lockVer)
 		iter := store.newIterator(txn)
@@ -633,7 +633,10 @@ func (store *MVCCStore) ResolveLock(startKey, endKey []byte, startTS, commitTS u
 		}
 		return nil
 	})
-	err := store.updateWithRetry(func(txn *badger.Txn) error {
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = store.updateWithRetry(func(txn *badger.Txn) error {
 		for i, lockKey := range lockKeys {
 			var err error
 			if commitTS > 0 {
