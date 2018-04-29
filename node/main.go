@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"strconv"
 	"time"
@@ -182,6 +184,7 @@ func (n *Node) start() {
 			log.Fatal(err)
 		}
 	}
+	go http.ListenAndServe(":9291", nil)
 
 	err := n.pdc.PutStore(context.Background(), &n.storeMeta)
 	if err != nil {
