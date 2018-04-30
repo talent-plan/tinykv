@@ -3,8 +3,8 @@ package tikv
 import (
 	"bytes"
 	"encoding/binary"
-	"sort"
 	"math"
+	"sort"
 
 	"github.com/juju/errors"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
@@ -47,11 +47,11 @@ type tableScanExec struct {
 	mvccStore      MVCCStore
 	rangeCursor    int
 
-	rowCursor      int
-	rows           [][][]byte
-	seekKey        []byte
-	start          int
-	counts         []int64
+	rowCursor int
+	rows      [][][]byte
+	seekKey   []byte
+	start     int
+	counts    []int64
 
 	src executor
 }
@@ -214,9 +214,9 @@ type indexScanExec struct {
 	start          int
 	counts         []int64
 
-	rowCursor      int
-	rows           [][][]byte
-	src executor
+	rowCursor int
+	rows      [][][]byte
+	src       executor
 }
 
 func (e *indexScanExec) SetSrcExec(exec executor) {

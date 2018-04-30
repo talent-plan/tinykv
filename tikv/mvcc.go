@@ -345,13 +345,12 @@ func (store *MVCCStore) Scan(startKey, endKey []byte, limit int, startTS uint64)
 	err := store.db.View(func(txn *badger.Txn) error {
 		iter := store.newIterator(txn)
 		defer iter.Close()
-		seekKey := mvEncode(startKey, lockVer)
 		var mvEndKey []byte
 		if endKey != nil {
 			mvEndKey = mvEncode(endKey, lockVer)
 		}
+		iter.Seek(mvEncode(startKey, lockVer))
 		for len(pairs) < limit {
-			iter.Seek(seekKey)
 			pair := getPairWithStartTS(iter, mvEndKey, startTS)
 			if pair.Key == nil {
 				return nil
@@ -360,7 +359,7 @@ func (store *MVCCStore) Scan(startKey, endKey []byte, limit int, startTS uint64)
 			if pair.Err != nil {
 				return nil
 			}
-			seekKey = mvEncode(pair.Key, 0)
+			nearSeek(iter, mvEncode(pair.Key, 0))
 		}
 		return nil
 	})
@@ -368,6 +367,22 @@ func (store *MVCCStore) Scan(startKey, endKey []byte, limit int, startTS uint64)
 		return []Pair{{Err: err}}
 	}
 	return pairs
+}
+
+func nearSeek(iter *badger.Iterator, seekKey []byte) {
+	cnt := 0
+	for iter.Valid() {
+		item := iter.Item()
+		if bytes.Compare(item.Key(), seekKey) >= 0 {
+			return
+		}
+		if cnt > 16 {
+			iter.Seek(seekKey)
+			return
+		}
+		cnt++
+		iter.Next()
+	}
 }
 
 // 1. seek with lock key
@@ -408,7 +423,7 @@ func getPairWithStartTS(iter *badger.Iterator, mvEndKey []byte, startTS uint64) 
 			return
 		}
 		if mvVal.valueType == typeRollback || mvVal.valueType == typeDelete {
-			iter.Seek(mvEncode(foundKey, 0))
+			nearSeek(iter, mvEncode(foundKey, 0))
 			continue
 		}
 		pair.Key = append(pair.Key[:0], foundKey...)
