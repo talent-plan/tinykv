@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"io"
 	"math"
+	"sync/atomic"
 	"time"
 
 	"github.com/dgraph-io/badger"
@@ -134,23 +135,9 @@ func (store *MVCCStore) BatchGet(keys [][]byte, startTS uint64) []Pair {
 	return pairs
 }
 
-func (store *MVCCStore) updateWithRetry(updateFunc func(txn *badger.Txn) error) error {
-	for i := 0; i < 10; i++ {
-		err := store.db.Update(updateFunc)
-		if err == nil {
-			return nil
-		}
-		if err == badger.ErrConflict {
-			continue
-		}
-		return err
-	}
-	return ErrRetryable("badger retry limit reached")
-}
-
 func (store *MVCCStore) Prewrite(mutations []*kvrpcpb.Mutation, primary []byte, startTS uint64, ttl uint64) []error {
 	errs := make([]error, 0, len(mutations))
-	err := store.updateWithRetry(func(txn *badger.Txn) error {
+	err := updateWithRetry(store.db, func(txn *badger.Txn) error {
 		errs = errs[:0]
 		iter := store.newIterator(txn)
 		defer iter.Close()
@@ -222,24 +209,26 @@ func (store *MVCCStore) checkPrewriteConflict(iter *badger.Iterator, mvLockKey [
 }
 
 // Commit implements the MVCCStore interface.
-func (store *MVCCStore) Commit(keys [][]byte, startTS, commitTS uint64) error {
-	commitFunc := func(txn *badger.Txn) error {
+func (store *MVCCStore) Commit(keys [][]byte, startTS, commitTS uint64, diff *int64) error {
+	var tmpDiff int64
+	err := updateWithRetry(store.db, func(txn *badger.Txn) error {
+		tmpDiff = 0
 		for _, key := range keys {
-			err := store.commitKey(txn, key, startTS, commitTS)
-			if err != nil {
-				return err
+			err1 := store.commitKey(txn, key, startTS, commitTS, &tmpDiff)
+			if err1 != nil {
+				return err1
 			}
 		}
 		return nil
-	}
-	err := store.updateWithRetry(commitFunc)
+	})
 	if err != nil {
-		log.Error(err)
+		return errors.Trace(err)
 	}
-	return err
+	atomic.AddInt64(diff, tmpDiff)
+	return nil
 }
 
-func (store *MVCCStore) commitKey(txn *badger.Txn, key []byte, startTS, commitTS uint64) error {
+func (store *MVCCStore) commitKey(txn *badger.Txn, key []byte, startTS, commitTS uint64, diff *int64) error {
 	lockKey := mvEncode(key, lockVer)
 	item, err := txn.Get(lockKey)
 	if err != nil {
@@ -276,6 +265,7 @@ func (store *MVCCStore) commitKey(txn *badger.Txn, key []byte, startTS, commitTS
 		if err != nil {
 			return errors.Trace(err)
 		}
+		*diff += int64(len(writeKey) + len(writeValue))
 		err = txn.Set(writeKey, writeValue)
 		if err != nil {
 			return errors.Trace(err)
@@ -285,7 +275,7 @@ func (store *MVCCStore) commitKey(txn *badger.Txn, key []byte, startTS, commitTS
 }
 
 func (store *MVCCStore) Rollback(keys [][]byte, startTS uint64) error {
-	err1 := store.updateWithRetry(func(txn *badger.Txn) error {
+	err1 := updateWithRetry(store.db, func(txn *badger.Txn) error {
 		iter := store.newIterator(txn)
 		defer iter.Close()
 		for _, key := range keys {
@@ -429,7 +419,7 @@ func getPairWithStartTS(iter *badger.Iterator, mvEndKey []byte, startTS uint64) 
 }
 
 func isLockKey(mvKey []byte) bool {
-	return binary.BigEndian.Uint64(mvKey[len(mvKey)-8:]) == 0
+	return len(mvKey) > 8 && binary.BigEndian.Uint64(mvKey[len(mvKey)-8:]) == 0
 }
 
 func isVisibleKey(mvKey []byte, startTS uint64) bool {
@@ -534,7 +524,7 @@ func getPairWithStartTSReverse(iter *badger.Iterator, mvStartKey []byte, startTS
 }
 
 func (store *MVCCStore) Cleanup(key []byte, startTS uint64) error {
-	err := store.updateWithRetry(func(txn *badger.Txn) error {
+	err := updateWithRetry(store.db, func(txn *badger.Txn) error {
 		iter := store.newIterator(txn)
 		defer iter.Close()
 		return store.rollbackKey(iter, txn, key, startTS)
@@ -605,7 +595,7 @@ func (store *MVCCStore) scanOneLock(iter *badger.Iterator, mvEndKey []byte, maxT
 	return nil, nil
 }
 
-func (store *MVCCStore) ResolveLock(startKey, endKey []byte, startTS, commitTS uint64) error {
+func (store *MVCCStore) ResolveLock(startKey, endKey []byte, startTS, commitTS uint64, diff *int64) error {
 	var lockKeys [][]byte
 	var lockValues []mvccLock
 	err := store.db.View(func(txn *badger.Txn) error {
@@ -636,11 +626,13 @@ func (store *MVCCStore) ResolveLock(startKey, endKey []byte, startTS, commitTS u
 	if err != nil {
 		return errors.Trace(err)
 	}
-	err = store.updateWithRetry(func(txn *badger.Txn) error {
+	var tmpDiff int64
+	err = updateWithRetry(store.db, func(txn *badger.Txn) error {
+		tmpDiff = 0
 		for i, lockKey := range lockKeys {
 			var err error
 			if commitTS > 0 {
-				err = store.commitLock(txn, lockValues[i], lockKey, startTS, commitTS)
+				err = store.commitLock(txn, lockValues[i], lockKey, startTS, commitTS, &tmpDiff)
 			} else {
 				err = store.rollbackLock(txn, lockValues[i], lockKey, startTS)
 			}
@@ -652,11 +644,13 @@ func (store *MVCCStore) ResolveLock(startKey, endKey []byte, startTS, commitTS u
 	})
 	if err != nil {
 		log.Error(err)
+		return errors.Trace(err)
 	}
-	return err
+	atomic.AddInt64(diff, tmpDiff)
+	return nil
 }
 
-func (store *MVCCStore) commitLock(txn *badger.Txn, lock mvccLock, mvLockKey []byte, startTS, commitTS uint64) error {
+func (store *MVCCStore) commitLock(txn *badger.Txn, lock mvccLock, mvLockKey []byte, startTS, commitTS uint64, diff *int64) error {
 	if lock.op != kvrpcpb.Op_Lock {
 		var valueType mvccValueType
 		if lock.op == kvrpcpb.Op_Put {
@@ -677,6 +671,7 @@ func (store *MVCCStore) commitLock(txn *badger.Txn, lock mvccLock, mvLockKey []b
 		if err != nil {
 			return errors.Trace(err)
 		}
+		*diff += int64(len(writeKey) + len(writeValue))
 		err = txn.Set(writeKey, writeValue)
 		if err != nil {
 			return errors.Trace(err)
@@ -742,7 +737,7 @@ func (store *MVCCStore) DeleteRange(startKey, endKey []byte) error {
 		if len(keys) == 0 {
 			return nil
 		}
-		err = store.updateWithRetry(func(txn *badger.Txn) error {
+		err = updateWithRetry(store.db, func(txn *badger.Txn) error {
 			for _, key := range keys {
 				err1 := txn.Delete(key)
 				if err1 != nil {
