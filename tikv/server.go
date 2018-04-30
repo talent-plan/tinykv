@@ -161,7 +161,7 @@ func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRe
 	if regErr != nil {
 		return &kvrpcpb.ResolveLockResponse{RegionError: regErr}, nil
 	}
-	err := svr.mvccStore.ResolveLock([]byte{0}, []byte{255}, req.StartVersion, req.CommitVersion, &regInfo.diff)
+	err := svr.mvccStore.ResolveLock(regInfo.meta.StartKey, regInfo.meta.EndKey, req.StartVersion, req.CommitVersion, &regInfo.diff)
 	return &kvrpcpb.ResolveLockResponse{Error: convertToKeyError(err)}, nil
 }
 
