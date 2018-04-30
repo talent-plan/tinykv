@@ -174,7 +174,8 @@ func (store *MVCCStore) prewriteMutation(txn *badger.Txn, iter *badger.Iterator,
 
 func (store *MVCCStore) checkPrewriteConflict(iter *badger.Iterator, mvLockKey []byte, startTS uint64) error {
 	iter.Seek(mvLockKey)
-	for iter.Valid() {
+	prefix := mvLockKey[:len(mvLockKey)-8]
+	for iter.ValidForPrefix(prefix) {
 		item := iter.Item()
 		if !equalRawKey(item.Key(), mvLockKey) {
 			return nil

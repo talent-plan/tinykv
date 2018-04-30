@@ -13,5 +13,5 @@ func updateWithRetry(db *badger.DB, updateFunc func(txn *badger.Txn) error) erro
 		}
 		return err
 	}
-	return ErrRetryable("badger retry limit reached")
+	return ErrRetryable("badger retry limit reached, try again later")
 }
