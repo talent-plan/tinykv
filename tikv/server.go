@@ -175,8 +175,7 @@ func (svr *Server) KvDeleteRange(ctx context.Context, req *kvrpcpb.DeleteRangeRe
 	if regErr != nil {
 		return &kvrpcpb.DeleteRangeResponse{RegionError: regErr}, nil
 	}
-	regInfo.assertContainsKey(req.StartKey)
-	regInfo.assertContainsKey(req.EndKey)
+	regInfo.assertContainsRange(&coprocessor.KeyRange{Start:req.StartKey, End: req.EndKey})
 	err := svr.mvccStore.DeleteRange(req.StartKey, req.EndKey)
 	if err != nil {
 		log.Error(err)
