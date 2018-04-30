@@ -3,7 +3,6 @@ package tikv
 import (
 	"bytes"
 	"encoding/binary"
-	"io"
 	"math"
 	"sync/atomic"
 	"time"
@@ -169,10 +168,7 @@ func (store *MVCCStore) prewriteMutation(txn *badger.Txn, iter *badger.Iterator,
 		op:      mutation.Op,
 		ttl:     ttl,
 	}
-	lockVal, err := lock.MarshalBinary()
-	if err != nil {
-		return errors.Trace(err)
-	}
+	lockVal := lock.MarshalBinary()
 	return txn.Set(mvLockKey, lockVal)
 }
 
@@ -261,10 +257,7 @@ func (store *MVCCStore) commitKey(txn *badger.Txn, key []byte, startTS, commitTS
 			value:     lock.value,
 		}
 		writeKey := mvEncode(key, commitTS)
-		writeValue, err := value.MarshalBinary()
-		if err != nil {
-			return errors.Trace(err)
-		}
+		writeValue := value.MarshalBinary()
 		*diff += int64(len(writeKey) + len(writeValue))
 		err = txn.Set(writeKey, writeValue)
 		if err != nil {
@@ -333,10 +326,7 @@ func (store *MVCCStore) rollbackKey(iter *badger.Iterator, txn *badger.Txn, key 
 		commitTS:  startTS,
 	}
 	writeKey := mvEncode(key, startTS)
-	writeValue, err := tomb.MarshalBinary()
-	if err != nil {
-		return errors.Trace(err)
-	}
+	writeValue := tomb.MarshalBinary()
 	return txn.Set(writeKey, writeValue)
 }
 
@@ -345,13 +335,12 @@ func (store *MVCCStore) Scan(startKey, endKey []byte, limit int, startTS uint64)
 	err := store.db.View(func(txn *badger.Txn) error {
 		iter := store.newIterator(txn)
 		defer iter.Close()
-		seekKey := mvEncode(startKey, lockVer)
 		var mvEndKey []byte
 		if endKey != nil {
 			mvEndKey = mvEncode(endKey, lockVer)
 		}
+		iter.Seek(mvEncode(startKey, lockVer))
 		for len(pairs) < limit {
-			iter.Seek(seekKey)
 			pair := getPairWithStartTS(iter, mvEndKey, startTS)
 			if pair.Key == nil {
 				return nil
@@ -360,7 +349,7 @@ func (store *MVCCStore) Scan(startKey, endKey []byte, limit int, startTS uint64)
 			if pair.Err != nil {
 				return nil
 			}
-			seekKey = mvEncode(pair.Key, 0)
+			nearSeek(iter, mvEncode(pair.Key, 0))
 		}
 		return nil
 	})
@@ -368,6 +357,22 @@ func (store *MVCCStore) Scan(startKey, endKey []byte, limit int, startTS uint64)
 		return []Pair{{Err: err}}
 	}
 	return pairs
+}
+
+func nearSeek(iter *badger.Iterator, seekKey []byte) {
+	cnt := 0
+	for iter.Valid() {
+		item := iter.Item()
+		if bytes.Compare(item.Key(), seekKey) >= 0 {
+			return
+		}
+		if cnt > 16 {
+			iter.Seek(seekKey)
+			return
+		}
+		cnt++
+		iter.Next()
+	}
 }
 
 // 1. seek with lock key
@@ -408,7 +413,7 @@ func getPairWithStartTS(iter *badger.Iterator, mvEndKey []byte, startTS uint64) 
 			return
 		}
 		if mvVal.valueType == typeRollback || mvVal.valueType == typeDelete {
-			iter.Seek(mvEncode(foundKey, 0))
+			nearSeek(iter, mvEncode(foundKey, 0))
 			continue
 		}
 		pair.Key = append(pair.Key[:0], foundKey...)
@@ -667,12 +672,9 @@ func (store *MVCCStore) commitLock(txn *badger.Txn, lock mvccLock, mvLockKey []b
 		var buf [64]byte
 		writeKey := append(buf[:0], mvLockKey...)
 		binary.BigEndian.PutUint64(writeKey[len(writeKey)-8:], ^commitTS)
-		writeValue, err := value.MarshalBinary()
-		if err != nil {
-			return errors.Trace(err)
-		}
+		writeValue := value.MarshalBinary()
 		*diff += int64(len(writeKey) + len(writeValue))
-		err = txn.Set(writeKey, writeValue)
+		err := txn.Set(writeKey, writeValue)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -689,11 +691,8 @@ func (store *MVCCStore) rollbackLock(txn *badger.Txn, lock mvccLock, mvLockKey [
 	var writeKey []byte
 	writeKey = append(writeKey, mvLockKey...)
 	binary.BigEndian.PutUint64(writeKey[len(writeKey)-8:], ^startTS)
-	writeValue, err := tomb.MarshalBinary()
-	if err != nil {
-		return errors.Trace(err)
-	}
-	err = txn.Set(writeKey, writeValue)
+	writeValue := tomb.MarshalBinary()
+	err := txn.Set(writeKey, writeValue)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -802,29 +801,38 @@ type mvccValue struct {
 }
 
 // MarshalBinary implements encoding.BinaryMarshaler interface.
-func (v mvccValue) MarshalBinary() ([]byte, error) {
-	var (
-		mh  marshalHelper
-		buf bytes.Buffer
-	)
-	mh.WriteNumber(&buf, int64(v.valueType))
-	mh.WriteNumber(&buf, v.startTS)
-	mh.WriteNumber(&buf, v.commitTS)
-	mh.WriteSlice(&buf, v.value)
-	return buf.Bytes(), errors.Trace(mh.err)
+func (v mvccValue) MarshalBinary() []byte {
+	buf := make([]byte, 0, len(v.value) + 32)
+	buf = codec.EncodeUint(buf, uint64(v.valueType))
+	buf = codec.EncodeUint(buf, v.startTS)
+	buf = codec.EncodeUint(buf, v.commitTS)
+	buf = codec.EncodeCompactBytes(buf, v.value)
+	return buf
 }
 
 // UnmarshalBinary implements encoding.BinaryUnmarshaler interface.
 func (v *mvccValue) UnmarshalBinary(data []byte) error {
-	var mh marshalHelper
-	buf := bytes.NewBuffer(data)
-	var vt int64
-	mh.ReadNumber(buf, &vt)
-	v.valueType = mvccValueType(vt)
-	mh.ReadNumber(buf, &v.startTS)
-	mh.ReadNumber(buf, &v.commitTS)
-	mh.ReadSlice(buf, &v.value)
-	return errors.Trace(mh.err)
+	data, uVal, err := codec.DecodeUint(data)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	v.valueType = mvccValueType(uVal)
+	data, uVal, err = codec.DecodeUint(data)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	v.startTS = uVal
+	data, uVal, err = codec.DecodeUint(data)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	v.commitTS = uVal
+	data, bVal, err := codec.DecodeCompactBytes(data)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	v.value = append([]byte{}, bVal...)
+	return nil
 }
 
 type mvccLock struct {
@@ -836,29 +844,44 @@ type mvccLock struct {
 }
 
 // MarshalBinary implements encoding.BinaryMarshaler interface.
-func (l *mvccLock) MarshalBinary() ([]byte, error) {
-	var (
-		mh  marshalHelper
-		buf bytes.Buffer
-	)
-	mh.WriteNumber(&buf, l.startTS)
-	mh.WriteSlice(&buf, l.primary)
-	mh.WriteSlice(&buf, l.value)
-	mh.WriteNumber(&buf, l.op)
-	mh.WriteNumber(&buf, l.ttl)
-	return buf.Bytes(), errors.Trace(mh.err)
+func (l *mvccLock) MarshalBinary() []byte {
+	buf := make([]byte, 0, len(l.primary)+len(l.value) + 32)
+	buf = codec.EncodeUint(buf, l.startTS)
+	buf = codec.EncodeCompactBytes(buf, l.primary)
+	buf = codec.EncodeCompactBytes(buf, l.value)
+	buf = codec.EncodeUint(buf, uint64(l.op))
+	buf = codec.EncodeUint(buf, l.ttl)
+	return buf
 }
 
 // UnmarshalBinary implements encoding.BinaryUnmarshaler interface.
 func (l *mvccLock) UnmarshalBinary(data []byte) error {
-	var mh marshalHelper
-	buf := bytes.NewBuffer(data)
-	mh.ReadNumber(buf, &l.startTS)
-	mh.ReadSlice(buf, &l.primary)
-	mh.ReadSlice(buf, &l.value)
-	mh.ReadNumber(buf, &l.op)
-	mh.ReadNumber(buf, &l.ttl)
-	return errors.Trace(mh.err)
+	data, uVal, err := codec.DecodeUint(data)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	l.startTS = uVal
+	data, bVal, err := codec.DecodeCompactBytes(data)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	l.primary = append([]byte{}, bVal...)
+	data, bVal, err = codec.DecodeCompactBytes(data)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	l.value = append([]byte{}, bVal...)
+	data, uVal, err = codec.DecodeUint(data)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	l.op = kvrpcpb.Op(uVal)
+	data, uVal, err = codec.DecodeUint(data)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	l.ttl = uVal
+	return nil
 }
 
 func (l *mvccLock) toError(key []byte) *ErrLocked {
@@ -869,79 +892,6 @@ func (l *mvccLock) toError(key []byte) *ErrLocked {
 		Primary: l.primary,
 		TTL:     l.ttl,
 	}
-}
-
-type marshalHelper struct {
-	err error
-}
-
-func (mh *marshalHelper) ReadNumber(r io.Reader, n interface{}) {
-	if mh.err != nil {
-		return
-	}
-	err := binary.Read(r, binary.LittleEndian, n)
-	if err != nil {
-		mh.err = errors.Trace(err)
-	}
-}
-
-func (mh *marshalHelper) ReadSlice(r *bytes.Buffer, slice *[]byte) {
-	if mh.err != nil {
-		return
-	}
-	sz, err := binary.ReadUvarint(r)
-	if err != nil {
-		mh.err = errors.Trace(err)
-		return
-	}
-	const c10M = 10 * 1024 * 1024
-	if sz > c10M {
-		mh.err = errors.New("too large slice, maybe something wrong")
-		return
-	}
-	data := make([]byte, sz)
-	if _, err := io.ReadFull(r, data); err != nil {
-		mh.err = errors.Trace(err)
-		return
-	}
-	*slice = data
-}
-
-func (mh *marshalHelper) WriteSlice(buf io.Writer, slice []byte) {
-	if mh.err != nil {
-		return
-	}
-	var tmp [binary.MaxVarintLen64]byte
-	off := binary.PutUvarint(tmp[:], uint64(len(slice)))
-	if err := writeFull(buf, tmp[:off]); err != nil {
-		mh.err = errors.Trace(err)
-		return
-	}
-	if err := writeFull(buf, slice); err != nil {
-		mh.err = errors.Trace(err)
-	}
-}
-
-func (mh *marshalHelper) WriteNumber(buf io.Writer, n interface{}) {
-	if mh.err != nil {
-		return
-	}
-	err := binary.Write(buf, binary.LittleEndian, n)
-	if err != nil {
-		mh.err = errors.Trace(err)
-	}
-}
-
-func writeFull(w io.Writer, slice []byte) error {
-	written := 0
-	for written < len(slice) {
-		n, err := w.Write(slice[written:])
-		if err != nil {
-			return errors.Trace(err)
-		}
-		written += n
-	}
-	return nil
 }
 
 func extractPhysicalTime(ts uint64) time.Time {
