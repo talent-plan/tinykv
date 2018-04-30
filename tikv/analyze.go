@@ -19,16 +19,12 @@ import (
 	"golang.org/x/net/context"
 )
 
-func (svr *Server) handleCopAnalyzeRequest(req *coprocessor.Request) *coprocessor.Response {
+func (svr *Server) handleCopAnalyzeRequest(regInfo *regionInfo, req *coprocessor.Request) *coprocessor.Response {
 	resp := &coprocessor.Response{}
 	if len(req.Ranges) == 0 {
 		return resp
 	}
 	if req.GetTp() != kv.ReqTypeAnalyze {
-		return resp
-	}
-	if err := svr.checkRequestContext(req.GetContext()); err != nil {
-		resp.RegionError = err
 		return resp
 	}
 	analyzeReq := new(tipb.AnalyzeReq)
@@ -37,10 +33,15 @@ func (svr *Server) handleCopAnalyzeRequest(req *coprocessor.Request) *coprocesso
 		resp.OtherError = err.Error()
 		return resp
 	}
+	ranges, err := svr.extractKVRanges(regInfo, req.Ranges, false)
+	if err != nil {
+		resp.OtherError = err.Error()
+		return resp
+	}
 	if analyzeReq.Tp == tipb.AnalyzeType_TypeIndex {
-		resp, err = svr.handleAnalyzeIndexReq(req, analyzeReq)
+		resp, err = svr.handleAnalyzeIndexReq(ranges, analyzeReq)
 	} else {
-		resp, err = svr.handleAnalyzeColumnsReq(req, analyzeReq)
+		resp, err = svr.handleAnalyzeColumnsReq(ranges, analyzeReq)
 	}
 	if err != nil {
 		resp.OtherError = err.Error()
@@ -48,11 +49,7 @@ func (svr *Server) handleCopAnalyzeRequest(req *coprocessor.Request) *coprocesso
 	return resp
 }
 
-func (svr *Server) handleAnalyzeIndexReq(req *coprocessor.Request, analyzeReq *tipb.AnalyzeReq) (*coprocessor.Response, error) {
-	ranges, err := svr.extractKVRanges(req.Ranges, false)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
+func (svr *Server) handleAnalyzeIndexReq(ranges []kv.KeyRange, analyzeReq *tipb.AnalyzeReq) (*coprocessor.Response, error) {
 	e := &indexScanExec{
 		colsLen:   int(analyzeReq.IdxReq.NumColumns),
 		kvRanges:  ranges,
@@ -66,9 +63,8 @@ func (svr *Server) handleAnalyzeIndexReq(req *coprocessor.Request, analyzeReq *t
 		cms = statistics.NewCMSketch(*analyzeReq.IdxReq.CmsketchDepth, *analyzeReq.IdxReq.CmsketchWidth)
 	}
 	ctx := context.TODO()
-	var values [][]byte
 	for {
-		values, err = e.Next(ctx)
+		values, err := e.Next(ctx)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -104,16 +100,12 @@ type analyzeColumnsExec struct {
 	fields  []*ast.ResultField
 }
 
-func (svr *Server) handleAnalyzeColumnsReq(req *coprocessor.Request, analyzeReq *tipb.AnalyzeReq) (*coprocessor.Response, error) {
+func (svr *Server) handleAnalyzeColumnsReq(ranges []kv.KeyRange, analyzeReq *tipb.AnalyzeReq) (*coprocessor.Response, error) {
 	sc := flagsToStatementContext(analyzeReq.Flags)
 	sc.TimeZone = time.FixedZone("UTC", int(analyzeReq.TimeZoneOffset))
 	evalCtx := &evalContext{sc: sc}
 	columns := analyzeReq.ColReq.ColumnsInfo
 	evalCtx.setColumnInfo(columns)
-	ranges, err := svr.extractKVRanges(req.Ranges, false)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
 	e := &analyzeColumnsExec{
 		tblExec: &tableScanExec{
 			TableScan: &tipb.TableScan{Columns: columns},

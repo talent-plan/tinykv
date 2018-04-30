@@ -31,18 +31,15 @@ import (
 var dummySlice = make([]byte, 0)
 
 type dagContext struct {
+	regInfo   *regionInfo
 	dagReq    *tipb.DAGRequest
 	keyRanges []*coprocessor.KeyRange
 	evalCtx   *evalContext
 }
 
-func (svr *Server) handleCopDAGRequest(req *coprocessor.Request) *coprocessor.Response {
+func (svr *Server) handleCopDAGRequest(regInfo *regionInfo, req *coprocessor.Request) *coprocessor.Response {
 	resp := &coprocessor.Response{}
-	if err := svr.checkRequestContext(req.GetContext()); err != nil {
-		resp.RegionError = err
-		return resp
-	}
-	dagCtx, e, dagReq, err := svr.buildDAGExecutor(req)
+	dagCtx, e, dagReq, err := svr.buildDAGExecutor(regInfo, req)
 	if err != nil {
 		resp.OtherError = err.Error()
 		return resp
@@ -73,7 +70,7 @@ func (svr *Server) handleCopDAGRequest(req *coprocessor.Request) *coprocessor.Re
 	return buildResp(chunks, e.Counts(), err, warnings)
 }
 
-func (svr *Server) buildDAGExecutor(req *coprocessor.Request) (*dagContext, executor, *tipb.DAGRequest, error) {
+func (svr *Server) buildDAGExecutor(regInfo *regionInfo, req *coprocessor.Request) (*dagContext, executor, *tipb.DAGRequest, error) {
 	if len(req.Ranges) == 0 {
 		return nil, nil, nil, errors.New("request range is null")
 	}
@@ -89,6 +86,7 @@ func (svr *Server) buildDAGExecutor(req *coprocessor.Request) (*dagContext, exec
 	sc := flagsToStatementContext(dagReq.Flags)
 	sc.TimeZone = time.FixedZone("UTC", int(dagReq.TimeZoneOffset))
 	ctx := &dagContext{
+		regInfo:   regInfo,
 		dagReq:    dagReq,
 		keyRanges: req.Ranges,
 		evalCtx:   &evalContext{sc: sc},
@@ -100,8 +98,8 @@ func (svr *Server) buildDAGExecutor(req *coprocessor.Request) (*dagContext, exec
 	return ctx, e, dagReq, err
 }
 
-func (svr *Server) handleCopStream(ctx context.Context, req *coprocessor.Request) (tikvpb.Tikv_CoprocessorStreamClient, error) {
-	_, e, dagReq, err := svr.buildDAGExecutor(req)
+func (svr *Server) handleCopStream(ctx context.Context, regInfo *regionInfo, req *coprocessor.Request) (tikvpb.Tikv_CoprocessorStreamClient, error) {
+	_, e, dagReq, err := svr.buildDAGExecutor(regInfo, req)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -155,7 +153,7 @@ func (svr *Server) buildDAG(ctx *dagContext, executors []*tipb.Executor) (execut
 func (svr *Server) buildTableScan(ctx *dagContext, executor *tipb.Executor) (*tableScanExec, error) {
 	columns := executor.TblScan.Columns
 	ctx.evalCtx.setColumnInfo(columns)
-	ranges, err := svr.extractKVRanges(ctx.keyRanges, executor.TblScan.Desc)
+	ranges, err := svr.extractKVRanges(ctx.regInfo, ctx.keyRanges, executor.TblScan.Desc)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -191,7 +189,7 @@ func (svr *Server) buildIndexScan(ctx *dagContext, executor *tipb.Executor) (*in
 		pkStatus = pkColIsSigned
 		columns = columns[:length-1]
 	}
-	ranges, err := svr.extractKVRanges(ctx.keyRanges, executor.IdxScan.Desc)
+	ranges, err := svr.extractKVRanges(ctx.regInfo, ctx.keyRanges, executor.IdxScan.Desc)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -569,7 +567,9 @@ func toPBError(err error) *tipb.Error {
 }
 
 // extractKVRanges extracts kv.KeyRanges slice from a SelectRequest.
-func (svr *Server) extractKVRanges(keyRanges []*coprocessor.KeyRange, descScan bool) (kvRanges []kv.KeyRange, err error) {
+func (svr *Server) extractKVRanges(regInfo *regionInfo, keyRanges []*coprocessor.KeyRange, descScan bool) (kvRanges []kv.KeyRange, err error) {
+	startKey := regInfo.rawStartKey()
+	endKey := regInfo.rawEndKey()
 	for _, kran := range keyRanges {
 		if bytes.Compare(kran.GetStart(), kran.GetEnd()) >= 0 {
 			err = errors.Errorf("invalid range, start should be smaller than end: %v %v", kran.GetStart(), kran.GetEnd())
@@ -577,16 +577,16 @@ func (svr *Server) extractKVRanges(keyRanges []*coprocessor.KeyRange, descScan b
 		}
 
 		upperKey := kran.GetEnd()
-		if bytes.Compare(upperKey, svr.startKey) <= 0 {
+		if bytes.Compare(upperKey, startKey) <= 0 {
 			continue
 		}
 		lowerKey := kran.GetStart()
-		if len(svr.endKey) != 0 && bytes.Compare(lowerKey, svr.endKey) >= 0 {
+		if len(endKey) != 0 && bytes.Compare(lowerKey, endKey) >= 0 {
 			break
 		}
 		var kvr kv.KeyRange
-		kvr.StartKey = kv.Key(maxStartKey(lowerKey, svr.startKey))
-		kvr.EndKey = kv.Key(minEndKey(upperKey, svr.endKey))
+		kvr.StartKey = kv.Key(maxStartKey(lowerKey, startKey))
+		kvr.EndKey = kv.Key(minEndKey(upperKey, endKey))
 		kvRanges = append(kvRanges, kvr)
 	}
 	if descScan {
