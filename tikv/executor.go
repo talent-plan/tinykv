@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"sort"
+	"math"
 
 	"github.com/juju/errors"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
@@ -44,7 +45,10 @@ type tableScanExec struct {
 	startTS        uint64
 	isolationLevel kvrpcpb.IsolationLevel
 	mvccStore      MVCCStore
-	cursor         int
+	rangeCursor    int
+
+	rowCursor      int
+	rows           [][][]byte
 	seekKey        []byte
 	start          int
 	counts         []int64
@@ -62,7 +66,7 @@ func (e *tableScanExec) GetSrcExec() executor {
 
 func (e *tableScanExec) ResetCounts() {
 	if e.counts != nil {
-		e.start = e.cursor
+		e.start = e.rangeCursor
 		e.counts[e.start] = 0
 	}
 }
@@ -72,9 +76,9 @@ func (e *tableScanExec) Counts() []int64 {
 		return nil
 	}
 	if e.seekKey == nil {
-		return e.counts[e.start:e.cursor]
+		return e.counts[e.start:e.rangeCursor]
 	}
-	return e.counts[e.start : e.cursor+1]
+	return e.counts[e.start : e.rangeCursor+1]
 }
 
 func (e *tableScanExec) Cursor() ([]byte, bool) {
@@ -82,8 +86,8 @@ func (e *tableScanExec) Cursor() ([]byte, bool) {
 		return e.seekKey, e.Desc
 	}
 
-	if e.cursor < len(e.kvRanges) {
-		ran := e.kvRanges[e.cursor]
+	if e.rangeCursor < len(e.kvRanges) {
+		ran := e.kvRanges[e.rangeCursor]
 		if ran.IsPoint() {
 			return ran.StartKey, e.Desc
 		}
@@ -101,60 +105,66 @@ func (e *tableScanExec) Cursor() ([]byte, bool) {
 }
 
 func (e *tableScanExec) Next(ctx context.Context) (value [][]byte, err error) {
-	for e.cursor < len(e.kvRanges) {
-		ran := e.kvRanges[e.cursor]
-		if ran.IsPoint() {
-			value, err = e.getRowFromPoint(ran)
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
-			e.cursor++
-			if value == nil {
-				continue
-			}
-			if e.counts != nil {
-				e.counts[e.cursor-1]++
-			}
+	for {
+		if e.rowCursor < len(e.rows) {
+			value = e.rows[e.rowCursor]
+			e.rowCursor++
 			return value, nil
 		}
-		value, err = e.getRowFromRange(ran)
+		e.rowCursor = 0
+		e.rows = e.rows[:0]
+		err := e.fillRows()
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		if value == nil {
-			e.seekKey = nil
-			e.cursor++
-			continue
+		if len(e.rows) == 0 {
+			break
 		}
-		if e.counts != nil {
-			e.counts[e.cursor]++
-		}
-		return value, nil
 	}
-
 	return nil, nil
 }
 
-func (e *tableScanExec) getRowFromPoint(ran kv.KeyRange) ([][]byte, error) {
+func (e *tableScanExec) fillRows() error {
+	for e.rangeCursor < len(e.kvRanges) {
+		ran := e.kvRanges[e.rangeCursor]
+		e.rangeCursor++
+		var err error
+		if ran.IsPoint() {
+			err = e.fillRowsFromPoint(ran)
+		} else {
+			err = e.fillRowsFromRange(ran)
+		}
+		if err != nil {
+			return errors.Trace(err)
+		}
+		if len(e.rows) > 0 {
+			return nil
+		}
+	}
+	return nil
+}
+
+func (e *tableScanExec) fillRowsFromPoint(ran kv.KeyRange) error {
 	val, err := e.mvccStore.Get(ran.StartKey, e.startTS)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
 	if len(val) == 0 {
-		return nil, nil
+		return nil
 	}
 	handle, err := tablecodec.DecodeRowKey(ran.StartKey)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
 	row, err := getRowData(e.Columns, e.colIDs, handle, val)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
-	return row, nil
+	e.rows = append(e.rows, row)
+	return nil
 }
 
-func (e *tableScanExec) getRowFromRange(ran kv.KeyRange) ([][]byte, error) {
+func (e *tableScanExec) fillRowsFromRange(ran kv.KeyRange) error {
 	if e.seekKey == nil {
 		if e.Desc {
 			e.seekKey = ran.EndKey
@@ -163,43 +173,26 @@ func (e *tableScanExec) getRowFromRange(ran kv.KeyRange) ([][]byte, error) {
 		}
 	}
 	var pairs []Pair
-	var pair Pair
 	if e.Desc {
-		pairs = e.mvccStore.ReverseScan(ran.StartKey, e.seekKey, 1, e.startTS)
+		pairs = e.mvccStore.ReverseScan(ran.StartKey, e.seekKey, math.MaxInt64, e.startTS)
 	} else {
-		pairs = e.mvccStore.Scan(e.seekKey, ran.EndKey, 1, e.startTS)
+		pairs = e.mvccStore.Scan(e.seekKey, ran.EndKey, math.MaxInt64, e.startTS)
 	}
-	if len(pairs) > 0 {
-		pair = pairs[0]
-	}
-	if pair.Err != nil {
-		// TODO: Handle lock error.
-		return nil, errors.Trace(pair.Err)
-	}
-	if pair.Key == nil {
-		return nil, nil
-	}
-	if e.Desc {
-		if bytes.Compare(pair.Key, ran.StartKey) < 0 {
-			return nil, nil
+	for _, pair := range pairs {
+		if pair.Err != nil {
+			return errors.Trace(pair.Err)
 		}
-		e.seekKey = []byte(tablecodec.TruncateToRowKeyLen(kv.Key(pair.Key)))
-	} else {
-		if bytes.Compare(pair.Key, ran.EndKey) >= 0 {
-			return nil, nil
+		handle, err := tablecodec.DecodeRowKey(pair.Key)
+		if err != nil {
+			return errors.Trace(err)
 		}
-		e.seekKey = []byte(kv.Key(pair.Key).PrefixNext())
+		row, err := getRowData(e.Columns, e.colIDs, handle, pair.Value)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		e.rows = append(e.rows, row)
 	}
-
-	handle, err := tablecodec.DecodeRowKey(pair.Key)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	row, err := getRowData(e.Columns, e.colIDs, handle, pair.Value)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	return row, nil
+	return nil
 }
 
 const (
@@ -215,12 +208,14 @@ type indexScanExec struct {
 	startTS        uint64
 	isolationLevel kvrpcpb.IsolationLevel
 	mvccStore      MVCCStore
-	cursor         int
+	ranCursor      int
 	seekKey        []byte
 	pkStatus       int
 	start          int
 	counts         []int64
 
+	rowCursor      int
+	rows           [][][]byte
 	src executor
 }
 
@@ -234,7 +229,7 @@ func (e *indexScanExec) GetSrcExec() executor {
 
 func (e *indexScanExec) ResetCounts() {
 	if e.counts != nil {
-		e.start = e.cursor
+		e.start = e.ranCursor
 		e.counts[e.start] = 0
 	}
 }
@@ -244,9 +239,9 @@ func (e *indexScanExec) Counts() []int64 {
 		return nil
 	}
 	if e.seekKey == nil {
-		return e.counts[e.start:e.cursor]
+		return e.counts[e.start:e.ranCursor]
 	}
-	return e.counts[e.start : e.cursor+1]
+	return e.counts[e.start : e.ranCursor+1]
 }
 
 func (e *indexScanExec) isUnique() bool {
@@ -257,8 +252,8 @@ func (e *indexScanExec) Cursor() ([]byte, bool) {
 	if len(e.seekKey) > 0 {
 		return e.seekKey, e.Desc
 	}
-	if e.cursor < len(e.kvRanges) {
-		ran := e.kvRanges[e.cursor]
+	if e.ranCursor < len(e.kvRanges) {
+		ran := e.kvRanges[e.ranCursor]
 		if ran.IsPoint() && e.isUnique() {
 			return ran.StartKey, e.Desc
 		}
@@ -274,50 +269,60 @@ func (e *indexScanExec) Cursor() ([]byte, bool) {
 }
 
 func (e *indexScanExec) Next(ctx context.Context) (value [][]byte, err error) {
-	for e.cursor < len(e.kvRanges) {
-		ran := e.kvRanges[e.cursor]
-		if ran.IsPoint() && e.isUnique() {
-			value, err = e.getRowFromPoint(ran)
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
-			e.cursor++
-			if value == nil {
-				continue
-			}
-			if e.counts != nil {
-				e.counts[e.cursor-1]++
-			}
-		} else {
-			value, err = e.getRowFromRange(ran)
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
-			if value == nil {
-				e.cursor++
-				e.seekKey = nil
-				continue
-			}
-			if e.counts != nil {
-				e.counts[e.cursor]++
-			}
+	for {
+		if e.rowCursor < len(e.rows) {
+			value = e.rows[e.rowCursor]
+			e.rowCursor++
+			return value, nil
 		}
-		return value, nil
+		e.rowCursor = 0
+		e.rows = e.rows[:0]
+		err = e.fillRows()
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		if len(e.rows) == 0 {
+			break
+		}
 	}
-
 	return nil, nil
 }
 
-// getRowFromPoint is only used for unique key.
-func (e *indexScanExec) getRowFromPoint(ran kv.KeyRange) ([][]byte, error) {
+func (e *indexScanExec) fillRows() error {
+	for e.ranCursor < len(e.kvRanges) {
+		ran := e.kvRanges[e.ranCursor]
+		e.ranCursor++
+		var err error
+		if ran.IsPoint() {
+			err = e.fillRowsFromPoint(ran)
+		} else {
+			err = e.fillRowsFromRange(ran)
+		}
+		if err != nil {
+			return errors.Trace(err)
+		}
+		if len(e.rows) > 0 {
+			break
+		}
+	}
+	return nil
+}
+
+// fillRowsFromPoint is only used for unique key.
+func (e *indexScanExec) fillRowsFromPoint(ran kv.KeyRange) error {
 	val, err := e.mvccStore.Get(ran.StartKey, e.startTS)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
 	if len(val) == 0 {
-		return nil, nil
+		return nil
 	}
-	return e.decodeIndexKV(Pair{Key: ran.StartKey, Value: val})
+	row, err := e.decodeIndexKV(Pair{Key: ran.StartKey, Value: val})
+	if err != nil {
+		return errors.Trace(err)
+	}
+	e.rows = append(e.rows, row)
+	return nil
 }
 
 func (e *indexScanExec) decodeIndexKV(pair Pair) ([][]byte, error) {
@@ -346,48 +351,28 @@ func (e *indexScanExec) decodeIndexKV(pair Pair) ([][]byte, error) {
 		}
 		values = append(values, handleBytes)
 	}
-
 	return values, nil
 }
 
-func (e *indexScanExec) getRowFromRange(ran kv.KeyRange) ([][]byte, error) {
-	if e.seekKey == nil {
-		if e.Desc {
-			e.seekKey = ran.EndKey
-		} else {
-			e.seekKey = ran.StartKey
-		}
-	}
+func (e *indexScanExec) fillRowsFromRange(ran kv.KeyRange) error {
 	var pairs []Pair
-	var pair Pair
 	if e.Desc {
-		pairs = e.mvccStore.ReverseScan(ran.StartKey, e.seekKey, 1, e.startTS)
+		pairs = e.mvccStore.ReverseScan(ran.StartKey, ran.EndKey, math.MaxInt64, e.startTS)
 	} else {
-		pairs = e.mvccStore.Scan(e.seekKey, ran.EndKey, 1, e.startTS)
+		pairs = e.mvccStore.Scan(ran.StartKey, ran.EndKey, math.MaxInt64, e.startTS)
 	}
-	if len(pairs) > 0 {
-		pair = pairs[0]
-	}
-	if pair.Err != nil {
-		// TODO: Handle lock error.
-		return nil, errors.Trace(pair.Err)
-	}
-	if pair.Key == nil {
-		return nil, nil
-	}
-	if e.Desc {
-		if bytes.Compare(pair.Key, ran.StartKey) < 0 {
-			return nil, nil
+	for _, pair := range pairs {
+		if pair.Err != nil {
+			// TODO: Handle lock error.
+			return errors.Trace(pair.Err)
 		}
-		e.seekKey = pair.Key
-	} else {
-		if bytes.Compare(pair.Key, ran.EndKey) >= 0 {
-			return nil, nil
+		row, err := e.decodeIndexKV(pair)
+		if err != nil {
+			return errors.Trace(err)
 		}
-		e.seekKey = []byte(kv.Key(pair.Key).PrefixNext())
+		e.rows = append(e.rows, row)
 	}
-
-	return e.decodeIndexKV(pair)
+	return nil
 }
 
 type selectionExec struct {
