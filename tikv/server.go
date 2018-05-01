@@ -151,23 +151,28 @@ func (svr *Server) KvScanLock(ctx context.Context, req *kvrpcpb.ScanLockRequest)
 		return &kvrpcpb.ScanLockResponse{RegionError: regErr}, nil
 	}
 	regInfo.assertContainsKey(req.StartKey)
-	locks, err := svr.mvccStore.ScanLock(req.StartKey, []byte{255}, int(req.Limit), req.MaxVersion)
+	locks, err := svr.mvccStore.ScanLock(mvEncode(req.StartKey, lockVer), regInfo.meta.EndKey, int(req.Limit), req.MaxVersion)
 	return &kvrpcpb.ScanLockResponse{Error: convertToKeyError(err), Locks: locks}, nil
 }
 
 func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRequest) (*kvrpcpb.ResolveLockResponse, error) {
-	log.Debug("kv resolve lock", extractPhysicalTime(req.StartVersion))
 	regInfo, regErr := svr.regionManager.getRegionFromCtx(req.GetContext())
 	if regErr != nil {
 		return &kvrpcpb.ResolveLockResponse{RegionError: regErr}, nil
 	}
+	log.Debugf("kv resolve lock %v start:%x end:%x", extractPhysicalTime(req.StartVersion), regInfo.meta.StartKey, regInfo.meta.EndKey)
 	err := svr.mvccStore.ResolveLock(regInfo.meta.StartKey, regInfo.meta.EndKey, req.StartVersion, req.CommitVersion, &regInfo.diff)
 	return &kvrpcpb.ResolveLockResponse{Error: convertToKeyError(err)}, nil
 }
 
-func (svr *Server) KvGC(context.Context, *kvrpcpb.GCRequest) (*kvrpcpb.GCResponse, error) {
-	// TODO
-	return &kvrpcpb.GCResponse{}, nil
+func (svr *Server) KvGC(ctx context.Context, req *kvrpcpb.GCRequest) (*kvrpcpb.GCResponse, error) {
+	log.Debug("kv GC safePoint:", extractPhysicalTime(req.SafePoint))
+	regInfo, regErr := svr.regionManager.getRegionFromCtx(req.GetContext())
+	if regErr != nil {
+		return &kvrpcpb.GCResponse{RegionError: regErr}, nil
+	}
+	err := svr.mvccStore.GC(regInfo.meta.StartKey, regInfo.meta.EndKey, req.SafePoint)
+	return &kvrpcpb.GCResponse{Error: convertToKeyError(err)}, nil
 }
 
 func (svr *Server) KvDeleteRange(ctx context.Context, req *kvrpcpb.DeleteRangeRequest) (*kvrpcpb.DeleteRangeResponse, error) {
@@ -175,7 +180,7 @@ func (svr *Server) KvDeleteRange(ctx context.Context, req *kvrpcpb.DeleteRangeRe
 	if regErr != nil {
 		return &kvrpcpb.DeleteRangeResponse{RegionError: regErr}, nil
 	}
-	regInfo.assertContainsRange(&coprocessor.KeyRange{Start:req.StartKey, End: req.EndKey})
+	regInfo.assertContainsRange(&coprocessor.KeyRange{Start: req.StartKey, End: req.EndKey})
 	err := svr.mvccStore.DeleteRange(req.StartKey, req.EndKey)
 	if err != nil {
 		log.Error(err)
