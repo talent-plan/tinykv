@@ -342,13 +342,13 @@ func (store *MVCCStore) Scan(startKey, endKey []byte, limit int, startTS uint64)
 		iter.Seek(mvEncode(startKey, lockVer))
 		for len(pairs) < limit {
 			pair := getPairWithStartTS(iter, mvEndKey, startTS)
+			if pair.Err != nil {
+				return pair.Err
+			}
 			if pair.Key == nil {
 				return nil
 			}
 			pairs = append(pairs, pair)
-			if pair.Err != nil {
-				return nil
-			}
 			nearSeek(iter, mvEncode(pair.Key, 0))
 		}
 		return nil
@@ -446,13 +446,13 @@ func (store *MVCCStore) ReverseScan(startKey, endKey []byte, limit int, startTS 
 		for len(pairs) < limit {
 			iter.Seek(seekKey)
 			pair := getPairWithStartTSReverse(iter, mvStartKey, startTS)
+			if pair.Err != nil {
+				return pair.Err
+			}
 			if pair.Key == nil {
 				return nil
 			}
 			pairs = append(pairs, pair)
-			if pair.Err != nil {
-				return nil
-			}
 			seekKey = mvEncode(pair.Key, lockVer)
 		}
 		return nil
