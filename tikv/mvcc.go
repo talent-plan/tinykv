@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cznic/mathutil"
 	"github.com/dgraph-io/badger"
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
@@ -58,11 +59,7 @@ func (store *MVCCStore) mvGet(txnIt *badger.Iterator, key []byte, startTS uint64
 				txnIt.Next()
 				continue
 			}
-			foundKey, _, err := mvDecode(mvFoundKey, nil)
-			if err != nil {
-				return 0, nil, errors.Trace(err)
-			}
-			return 0, nil, lock.toError(foundKey)
+			return 0, nil, lock.toError(mvFoundKey)
 		}
 		if !isVisibleKey(mvFoundKey, startTS) {
 			txnIt.Next()
@@ -188,6 +185,7 @@ func (store *MVCCStore) checkPrewriteConflict(iter *badger.Iterator, mvLockKey [
 			if lock.startTS == startTS {
 				return nil
 			}
+			log.Debugf("lock err %x", item.Key())
 			return lock.toError(item.Key())
 		}
 		if isVisibleKey(item.Key(), startTS) {
@@ -198,6 +196,7 @@ func (store *MVCCStore) checkPrewriteConflict(iter *badger.Iterator, mvLockKey [
 			return errors.Trace(err)
 		}
 		if mvVal.valueType != typeRollback {
+			log.Debugf("write conflict %x", item.Key())
 			return ErrRetryable("write conflict")
 		}
 		iter.Next()
@@ -360,15 +359,15 @@ func (store *MVCCStore) Scan(startKey, endKey []byte, limit int, startTS uint64)
 	return pairs
 }
 
-func nearSeek(iter *badger.Iterator, seekKey []byte) {
+func nearSeek(iter *badger.Iterator, mvSeekKey []byte) {
 	cnt := 0
 	for iter.Valid() {
 		item := iter.Item()
-		if bytes.Compare(item.Key(), seekKey) >= 0 {
+		if reachBound(item.Key(), mvSeekKey) {
 			return
 		}
 		if cnt > 16 {
-			iter.Seek(seekKey)
+			iter.Seek(mvSeekKey)
 			return
 		}
 		cnt++
@@ -382,7 +381,7 @@ func getPairWithStartTS(iter *badger.Iterator, mvEndKey []byte, startTS uint64) 
 	for iter.Valid() {
 		item := iter.Item()
 		mvFoundKey := item.Key()
-		if len(mvEndKey) > 0 && bytes.Compare(mvFoundKey, mvEndKey) >= 0 {
+		if reachBound(mvFoundKey, mvEndKey) {
 			return
 		}
 		if isLockKey(mvFoundKey) {
@@ -485,12 +484,7 @@ func getPairWithStartTSReverse(iter *badger.Iterator, mvStartKey []byte, startTS
 				return
 			}
 			if lock.startTS < startTS {
-				pair.Err = &ErrLocked{
-					Key:     mvFoundKey,
-					Primary: lock.primary,
-					StartTS: lock.startTS,
-					TTL:     lock.ttl,
-				}
+				pair.Err = lock.toError(mvFoundKey)
 				return
 			}
 			iter.Next()
@@ -541,13 +535,11 @@ func (store *MVCCStore) Cleanup(key []byte, startTS uint64) error {
 	return err
 }
 
-func (store *MVCCStore) ScanLock(startKey, endKey []byte, limit int, maxTS uint64) ([]*kvrpcpb.LockInfo, error) {
+func (store *MVCCStore) ScanLock(mvStartKey, mvEndKey []byte, limit int, maxTS uint64) ([]*kvrpcpb.LockInfo, error) {
 	var locks []*kvrpcpb.LockInfo
 	err1 := store.db.View(func(txn *badger.Txn) error {
 		iter := store.newIterator(txn)
 		defer iter.Close()
-		mvStartKey := mvEncode(startKey, lockVer)
-		mvEndKey := mvEncode(endKey, lockVer)
 		iter.Seek(mvStartKey)
 		for {
 			lockInfo, err := store.scanOneLock(iter, mvEndKey, maxTS)
@@ -573,7 +565,7 @@ func (store *MVCCStore) ScanLock(startKey, endKey []byte, limit int, maxTS uint6
 func (store *MVCCStore) scanOneLock(iter *badger.Iterator, mvEndKey []byte, maxTS uint64) (*kvrpcpb.LockInfo, error) {
 	for iter.Valid() {
 		item := iter.Item()
-		if bytes.Compare(item.Key(), mvEndKey) >= 0 {
+		if reachBound(item.Key(), mvEndKey) {
 			return nil, nil
 		}
 		if isLockKey(item.Key()) {
@@ -601,18 +593,15 @@ func (store *MVCCStore) scanOneLock(iter *badger.Iterator, mvEndKey []byte, maxT
 	return nil, nil
 }
 
-func (store *MVCCStore) ResolveLock(startKey, endKey []byte, startTS, commitTS uint64, diff *int64) error {
+func (store *MVCCStore) ResolveLock(mvStartKey, mvEndKey []byte, startTS, commitTS uint64, diff *int64) error {
 	var lockKeys [][]byte
 	var lockValues []mvccLock
 	err := store.db.View(func(txn *badger.Txn) error {
-		mvStartKey := mvEncode(startKey, lockVer)
-		mvEndKey := mvEncode(endKey, lockVer)
 		iter := store.newIterator(txn)
 		defer iter.Close()
-		iter.Seek(mvStartKey)
-		for iter.Valid() {
+		for iter.Seek(mvStartKey); iter.Valid(); iter.Next() {
 			item := iter.Item()
-			if bytes.Compare(item.Key(), mvEndKey) >= 0 {
+			if reachBound(item.Key(), mvEndKey) {
 				return nil
 			}
 			if isLockKey(item.Key()) {
@@ -625,7 +614,6 @@ func (store *MVCCStore) ResolveLock(startKey, endKey []byte, startTS, commitTS u
 					lockValues = append(lockValues, lock)
 				}
 			}
-			iter.Next()
 		}
 		return nil
 	})
@@ -715,15 +703,14 @@ func (store *MVCCStore) DeleteRange(startKey, endKey []byte) error {
 	for {
 		err := store.db.View(func(txn *badger.Txn) error {
 			iter := store.newIterator(txn)
-			iter.Seek(mvSeekKey)
-			for iter.Valid() {
+			for iter.Seek(mvSeekKey); iter.Valid(); iter.Next() {
 				item := iter.Item()
-				key := item.KeyCopy(nil)
-				mvSeekKey = key
-				if bytes.Compare(item.Key(), mvEndKey) >= 0 {
+				mvKey := item.KeyCopy(nil)
+				mvSeekKey = mvKey
+				if reachBound(mvKey, mvEndKey) {
 					break
 				}
-				keys = append(keys, key)
+				keys = append(keys, mvKey)
 				if len(keys) == delRangeBatchSize {
 					break
 				}
@@ -753,6 +740,90 @@ func (store *MVCCStore) DeleteRange(startKey, endKey []byte) error {
 		log.Debug("delete range", len(keys), keys[0])
 		keys = keys[:0]
 	}
+}
+
+const gcBatchSize = 256
+
+func (store *MVCCStore) GC(mvStartKey, mvEndKey []byte, safePoint uint64) error {
+	var allGCKeys [][]byte
+	mvSeekKey := mvStartKey
+	err := store.db.View(func(txn *badger.Txn) error {
+		iter := store.newIterator(txn)
+		for iter.Seek(mvSeekKey); iter.Valid(); iter.Next() {
+			item := iter.Item()
+			if reachBound(item.Key(), mvEndKey) {
+				break
+			}
+			if bytes.HasPrefix(item.Key(), InternalKeyPrefix) {
+				// Internal Keys doesn't has multi-version.
+				continue
+			}
+			gcKeys, err1 := store.allGCVersionsForKey(iter, safePoint)
+			if err1 != nil {
+				return errors.Trace(err1)
+			}
+			allGCKeys = append(allGCKeys, gcKeys...)
+			if !iter.Valid() {
+				break
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		log.Error(err)
+		return errors.Trace(err)
+	}
+	if len(allGCKeys) == 0 {
+		return nil
+	}
+	for len(allGCKeys) > 0 {
+		batchSize := mathutil.Min(len(allGCKeys), gcBatchSize)
+		gcBatchKeys := allGCKeys[:batchSize]
+		allGCKeys = allGCKeys[batchSize:]
+		err = updateWithRetry(store.db, func(txn *badger.Txn) error {
+			for _, gcKey := range gcBatchKeys {
+				err1 := txn.Delete(gcKey)
+				if err1 != nil {
+					return errors.Trace(err1)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			log.Error(err)
+			return errors.Trace(err)
+		}
+	}
+	return nil
+}
+
+func (store *MVCCStore) allGCVersionsForKey(iter *badger.Iterator, safePoint uint64) ([][]byte, error) {
+	var gcKeys [][]byte
+	var keyBuf [128]byte
+	key := iter.Item().KeyCopy(keyBuf[:])
+	keyPrefix := key[:len(key)-8]
+	var hasValidKey bool
+	for ; iter.ValidForPrefix(keyPrefix); iter.Next() {
+		item := iter.Item()
+		if isLockKey(item.Key()) {
+			continue
+		}
+		if hasValidKey {
+			if isVisibleKey(item.Key(), safePoint) {
+				log.Debugf("gc key %x", item.Key())
+				gcKeys = append(gcKeys, item.KeyCopy(nil))
+			}
+		} else {
+			mvVal, err := decodeValue(item)
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			if mvVal.valueType != typeRollback {
+				hasValidKey = true
+			}
+		}
+	}
+	return gcKeys, nil
 }
 
 // mvEncode returns the encoded key.
@@ -803,7 +874,7 @@ type mvccValue struct {
 
 // MarshalBinary implements encoding.BinaryMarshaler interface.
 func (v mvccValue) MarshalBinary() []byte {
-	buf := make([]byte, 0, len(v.value) + 32)
+	buf := make([]byte, 0, len(v.value)+32)
 	buf = codec.EncodeUint(buf, uint64(v.valueType))
 	buf = codec.EncodeUint(buf, v.startTS)
 	buf = codec.EncodeUint(buf, v.commitTS)
@@ -846,7 +917,7 @@ type mvccLock struct {
 
 // MarshalBinary implements encoding.BinaryMarshaler interface.
 func (l *mvccLock) MarshalBinary() []byte {
-	buf := make([]byte, 0, len(l.primary)+len(l.value) + 32)
+	buf := make([]byte, 0, len(l.primary)+len(l.value)+32)
 	buf = codec.EncodeUint(buf, l.startTS)
 	buf = codec.EncodeCompactBytes(buf, l.primary)
 	buf = codec.EncodeCompactBytes(buf, l.value)
@@ -885,10 +956,13 @@ func (l *mvccLock) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-func (l *mvccLock) toError(key []byte) *ErrLocked {
-	var nKey []byte
+func (l *mvccLock) toError(mvKey []byte) *ErrLocked {
+	rawKey, _, err := mvDecode(mvKey, nil)
+	if err != nil {
+		log.Error(err)
+	}
 	return &ErrLocked{
-		Key:     append(nKey, key...),
+		Key:     rawKey,
 		StartTS: l.startTS,
 		Primary: l.primary,
 		TTL:     l.ttl,

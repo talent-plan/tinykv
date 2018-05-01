@@ -23,9 +23,9 @@ import (
 )
 
 var (
-	InternalKeyPrefix        = `i`
-	InternalRegionMetaPrefix = []byte(InternalKeyPrefix + "region")
-	InternalStoreMetaKey     = []byte(InternalKeyPrefix + "store")
+	InternalKeyPrefix        = []byte(`i`)
+	InternalRegionMetaPrefix = append(InternalKeyPrefix, "region"...)
+	InternalStoreMetaKey     = append(InternalKeyPrefix, "store"...)
 )
 
 func InternalRegionMetaKey(regionId uint64) []byte {
