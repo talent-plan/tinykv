@@ -55,7 +55,7 @@ func (store *MVCCStore) mvGet(txnIt *badger.Iterator, key []byte, startTS uint64
 			if err != nil {
 				return 0, nil, errors.Trace(err)
 			}
-			if lock.startTS > startTS {
+			if lock.startTS > startTS && lock.op != kvrpcpb.Op_Lock {
 				txnIt.Next()
 				continue
 			}
@@ -287,43 +287,48 @@ func (store *MVCCStore) Rollback(keys [][]byte, startTS uint64) error {
 
 func (store *MVCCStore) rollbackKey(iter *badger.Iterator, txn *badger.Txn, key []byte, startTS uint64) error {
 	lockKey := mvEncode(key, lockVer)
-	iter.Seek(lockKey)
-	if iter.Valid() {
-		item := iter.Item()
-		foundMvccKey := item.Key()
-		var keyBuf [64]byte
-		foundKey, ts, err := mvDecode(foundMvccKey, keyBuf[:])
-		if err != nil {
-			return errors.Trace(err)
-		}
-		if bytes.Equal(foundKey, key) {
-			if ts == lockVer {
-				var lockVal []byte
-				lockVal, err = item.Value()
-				if err != nil {
-					return errors.Trace(err)
-				}
-				var lock mvccLock
-				err = lock.UnmarshalBinary(lockVal)
-				if err != nil {
-					return errors.Trace(err)
-				}
-				if lock.startTS == startTS {
-					err = txn.Delete(lockKey)
-					if err != nil {
-						return errors.Trace(err)
-					}
-				}
-			} else if ts >= startTS {
-				// Already committed or rollbacked.
-				return nil
-			}
-		}
+	item, err := txn.Get(lockKey)
+	if err != nil && err != badger.ErrKeyNotFound {
+		return errors.Trace(err)
 	}
 	tomb := mvccValue{
 		valueType: typeRollback,
 		startTS:   startTS,
 		commitTS:  startTS,
+	}
+	if err == nil {
+		lock, err1 := decodeLock(item)
+		if err1 != nil {
+			return errors.Trace(err)
+		}
+		if lock.startTS == startTS {
+			err = txn.Delete(lockKey)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			return txn.Set(mvEncode(key, startTS), tomb.MarshalBinary())
+		}
+	}
+	// find greater commit version.
+	for iter.Seek(lockKey); iter.ValidForPrefix(lockKey[:len(lockKey)-8]); iter.Next() {
+		item := iter.Item()
+		foundMvccKey := item.Key()
+		if isLockKey(foundMvccKey) {
+			// already handled.
+			continue
+		}
+		if isVisibleKey(foundMvccKey, startTS) {
+			break
+		}
+		var keyBuf [64]byte
+		_, ts, err := mvDecode(foundMvccKey, keyBuf[:])
+		if err != nil {
+			return errors.Trace(err)
+		}
+		mvVal, err := decodeValue(item)
+		if mvVal.startTS == startTS {
+			return ErrAlreadyCommitted(ts)
+		}
 	}
 	writeKey := mvEncode(key, startTS)
 	writeValue := tomb.MarshalBinary()
@@ -349,7 +354,7 @@ func (store *MVCCStore) Scan(startKey, endKey []byte, limit int, startTS uint64)
 				return nil
 			}
 			pairs = append(pairs, pair)
-			nearSeek(iter, mvEncode(pair.Key, 0))
+			nextKey(iter, pair.Key)
 		}
 		return nil
 	})
@@ -359,15 +364,17 @@ func (store *MVCCStore) Scan(startKey, endKey []byte, limit int, startTS uint64)
 	return pairs
 }
 
-func nearSeek(iter *badger.Iterator, mvSeekKey []byte) {
+func nextKey(iter *badger.Iterator, currentKey []byte) {
+	minVerCurrentKey := mvEncode(currentKey, 0)
 	cnt := 0
+	iter.Next()
 	for iter.Valid() {
 		item := iter.Item()
-		if reachBound(item.Key(), mvSeekKey) {
+		if bytes.Compare(item.Key(), minVerCurrentKey) >= 0 {
 			return
 		}
 		if cnt > 16 {
-			iter.Seek(mvSeekKey)
+			iter.Seek(minVerCurrentKey)
 			return
 		}
 		cnt++
@@ -381,7 +388,7 @@ func getPairWithStartTS(iter *badger.Iterator, mvEndKey []byte, startTS uint64) 
 	for iter.Valid() {
 		item := iter.Item()
 		mvFoundKey := item.Key()
-		if reachBound(mvFoundKey, mvEndKey) {
+		if exceedEndKey(mvFoundKey, mvEndKey) {
 			return
 		}
 		if isLockKey(mvFoundKey) {
@@ -390,7 +397,7 @@ func getPairWithStartTS(iter *badger.Iterator, mvEndKey []byte, startTS uint64) 
 				pair.Err = err
 				return
 			}
-			if lock.startTS < startTS {
+			if lock.startTS < startTS && lock.op != kvrpcpb.Op_Lock {
 				pair.Err = lock.toError(mvFoundKey)
 				return
 			}
@@ -412,8 +419,12 @@ func getPairWithStartTS(iter *badger.Iterator, mvEndKey []byte, startTS uint64) 
 			pair.Err = err
 			return
 		}
-		if mvVal.valueType == typeRollback || mvVal.valueType == typeDelete {
-			nearSeek(iter, mvEncode(foundKey, 0))
+		if mvVal.valueType == typeRollback {
+			iter.Next()
+			continue
+		}
+		if mvVal.valueType == typeDelete {
+			nextKey(iter, foundKey)
 			continue
 		}
 		pair.Key = append(pair.Key[:0], foundKey...)
@@ -483,7 +494,7 @@ func getPairWithStartTSReverse(iter *badger.Iterator, mvStartKey []byte, startTS
 				pair.Err = err1
 				return
 			}
-			if lock.startTS < startTS {
+			if lock.startTS < startTS && lock.op != kvrpcpb.Op_Lock {
 				pair.Err = lock.toError(mvFoundKey)
 				return
 			}
@@ -529,9 +540,6 @@ func (store *MVCCStore) Cleanup(key []byte, startTS uint64) error {
 		defer iter.Close()
 		return store.rollbackKey(iter, txn, key, startTS)
 	})
-	if err != nil {
-		log.Error(err)
-	}
 	return err
 }
 
@@ -565,7 +573,7 @@ func (store *MVCCStore) ScanLock(mvStartKey, mvEndKey []byte, limit int, maxTS u
 func (store *MVCCStore) scanOneLock(iter *badger.Iterator, mvEndKey []byte, maxTS uint64) (*kvrpcpb.LockInfo, error) {
 	for iter.Valid() {
 		item := iter.Item()
-		if reachBound(item.Key(), mvEndKey) {
+		if exceedEndKey(item.Key(), mvEndKey) {
 			return nil, nil
 		}
 		if isLockKey(item.Key()) {
@@ -601,7 +609,7 @@ func (store *MVCCStore) ResolveLock(mvStartKey, mvEndKey []byte, startTS, commit
 		defer iter.Close()
 		for iter.Seek(mvStartKey); iter.Valid(); iter.Next() {
 			item := iter.Item()
-			if reachBound(item.Key(), mvEndKey) {
+			if exceedEndKey(item.Key(), mvEndKey) {
 				return nil
 			}
 			if isLockKey(item.Key()) {
@@ -707,7 +715,7 @@ func (store *MVCCStore) DeleteRange(startKey, endKey []byte) error {
 				item := iter.Item()
 				mvKey := item.KeyCopy(nil)
 				mvSeekKey = mvKey
-				if reachBound(mvKey, mvEndKey) {
+				if exceedEndKey(mvKey, mvEndKey) {
 					break
 				}
 				keys = append(keys, mvKey)
@@ -751,7 +759,7 @@ func (store *MVCCStore) GC(mvStartKey, mvEndKey []byte, safePoint uint64) error 
 		iter := store.newIterator(txn)
 		for iter.Seek(mvSeekKey); iter.Valid(); iter.Next() {
 			item := iter.Item()
-			if reachBound(item.Key(), mvEndKey) {
+			if exceedEndKey(item.Key(), mvEndKey) {
 				break
 			}
 			if bytes.HasPrefix(item.Key(), InternalKeyPrefix) {

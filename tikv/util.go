@@ -19,6 +19,6 @@ func updateWithRetry(db *badger.DB, updateFunc func(txn *badger.Txn) error) erro
 	return ErrRetryable("badger retry limit reached, try again later")
 }
 
-func reachBound(current, bound []byte) bool {
-	return len(bound) > 0 && bytes.Compare(current, bound) >= 0
+func exceedEndKey(current, endKey []byte) bool {
+	return len(endKey) > 0 && bytes.Compare(current, endKey) >= 0
 }

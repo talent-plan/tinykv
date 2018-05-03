@@ -110,7 +110,14 @@ func (svr *Server) KvCleanup(ctx context.Context, req *kvrpcpb.CleanupRequest) (
 	}
 	regInfo.assertContainsKey(req.Key)
 	err := svr.mvccStore.Cleanup(req.Key, req.StartVersion)
-	return &kvrpcpb.CleanupResponse{Error: convertToKeyError(err)}, nil
+	resp := new(kvrpcpb.CleanupResponse)
+	if committed, ok := err.(ErrAlreadyCommitted); ok {
+		resp.CommitVersion = uint64(committed)
+	} else if err != nil {
+		log.Error(err)
+		resp.Error = convertToKeyError(err)
+	}
+	return resp, nil
 }
 
 func (svr *Server) KvBatchGet(ctx context.Context, req *kvrpcpb.BatchGetRequest) (*kvrpcpb.BatchGetResponse, error) {
