@@ -44,7 +44,9 @@ func (svr *Server) handleCopAnalyzeRequest(regInfo *regionInfo, req *coprocessor
 		resp, err = svr.handleAnalyzeColumnsReq(ranges, analyzeReq)
 	}
 	if err != nil {
-		resp.OtherError = err.Error()
+		resp = &coprocessor.Response{
+			OtherError: err.Error(),
+		}
 	}
 	return resp
 }

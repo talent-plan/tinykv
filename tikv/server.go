@@ -1,8 +1,6 @@
 package tikv
 
 import (
-	"bytes"
-
 	"github.com/dgraph-io/badger"
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
@@ -64,6 +62,9 @@ func (svr *Server) KvScan(ctx context.Context, req *kvrpcpb.ScanRequest) (*kvrpc
 		return &kvrpcpb.ScanResponse{RegionError: regErr}, nil
 	}
 	regInfo.assertContainsKey(req.StartKey)
+	if !isMvccRegion(regInfo) {
+		return &kvrpcpb.ScanResponse{}, nil
+	}
 	pairs := svr.mvccStore.Scan(req.GetStartKey(), regInfo.rawEndKey(), int(req.GetLimit()), req.GetVersion())
 	return &kvrpcpb.ScanResponse{
 		Pairs: convertToPbPairs(pairs),
@@ -158,7 +159,10 @@ func (svr *Server) KvScanLock(ctx context.Context, req *kvrpcpb.ScanLockRequest)
 		return &kvrpcpb.ScanLockResponse{RegionError: regErr}, nil
 	}
 	regInfo.assertContainsKey(req.StartKey)
-	locks, err := svr.mvccStore.ScanLock(mvEncode(req.StartKey, lockVer), regInfo.meta.EndKey, int(req.Limit), req.MaxVersion)
+	if !isMvccRegion(regInfo) {
+		return &kvrpcpb.ScanLockResponse{}, nil
+	}
+	locks, err := svr.mvccStore.ScanLock(encodeMVKey(req.StartKey), regInfo.meta.EndKey, int(req.Limit), req.MaxVersion)
 	return &kvrpcpb.ScanLockResponse{Error: convertToKeyError(err), Locks: locks}, nil
 }
 
@@ -166,6 +170,9 @@ func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRe
 	regInfo, regErr := svr.regionManager.getRegionFromCtx(req.GetContext())
 	if regErr != nil {
 		return &kvrpcpb.ResolveLockResponse{RegionError: regErr}, nil
+	}
+	if !isMvccRegion(regInfo) {
+		return &kvrpcpb.ResolveLockResponse{}, nil
 	}
 	log.Debugf("kv resolve lock %v start:%x end:%x", extractPhysicalTime(req.StartVersion), regInfo.meta.StartKey, regInfo.meta.EndKey)
 	err := svr.mvccStore.ResolveLock(regInfo.meta.StartKey, regInfo.meta.EndKey, req.StartVersion, req.CommitVersion, &regInfo.diff)
@@ -178,6 +185,9 @@ func (svr *Server) KvGC(ctx context.Context, req *kvrpcpb.GCRequest) (*kvrpcpb.G
 	if regErr != nil {
 		return &kvrpcpb.GCResponse{RegionError: regErr}, nil
 	}
+	if !isMvccRegion(regInfo) {
+		return &kvrpcpb.GCResponse{}, nil
+	}
 	err := svr.mvccStore.GC(regInfo.meta.StartKey, regInfo.meta.EndKey, req.SafePoint)
 	return &kvrpcpb.GCResponse{Error: convertToKeyError(err)}, nil
 }
@@ -188,6 +198,9 @@ func (svr *Server) KvDeleteRange(ctx context.Context, req *kvrpcpb.DeleteRangeRe
 		return &kvrpcpb.DeleteRangeResponse{RegionError: regErr}, nil
 	}
 	regInfo.assertContainsRange(&coprocessor.KeyRange{Start: req.StartKey, End: req.EndKey})
+	if !isMvccRegion(regInfo) {
+		return &kvrpcpb.DeleteRangeResponse{}, nil
+	}
 	err := svr.mvccStore.DeleteRange(req.StartKey, req.EndKey)
 	if err != nil {
 		log.Error(err)
@@ -333,7 +346,10 @@ func convertToPbPairs(pairs []Pair) []*kvrpcpb.KvPair {
 	return kvPairs
 }
 
-func regionContains(startKey []byte, endKey []byte, key []byte) bool {
-	return bytes.Compare(startKey, key) <= 0 &&
-		(bytes.Compare(key, endKey) < 0 || len(endKey) == 0)
+func isMvccRegion(regInfo *regionInfo) bool {
+	if len(regInfo.meta.StartKey) == 0 {
+		return false
+	}
+	first := regInfo.meta.StartKey[0]
+	return first == 't' || first == 'm'
 }
