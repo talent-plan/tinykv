@@ -1,6 +1,8 @@
 package tikv
 
 import (
+	"sync"
+
 	"github.com/dgraph-io/badger"
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
@@ -17,12 +19,17 @@ var _ tikvpb.TikvServer = new(Server)
 type Server struct {
 	mvccStore     MVCCStore
 	regionManager *RegionManager
+	resolveCache  *resolveCache
 }
 
 func NewServer(rm *RegionManager, db *badger.DB) *Server {
 	return &Server{
 		mvccStore:     MVCCStore{db: db},
 		regionManager: rm,
+		resolveCache: &resolveCache{
+			oldMap: make(map[resolveTask]*sync.WaitGroup),
+			newMap: make(map[resolveTask]*sync.WaitGroup),
+		},
 	}
 }
 
@@ -174,9 +181,25 @@ func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRe
 	if !isMvccRegion(regInfo) {
 		return &kvrpcpb.ResolveLockResponse{}, nil
 	}
-	log.Debugf("kv resolve lock %v start:%x end:%x", extractPhysicalTime(req.StartVersion), regInfo.meta.StartKey, regInfo.meta.EndKey)
-	err := svr.mvccStore.ResolveLock(regInfo.meta.StartKey, regInfo.meta.EndKey, req.StartVersion, req.CommitVersion, &regInfo.diff)
-	return &kvrpcpb.ResolveLockResponse{Error: convertToKeyError(err)}, nil
+	task := resolveTask{
+		regionID:  regInfo.meta.Id,
+		regionVer: regInfo.meta.RegionEpoch.Version,
+		txnID:     req.StartVersion,
+	}
+	resp := &kvrpcpb.ResolveLockResponse{}
+	wg, resolved := svr.resolveCache.check(task)
+	if resolved {
+		wg.Wait()
+	} else {
+		defer wg.Done()
+		log.Debugf("kv resolve lock region:%d txn:%v ", regInfo.meta.Id, req.StartVersion)
+		err := svr.mvccStore.ResolveLock(regInfo.meta.StartKey, regInfo.meta.EndKey, req.StartVersion, req.CommitVersion, &regInfo.diff)
+		if err != nil {
+			svr.resolveCache.clear(task)
+			resp.Error = convertToKeyError(err)
+		}
+	}
+	return resp, nil
 }
 
 func (svr *Server) KvGC(ctx context.Context, req *kvrpcpb.GCRequest) (*kvrpcpb.GCResponse, error) {

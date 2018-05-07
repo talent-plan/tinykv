@@ -312,13 +312,19 @@ func (store *MVCCStore) rollbackKey(txn *badger.Txn, key []byte, startTS uint64)
 	}
 	if mixed.hasLock() {
 		lock := mixed.lock
-		if lock.startTS < startTS && lock.rollbackTS < startTS {
+		if lock.startTS < startTS {
+			if lock.rollbackTS >= startTS {
+				return nil
+			}
 			// The lock is old, means this is written by an old transaction, and the current transaction may not arrive.
 			// We should append the startTS to the lock as rollbackTS.
 			lock.rollbackTS = startTS
 			return txn.SetWithMeta(mvKey, mixed.MarshalBinary(), mixed.mixedType)
 		}
 		if lock.startTS == startTS {
+			if lock.op == kvrpcpb.Op_Rollback {
+				return nil
+			}
 			// We can not simply delete the lock because the prewrite may be sent multiple times.
 			// To prevent that we update it a rollback lock.
 			mixed.lock = mvccLock{startTS: startTS, op: kvrpcpb.Op_Rollback}
@@ -510,7 +516,7 @@ func (store *MVCCStore) ScanLock(mvStartKey, mvEndKey []byte, limit int, maxTS u
 			if exceedEndKey(item.Key(), mvEndKey) {
 				return nil
 			}
-			if item.UserMeta() & mixedLockFlag == 0 {
+			if item.UserMeta()&mixedLockFlag == 0 {
 				continue
 			}
 			mixed, err := decodeMixed(item)
@@ -540,6 +546,7 @@ func (store *MVCCStore) ScanLock(mvStartKey, mvEndKey []byte, limit int, maxTS u
 
 func (store *MVCCStore) ResolveLock(mvStartKey, mvEndKey []byte, startTS, commitTS uint64, diff *int64) error {
 	var lockKeys [][]byte
+	var lockVers []uint64
 	err := store.db.View(func(txn *badger.Txn) error {
 		iter := store.newIterator(txn)
 		defer iter.Close()
@@ -555,7 +562,12 @@ func (store *MVCCStore) ResolveLock(mvStartKey, mvEndKey []byte, startTS, commit
 			if mixed.hasLock() {
 				lock := mixed.lock
 				if lock.startTS == startTS {
-					lockKeys = append(lockKeys, item.KeyCopy([]byte{}))
+					lockKey, err1 := decodeRawKey(item.Key())
+					if err1 != nil {
+						return errors.Trace(err1)
+					}
+					lockKeys = append(lockKeys, lockKey)
+					lockVers = append(lockVers, item.Version())
 				}
 			}
 		}
@@ -567,8 +579,15 @@ func (store *MVCCStore) ResolveLock(mvStartKey, mvEndKey []byte, startTS, commit
 	var tmpDiff int64
 	err = updateWithRetry(store.db, func(txn *badger.Txn) error {
 		tmpDiff = 0
-		for _, lockKey := range lockKeys {
-			var err error
+		for i, lockKey := range lockKeys {
+			mvKey := encodeMVKey(lockKey)
+			item, err := txn.Get(mvKey)
+			if err != nil && err != badger.ErrKeyNotFound {
+				return errors.Trace(err)
+			}
+			if item.Version() != lockVers[i] {
+				continue
+			}
 			if commitTS > 0 {
 				err = store.commitKey(txn, lockKey, startTS, commitTS, &tmpDiff)
 			} else {
@@ -581,7 +600,7 @@ func (store *MVCCStore) ResolveLock(mvStartKey, mvEndKey []byte, startTS, commit
 		return nil
 	})
 	if err != nil {
-		log.Error(err)
+		log.Errorf("resolve lock failed with %d locks, %v", len(lockKeys), err)
 		return errors.Trace(err)
 	}
 	atomic.AddInt64(diff, tmpDiff)
