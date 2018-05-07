@@ -130,15 +130,22 @@ func (store *MVCCStore) BatchGet(keys [][]byte, startTS uint64) []Pair {
 
 func (store *MVCCStore) Prewrite(mutations []*kvrpcpb.Mutation, primary []byte, startTS uint64, ttl uint64) []error {
 	errs := make([]error, 0, len(mutations))
+	var anyError bool
 	err := updateWithRetry(store.db, func(txn *badger.Txn) error {
 		errs = errs[:0]
 		for _, m := range mutations {
 			err1 := store.prewriteMutation(txn, m, primary, startTS, ttl)
+			if err1 != nil {
+				anyError = true
+			}
 			errs = append(errs, err1)
+		}
+		if anyError {
+			return ErrWriteConflict
 		}
 		return nil
 	})
-	if err != nil {
+	if err != nil && err != ErrWriteConflict {
 		log.Error(err)
 		return []error{err}
 	}

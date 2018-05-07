@@ -1,6 +1,9 @@
 package tikv
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/pkg/errors"
+)
 
 // ErrLocked is returned when trying to Read/Write on a locked key. Client should
 // backoff or cleanup the lock then retry.
@@ -22,6 +25,8 @@ type ErrRetryable string
 func (e ErrRetryable) Error() string {
 	return fmt.Sprintf("retryable: %s", string(e))
 }
+
+var ErrWriteConflict = errors.New("write conflict")
 
 // ErrAbort means something is wrong and client should abort the txn.
 type ErrAbort string
