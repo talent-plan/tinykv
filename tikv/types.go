@@ -136,8 +136,9 @@ func decodeLock(item *badger.Item) (mvccLock, error) {
 }
 
 const (
-	mixedLockFlag  byte = 1
-	mixedValueFlag byte = 2
+	mixedLockFlag  byte = 1 << 0
+	mixedValueFlag byte = 1 << 1
+	mixedDelFlag   byte = 1 << 2
 )
 
 type mixedValue struct {
@@ -152,6 +153,10 @@ func (mixed *mixedValue) hasLock() bool {
 
 func (mixed *mixedValue) hasValue() bool {
 	return mixed.mixedType&mixedValueFlag > 0
+}
+
+func (mixed *mixedValue) isDelete() bool {
+	return mixed.mixedType&mixedDelFlag > 0
 }
 
 func (mixed *mixedValue) unsetLock() {

@@ -252,6 +252,7 @@ func (store *MVCCStore) commitLock(txn *badger.Txn, mvKey []byte, mixed mixedVal
 		valueType = typePut
 	} else {
 		valueType = typeDelete
+		mixed.mixedType |= mixedDelFlag
 	}
 	mixed.mixedType |= mixedValueFlag
 	mixed.val = mvccValue{
@@ -638,7 +639,7 @@ func (store *MVCCStore) DeleteRange(startKey, endKey []byte) error {
 		log.Error(err)
 		return errors.Trace(err)
 	}
-	err = store.deleteKeysInBatch(keys)
+	err = store.deleteKeysInBatch(keys, delRangeBatchSize)
 	if err != nil {
 		log.Error(err)
 	}
@@ -660,9 +661,9 @@ func (store *MVCCStore) collectRangeKeys(iter *badger.Iterator, mvStartKey, mvEn
 	return keys
 }
 
-func (store *MVCCStore) deleteKeysInBatch(keys [][]byte) error {
+func (store *MVCCStore) deleteKeysInBatch(keys [][]byte, batchSize int) error {
 	for len(keys) > 0 {
-		batchSize := mathutil.Min(len(keys), delRangeBatchSize)
+		batchSize := mathutil.Min(len(keys), batchSize)
 		batchKeys := keys[:batchSize]
 		keys = keys[batchSize:]
 		err := updateWithRetry(store.db, func(txn *badger.Txn) error {
@@ -685,8 +686,82 @@ func (store *MVCCStore) deleteKeysInBatch(keys [][]byte) error {
 const gcBatchSize = 256
 
 func (store *MVCCStore) GC(mvStartKey, mvEndKey []byte, safePoint uint64) error {
-	// TODO:
-	return nil
+	err := store.gcOldVersions(mvStartKey, mvEndKey, safePoint)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	err = store.gcDelAndRollbacks(mvStartKey, mvEndKey, safePoint)
+	return errors.Trace(err)
+}
+
+func (store *MVCCStore) gcOldVersions(mvStartKey, mvEndKey []byte, safePoint uint64) error {
+	var gcKeys [][]byte
+	err := store.db.View(func(txn *badger.Txn) error {
+		iter := store.newIterator(txn)
+		defer iter.Close()
+		oldStartKey := encodeOldKeyFromMVKey(mvStartKey, lockVer)
+		oldEndKey := encodeOldKeyFromMVKey(mvEndKey, lockVer)
+		for iter.Seek(oldStartKey); iter.Valid(); iter.Next() {
+			item := iter.Item()
+			if exceedEndKey(item.Key(), oldEndKey) {
+				return nil
+			}
+			mvKey := item.Key()
+			_, ts, err1 := codec.DecodeUintDesc(mvKey[len(mvKey)-8:])
+			if err1 != nil {
+				return errors.Trace(err1)
+			}
+			if ts <= safePoint {
+				gcKeys = append(gcKeys, item.KeyCopy(nil))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return errors.Trace(err)
+	}
+	log.Debugf("gc old keys %d", len(gcKeys))
+	err = store.deleteKeysInBatch(gcKeys, gcBatchSize)
+	return errors.Trace(err)
+}
+
+func (store *MVCCStore) gcDelAndRollbacks(mvStartKey, mvEndKey []byte, safePoint uint64) error {
+	var gcKeys [][]byte
+	err := store.db.View(func(txn *badger.Txn) error {
+		iter := store.newIterator(txn)
+		defer iter.Close()
+		for iter.Seek(mvStartKey); iter.Valid(); iter.Next() {
+			item := iter.Item()
+			if exceedEndKey(item.Key(), mvEndKey) {
+				return nil
+			}
+			flag := item.UserMeta()
+			if flag&mixedDelFlag > 0 || flag&mixedLockFlag > 0 {
+				mixed, err := decodeMixed(item)
+				if err != nil {
+					return errors.Trace(err)
+				}
+				if mixed.hasLock() {
+					lock := mixed.lock
+					if lock.op == kvrpcpb.Op_Rollback && lock.startTS <= safePoint {
+						gcKeys = append(gcKeys, item.KeyCopy(nil))
+					}
+				} else if mixed.isDelete() {
+					if mixed.val.commitTS <= safePoint {
+						gcKeys = append(gcKeys, item.KeyCopy(nil))
+					}
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return errors.Trace(err)
+	}
+	log.Debugf("gc delete keys %d", len(gcKeys))
+	err = store.deleteKeysInBatch(gcKeys, gcBatchSize)
+	return errors.Trace(err)
 }
 
 // Pair is a KV pair read from MvccStore or an error if any occurs.
