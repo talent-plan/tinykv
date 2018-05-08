@@ -728,6 +728,7 @@ func (store *MVCCStore) gcOldVersions(mvStartKey, mvEndKey []byte, safePoint uin
 
 func (store *MVCCStore) gcDelAndRollbacks(mvStartKey, mvEndKey []byte, safePoint uint64) error {
 	var gcKeys [][]byte
+	var gcKeyVers []uint64
 	err := store.db.View(func(txn *badger.Txn) error {
 		iter := store.newIterator(txn)
 		defer iter.Close()
@@ -750,6 +751,7 @@ func (store *MVCCStore) gcDelAndRollbacks(mvStartKey, mvEndKey []byte, safePoint
 				} else if mixed.isDelete() {
 					if mixed.val.commitTS <= safePoint {
 						gcKeys = append(gcKeys, item.KeyCopy(nil))
+						gcKeyVers = append(gcKeyVers, item.Version())
 					}
 				}
 			}
@@ -760,8 +762,42 @@ func (store *MVCCStore) gcDelAndRollbacks(mvStartKey, mvEndKey []byte, safePoint
 		return errors.Trace(err)
 	}
 	log.Debugf("gc delete keys %d", len(gcKeys))
-	err = store.deleteKeysInBatch(gcKeys, gcBatchSize)
+	err = store.gcDelKeysInBatch(gcKeys, gcKeyVers)
 	return errors.Trace(err)
+}
+
+func (store *MVCCStore) gcDelKeysInBatch(keys [][]byte, keyVers []uint64) error {
+	for len(keys) > 0 {
+		batchSize := mathutil.Min(len(keys), gcBatchSize)
+		batchKeys := keys[:batchSize]
+		batchKeyVers := keyVers[:batchSize]
+		keys = keys[batchSize:]
+		keyVers = keyVers[:batchSize]
+		err := updateWithRetry(store.db, func(txn *badger.Txn) error {
+			for i, key := range batchKeys {
+				item, err1 := txn.Get(key)
+				if err1 == badger.ErrKeyNotFound {
+					continue
+				}
+				if err1 != nil {
+					return errors.Trace(err1)
+				}
+				if item.Version() != batchKeyVers[i] {
+					continue
+				}
+				err1 = txn.Delete(key)
+				if err1 != nil {
+					return errors.Trace(err1)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			log.Error(err)
+			return errors.Trace(err)
+		}
+	}
+	return nil
 }
 
 // Pair is a KV pair read from MvccStore or an error if any occurs.
