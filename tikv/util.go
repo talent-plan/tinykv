@@ -2,6 +2,8 @@ package tikv
 
 import (
 	"bytes"
+	"time"
+
 	"github.com/dgraph-io/badger"
 )
 
@@ -21,4 +23,9 @@ func updateWithRetry(db *badger.DB, updateFunc func(txn *badger.Txn) error) erro
 
 func exceedEndKey(current, endKey []byte) bool {
 	return len(endKey) > 0 && bytes.Compare(current, endKey) >= 0
+}
+
+func extractPhysicalTime(ts uint64) time.Time {
+	t := int64(ts >> 18) // 18 is for the logical time.
+	return time.Unix(t/1e3, (t%1e3)*1e6)
 }

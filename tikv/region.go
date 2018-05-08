@@ -43,7 +43,7 @@ func (ri *regionInfo) rawStartKey() []byte {
 	if len(ri.meta.StartKey) == 0 {
 		return nil
 	}
-	rawKey, _, err := mvDecode(ri.meta.StartKey, nil)
+	_, rawKey, err := codec.DecodeBytes(ri.meta.StartKey, nil)
 	if err != nil {
 		panic("invalid region start key")
 	}
@@ -54,7 +54,7 @@ func (ri *regionInfo) rawEndKey() []byte {
 	if len(ri.meta.EndKey) == 0 {
 		return nil
 	}
-	rawKey, _, err := mvDecode(ri.meta.EndKey, nil)
+	_, rawKey, err := codec.DecodeBytes(ri.meta.EndKey, nil)
 	if err != nil {
 		panic("invalid region end key")
 	}
@@ -186,55 +186,103 @@ func NewRegionManager(db *badger.DB, opts RegionOptions) *RegionManager {
 
 func (rm *RegionManager) initStore(storeAddr string) error {
 	log.Info("initializing store")
-	// allocate store id
-	storeID, err := rm.pdc.AllocID(context.Background())
+	ids, err := rm.allocIDs(3)
 	if err != nil {
 		return err
 	}
+	storeID, regionID, peerID := ids[0], ids[1], ids[2]
 	rm.storeMeta.Id = storeID
 	rm.storeMeta.Address = storeAddr
-
-	// allocate retion id
-	rid, err := rm.pdc.AllocID(context.Background())
-	if err != nil {
-		return err
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	rootRegion := &metapb.Region{
-		Id:          rid,
+		Id:          regionID,
 		RegionEpoch: &metapb.RegionEpoch{ConfVer: 1, Version: 1},
-		Peers:       []*metapb.Peer{&metapb.Peer{Id: rid, StoreId: rm.storeMeta.Id}},
+		Peers:       []*metapb.Peer{&metapb.Peer{Id: peerID, StoreId: storeID}},
 	}
 	rm.regions[rootRegion.Id] = &regionInfo{meta: rootRegion}
 	err = rm.pdc.Bootstrap(ctx, &rm.storeMeta, rootRegion)
 	cancel()
 	if err != nil {
 		log.Fatal("Initialize failed: ", err)
-	} else {
-		log.Info("Initialize success")
-		storeBuf, err := rm.storeMeta.Marshal()
-		if err != nil {
-			log.Fatal("%+v", err)
-		}
-
-		err = rm.db.Update(func(txn *badger.Txn) error {
-			txn.Set(InternalStoreMetaKey, storeBuf)
-			for rid, region := range rm.regions {
-				regionBuf := region.marshal()
-				err = txn.Set(InternalRegionMetaKey(rid), regionBuf)
-				if err != nil {
-					log.Fatal("%+v", err)
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			log.Fatal(err)
-		}
 	}
-
+	rm.initialSplit(rootRegion)
+	storeBuf, err := rm.storeMeta.Marshal()
+	if err != nil {
+		log.Fatal("%+v", err)
+	}
+	err = rm.db.Update(func(txn *badger.Txn) error {
+		txn.Set(InternalStoreMetaKey, storeBuf)
+		for rid, region := range rm.regions {
+			regionBuf := region.marshal()
+			err = txn.Set(InternalRegionMetaKey(rid), regionBuf)
+			if err != nil {
+				log.Fatal("%+v", err)
+			}
+		}
+		return nil
+	})
+	for _, region := range rm.regions {
+		rm.pdc.ReportRegion(region)
+	}
+	log.Info("Initialize success")
 	return nil
+}
+
+// initSplit splits the cluster into 5 regions, [nil, 'm'), ['m', 'n'), ['n', 't'), ('t', 'u'), ['u', nil)
+func (rm *RegionManager) initialSplit(root *metapb.Region) {
+	// allocate retion id
+	ids, err := rm.allocIDs(8)
+	if err != nil {
+		log.Fatal(err)
+	}
+	root.EndKey = codec.EncodeBytes(nil, []byte{'m'})
+	root.RegionEpoch.Version = 2
+	newRegions := []*metapb.Region{
+		root,
+		{
+			Id:          ids[0],
+			RegionEpoch: &metapb.RegionEpoch{ConfVer: 1, Version: 1},
+			Peers:       []*metapb.Peer{&metapb.Peer{Id: ids[1], StoreId: rm.storeMeta.Id}},
+			StartKey:    codec.EncodeBytes(nil, []byte{'m'}),
+			EndKey:      codec.EncodeBytes(nil, []byte{'n'}),
+		},
+		{
+			Id:          ids[2],
+			RegionEpoch: &metapb.RegionEpoch{ConfVer: 1, Version: 1},
+			Peers:       []*metapb.Peer{&metapb.Peer{Id: ids[3], StoreId: rm.storeMeta.Id}},
+			StartKey:    codec.EncodeBytes(nil, []byte{'n'}),
+			EndKey:      codec.EncodeBytes(nil, []byte{'t'}),
+		},
+		{
+			Id:          ids[4],
+			RegionEpoch: &metapb.RegionEpoch{ConfVer: 1, Version: 1},
+			Peers:       []*metapb.Peer{&metapb.Peer{Id: ids[5], StoreId: rm.storeMeta.Id}},
+			StartKey:    codec.EncodeBytes(nil, []byte{'t'}),
+			EndKey:      codec.EncodeBytes(nil, []byte{'u'}),
+		},
+		{
+			Id:          ids[6],
+			RegionEpoch: &metapb.RegionEpoch{ConfVer: 1, Version: 1},
+			Peers:       []*metapb.Peer{&metapb.Peer{Id: ids[7], StoreId: rm.storeMeta.Id}},
+			StartKey:    codec.EncodeBytes(nil, []byte{'u'}),
+			EndKey:      []byte{},
+		},
+	}
+	for _, region := range newRegions {
+		rm.regions[region.Id] = &regionInfo{meta: region}
+	}
+}
+
+func (rm *RegionManager) allocIDs(n int) ([]uint64, error) {
+	ids := make([]uint64, n)
+	for i := 0; i < n; i++ {
+		id, err := rm.pdc.AllocID(context.Background())
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		ids[i] = id
+	}
+	return ids, nil
 }
 
 func (rm *RegionManager) storeHeartBeatLoop() {
@@ -335,8 +383,7 @@ func (s *sampler) getSplitKeyAndSize() ([]byte, int64) {
 	targetSize := s.totalSize * 2 / 3
 	for _, sample := range s.samples[:s.length] {
 		if sample.leftSize >= targetSize {
-			// remove the last 8 bytes to make a key with all its version in one region.
-			return sample.key[:len(sample.key)-8], sample.leftSize
+			return sample.key, sample.leftSize
 		}
 	}
 	return []byte{}, 0
@@ -413,6 +460,8 @@ func (rm *RegionManager) splitCheckRegion(region *regionInfo) error {
 	}
 	splitKey, leftSize := s.getSplitKeyAndSize()
 	log.Infof("region:%d leftSize %d, rightSize %d", region.meta.Id, leftSize, s.totalSize-leftSize)
+	_, _, err = codec.DecodeBytes(splitKey, nil)
+	log.Info("splitKey", splitKey, err)
 	err = rm.splitRegion(region.meta, splitKey, s.totalSize, leftSize)
 	if err != nil {
 		log.Error(err)
