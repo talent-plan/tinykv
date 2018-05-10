@@ -747,6 +747,7 @@ func (store *MVCCStore) gcDelAndRollbacks(mvStartKey, mvEndKey []byte, safePoint
 					lock := mixed.lock
 					if lock.op == kvrpcpb.Op_Rollback && lock.startTS <= safePoint {
 						gcKeys = append(gcKeys, item.KeyCopy(nil))
+						gcKeyVers = append(gcKeyVers, item.Version())
 					}
 				} else if mixed.isDelete() {
 					if mixed.val.commitTS <= safePoint {
