@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"time"
 
-	"github.com/dgraph-io/badger"
+	"github.com/coocood/badger"
 )
 
 func updateWithRetry(db *badger.DB, updateFunc func(txn *badger.Txn) error) error {
