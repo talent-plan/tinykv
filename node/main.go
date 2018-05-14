@@ -6,8 +6,8 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 
-	"github.com/dgraph-io/badger"
-	"github.com/dgraph-io/badger/options"
+	"github.com/coocood/badger"
+	"github.com/coocood/badger/options"
 	"github.com/ngaut/faketikv/tikv"
 	"github.com/ngaut/log"
 	"github.com/pingcap/kvproto/pkg/tikvpb"

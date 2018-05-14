@@ -3,7 +3,7 @@ package tikv
 import (
 	"sync"
 
-	"github.com/dgraph-io/badger"
+	"github.com/coocood/badger"
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
