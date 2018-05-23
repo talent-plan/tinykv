@@ -206,7 +206,7 @@ func (e *analyzeColumnsExec) NewChunk() *chunk.Chunk {
 	for _, field := range e.fields {
 		fields = append(fields, &field.Column.FieldType)
 	}
-	return chunk.NewChunk(fields)
+	return chunk.NewChunkWithCapacity(fields, 32)
 }
 
 // Close implements the ast.RecordSet Close interface.
