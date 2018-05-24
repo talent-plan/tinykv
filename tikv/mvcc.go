@@ -552,7 +552,7 @@ func (store *MVCCStore) ReverseScan(startKey, endKey []byte, limit int, startTS 
 	if err != nil {
 		return []Pair{{Err: err}}
 	}
-	return nil
+	return pairs
 }
 
 func (store *MVCCStore) Cleanup(regCtx *regionCtx, key []byte, startTS uint64) error {
