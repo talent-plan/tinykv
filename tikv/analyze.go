@@ -19,7 +19,7 @@ import (
 	"golang.org/x/net/context"
 )
 
-func (svr *Server) handleCopAnalyzeRequest(regInfo *regionInfo, req *coprocessor.Request) *coprocessor.Response {
+func (svr *Server) handleCopAnalyzeRequest(regInfo *regionCtx, req *coprocessor.Request) *coprocessor.Response {
 	resp := &coprocessor.Response{}
 	if len(req.Ranges) == 0 {
 		return resp

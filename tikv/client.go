@@ -33,7 +33,7 @@ type Client interface {
 	AllocID(ctx context.Context) (uint64, error)
 	Bootstrap(ctx context.Context, store *metapb.Store, region *metapb.Region) error
 	PutStore(ctx context.Context, store *metapb.Store) error
-	ReportRegion(regInfo *regionInfo)
+	ReportRegion(regInfo *regionCtx)
 	StoreHeartbeat(ctx context.Context, stats *pdpb.StoreStats) error
 	Close()
 }
@@ -55,7 +55,7 @@ type client struct {
 	clientConn *grpc.ClientConn
 
 	receiveRegionHeartbeatCh chan *pdpb.RegionHeartbeatResponse
-	regionCh                 chan *regionInfo
+	regionCh                 chan *regionCtx
 
 	wg     sync.WaitGroup
 	ctx    context.Context
@@ -72,7 +72,7 @@ func NewClient(pdAddr string, tag string) (Client, error) {
 		ctx:      ctx,
 		cancel:   cancel,
 		tag:      tag,
-		regionCh: make(chan *regionInfo, 64),
+		regionCh: make(chan *regionCtx, 64),
 	}
 	cc, err := c.createConn()
 	if err != nil {
@@ -284,7 +284,7 @@ func (c *client) StoreHeartbeat(ctx context.Context, stats *pdpb.StoreStats) err
 	return nil
 }
 
-func (c *client) ReportRegion(regInfo *regionInfo) {
+func (c *client) ReportRegion(regInfo *regionCtx) {
 	c.regionCh <- regInfo
 }
 

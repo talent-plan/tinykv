@@ -4,22 +4,9 @@ import (
 	"bytes"
 	"time"
 
-	"github.com/coocood/badger"
+	"github.com/dgryski/go-farm"
+	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 )
-
-func updateWithRetry(db *badger.DB, updateFunc func(txn *badger.Txn) error) error {
-	for i := 0; i < 10; i++ {
-		err := db.Update(updateFunc)
-		if err == nil {
-			return nil
-		}
-		if err == badger.ErrConflict {
-			continue
-		}
-		return err
-	}
-	return ErrRetryable("badger retry limit reached, try again later")
-}
 
 func exceedEndKey(current, endKey []byte) bool {
 	return len(endKey) > 0 && bytes.Compare(current, endKey) >= 0
@@ -28,4 +15,20 @@ func exceedEndKey(current, endKey []byte) bool {
 func extractPhysicalTime(ts uint64) time.Time {
 	t := int64(ts >> 18) // 18 is for the logical time.
 	return time.Unix(t/1e3, (t%1e3)*1e6)
+}
+
+func mutationsToHashVals(mutations []*kvrpcpb.Mutation) []uint64 {
+	hashVals := make([]uint64, len(mutations))
+	for i, mut := range mutations {
+		hashVals[i] = farm.Fingerprint64(mut.Key)
+	}
+	return hashVals
+}
+
+func keysToHashVals(keys [][]byte) []uint64 {
+	hashVals := make([]uint64, len(keys))
+	for i, key := range keys {
+		hashVals[i] = farm.Fingerprint64(key)
+	}
+	return hashVals
 }

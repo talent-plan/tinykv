@@ -6,8 +6,8 @@ import (
 	"math"
 	"sync/atomic"
 
-	"github.com/cznic/mathutil"
 	"github.com/coocood/badger"
+	"github.com/cznic/mathutil"
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
@@ -16,7 +16,18 @@ import (
 
 // MVCCStore is a wrapper of badger.DB to provide MVCC functions.
 type MVCCStore struct {
-	db *badger.DB
+	db          *badger.DB
+	writeWorker *writeWorker
+}
+
+// NewMVCCStore creates a new MVCCStore
+func NewMVCCStore(db *badger.DB) *MVCCStore {
+	store := &MVCCStore{
+		db:          db,
+		writeWorker: &writeWorker{db: db},
+	}
+	go store.writeWorker.run()
+	return store
 }
 
 func (store *MVCCStore) Get(key []byte, startTS uint64) ([]byte, error) {
@@ -31,7 +42,7 @@ func (store *MVCCStore) Get(key []byte, startTS uint64) ([]byte, error) {
 	return result.value, result.err
 }
 
-func (store *MVCCStore) newIterator(txn *badger.Txn) *badger.Iterator {
+func newIterator(txn *badger.Txn) *badger.Iterator {
 	var itOpts = badger.DefaultIteratorOptions
 	itOpts.PrefetchValues = false
 	return txn.NewIterator(itOpts)
@@ -75,7 +86,7 @@ func (store *MVCCStore) mvGet(txn *badger.Txn, iter *badger.Iterator, key []byte
 	}
 	oldKey := encodeOldKeyFromMVKey(mvKey, startTS)
 	if iter == nil {
-		iter = store.newIterator(txn)
+		iter = newIterator(txn)
 	}
 	iter.Seek(oldKey)
 	if !iter.ValidForPrefix(oldKey[:len(oldKey)-8]) {
@@ -110,7 +121,7 @@ func (store *MVCCStore) checkLock(lock mvccLock, key []byte, startTS uint64) err
 func (store *MVCCStore) BatchGet(keys [][]byte, startTS uint64) []Pair {
 	var pairs []Pair
 	err := store.db.View(func(txn *badger.Txn) error {
-		iter := store.newIterator(txn)
+		iter := newIterator(txn)
 		defer iter.Close()
 		for _, key := range keys {
 			result := store.mvGet(txn, iter, key, startTS)
@@ -128,33 +139,42 @@ func (store *MVCCStore) BatchGet(keys [][]byte, startTS uint64) []Pair {
 	return pairs
 }
 
-func (store *MVCCStore) Prewrite(mutations []*kvrpcpb.Mutation, primary []byte, startTS uint64, ttl uint64) []error {
+func (store *MVCCStore) Prewrite(regCtx *regionCtx, mutations []*kvrpcpb.Mutation, primary []byte, startTS uint64, ttl uint64) []error {
+	hashVals := mutationsToHashVals(mutations)
+	ok, _ := regCtx.lock(hashVals)
+	if !ok {
+		return []error{ErrRetryable("write conflict")}
+	}
+	defer regCtx.unlock(hashVals)
 	errs := make([]error, 0, len(mutations))
+	batch := &writeBatch{entries: make([]*badger.Entry, 0, len(mutations))}
 	var anyError bool
-	err := updateWithRetry(store.db, func(txn *badger.Txn) error {
-		errs = errs[:0]
+	err := store.db.View(func(txn *badger.Txn) error {
 		for _, m := range mutations {
-			err1 := store.prewriteMutation(txn, m, primary, startTS, ttl)
+			err1 := batch.prewriteMutation(txn, m, primary, startTS, ttl)
 			if err1 != nil {
 				anyError = true
 			}
 			errs = append(errs, err1)
 		}
-		if anyError {
-			return ErrWriteConflict
-		}
 		return nil
 	})
-	if err != nil && err != ErrWriteConflict {
-		log.Error(err)
+	if err != nil {
 		return []error{err}
 	}
-	return errs
+	if anyError {
+		return errs
+	}
+	err = store.write(batch)
+	if err != nil {
+		return []error{err}
+	}
+	return nil
 }
 
 const lockVer uint64 = math.MaxUint64
 
-func (store *MVCCStore) prewriteMutation(txn *badger.Txn, mutation *kvrpcpb.Mutation, primary []byte, startTS uint64, ttl uint64) error {
+func (batch *writeBatch) prewriteMutation(txn *badger.Txn, mutation *kvrpcpb.Mutation, primary []byte, startTS uint64, ttl uint64) error {
 	mvKey := codec.EncodeBytes(nil, mutation.Key)
 	item, err := txn.Get(mvKey)
 	if err != nil && err != badger.ErrKeyNotFound {
@@ -191,16 +211,27 @@ func (store *MVCCStore) prewriteMutation(txn *badger.Txn, mutation *kvrpcpb.Muta
 		ttl:     ttl,
 	}
 	mixed.mixedType |= mixedLockFlag
-	return txn.SetWithMeta(mvKey, mixed.MarshalBinary(), mixed.mixedType)
+	batch.setWithMeta(mvKey, mixed.MarshalBinary(), mixed.mixedType)
+	return nil
 }
 
 // Commit implements the MVCCStore interface.
-func (store *MVCCStore) Commit(keys [][]byte, startTS, commitTS uint64, diff *int64) error {
+func (store *MVCCStore) Commit(regCtx *regionCtx, keys [][]byte, startTS, commitTS uint64, diff *int64) error {
+	hashVals := keysToHashVals(keys)
+	for {
+		ok, wg := regCtx.lock(hashVals)
+		if ok {
+			break
+		}
+		wg.Wait()
+	}
+	defer regCtx.unlock(hashVals)
+	batch := new(writeBatch)
 	var tmpDiff int64
-	err := updateWithRetry(store.db, func(txn *badger.Txn) error {
+	err := store.db.View(func(txn *badger.Txn) error {
 		tmpDiff = 0
 		for _, key := range keys {
-			err1 := store.commitKey(txn, key, startTS, commitTS, &tmpDiff)
+			err1 := batch.commitKey(txn, key, startTS, commitTS, &tmpDiff)
 			if err1 != nil {
 				return err1
 			}
@@ -211,10 +242,11 @@ func (store *MVCCStore) Commit(keys [][]byte, startTS, commitTS uint64, diff *in
 		return errors.Trace(err)
 	}
 	atomic.AddInt64(diff, tmpDiff)
-	return nil
+	err = store.write(batch)
+	return errors.Trace(err)
 }
 
-func (store *MVCCStore) commitKey(txn *badger.Txn, key []byte, startTS, commitTS uint64, diff *int64) error {
+func (batch *writeBatch) commitKey(txn *badger.Txn, key []byte, startTS, commitTS uint64, diff *int64) error {
 	mvKey := codec.EncodeBytes(nil, key)
 	item, err := txn.Get(mvKey)
 	if err != nil {
@@ -231,21 +263,20 @@ func (store *MVCCStore) commitKey(txn *badger.Txn, key []byte, startTS, commitTS
 	if lock.op == kvrpcpb.Op_Rollback {
 		return errors.New("already rollback")
 	}
-	return store.commitLock(txn, mvKey, mixed, startTS, commitTS, diff)
+	batch.commitLock(txn, mvKey, mixed, startTS, commitTS, diff)
+	return nil
 }
 
-func (store *MVCCStore) commitLock(txn *badger.Txn, mvKey []byte, mixed mixedValue, startTS, commitTS uint64, diff *int64) error {
+func (batch *writeBatch) commitLock(txn *badger.Txn, mvKey []byte, mixed mixedValue, startTS, commitTS uint64, diff *int64) {
 	lock := mixed.lock
 	if lock.op == kvrpcpb.Op_Lock {
-		return store.commitMixed(txn, mvKey, mixed, nil)
+		batch.commitMixed(mvKey, mixed, nil)
+		return
 	}
 	if mixed.hasValue() {
 		val := mixed.val
 		oldDataKey := encodeOldKeyFromMVKey(mvKey, val.commitTS)
-		err := txn.Set(oldDataKey, val.MarshalBinary())
-		if err != nil {
-			return errors.Trace(err)
-		}
+		batch.entries = append(batch.entries, &badger.Entry{Key: oldDataKey, Value: val.MarshalBinary()})
 	}
 	var valueType mvccValueType
 	if lock.op == kvrpcpb.Op_Put {
@@ -261,10 +292,11 @@ func (store *MVCCStore) commitLock(txn *badger.Txn, mvKey []byte, mixed mixedVal
 		commitTS:  commitTS,
 		value:     lock.value,
 	}
-	return store.commitMixed(txn, mvKey, mixed, diff)
+	batch.commitMixed(mvKey, mixed, diff)
+	return
 }
 
-func (store *MVCCStore) commitMixed(txn *badger.Txn, mvKey []byte, mixed mixedValue, diff *int64) error {
+func (batch *writeBatch) commitMixed(mvKey []byte, mixed mixedValue, diff *int64) {
 	rollbackTS := mixed.lock.rollbackTS
 	if rollbackTS != 0 {
 		// The rollback info is appended to the lock, we should reserve a rollback lock.
@@ -279,13 +311,24 @@ func (store *MVCCStore) commitMixed(txn *badger.Txn, mvKey []byte, mixed mixedVa
 	if diff != nil {
 		*diff += int64(len(mvKey) + len(mixedBin))
 	}
-	return txn.SetWithMeta(mvKey, mixed.MarshalBinary(), mixed.mixedType)
+	batch.setWithMeta(mvKey, mixed.MarshalBinary(), mixed.mixedType)
 }
 
-func (store *MVCCStore) Rollback(keys [][]byte, startTS uint64) error {
-	err1 := updateWithRetry(store.db, func(txn *badger.Txn) error {
+func (store *MVCCStore) Rollback(regCtx *regionCtx, keys [][]byte, startTS uint64) error {
+	hashVals := keysToHashVals(keys)
+	for {
+		ok, wg := regCtx.lock(hashVals)
+		if ok {
+			break
+		}
+		wg.Wait()
+	}
+	defer regCtx.unlock(hashVals)
+
+	wb := new(writeBatch)
+	err1 := store.db.View(func(txn *badger.Txn) error {
 		for _, key := range keys {
-			err := store.rollbackKey(txn, key, startTS)
+			err := wb.rollbackKey(txn, key, startTS)
 			if err != nil {
 				return err
 			}
@@ -294,11 +337,12 @@ func (store *MVCCStore) Rollback(keys [][]byte, startTS uint64) error {
 	})
 	if err1 != nil {
 		log.Error(err1)
+		return err1
 	}
-	return err1
+	return store.write(wb)
 }
 
-func (store *MVCCStore) rollbackKey(txn *badger.Txn, key []byte, startTS uint64) error {
+func (batch *writeBatch) rollbackKey(txn *badger.Txn, key []byte, startTS uint64) error {
 	mvKey := encodeMVKey(key)
 	item, err := txn.Get(mvKey)
 	if err != nil && err != badger.ErrKeyNotFound {
@@ -312,7 +356,8 @@ func (store *MVCCStore) rollbackKey(txn *badger.Txn, key []byte, startTS uint64)
 				startTS: startTS,
 				op:      kvrpcpb.Op_Rollback,
 			}}
-		return txn.SetWithMeta(mvKey, mixed.MarshalBinary(), mixed.mixedType)
+		batch.setWithMeta(mvKey, mixed.MarshalBinary(), mixed.mixedType)
+		return nil
 	}
 	mixed, err1 := decodeMixed(item)
 	if err1 != nil {
@@ -327,7 +372,8 @@ func (store *MVCCStore) rollbackKey(txn *badger.Txn, key []byte, startTS uint64)
 			// The lock is old, means this is written by an old transaction, and the current transaction may not arrive.
 			// We should append the startTS to the lock as rollbackTS.
 			lock.rollbackTS = startTS
-			return txn.SetWithMeta(mvKey, mixed.MarshalBinary(), mixed.mixedType)
+			batch.setWithMeta(mvKey, mixed.MarshalBinary(), mixed.mixedType)
+			return nil
 		}
 		if lock.startTS == startTS {
 			if lock.op == kvrpcpb.Op_Rollback {
@@ -336,7 +382,8 @@ func (store *MVCCStore) rollbackKey(txn *badger.Txn, key []byte, startTS uint64)
 			// We can not simply delete the lock because the prewrite may be sent multiple times.
 			// To prevent that we update it a rollback lock.
 			mixed.lock = mvccLock{startTS: startTS, op: kvrpcpb.Op_Rollback}
-			return txn.SetWithMeta(mvKey, mixed.MarshalBinary(), mixed.mixedType)
+			batch.setWithMeta(mvKey, mixed.MarshalBinary(), mixed.mixedType)
+			return nil
 		}
 	}
 	if !mixed.hasValue() {
@@ -350,10 +397,11 @@ func (store *MVCCStore) rollbackKey(txn *badger.Txn, key []byte, startTS uint64)
 		// Prewrite and commit have not arrived.
 		mixed.lock = mvccLock{startTS: startTS, op: kvrpcpb.Op_Rollback}
 		mixed.mixedType |= mixedLockFlag
-		return txn.SetWithMeta(mvKey, mixed.MarshalBinary(), mixed.mixedType)
+		batch.setWithMeta(mvKey, mixed.MarshalBinary(), mixed.mixedType)
+		return nil
 	}
 	// Look for the key in the old version.
-	iter := store.newIterator(txn)
+	iter := newIterator(txn)
 	oldKey := encodeOldKeyFromMVKey(mvKey, val.commitTS)
 	// find greater commit version.
 	for iter.Seek(oldKey); iter.ValidForPrefix(oldKey[:len(oldKey)-8]); iter.Next() {
@@ -377,7 +425,7 @@ func (store *MVCCStore) rollbackKey(txn *badger.Txn, key []byte, startTS uint64)
 func (store *MVCCStore) Scan(startKey, endKey []byte, limit int, startTS uint64) []Pair {
 	var pairs []Pair
 	err := store.db.View(func(txn *badger.Txn) error {
-		iter := store.newIterator(txn)
+		iter := newIterator(txn)
 		defer iter.Close()
 		mvStartKey := encodeMVKey(startKey)
 		mvEndKey := encodeMVKey(endKey)
@@ -407,7 +455,7 @@ func (store *MVCCStore) Scan(startKey, endKey []byte, limit int, startTS uint64)
 			mvVal := mixed.val
 			if mvVal.commitTS > startTS {
 				if oldIter == nil {
-					oldIter = store.newIterator(txn)
+					oldIter = newIterator(txn)
 				}
 				mvVal, err1 = store.getOldValue(oldIter, encodeOldKeyFromMVKey(item.Key(), startTS))
 				if err1 == badger.ErrKeyNotFound {
@@ -484,7 +532,7 @@ func (store *MVCCStore) ReverseScan(startKey, endKey []byte, limit int, startTS 
 			mvVal := mixed.val
 			if mvVal.commitTS > startTS {
 				if oldIter == nil {
-					oldIter = store.newIterator(txn)
+					oldIter = newIterator(txn)
 				}
 				mvVal, err1 = store.getOldValue(oldIter, encodeOldKeyFromMVKey(item.Key(), startTS))
 				if err1 == badger.ErrKeyNotFound {
@@ -507,17 +555,31 @@ func (store *MVCCStore) ReverseScan(startKey, endKey []byte, limit int, startTS 
 	return nil
 }
 
-func (store *MVCCStore) Cleanup(key []byte, startTS uint64) error {
-	err := updateWithRetry(store.db, func(txn *badger.Txn) error {
-		return store.rollbackKey(txn, key, startTS)
+func (store *MVCCStore) Cleanup(regCtx *regionCtx, key []byte, startTS uint64) error {
+	hashVals := keysToHashVals([][]byte{key})
+	for {
+		ok, wg := regCtx.lock(hashVals)
+		if ok {
+			break
+		}
+		wg.Wait()
+	}
+	defer regCtx.unlock(hashVals)
+	wb := new(writeBatch)
+	err := store.db.View(func(txn *badger.Txn) error {
+		return wb.rollbackKey(txn, key, startTS)
 	})
+	if err != nil {
+		return errors.Trace(err)
+	}
+	store.write(wb)
 	return err
 }
 
 func (store *MVCCStore) ScanLock(mvStartKey, mvEndKey []byte, limit int, maxTS uint64) ([]*kvrpcpb.LockInfo, error) {
 	var locks []*kvrpcpb.LockInfo
 	err1 := store.db.View(func(txn *badger.Txn) error {
-		iter := store.newIterator(txn)
+		iter := newIterator(txn)
 		defer iter.Close()
 		for iter.Seek(mvStartKey); iter.Valid(); iter.Next() {
 			item := iter.Item()
@@ -552,15 +614,15 @@ func (store *MVCCStore) ScanLock(mvStartKey, mvEndKey []byte, limit int, maxTS u
 	return nil, nil
 }
 
-func (store *MVCCStore) ResolveLock(mvStartKey, mvEndKey []byte, startTS, commitTS uint64, diff *int64) error {
+func (store *MVCCStore) ResolveLock(regCtx *regionCtx, startTS, commitTS uint64, diff *int64) error {
 	var lockKeys [][]byte
 	var lockVers []uint64
 	err := store.db.View(func(txn *badger.Txn) error {
-		iter := store.newIterator(txn)
+		iter := newIterator(txn)
 		defer iter.Close()
-		for iter.Seek(mvStartKey); iter.Valid(); iter.Next() {
+		for iter.Seek(regCtx.meta.StartKey); iter.Valid(); iter.Next() {
 			item := iter.Item()
-			if exceedEndKey(item.Key(), mvEndKey) {
+			if exceedEndKey(item.Key(), regCtx.meta.EndKey) {
 				return nil
 			}
 			mixed, err := decodeMixed(item)
@@ -584,8 +646,19 @@ func (store *MVCCStore) ResolveLock(mvStartKey, mvEndKey []byte, startTS, commit
 	if err != nil {
 		return errors.Trace(err)
 	}
+	hashVals := keysToHashVals(lockKeys)
+	for {
+		ok, wg := regCtx.lock(hashVals)
+		if ok {
+			break
+		}
+		wg.Wait()
+	}
+	defer regCtx.unlock(hashVals)
+
+	wb := new(writeBatch)
 	var tmpDiff int64
-	err = updateWithRetry(store.db, func(txn *badger.Txn) error {
+	err = store.db.View(func(txn *badger.Txn) error {
 		tmpDiff = 0
 		for i, lockKey := range lockKeys {
 			mvKey := encodeMVKey(lockKey)
@@ -597,9 +670,9 @@ func (store *MVCCStore) ResolveLock(mvStartKey, mvEndKey []byte, startTS, commit
 				continue
 			}
 			if commitTS > 0 {
-				err = store.commitKey(txn, lockKey, startTS, commitTS, &tmpDiff)
+				err = wb.commitKey(txn, lockKey, startTS, commitTS, &tmpDiff)
 			} else {
-				err = store.rollbackKey(txn, lockKey, startTS)
+				err = wb.rollbackKey(txn, lockKey, startTS)
 			}
 			if err != nil {
 				return errors.Trace(err)
@@ -612,7 +685,7 @@ func (store *MVCCStore) ResolveLock(mvStartKey, mvEndKey []byte, startTS, commit
 		return errors.Trace(err)
 	}
 	atomic.AddInt64(diff, tmpDiff)
-	return nil
+	return store.write(wb)
 }
 
 func (store *MVCCStore) BatchResolveLock(startKey, endKey []byte, txnInfos map[uint64]uint64) error {
@@ -621,7 +694,7 @@ func (store *MVCCStore) BatchResolveLock(startKey, endKey []byte, txnInfos map[u
 
 const delRangeBatchSize = 4096
 
-func (store *MVCCStore) DeleteRange(startKey, endKey []byte) error {
+func (store *MVCCStore) DeleteRange(regCtx *regionCtx, startKey, endKey []byte) error {
 	keys := make([][]byte, 0, delRangeBatchSize)
 	mvStartKey := encodeMVKey(startKey)
 	mvEndKey := encodeMVKey(endKey)
@@ -629,7 +702,7 @@ func (store *MVCCStore) DeleteRange(startKey, endKey []byte) error {
 	oldEndKey := encodeOldKeyFromMVKey(mvEndKey, lockVer)
 
 	err := store.db.View(func(txn *badger.Txn) error {
-		iter := store.newIterator(txn)
+		iter := newIterator(txn)
 		defer iter.Close()
 		keys = store.collectRangeKeys(iter, mvStartKey, mvEndKey, keys)
 		keys = store.collectRangeKeys(iter, oldStartKey, oldEndKey, keys)
@@ -639,7 +712,7 @@ func (store *MVCCStore) DeleteRange(startKey, endKey []byte) error {
 		log.Error(err)
 		return errors.Trace(err)
 	}
-	err = store.deleteKeysInBatch(keys, delRangeBatchSize)
+	err = store.deleteKeysInBatch(regCtx, keys, delRangeBatchSize)
 	if err != nil {
 		log.Error(err)
 	}
@@ -661,22 +734,35 @@ func (store *MVCCStore) collectRangeKeys(iter *badger.Iterator, mvStartKey, mvEn
 	return keys
 }
 
-func (store *MVCCStore) deleteKeysInBatch(keys [][]byte, batchSize int) error {
+func (store *MVCCStore) deleteKeysInBatch(regCtx *regionCtx, keys [][]byte, batchSize int) error {
 	for len(keys) > 0 {
 		batchSize := mathutil.Min(len(keys), batchSize)
 		batchKeys := keys[:batchSize]
 		keys = keys[batchSize:]
-		err := updateWithRetry(store.db, func(txn *badger.Txn) error {
+
+		hashVals := keysToHashVals(keys)
+		for {
+			ok, wg := regCtx.lock(hashVals)
+			if ok {
+				break
+			}
+			wg.Wait()
+		}
+		wb := new(writeBatch)
+		err := store.db.View(func(txn *badger.Txn) error {
 			for _, key := range batchKeys {
-				err1 := txn.Delete(key)
-				if err1 != nil {
-					return errors.Trace(err1)
-				}
+				wb.delete(key)
 			}
 			return nil
 		})
 		if err != nil {
 			log.Error(err)
+			regCtx.unlock(hashVals)
+			return errors.Trace(err)
+		}
+		err = store.write(wb)
+		regCtx.unlock(hashVals)
+		if err != nil {
 			return errors.Trace(err)
 		}
 	}
@@ -685,23 +771,23 @@ func (store *MVCCStore) deleteKeysInBatch(keys [][]byte, batchSize int) error {
 
 const gcBatchSize = 256
 
-func (store *MVCCStore) GC(mvStartKey, mvEndKey []byte, safePoint uint64) error {
-	err := store.gcOldVersions(mvStartKey, mvEndKey, safePoint)
+func (store *MVCCStore) GC(regCtx *regionCtx, safePoint uint64) error {
+	err := store.gcOldVersions(regCtx, safePoint)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
-	err = store.gcDelAndRollbacks(mvStartKey, mvEndKey, safePoint)
+	err = store.gcDelAndRollbacks(regCtx, safePoint)
 	return errors.Trace(err)
 }
 
-func (store *MVCCStore) gcOldVersions(mvStartKey, mvEndKey []byte, safePoint uint64) error {
+func (store *MVCCStore) gcOldVersions(regCtx *regionCtx, safePoint uint64) error {
 	var gcKeys [][]byte
 	err := store.db.View(func(txn *badger.Txn) error {
-		iter := store.newIterator(txn)
+		iter := newIterator(txn)
 		defer iter.Close()
-		oldStartKey := encodeOldKeyFromMVKey(mvStartKey, lockVer)
-		oldEndKey := encodeOldKeyFromMVKey(mvEndKey, lockVer)
+		oldStartKey := encodeOldKeyFromMVKey(regCtx.meta.StartKey, lockVer)
+		oldEndKey := encodeOldKeyFromMVKey(regCtx.meta.StartKey, lockVer)
 		for iter.Seek(oldStartKey); iter.Valid(); iter.Next() {
 			item := iter.Item()
 			if exceedEndKey(item.Key(), oldEndKey) {
@@ -722,19 +808,19 @@ func (store *MVCCStore) gcOldVersions(mvStartKey, mvEndKey []byte, safePoint uin
 		return errors.Trace(err)
 	}
 	log.Debugf("gc old keys %d", len(gcKeys))
-	err = store.deleteKeysInBatch(gcKeys, gcBatchSize)
+	err = store.deleteKeysInBatch(regCtx, gcKeys, gcBatchSize)
 	return errors.Trace(err)
 }
 
-func (store *MVCCStore) gcDelAndRollbacks(mvStartKey, mvEndKey []byte, safePoint uint64) error {
+func (store *MVCCStore) gcDelAndRollbacks(regCtx *regionCtx, safePoint uint64) error {
 	var gcKeys [][]byte
 	var gcKeyVers []uint64
 	err := store.db.View(func(txn *badger.Txn) error {
-		iter := store.newIterator(txn)
+		iter := newIterator(txn)
 		defer iter.Close()
-		for iter.Seek(mvStartKey); iter.Valid(); iter.Next() {
+		for iter.Seek(regCtx.meta.StartKey); iter.Valid(); iter.Next() {
 			item := iter.Item()
-			if exceedEndKey(item.Key(), mvEndKey) {
+			if exceedEndKey(item.Key(), regCtx.meta.EndKey) {
 				return nil
 			}
 			flag := item.UserMeta()
@@ -763,18 +849,28 @@ func (store *MVCCStore) gcDelAndRollbacks(mvStartKey, mvEndKey []byte, safePoint
 		return errors.Trace(err)
 	}
 	log.Debugf("gc delete keys %d", len(gcKeys))
-	err = store.gcDelKeysInBatch(gcKeys, gcKeyVers)
+	err = store.gcDelKeysInBatch(regCtx, gcKeys, gcKeyVers)
 	return errors.Trace(err)
 }
 
-func (store *MVCCStore) gcDelKeysInBatch(keys [][]byte, keyVers []uint64) error {
+func (store *MVCCStore) gcDelKeysInBatch(regCtx *regionCtx, keys [][]byte, keyVers []uint64) error {
 	for len(keys) > 0 {
 		batchSize := mathutil.Min(len(keys), gcBatchSize)
 		batchKeys := keys[:batchSize]
 		batchKeyVers := keyVers[:batchSize]
 		keys = keys[batchSize:]
 		keyVers = keyVers[:batchSize]
-		err := updateWithRetry(store.db, func(txn *badger.Txn) error {
+
+		hashVals := keysToHashVals(keys)
+		for {
+			ok, wg := regCtx.lock(hashVals)
+			if ok {
+				break
+			}
+			wg.Wait()
+		}
+		wb := new(writeBatch)
+		err := store.db.View(func(txn *badger.Txn) error {
 			for i, key := range batchKeys {
 				item, err1 := txn.Get(key)
 				if err1 == badger.ErrKeyNotFound {
@@ -786,15 +882,18 @@ func (store *MVCCStore) gcDelKeysInBatch(keys [][]byte, keyVers []uint64) error 
 				if item.Version() != batchKeyVers[i] {
 					continue
 				}
-				err1 = txn.Delete(key)
-				if err1 != nil {
-					return errors.Trace(err1)
-				}
+				wb.delete(key)
 			}
 			return nil
 		})
 		if err != nil {
+			regCtx.unlock(hashVals)
 			log.Error(err)
+			return errors.Trace(err)
+		}
+		err = store.write(wb)
+		regCtx.unlock(hashVals)
+		if err != nil {
 			return errors.Trace(err)
 		}
 	}

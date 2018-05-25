@@ -44,7 +44,7 @@ type tableScanExec struct {
 	kvRanges       []kv.KeyRange
 	startTS        uint64
 	isolationLevel kvrpcpb.IsolationLevel
-	mvccStore      MVCCStore
+	mvccStore      *MVCCStore
 	rangeCursor    int
 
 	rowCursor int
@@ -207,7 +207,7 @@ type indexScanExec struct {
 	kvRanges       []kv.KeyRange
 	startTS        uint64
 	isolationLevel kvrpcpb.IsolationLevel
-	mvccStore      MVCCStore
+	mvccStore      *MVCCStore
 	ranCursor      int
 	seekKey        []byte
 	pkStatus       int
