@@ -2,7 +2,6 @@ package tikv
 
 import (
 	"sync"
-	"time"
 
 	"github.com/coocood/badger"
 	"github.com/juju/errors"
@@ -38,6 +37,10 @@ func (store *MVCCStore) write(batch *writeBatch) error {
 	w.mu.Lock()
 	w.mu.batches = append(w.mu.batches, batch)
 	w.mu.Unlock()
+	select {
+	case w.wakeUp <- struct{}{}:
+	default:
+	}
 	batch.wg.Wait()
 	return batch.err
 }
@@ -47,20 +50,20 @@ type writeWorker struct {
 		sync.Mutex
 		batches []*writeBatch
 	}
-	db *badger.DB
+	wakeUp chan struct{}
+	db     *badger.DB
 }
 
 func (w *writeWorker) run() {
 	var batches []*writeBatch
 	for {
+		select {
+		case <-w.wakeUp:
+		}
 		batches = batches[:0]
 		w.mu.Lock()
 		batches, w.mu.batches = w.mu.batches, batches
 		w.mu.Unlock()
-		if len(batches) == 0 {
-			time.Sleep(time.Microsecond * 100)
-			continue
-		}
 		err := w.db.Update(func(txn *badger.Txn) error {
 			for _, batch := range batches {
 				for _, entry := range batch.entries {

@@ -24,7 +24,7 @@ type MVCCStore struct {
 func NewMVCCStore(db *badger.DB) *MVCCStore {
 	store := &MVCCStore{
 		db:          db,
-		writeWorker: &writeWorker{db: db},
+		writeWorker: &writeWorker{db: db, wakeUp: make(chan struct{}, 1)},
 	}
 	go store.writeWorker.run()
 	return store
