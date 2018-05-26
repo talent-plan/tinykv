@@ -570,7 +570,7 @@ func (store *MVCCStore) Cleanup(regCtx *regionCtx, key []byte, startTS uint64) e
 		return wb.rollbackKey(txn, key, startTS)
 	})
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 	store.write(wb)
 	return err
