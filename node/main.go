@@ -22,7 +22,6 @@ var (
 	valThreshold     = flag.Int("value-threshold", 20, "If value size >= this threshold, only store value offsets in tree.")
 	regionSize       = flag.Int64("region-size", 96*1024*1024, "Average region size.")
 	logLevel         = flag.String("L", "info", "log level")
-	vlogLoadingMode  = flag.String("vlog-loading-mode", "file-io", "How should value log be accessed (file-io/memory-map)")
 	tableLoadingMode = flag.String("table-loading-mode", "memory-map", "How should LSM tree be accessed. (memory-map/load-to-ram)")
 	numMemTables     = flag.Int("num-mem-tables", 3, "Maximum number of tables to keep in memory, before stalling.")
 	numL0Table       = flag.Int("num-level-zero-tables", 3, "Maximum number of Level 0 tables before we start compacting.")
@@ -39,9 +38,7 @@ func main() {
 	if *tableLoadingMode == "memory-map" {
 		opts.TableLoadingMode = options.MemoryMap
 	}
-	if *vlogLoadingMode == "file-io" {
-		opts.ValueLogLoadingMode = options.FileIO
-	}
+	opts.ValueLogLoadingMode = options.FileIO
 	opts.NumMemtables = *numMemTables
 	opts.NumLevelZeroTables = *numL0Table
 	opts.NumLevelZeroTablesStall = opts.NumLevelZeroTables + 5
