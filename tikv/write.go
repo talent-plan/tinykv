@@ -67,7 +67,12 @@ func (w *writeWorker) run() {
 		err := w.db.Update(func(txn *badger.Txn) error {
 			for _, batch := range batches {
 				for _, entry := range batch.entries {
-					err := txn.SetEntry(entry)
+					var err error
+					if entry.UserMeta == mixedDelFlag {
+						err = txn.Delete(entry.Key)
+					} else {
+						err = txn.SetEntry(entry)
+					}
 					if err != nil {
 						return errors.Trace(err)
 					}
