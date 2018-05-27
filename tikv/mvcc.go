@@ -163,6 +163,11 @@ func (store *MVCCStore) Prewrite(regCtx *regionCtx, mutations []*kvrpcpb.Mutatio
 	if anyError {
 		return errs
 	}
+	keys := make([][]byte, 0, len(mutations))
+	for _, mu := range mutations {
+		keys = append(keys, mu.Key)
+	}
+	regCtx.addTxnKeys(startTS, keys)
 	err = store.write(batch)
 	if err != nil {
 		return []error{err}
@@ -234,6 +239,7 @@ func (store *MVCCStore) Commit(regCtx *regionCtx, keys [][]byte, startTS, commit
 		return errors.Trace(err)
 	}
 	atomic.AddInt64(diff, tmpDiff)
+	regCtx.removeTxnKeys(startTS)
 	err = store.write(batch)
 	return errors.Trace(err)
 }
@@ -325,6 +331,7 @@ func (store *MVCCStore) Rollback(regCtx *regionCtx, keys [][]byte, startTS uint6
 		log.Error(err1)
 		return err1
 	}
+	regCtx.removeTxnKeys(startTS)
 	return store.write(wb)
 }
 
@@ -472,10 +479,6 @@ func (store *MVCCStore) getOldValue(oldIter *badger.Iterator, oldKey []byte) (mv
 	return decodeValue(oldIter.Item())
 }
 
-func isLockKey(mvKey []byte) bool {
-	return len(mvKey) > 8 && binary.BigEndian.Uint64(mvKey[len(mvKey)-8:]) == 0
-}
-
 func isVisibleKey(mvKey []byte, startTS uint64) bool {
 	ts := ^(binary.BigEndian.Uint64(mvKey[len(mvKey)-8:]))
 	return startTS >= ts
@@ -552,6 +555,7 @@ func (store *MVCCStore) Cleanup(regCtx *regionCtx, key []byte, startTS uint64) e
 	if err != nil {
 		return err
 	}
+	regCtx.removeTxnKey(startTS, key)
 	store.write(wb)
 	return err
 }
@@ -595,61 +599,42 @@ func (store *MVCCStore) ScanLock(mvStartKey, mvEndKey []byte, limit int, maxTS u
 }
 
 func (store *MVCCStore) ResolveLock(regCtx *regionCtx, startTS, commitTS uint64, diff *int64) error {
-	var lockKeys [][]byte
-	var lockVers []uint64
-	err := store.db.View(func(txn *badger.Txn) error {
-		iter := newIterator(txn)
-		defer iter.Close()
-		for iter.Seek(regCtx.meta.StartKey); iter.Valid(); iter.Next() {
-			item := iter.Item()
-			if exceedEndKey(item.Key(), regCtx.meta.EndKey) {
-				return nil
-			}
-			mixed, err := decodeMixed(item)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			if mixed.hasLock() {
-				lock := mixed.lock
-				if lock.startTS == startTS {
-					lockKey, err1 := decodeRawKey(item.Key())
-					if err1 != nil {
-						return errors.Trace(err1)
-					}
-					lockKeys = append(lockKeys, lockKey)
-					lockVers = append(lockVers, item.Version())
-				}
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return errors.Trace(err)
-	}
+	lockKeys := regCtx.geTxnKeys(startTS)
 	if len(lockKeys) == 0 {
 		return nil
 	}
 	hashVals := keysToHashVals(lockKeys)
 	store.acquireLocks(regCtx, hashVals)
 	defer regCtx.releaseLocks(hashVals)
-
 	wb := new(writeBatch)
 	var tmpDiff int64
-	err = store.db.View(func(txn *badger.Txn) error {
-		tmpDiff = 0
-		for i, lockKey := range lockKeys {
-			mvKey := encodeMVKey(lockKey)
+	err := store.db.View(func(txn *badger.Txn) error {
+		iter := newIterator(txn)
+		defer iter.Close()
+		for _, key := range lockKeys {
+			mvKey := encodeMVKey(key)
 			item, err := txn.Get(mvKey)
-			if err != nil && err != badger.ErrKeyNotFound {
+			if err == badger.ErrKeyNotFound {
+				continue
+			}
+			if err != nil {
 				return errors.Trace(err)
 			}
-			if item.Version() != lockVers[i] {
+			mixed, err := decodeMixed(item)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			if !mixed.hasLock() {
+				continue
+			}
+			lock := mixed.lock
+			if lock.startTS != startTS {
 				continue
 			}
 			if commitTS > 0 {
-				err = wb.commitKey(txn, lockKey, startTS, commitTS, &tmpDiff)
+				err = wb.commitKey(txn, key, startTS, commitTS, &tmpDiff)
 			} else {
-				err = wb.rollbackKey(txn, lockKey, startTS)
+				err = wb.rollbackKey(txn, key, startTS)
 			}
 			if err != nil {
 				return errors.Trace(err)
@@ -662,6 +647,7 @@ func (store *MVCCStore) ResolveLock(regCtx *regionCtx, startTS, commitTS uint64,
 		return errors.Trace(err)
 	}
 	atomic.AddInt64(diff, tmpDiff)
+	regCtx.removeTxnKeys(startTS)
 	return store.write(wb)
 }
 

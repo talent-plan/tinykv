@@ -1,8 +1,6 @@
 package tikv
 
 import (
-	"sync"
-
 	"github.com/coocood/badger"
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
@@ -19,17 +17,12 @@ var _ tikvpb.TikvServer = new(Server)
 type Server struct {
 	mvccStore     *MVCCStore
 	regionManager *RegionManager
-	resolveCache  *resolveCache
 }
 
 func NewServer(rm *RegionManager, db *badger.DB) *Server {
 	return &Server{
 		mvccStore:     NewMVCCStore(db),
 		regionManager: rm,
-		resolveCache: &resolveCache{
-			oldMap: make(map[resolveTask]*sync.WaitGroup),
-			newMap: make(map[resolveTask]*sync.WaitGroup),
-		},
 	}
 }
 
@@ -86,6 +79,8 @@ func (svr *Server) KvPrewrite(ctx context.Context, req *kvrpcpb.PrewriteRequest)
 	for _, m := range req.Mutations {
 		regCtx.assertContainsKey(m.Key)
 	}
+	regCtx.refCount.Add(1)
+	defer regCtx.refCount.Done()
 	errs := svr.mvccStore.Prewrite(regCtx, req.Mutations, req.PrimaryLock, req.GetStartVersion(), req.GetLockTtl())
 	return &kvrpcpb.PrewriteResponse{
 		Errors: convertToKeyErrors(errs),
@@ -100,6 +95,8 @@ func (svr *Server) KvCommit(ctx context.Context, req *kvrpcpb.CommitRequest) (*k
 	for _, k := range req.Keys {
 		regCtx.assertContainsKey(k)
 	}
+	regCtx.refCount.Add(1)
+	defer regCtx.refCount.Done()
 	err := svr.mvccStore.Commit(regCtx, req.Keys, req.GetStartVersion(), req.GetCommitVersion(), &regCtx.diff)
 	return &kvrpcpb.CommitResponse{
 		Error: convertToKeyError(err),
@@ -117,6 +114,8 @@ func (svr *Server) KvCleanup(ctx context.Context, req *kvrpcpb.CleanupRequest) (
 		return &kvrpcpb.CleanupResponse{RegionError: regErr}, nil
 	}
 	regCtx.assertContainsKey(req.Key)
+	regCtx.refCount.Add(1)
+	defer regCtx.refCount.Done()
 	err := svr.mvccStore.Cleanup(regCtx, req.Key, req.StartVersion)
 	resp := new(kvrpcpb.CleanupResponse)
 	if committed, ok := err.(ErrAlreadyCommitted); ok {
@@ -150,6 +149,8 @@ func (svr *Server) KvBatchRollback(ctx context.Context, req *kvrpcpb.BatchRollba
 	for _, k := range req.Keys {
 		regCtx.assertContainsKey(k)
 	}
+	regCtx.refCount.Add(1)
+	defer regCtx.refCount.Done()
 	err := svr.mvccStore.Rollback(regCtx, req.Keys, req.StartVersion)
 	if err != nil {
 		return &kvrpcpb.BatchRollbackResponse{
@@ -181,23 +182,13 @@ func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRe
 	if !isMvccRegion(regCtx) {
 		return &kvrpcpb.ResolveLockResponse{}, nil
 	}
-	task := resolveTask{
-		regionID:  regCtx.meta.Id,
-		regionVer: regCtx.meta.RegionEpoch.Version,
-		txnID:     req.StartVersion,
-	}
+	regCtx.refCount.Add(1)
+	defer regCtx.refCount.Done()
 	resp := &kvrpcpb.ResolveLockResponse{}
-	wg, resolved := svr.resolveCache.check(task)
-	if resolved {
-		wg.Wait()
-	} else {
-		defer wg.Done()
-		log.Debugf("kv resolve lock region:%d txn:%v ", regCtx.meta.Id, req.StartVersion)
-		err := svr.mvccStore.ResolveLock(regCtx, req.StartVersion, req.CommitVersion, &regCtx.diff)
-		if err != nil {
-			svr.resolveCache.clear(task)
-			resp.Error = convertToKeyError(err)
-		}
+	log.Debugf("kv resolve lock region:%d txn:%v ", regCtx.meta.Id, req.StartVersion)
+	err := svr.mvccStore.ResolveLock(regCtx, req.StartVersion, req.CommitVersion, &regCtx.diff)
+	if err != nil {
+		resp.Error = convertToKeyError(err)
 	}
 	return resp, nil
 }
@@ -211,6 +202,8 @@ func (svr *Server) KvGC(ctx context.Context, req *kvrpcpb.GCRequest) (*kvrpcpb.G
 	if !isMvccRegion(regCtx) {
 		return &kvrpcpb.GCResponse{}, nil
 	}
+	regCtx.refCount.Add(1)
+	defer regCtx.refCount.Done()
 	err := svr.mvccStore.GC(regCtx, req.SafePoint)
 	return &kvrpcpb.GCResponse{Error: convertToKeyError(err)}, nil
 }
@@ -224,6 +217,8 @@ func (svr *Server) KvDeleteRange(ctx context.Context, req *kvrpcpb.DeleteRangeRe
 	if !isMvccRegion(regCtx) {
 		return &kvrpcpb.DeleteRangeResponse{}, nil
 	}
+	regCtx.refCount.Add(1)
+	defer regCtx.refCount.Done()
 	err := svr.mvccStore.DeleteRange(regCtx, req.StartKey, req.EndKey)
 	if err != nil {
 		log.Error(err)
