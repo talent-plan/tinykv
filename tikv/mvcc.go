@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"math"
 	"sync/atomic"
+	"time"
 
 	"github.com/coocood/badger"
 	"github.com/cznic/mathutil"
@@ -141,13 +142,7 @@ func (store *MVCCStore) BatchGet(keys [][]byte, startTS uint64) []Pair {
 
 func (store *MVCCStore) Prewrite(regCtx *regionCtx, mutations []*kvrpcpb.Mutation, primary []byte, startTS uint64, ttl uint64) []error {
 	hashVals := mutationsToHashVals(mutations)
-	for {
-		ok, wg := regCtx.acquireLocks(hashVals)
-		if ok {
-			break
-		}
-		wg.Wait()
-	}
+	store.acquireLocks(regCtx, hashVals)
 	defer regCtx.releaseLocks(hashVals)
 	errs := make([]error, 0, len(mutations))
 	batch := &writeBatch{entries: make([]*badger.Entry, 0, len(mutations))}
@@ -221,13 +216,7 @@ func (batch *writeBatch) prewriteMutation(txn *badger.Txn, mutation *kvrpcpb.Mut
 // Commit implements the MVCCStore interface.
 func (store *MVCCStore) Commit(regCtx *regionCtx, keys [][]byte, startTS, commitTS uint64, diff *int64) error {
 	hashVals := keysToHashVals(keys)
-	for {
-		ok, wg := regCtx.acquireLocks(hashVals)
-		if ok {
-			break
-		}
-		wg.Wait()
-	}
+	store.acquireLocks(regCtx, hashVals)
 	defer regCtx.releaseLocks(hashVals)
 	batch := new(writeBatch)
 	var tmpDiff int64
@@ -319,13 +308,7 @@ func (batch *writeBatch) commitMixed(mvKey []byte, mixed mixedValue, diff *int64
 
 func (store *MVCCStore) Rollback(regCtx *regionCtx, keys [][]byte, startTS uint64) error {
 	hashVals := keysToHashVals(keys)
-	for {
-		ok, wg := regCtx.acquireLocks(hashVals)
-		if ok {
-			break
-		}
-		wg.Wait()
-	}
+	store.acquireLocks(regCtx, hashVals)
 	defer regCtx.releaseLocks(hashVals)
 
 	wb := new(writeBatch)
@@ -560,13 +543,7 @@ func (store *MVCCStore) ReverseScan(startKey, endKey []byte, limit int, startTS 
 
 func (store *MVCCStore) Cleanup(regCtx *regionCtx, key []byte, startTS uint64) error {
 	hashVals := keysToHashVals([][]byte{key})
-	for {
-		ok, wg := regCtx.acquireLocks(hashVals)
-		if ok {
-			break
-		}
-		wg.Wait()
-	}
+	store.acquireLocks(regCtx, hashVals)
 	defer regCtx.releaseLocks(hashVals)
 	wb := new(writeBatch)
 	err := store.db.View(func(txn *badger.Txn) error {
@@ -653,13 +630,7 @@ func (store *MVCCStore) ResolveLock(regCtx *regionCtx, startTS, commitTS uint64,
 		return nil
 	}
 	hashVals := keysToHashVals(lockKeys)
-	for {
-		ok, wg := regCtx.acquireLocks(hashVals)
-		if ok {
-			break
-		}
-		wg.Wait()
-	}
+	store.acquireLocks(regCtx, hashVals)
 	defer regCtx.releaseLocks(hashVals)
 
 	wb := new(writeBatch)
@@ -747,13 +718,7 @@ func (store *MVCCStore) deleteKeysInBatch(regCtx *regionCtx, keys [][]byte, batc
 		keys = keys[batchSize:]
 
 		hashVals := keysToHashVals(batchKeys)
-		for {
-			ok, wg := regCtx.acquireLocks(hashVals)
-			if ok {
-				break
-			}
-			wg.Wait()
-		}
+		store.acquireLocks(regCtx, hashVals)
 		wb := new(writeBatch)
 		err := store.db.View(func(txn *badger.Txn) error {
 			for _, key := range batchKeys {
@@ -868,13 +833,7 @@ func (store *MVCCStore) gcDelKeysInBatch(regCtx *regionCtx, keys [][]byte, keyVe
 		keyVers = keyVers[:batchSize]
 
 		hashVals := keysToHashVals(batchKeys)
-		for {
-			ok, wg := regCtx.acquireLocks(hashVals)
-			if ok {
-				break
-			}
-			wg.Wait()
-		}
+		store.acquireLocks(regCtx, hashVals)
 		wb := new(writeBatch)
 		err := store.db.View(func(txn *badger.Txn) error {
 			for i, key := range batchKeys {
@@ -911,4 +870,19 @@ type Pair struct {
 	Key   []byte
 	Value []byte
 	Err   error
+}
+
+func (store *MVCCStore) acquireLocks(regCtx *regionCtx, hashVals []uint64) {
+	start := time.Now()
+	for {
+		ok, wg, lockLen := regCtx.acquireLocks(hashVals)
+		if ok {
+			dur := time.Since(start)
+			if dur > time.Millisecond*10 {
+				log.Warnf("acquire %d locks takes %v, memLock size %d", len(hashVals), dur, lockLen)
+			}
+			return
+		}
+		wg.Wait()
+	}
 }

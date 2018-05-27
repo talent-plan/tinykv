@@ -119,12 +119,12 @@ func (ri *regionCtx) marshal() []byte {
 	return data
 }
 
-func (ri *regionCtx) acquireLocks(hashVals []uint64) (bool, *sync.WaitGroup) {
+func (ri *regionCtx) acquireLocks(hashVals []uint64) (bool, *sync.WaitGroup, int) {
 	ri.txnMu.Lock()
 	defer ri.txnMu.Unlock()
 	for _, hashVal := range hashVals {
 		if wg, ok := ri.memLocks[hashVal]; ok {
-			return false, wg
+			return false, wg, len(ri.memLocks)
 		}
 	}
 	wg := new(sync.WaitGroup)
@@ -132,7 +132,7 @@ func (ri *regionCtx) acquireLocks(hashVals []uint64) (bool, *sync.WaitGroup) {
 	for _, hashVal := range hashVals {
 		ri.memLocks[hashVal] = wg
 	}
-	return true, nil
+	return true, nil, len(ri.memLocks)
 }
 
 func (ri *regionCtx) releaseLocks(hashVals []uint64) {
