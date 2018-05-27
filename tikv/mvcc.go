@@ -861,7 +861,7 @@ func (store *MVCCStore) gcDelKeysInBatch(regCtx *regionCtx, keys [][]byte, keyVe
 		keys = keys[batchSize:]
 		keyVers = keyVers[:batchSize]
 
-		hashVals := keysToHashVals(keys)
+		hashVals := keysToHashVals(batchKeys)
 		for {
 			ok, wg := regCtx.acquireLocks(hashVals)
 			if ok {
