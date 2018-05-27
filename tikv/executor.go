@@ -44,7 +44,7 @@ type tableScanExec struct {
 	kvRanges       []kv.KeyRange
 	startTS        uint64
 	isolationLevel kvrpcpb.IsolationLevel
-	mvccStore      MVCCStore
+	mvccStore      *MVCCStore
 	rangeCursor    int
 
 	rowCursor int
@@ -127,12 +127,15 @@ func (e *tableScanExec) Next(ctx context.Context) (value [][]byte, err error) {
 func (e *tableScanExec) fillRows() error {
 	for e.rangeCursor < len(e.kvRanges) {
 		ran := e.kvRanges[e.rangeCursor]
-		e.rangeCursor++
 		var err error
 		if ran.IsPoint() {
 			err = e.fillRowsFromPoint(ran)
+			e.rangeCursor++
 		} else {
 			err = e.fillRowsFromRange(ran)
+			if len(e.rows) == 0 {
+				e.rangeCursor++
+			}
 		}
 		if err != nil {
 			return errors.Trace(err)
@@ -164,6 +167,8 @@ func (e *tableScanExec) fillRowsFromPoint(ran kv.KeyRange) error {
 	return nil
 }
 
+const scanLimit = 128
+
 func (e *tableScanExec) fillRowsFromRange(ran kv.KeyRange) error {
 	if e.seekKey == nil {
 		if e.Desc {
@@ -174,9 +179,12 @@ func (e *tableScanExec) fillRowsFromRange(ran kv.KeyRange) error {
 	}
 	var pairs []Pair
 	if e.Desc {
-		pairs = e.mvccStore.ReverseScan(ran.StartKey, e.seekKey, math.MaxInt64, e.startTS)
+		pairs = e.mvccStore.ReverseScan(ran.StartKey, e.seekKey, scanLimit, e.startTS)
 	} else {
-		pairs = e.mvccStore.Scan(e.seekKey, ran.EndKey, math.MaxInt64, e.startTS)
+		pairs = e.mvccStore.Scan(e.seekKey, ran.EndKey, scanLimit, e.startTS)
+	}
+	if len(pairs) == 0 {
+		return nil
 	}
 	for _, pair := range pairs {
 		if pair.Err != nil {
@@ -191,6 +199,12 @@ func (e *tableScanExec) fillRowsFromRange(ran kv.KeyRange) error {
 			return errors.Trace(err)
 		}
 		e.rows = append(e.rows, row)
+	}
+	lastPair := pairs[len(pairs)-1]
+	if e.Desc {
+		e.seekKey = []byte(tablecodec.TruncateToRowKeyLen(kv.Key(lastPair.Key)))
+	} else {
+		e.seekKey = []byte(kv.Key(lastPair.Key).PrefixNext())
 	}
 	return nil
 }
@@ -207,7 +221,7 @@ type indexScanExec struct {
 	kvRanges       []kv.KeyRange
 	startTS        uint64
 	isolationLevel kvrpcpb.IsolationLevel
-	mvccStore      MVCCStore
+	mvccStore      *MVCCStore
 	ranCursor      int
 	seekKey        []byte
 	pkStatus       int

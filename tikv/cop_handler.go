@@ -31,13 +31,13 @@ import (
 var dummySlice = make([]byte, 0)
 
 type dagContext struct {
-	regInfo   *regionInfo
+	regInfo   *regionCtx
 	dagReq    *tipb.DAGRequest
 	keyRanges []*coprocessor.KeyRange
 	evalCtx   *evalContext
 }
 
-func (svr *Server) handleCopDAGRequest(regInfo *regionInfo, req *coprocessor.Request) *coprocessor.Response {
+func (svr *Server) handleCopDAGRequest(regInfo *regionCtx, req *coprocessor.Request) *coprocessor.Response {
 	resp := &coprocessor.Response{}
 	dagCtx, e, dagReq, err := svr.buildDAGExecutor(regInfo, req)
 	if err != nil {
@@ -70,7 +70,7 @@ func (svr *Server) handleCopDAGRequest(regInfo *regionInfo, req *coprocessor.Req
 	return buildResp(chunks, e.Counts(), err, warnings)
 }
 
-func (svr *Server) buildDAGExecutor(regInfo *regionInfo, req *coprocessor.Request) (*dagContext, executor, *tipb.DAGRequest, error) {
+func (svr *Server) buildDAGExecutor(regInfo *regionCtx, req *coprocessor.Request) (*dagContext, executor, *tipb.DAGRequest, error) {
 	if len(req.Ranges) == 0 {
 		return nil, nil, nil, errors.New("request range is null")
 	}
@@ -98,7 +98,7 @@ func (svr *Server) buildDAGExecutor(regInfo *regionInfo, req *coprocessor.Reques
 	return ctx, e, dagReq, err
 }
 
-func (svr *Server) handleCopStream(ctx context.Context, regInfo *regionInfo, req *coprocessor.Request) (tikvpb.Tikv_CoprocessorStreamClient, error) {
+func (svr *Server) handleCopStream(ctx context.Context, regInfo *regionCtx, req *coprocessor.Request) (tikvpb.Tikv_CoprocessorStreamClient, error) {
 	_, e, dagReq, err := svr.buildDAGExecutor(regInfo, req)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -567,7 +567,7 @@ func toPBError(err error) *tipb.Error {
 }
 
 // extractKVRanges extracts kv.KeyRanges slice from a SelectRequest.
-func (svr *Server) extractKVRanges(regInfo *regionInfo, keyRanges []*coprocessor.KeyRange, descScan bool) (kvRanges []kv.KeyRange, err error) {
+func (svr *Server) extractKVRanges(regInfo *regionCtx, keyRanges []*coprocessor.KeyRange, descScan bool) (kvRanges []kv.KeyRange, err error) {
 	startKey := regInfo.rawStartKey()
 	endKey := regInfo.rawEndKey()
 	for _, kran := range keyRanges {

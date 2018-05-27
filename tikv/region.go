@@ -32,14 +32,24 @@ func InternalRegionMetaKey(regionId uint64) []byte {
 	return []byte(string(InternalRegionMetaPrefix) + strconv.FormatUint(regionId, 10))
 }
 
-type regionInfo struct {
+type regionCtx struct {
 	meta       *metapb.Region
 	sizeHint   int64
 	diff       int64
 	lastUpdate uint64
+
+	memLocks map[uint64]*sync.WaitGroup
+	txnMu    sync.RWMutex
 }
 
-func (ri *regionInfo) rawStartKey() []byte {
+func newRegionCtx(meta *metapb.Region) *regionCtx {
+	return &regionCtx{
+		meta:     meta,
+		memLocks: make(map[uint64]*sync.WaitGroup),
+	}
+}
+
+func (ri *regionCtx) rawStartKey() []byte {
 	if len(ri.meta.StartKey) == 0 {
 		return nil
 	}
@@ -50,7 +60,7 @@ func (ri *regionInfo) rawStartKey() []byte {
 	return rawKey
 }
 
-func (ri *regionInfo) rawEndKey() []byte {
+func (ri *regionCtx) rawEndKey() []byte {
 	if len(ri.meta.EndKey) == 0 {
 		return nil
 	}
@@ -61,7 +71,7 @@ func (ri *regionInfo) rawEndKey() []byte {
 	return rawKey
 }
 
-func (ri *regionInfo) assertContainsKey(rawKey []byte) {
+func (ri *regionCtx) assertContainsKey(rawKey []byte) {
 	var keyBuf [128]byte
 	mvKey := codec.EncodeBytes(keyBuf[:0], rawKey)
 	if ri.lessThanStartKey(mvKey) || ri.greaterEqualEndKey(mvKey) {
@@ -71,19 +81,19 @@ func (ri *regionInfo) assertContainsKey(rawKey []byte) {
 	}
 }
 
-func (ri *regionInfo) lessThanStartKey(mvKey []byte) bool {
+func (ri *regionCtx) lessThanStartKey(mvKey []byte) bool {
 	return bytes.Compare(mvKey, ri.meta.StartKey) < 0
 }
 
-func (ri *regionInfo) greaterEqualEndKey(mvKey []byte) bool {
+func (ri *regionCtx) greaterEqualEndKey(mvKey []byte) bool {
 	return len(ri.meta.EndKey) > 0 && bytes.Compare(mvKey, ri.meta.EndKey) >= 0
 }
 
-func (ri *regionInfo) greaterThanEndKey(mvKey []byte) bool {
+func (ri *regionCtx) greaterThanEndKey(mvKey []byte) bool {
 	return len(ri.meta.EndKey) > 0 && bytes.Compare(mvKey, ri.meta.EndKey) > 0
 }
 
-func (ri *regionInfo) assertContainsRange(r *coprocessor.KeyRange) {
+func (ri *regionCtx) assertContainsRange(r *coprocessor.KeyRange) {
 	ri.assertContainsKey(r.Start)
 	var keyBuf [128]byte
 	mvEndKey := codec.EncodeBytes(keyBuf[:0], r.End)
@@ -92,14 +102,14 @@ func (ri *regionInfo) assertContainsRange(r *coprocessor.KeyRange) {
 	}
 }
 
-func (ri *regionInfo) unmarshal(data []byte) error {
+func (ri *regionCtx) unmarshal(data []byte) error {
 	ri.sizeHint = int64(binary.LittleEndian.Uint64(data))
 	data = data[8:]
 	ri.meta = &metapb.Region{}
 	return ri.meta.Unmarshal(data)
 }
 
-func (ri *regionInfo) marshal() []byte {
+func (ri *regionCtx) marshal() []byte {
 	data := make([]byte, 8+ri.meta.Size())
 	binary.LittleEndian.PutUint64(data, uint64(ri.sizeHint))
 	_, err := ri.meta.MarshalTo(data[8:])
@@ -107,6 +117,32 @@ func (ri *regionInfo) marshal() []byte {
 		log.Error(err)
 	}
 	return data
+}
+
+func (ri *regionCtx) acquireLocks(hashVals []uint64) (bool, *sync.WaitGroup, int) {
+	ri.txnMu.Lock()
+	defer ri.txnMu.Unlock()
+	for _, hashVal := range hashVals {
+		if wg, ok := ri.memLocks[hashVal]; ok {
+			return false, wg, len(ri.memLocks)
+		}
+	}
+	wg := new(sync.WaitGroup)
+	wg.Add(1)
+	for _, hashVal := range hashVals {
+		ri.memLocks[hashVal] = wg
+	}
+	return true, nil, len(ri.memLocks)
+}
+
+func (ri *regionCtx) releaseLocks(hashVals []uint64) {
+	ri.txnMu.Lock()
+	defer ri.txnMu.Unlock()
+	wg := ri.memLocks[hashVals[0]]
+	for _, hashVal := range hashVals {
+		delete(ri.memLocks, hashVal)
+	}
+	wg.Done()
 }
 
 type RegionOptions struct {
@@ -118,7 +154,7 @@ type RegionOptions struct {
 type RegionManager struct {
 	storeMeta  metapb.Store
 	mu         sync.RWMutex
-	regions    map[uint64]*regionInfo
+	regions    map[uint64]*regionCtx
 	db         *badger.DB
 	pdc        Client
 	clusterID  uint64
@@ -136,7 +172,7 @@ func NewRegionManager(db *badger.DB, opts RegionOptions) *RegionManager {
 		db:         db,
 		pdc:        pdc,
 		clusterID:  clusterID,
-		regions:    make(map[uint64]*regionInfo),
+		regions:    make(map[uint64]*regionCtx),
 		regionSize: opts.RegionSize,
 	}
 	err = rm.db.View(func(txn *badger.Txn) error {
@@ -162,7 +198,7 @@ func NewRegionManager(db *badger.DB, opts RegionOptions) *RegionManager {
 			if err1 != nil {
 				return err1
 			}
-			r := &regionInfo{}
+			r := newRegionCtx(nil)
 			err = r.unmarshal(val)
 			rm.regions[r.meta.Id] = r
 		}
@@ -199,7 +235,7 @@ func (rm *RegionManager) initStore(storeAddr string) error {
 		RegionEpoch: &metapb.RegionEpoch{ConfVer: 1, Version: 1},
 		Peers:       []*metapb.Peer{&metapb.Peer{Id: peerID, StoreId: storeID}},
 	}
-	rm.regions[rootRegion.Id] = &regionInfo{meta: rootRegion}
+	rm.regions[rootRegion.Id] = newRegionCtx(rootRegion)
 	err = rm.pdc.Bootstrap(ctx, &rm.storeMeta, rootRegion)
 	cancel()
 	if err != nil {
@@ -269,7 +305,7 @@ func (rm *RegionManager) initialSplit(root *metapb.Region) {
 		},
 	}
 	for _, region := range newRegions {
-		rm.regions[region.Id] = &regionInfo{meta: region}
+		rm.regions[region.Id] = newRegionCtx(region)
 	}
 }
 
@@ -300,7 +336,7 @@ func (rm *RegionManager) storeHeartBeatLoop() {
 	}
 }
 
-func (rm *RegionManager) getRegionFromCtx(ctx *kvrpcpb.Context) (*regionInfo, *errorpb.Error) {
+func (rm *RegionManager) getRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *errorpb.Error) {
 	ctxPeer := ctx.GetPeer()
 	if ctxPeer != nil && ctxPeer.GetStoreId() != rm.storeMeta.Id {
 		return nil, &errorpb.Error{
@@ -390,8 +426,8 @@ func (s *sampler) getSplitKeyAndSize() ([]byte, int64) {
 }
 
 func (rm *RegionManager) runSplitWorker() {
-	var regionsToCheck []*regionInfo
-	var regionsToSave []*regionInfo
+	var regionsToCheck []*regionCtx
+	var regionsToSave []*regionCtx
 	for {
 		regionsToCheck = regionsToCheck[:0]
 		rm.mu.RLock()
@@ -419,7 +455,7 @@ func (rm *RegionManager) runSplitWorker() {
 	}
 }
 
-func (rm *RegionManager) saveSizeHint(regionsToSave []*regionInfo) {
+func (rm *RegionManager) saveSizeHint(regionsToSave []*regionCtx) {
 	err1 := rm.db.Update(func(txn *badger.Txn) error {
 		for _, ri := range regionsToSave {
 			ri.sizeHint += atomic.LoadInt64(&ri.diff)
@@ -435,7 +471,7 @@ func (rm *RegionManager) saveSizeHint(regionsToSave []*regionInfo) {
 	}
 }
 
-func (rm *RegionManager) splitCheckRegion(region *regionInfo) error {
+func (rm *RegionManager) splitCheckRegion(region *regionCtx) error {
 	s := newSampler()
 	err := rm.db.View(func(txn *badger.Txn) error {
 		iter := txn.NewIterator(badger.IteratorOptions{PrefetchValues: false})
@@ -480,7 +516,8 @@ func (rm *RegionManager) splitRegion(oldRegion *metapb.Region, splitKey []byte, 
 		},
 		Peers: oldRegion.Peers,
 	}
-	right := &regionInfo{meta: rightMeta, sizeHint: oldSize - leftSize}
+	right := newRegionCtx(rightMeta)
+	right.sizeHint = oldSize - leftSize
 	id, err := rm.pdc.AllocID(context.Background())
 	if err != nil {
 		return errors.Trace(err)
@@ -495,7 +532,8 @@ func (rm *RegionManager) splitRegion(oldRegion *metapb.Region, splitKey []byte, 
 		},
 		Peers: oldRegion.Peers,
 	}
-	left := &regionInfo{meta: leftMeta, sizeHint: leftSize}
+	left := newRegionCtx(leftMeta)
+	left.sizeHint = leftSize
 	err1 := rm.db.Update(func(txn *badger.Txn) error {
 		err := txn.Set(InternalRegionMetaKey(left.meta.Id), left.marshal())
 		if err != nil {
