@@ -141,9 +141,12 @@ func (store *MVCCStore) BatchGet(keys [][]byte, startTS uint64) []Pair {
 
 func (store *MVCCStore) Prewrite(regCtx *regionCtx, mutations []*kvrpcpb.Mutation, primary []byte, startTS uint64, ttl uint64) []error {
 	hashVals := mutationsToHashVals(mutations)
-	ok, _ := regCtx.acquireLocks(hashVals)
-	if !ok {
-		return []error{ErrRetryable("write conflict")}
+	for {
+		ok, wg := regCtx.acquireLocks(hashVals)
+		if ok {
+			break
+		}
+		wg.Wait()
 	}
 	defer regCtx.releaseLocks(hashVals)
 	errs := make([]error, 0, len(mutations))
@@ -645,6 +648,9 @@ func (store *MVCCStore) ResolveLock(regCtx *regionCtx, startTS, commitTS uint64,
 	})
 	if err != nil {
 		return errors.Trace(err)
+	}
+	if len(lockKeys) == 0 {
+		return nil
 	}
 	hashVals := keysToHashVals(lockKeys)
 	for {
