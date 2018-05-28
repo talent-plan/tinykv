@@ -77,7 +77,7 @@ func (w *writeWorker) splitBatches(batches []*writeBatch) [][]*writeBatch {
 	var batchGroupEntries int
 	for i, batch := range batches {
 		batchGroupEntries += len(batch.entries)
-		if batchGroupEntries > 64<<10 || i == len(batches)-1 {
+		if batchGroupEntries > 4<<10 || i == len(batches)-1 {
 			batchGroupEntries = 0
 			splitOffsets = append(splitOffsets, i+1)
 		}
