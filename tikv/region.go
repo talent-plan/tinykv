@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"encoding/binary"
 	"github.com/coocood/badger"
@@ -33,20 +34,28 @@ func InternalRegionMetaKey(regionId uint64) []byte {
 }
 
 type regionCtx struct {
-	meta       *metapb.Region
-	sizeHint   int64
-	diff       int64
-	lastUpdate uint64
+	meta     *metapb.Region
+	sizeHint int64
+	diff     int64
 
 	memLocks map[uint64]*sync.WaitGroup
 	txnMu    sync.RWMutex
+
+	txnKeysMap map[uint64][][]byte
+	txnKeysMu  sync.RWMutex
+	refCount   sync.WaitGroup
+	parent     *regionCtx // Parent is used to inherent txnKeys and wait for all memLocks being released.
 }
 
-func newRegionCtx(meta *metapb.Region) *regionCtx {
-	return &regionCtx{
-		meta:     meta,
-		memLocks: make(map[uint64]*sync.WaitGroup),
+func newRegionCtx(meta *metapb.Region, parent *regionCtx) *regionCtx {
+	regCtx := &regionCtx{
+		meta:       meta,
+		memLocks:   make(map[uint64]*sync.WaitGroup),
+		txnKeysMap: make(map[uint64][][]byte),
+		parent:     parent,
 	}
+	regCtx.refCount.Add(1)
+	return regCtx
 }
 
 func (ri *regionCtx) rawStartKey() []byte {
@@ -145,6 +154,45 @@ func (ri *regionCtx) releaseLocks(hashVals []uint64) {
 	wg.Done()
 }
 
+func (ri *regionCtx) addTxnKeys(startTS uint64, keys [][]byte) {
+	ri.txnKeysMu.Lock()
+	defer ri.txnKeysMu.Unlock()
+	ri.txnKeysMap[startTS] = keys
+}
+
+func (ri *regionCtx) removeTxnKeys(startTS uint64) {
+	ri.txnKeysMu.Lock()
+	defer ri.txnKeysMu.Unlock()
+	delete(ri.txnKeysMap, startTS)
+}
+
+func (ri *regionCtx) removeTxnKey(startTS uint64, key []byte) {
+	ri.txnKeysMu.Lock()
+	defer ri.txnKeysMu.Unlock()
+	keys := ri.txnKeysMap[startTS]
+	if len(keys) == 1 {
+		if bytes.Equal(keys[0], key) {
+			delete(ri.txnKeysMap, startTS)
+		}
+	} else {
+		for i, oldKey := range keys {
+			if bytes.Equal(oldKey, key) {
+				newKeys := make([][]byte, len(keys)-1)
+				copy(newKeys, keys[:i])
+				copy(newKeys[i:], keys[i+1:])
+				ri.txnKeysMap[startTS] = newKeys
+			}
+		}
+	}
+}
+
+func (ri *regionCtx) getTxnKeys(startTS uint64) [][]byte {
+	ri.txnKeysMu.RLock()
+	defer ri.txnKeysMu.Unlock()
+	keys := ri.txnKeysMap[startTS]
+	return keys
+}
+
 type RegionOptions struct {
 	StoreAddr  string
 	PDAddr     string
@@ -198,7 +246,7 @@ func NewRegionManager(db *badger.DB, opts RegionOptions) *RegionManager {
 			if err1 != nil {
 				return err1
 			}
-			r := newRegionCtx(nil)
+			r := newRegionCtx(nil, nil)
 			err = r.unmarshal(val)
 			rm.regions[r.meta.Id] = r
 		}
@@ -235,7 +283,7 @@ func (rm *RegionManager) initStore(storeAddr string) error {
 		RegionEpoch: &metapb.RegionEpoch{ConfVer: 1, Version: 1},
 		Peers:       []*metapb.Peer{&metapb.Peer{Id: peerID, StoreId: storeID}},
 	}
-	rm.regions[rootRegion.Id] = newRegionCtx(rootRegion)
+	rm.regions[rootRegion.Id] = newRegionCtx(rootRegion, nil)
 	err = rm.pdc.Bootstrap(ctx, &rm.storeMeta, rootRegion)
 	cancel()
 	if err != nil {
@@ -305,7 +353,7 @@ func (rm *RegionManager) initialSplit(root *metapb.Region) {
 		},
 	}
 	for _, region := range newRegions {
-		rm.regions[region.Id] = newRegionCtx(region)
+		rm.regions[region.Id] = newRegionCtx(region, nil)
 	}
 }
 
@@ -362,6 +410,36 @@ func (rm *RegionManager) getRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *er
 			StaleEpoch: &errorpb.StaleEpoch{
 				NewRegions: []*metapb.Region{ri.meta},
 			},
+		}
+	}
+	ptr := unsafe.Pointer(ri.parent)
+	parent := (*regionCtx)(atomic.LoadPointer(&ptr))
+	if parent != nil {
+		// Wait for the parent region reference decrease to zero, so the memLocks would be clean.
+		// We are not going to face any
+		parent.refCount.Wait()
+		if atomic.CompareAndSwapPointer(&ptr, unsafe.Pointer(parent), nil) {
+			// Inherent the txnKeysMap from parent.
+			isLeft := bytes.Equal(parent.meta.StartKey, ri.meta.StartKey)
+			ri.txnKeysMu.Lock()
+			for startTS, parentKeys := range parent.txnKeysMap {
+				var newKeys [][]byte
+				for _, parentKey := range parentKeys {
+					if isLeft {
+						if bytes.Compare(parentKey, ri.meta.EndKey) < 0 {
+							newKeys = append(newKeys, parentKey)
+						}
+					} else {
+						if bytes.Compare(parentKey, ri.meta.StartKey) >= 0 {
+							newKeys = append(newKeys, parentKey)
+						}
+					}
+				}
+				if len(newKeys) > 0 {
+					ri.txnKeysMap[startTS] = newKeys
+				}
+			}
+			ri.txnKeysMu.Unlock()
 		}
 	}
 	return ri, nil
@@ -498,14 +576,15 @@ func (rm *RegionManager) splitCheckRegion(region *regionCtx) error {
 	log.Infof("region:%d leftSize %d, rightSize %d", region.meta.Id, leftSize, s.totalSize-leftSize)
 	_, _, err = codec.DecodeBytes(splitKey, nil)
 	log.Info("splitKey", splitKey, err)
-	err = rm.splitRegion(region.meta, splitKey, s.totalSize, leftSize)
+	err = rm.splitRegion(region, splitKey, s.totalSize, leftSize)
 	if err != nil {
 		log.Error(err)
 	}
 	return errors.Trace(err)
 }
 
-func (rm *RegionManager) splitRegion(oldRegion *metapb.Region, splitKey []byte, oldSize, leftSize int64) error {
+func (rm *RegionManager) splitRegion(oldRegionCtx *regionCtx, splitKey []byte, oldSize, leftSize int64) error {
+	oldRegion := oldRegionCtx.meta
 	rightMeta := &metapb.Region{
 		Id:       oldRegion.Id,
 		StartKey: splitKey,
@@ -516,7 +595,7 @@ func (rm *RegionManager) splitRegion(oldRegion *metapb.Region, splitKey []byte, 
 		},
 		Peers: oldRegion.Peers,
 	}
-	right := newRegionCtx(rightMeta)
+	right := newRegionCtx(rightMeta, oldRegionCtx)
 	right.sizeHint = oldSize - leftSize
 	id, err := rm.pdc.AllocID(context.Background())
 	if err != nil {
@@ -532,7 +611,7 @@ func (rm *RegionManager) splitRegion(oldRegion *metapb.Region, splitKey []byte, 
 		},
 		Peers: oldRegion.Peers,
 	}
-	left := newRegionCtx(leftMeta)
+	left := newRegionCtx(leftMeta, oldRegionCtx)
 	left.sizeHint = leftSize
 	err1 := rm.db.Update(func(txn *badger.Txn) error {
 		err := txn.Set(InternalRegionMetaKey(left.meta.Id), left.marshal())
@@ -549,6 +628,7 @@ func (rm *RegionManager) splitRegion(oldRegion *metapb.Region, splitKey []byte, 
 	rm.regions[left.meta.Id] = left
 	rm.regions[right.meta.Id] = right
 	rm.mu.Unlock()
+	oldRegionCtx.refCount.Done()
 	rm.pdc.ReportRegion(right)
 	rm.pdc.ReportRegion(left)
 	log.Infof("region %d split to left %d with size %d and right %d with size %d",
