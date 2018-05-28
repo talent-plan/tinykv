@@ -64,25 +64,49 @@ func (w *writeWorker) run() {
 		w.mu.Lock()
 		batches, w.mu.batches = w.mu.batches, batches
 		w.mu.Unlock()
-		err := w.db.Update(func(txn *badger.Txn) error {
-			for _, batch := range batches {
-				for _, entry := range batch.entries {
-					var err error
-					if entry.UserMeta == mixedDelFlag {
-						err = txn.Delete(entry.Key)
-					} else {
-						err = txn.SetEntry(entry)
-					}
-					if err != nil {
-						return errors.Trace(err)
-					}
+		batchesGroups := w.splitBatches(batches)
+		for _, batchGroup := range batchesGroups {
+			w.updateBatchGroup(batchGroup)
+		}
+	}
+}
+
+func (w *writeWorker) splitBatches(batches []*writeBatch) [][]*writeBatch {
+	var batchGroups [][]*writeBatch
+	splitOffsets := []int{0}
+	var batchGroupEntries int
+	for i, batch := range batches {
+		batchGroupEntries += len(batch.entries)
+		if batchGroupEntries > 64<<10 || i == len(batches)-1 {
+			batchGroupEntries = 0
+			splitOffsets = append(splitOffsets, i+1)
+		}
+	}
+	for i := 1; i < len(splitOffsets); i++ {
+		batchGroups = append(batchGroups, batches[splitOffsets[i-1]:splitOffsets[i]])
+	}
+	return batchGroups
+}
+
+func (w *writeWorker) updateBatchGroup(batchGroup []*writeBatch) {
+	err := w.db.Update(func(txn *badger.Txn) error {
+		for _, batch := range batchGroup {
+			for _, entry := range batch.entries {
+				var err error
+				if entry.UserMeta == mixedDelFlag {
+					err = txn.Delete(entry.Key)
+				} else {
+					err = txn.SetEntry(entry)
+				}
+				if err != nil {
+					return errors.Trace(err)
 				}
 			}
-			return nil
-		})
-		for _, batch := range batches {
-			batch.err = err
-			batch.wg.Done()
 		}
+		return nil
+	})
+	for _, batch := range batchGroup {
+		batch.err = err
+		batch.wg.Done()
 	}
 }

@@ -23,6 +23,7 @@ var (
 	regionSize       = flag.Int64("region-size", 96*1024*1024, "Average region size.")
 	logLevel         = flag.String("L", "info", "log level")
 	tableLoadingMode = flag.String("table-loading-mode", "memory-map", "How should LSM tree be accessed. (memory-map/load-to-ram)")
+	maxTableSize     = flag.Int64("max-table-size", 64<<20, "Each table (or file) is at most this size.")
 	numMemTables     = flag.Int("num-mem-tables", 3, "Maximum number of tables to keep in memory, before stalling.")
 	numL0Table       = flag.Int("num-level-zero-tables", 3, "Maximum number of Level 0 tables before we start compacting.")
 	syncWrites       = flag.Bool("sync-write", true, "Sync all writes to disk. Setting this to true would slow down data loading significantly.")
@@ -39,6 +40,7 @@ func main() {
 		opts.TableLoadingMode = options.MemoryMap
 	}
 	opts.ValueLogLoadingMode = options.FileIO
+	opts.MaxTableSize = *maxTableSize
 	opts.NumMemtables = *numMemTables
 	opts.NumLevelZeroTables = *numL0Table
 	opts.NumLevelZeroTablesStall = opts.NumLevelZeroTables + 5
