@@ -170,7 +170,7 @@ func (svr *Server) KvScanLock(ctx context.Context, req *kvrpcpb.ScanLockRequest)
 	if !isMvccRegion(regCtx) {
 		return &kvrpcpb.ScanLockResponse{}, nil
 	}
-	locks, err := svr.mvccStore.ScanLock(encodeMVKey(req.StartKey), regCtx.meta.EndKey, int(req.Limit), req.MaxVersion)
+	locks, err := svr.mvccStore.ScanLock(regCtx, req.MaxVersion)
 	return &kvrpcpb.ScanLockResponse{Error: convertToKeyError(err), Locks: locks}, nil
 }
 
@@ -185,10 +185,21 @@ func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRe
 	regCtx.refCount.Add(1)
 	defer regCtx.refCount.Done()
 	resp := &kvrpcpb.ResolveLockResponse{}
-	log.Debugf("kv resolve lock region:%d txn:%v ", regCtx.meta.Id, req.StartVersion)
-	err := svr.mvccStore.ResolveLock(regCtx, req.StartVersion, req.CommitVersion, &regCtx.diff)
-	if err != nil {
-		resp.Error = convertToKeyError(err)
+	if len(req.TxnInfos) > 0 {
+		for _, txnInfo := range req.TxnInfos {
+			log.Debugf("kv resolve lock region:%d txn:%v", regCtx.meta.Id, txnInfo.Txn)
+			err := svr.mvccStore.ResolveLock(regCtx, txnInfo.Txn, txnInfo.Status, &regCtx.diff)
+			if err != nil {
+				resp.Error = convertToKeyError(err)
+				break
+			}
+		}
+	} else {
+		log.Debugf("kv resolve lock region:%d txn:%v", regCtx.meta.Id, req.StartVersion)
+		err := svr.mvccStore.ResolveLock(regCtx, req.StartVersion, req.CommitVersion, &regCtx.diff)
+		if err != nil {
+			resp.Error = convertToKeyError(err)
+		}
 	}
 	return resp, nil
 }

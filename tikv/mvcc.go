@@ -560,22 +560,25 @@ func (store *MVCCStore) Cleanup(regCtx *regionCtx, key []byte, startTS uint64) e
 	return err
 }
 
-func (store *MVCCStore) ScanLock(mvStartKey, mvEndKey []byte, limit int, maxTS uint64) ([]*kvrpcpb.LockInfo, error) {
+func (store *MVCCStore) ScanLock(regCtx *regionCtx, maxTS uint64) ([]*kvrpcpb.LockInfo, error) {
 	var locks []*kvrpcpb.LockInfo
+	allKeys := regCtx.getAllKeys(maxTS)
 	err1 := store.db.View(func(txn *badger.Txn) error {
-		iter := newIterator(txn)
-		defer iter.Close()
-		for iter.Seek(mvStartKey); iter.Valid(); iter.Next() {
-			item := iter.Item()
-			if exceedEndKey(item.Key(), mvEndKey) {
-				return nil
-			}
-			if item.UserMeta()&mixedLockFlag == 0 {
+		for _, key := range allKeys {
+			mvKey := encodeMVKey(key)
+			item, err := txn.Get(mvKey)
+			if err == badger.ErrKeyNotFound {
 				continue
+			}
+			if err != nil {
+				return errors.Trace(err)
 			}
 			mixed, err := decodeMixed(item)
 			if err != nil {
 				return errors.Trace(err)
+			}
+			if !mixed.hasLock() {
+				continue
 			}
 			lock := mixed.lock
 			if lock.op == kvrpcpb.Op_Rollback {
@@ -595,7 +598,7 @@ func (store *MVCCStore) ScanLock(mvStartKey, mvEndKey []byte, limit int, maxTS u
 	if err1 != nil {
 		log.Error(err1)
 	}
-	return nil, nil
+	return locks, nil
 }
 
 func (store *MVCCStore) ResolveLock(regCtx *regionCtx, startTS, commitTS uint64, diff *int64) error {
@@ -649,10 +652,6 @@ func (store *MVCCStore) ResolveLock(regCtx *regionCtx, startTS, commitTS uint64,
 	atomic.AddInt64(diff, tmpDiff)
 	regCtx.removeTxnKeys(startTS)
 	return store.write(wb)
-}
-
-func (store *MVCCStore) BatchResolveLock(startKey, endKey []byte, txnInfos map[uint64]uint64) error {
-	return nil
 }
 
 const delRangeBatchSize = 4096
