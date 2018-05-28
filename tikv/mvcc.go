@@ -599,7 +599,7 @@ func (store *MVCCStore) ScanLock(mvStartKey, mvEndKey []byte, limit int, maxTS u
 }
 
 func (store *MVCCStore) ResolveLock(regCtx *regionCtx, startTS, commitTS uint64, diff *int64) error {
-	lockKeys := regCtx.geTxnKeys(startTS)
+	lockKeys := regCtx.getTxnKeys(startTS)
 	if len(lockKeys) == 0 {
 		return nil
 	}

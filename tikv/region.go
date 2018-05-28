@@ -186,7 +186,7 @@ func (ri *regionCtx) removeTxnKey(startTS uint64, key []byte) {
 	ri.txnKeysMu.Unlock()
 }
 
-func (ri *regionCtx) geTxnKeys(startTS uint64) [][]byte {
+func (ri *regionCtx) getTxnKeys(startTS uint64) [][]byte {
 	ri.txnKeysMu.RLock()
 	keys := ri.txnKeysMap[startTS]
 	ri.txnKeysMu.RUnlock()
