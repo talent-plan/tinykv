@@ -192,8 +192,13 @@ func (batch *writeBatch) prewriteMutation(txn *badger.Txn, mutation *kvrpcpb.Mut
 		if mixed.hasLock() {
 			lock := mixed.lock
 			if lock.op != kvrpcpb.Op_Rollback {
-				return ErrRetryable("try again later")
+				if lock.startTS != startTS {
+					return ErrRetryable("key is locked, try again later")
+				}
+				// Same ts, no need to overwrite.
+				return nil
 			}
+			// Rollback lock type
 			if lock.startTS >= startTS {
 				return ErrAbort("already rollback")
 			}
