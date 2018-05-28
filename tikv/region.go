@@ -156,18 +156,19 @@ func (ri *regionCtx) releaseLocks(hashVals []uint64) {
 
 func (ri *regionCtx) addTxnKeys(startTS uint64, keys [][]byte) {
 	ri.txnKeysMu.Lock()
+	defer ri.txnKeysMu.Unlock()
 	ri.txnKeysMap[startTS] = keys
-	ri.txnKeysMu.Unlock()
 }
 
 func (ri *regionCtx) removeTxnKeys(startTS uint64) {
 	ri.txnKeysMu.Lock()
+	defer ri.txnKeysMu.Unlock()
 	delete(ri.txnKeysMap, startTS)
-	ri.txnKeysMu.Unlock()
 }
 
 func (ri *regionCtx) removeTxnKey(startTS uint64, key []byte) {
 	ri.txnKeysMu.Lock()
+	defer ri.txnKeysMu.Unlock()
 	keys := ri.txnKeysMap[startTS]
 	if len(keys) == 1 {
 		if bytes.Equal(keys[0], key) {
@@ -183,13 +184,12 @@ func (ri *regionCtx) removeTxnKey(startTS uint64, key []byte) {
 			}
 		}
 	}
-	ri.txnKeysMu.Unlock()
 }
 
 func (ri *regionCtx) getTxnKeys(startTS uint64) [][]byte {
 	ri.txnKeysMu.RLock()
+	defer ri.txnKeysMu.Unlock()
 	keys := ri.txnKeysMap[startTS]
-	ri.txnKeysMu.RUnlock()
 	return keys
 }
 
