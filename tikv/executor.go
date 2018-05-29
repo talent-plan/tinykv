@@ -3,7 +3,6 @@ package tikv
 import (
 	"bytes"
 	"encoding/binary"
-	"math"
 	"sort"
 
 	"github.com/juju/errors"
@@ -131,10 +130,12 @@ func (e *tableScanExec) fillRows() error {
 		if ran.IsPoint() {
 			err = e.fillRowsFromPoint(ran)
 			e.rangeCursor++
+			e.seekKey = nil
 		} else {
 			err = e.fillRowsFromRange(ran)
 			if len(e.rows) == 0 {
 				e.rangeCursor++
+				e.seekKey = nil
 			}
 		}
 		if err != nil {
@@ -202,7 +203,7 @@ func (e *tableScanExec) fillRowsFromRange(ran kv.KeyRange) error {
 	}
 	lastPair := pairs[len(pairs)-1]
 	if e.Desc {
-		e.seekKey = []byte(tablecodec.TruncateToRowKeyLen(kv.Key(lastPair.Key)))
+		e.seekKey = prefixPrev(lastPair.Key)
 	} else {
 		e.seekKey = []byte(kv.Key(lastPair.Key).PrefixNext())
 	}
@@ -268,7 +269,7 @@ func (e *indexScanExec) Cursor() ([]byte, bool) {
 	}
 	if e.ranCursor < len(e.kvRanges) {
 		ran := e.kvRanges[e.ranCursor]
-		if ran.IsPoint() && e.isUnique() {
+		if e.isUnique() && ran.IsPoint() {
 			return ran.StartKey, e.Desc
 		}
 		if e.Desc {
@@ -305,12 +306,17 @@ func (e *indexScanExec) Next(ctx context.Context) (value [][]byte, err error) {
 func (e *indexScanExec) fillRows() error {
 	for e.ranCursor < len(e.kvRanges) {
 		ran := e.kvRanges[e.ranCursor]
-		e.ranCursor++
 		var err error
-		if ran.IsPoint() {
+		if e.isUnique() && ran.IsPoint() {
 			err = e.fillRowsFromPoint(ran)
+			e.ranCursor++
+			e.seekKey = nil
 		} else {
 			err = e.fillRowsFromRange(ran)
+			if len(e.rows) == 0 {
+				e.ranCursor++
+				e.seekKey = nil
+			}
 		}
 		if err != nil {
 			return errors.Trace(err)
@@ -369,11 +375,21 @@ func (e *indexScanExec) decodeIndexKV(pair Pair) ([][]byte, error) {
 }
 
 func (e *indexScanExec) fillRowsFromRange(ran kv.KeyRange) error {
+	if e.seekKey == nil {
+		if e.Desc {
+			e.seekKey = ran.EndKey
+		} else {
+			e.seekKey = ran.StartKey
+		}
+	}
 	var pairs []Pair
 	if e.Desc {
-		pairs = e.mvccStore.ReverseScan(ran.StartKey, ran.EndKey, math.MaxInt64, e.startTS)
+		pairs = e.mvccStore.ReverseScan(ran.StartKey, e.seekKey, scanLimit, e.startTS)
 	} else {
-		pairs = e.mvccStore.Scan(ran.StartKey, ran.EndKey, math.MaxInt64, e.startTS)
+		pairs = e.mvccStore.Scan(e.seekKey, ran.EndKey, scanLimit, e.startTS)
+	}
+	if len(pairs) == 0 {
+		return nil
 	}
 	for _, pair := range pairs {
 		if pair.Err != nil {
@@ -386,7 +402,30 @@ func (e *indexScanExec) fillRowsFromRange(ran kv.KeyRange) error {
 		}
 		e.rows = append(e.rows, row)
 	}
+	lastPair := pairs[len(pairs)-1]
+	if e.Desc {
+		e.seekKey = prefixPrev(lastPair.Key)
+	} else {
+		e.seekKey = []byte(kv.Key(lastPair.Key).PrefixNext())
+	}
 	return nil
+}
+
+// previous version of kv.PrefixNext.
+func prefixPrev(k []byte) []byte {
+	buf := make([]byte, len([]byte(k)))
+	copy(buf, []byte(k))
+	var i int
+	for i = len(k) - 1; i >= 0; i-- {
+		buf[i]--
+		if buf[i] != 255 {
+			break
+		}
+	}
+	if i == -1 {
+		return nil
+	}
+	return buf
 }
 
 type selectionExec struct {
