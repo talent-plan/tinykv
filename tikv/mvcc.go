@@ -257,6 +257,18 @@ func (batch *writeBatch) commitKey(txn *badger.Txn, key []byte, startTS, commitT
 	}
 	mixed, err := decodeMixed(item)
 	if !mixed.hasLock() {
+		if mixed.val.startTS == startTS {
+			// Already committed.
+			return nil
+		} else {
+			// The transaction may be committed and moved to old data, we need to look for that.
+			oldKey := encodeOldKeyFromMVKey(mvKey, commitTS)
+			_, err = txn.Get(oldKey)
+			if err == nil {
+				// Found committed key.
+				return nil
+			}
+		}
 		return errors.New("lock not found")
 	}
 	lock := mixed.lock
