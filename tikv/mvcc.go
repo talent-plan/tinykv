@@ -34,7 +34,9 @@ func NewMVCCStore(db *badger.DB) *MVCCStore {
 func (store *MVCCStore) Get(key []byte, startTS uint64) ([]byte, error) {
 	var result valueResult
 	err := store.db.View(func(txn *badger.Txn) error {
-		result = store.mvGet(txn, nil, key, startTS)
+		g := &getter{txn: txn}
+		defer g.close()
+		result = g.mvGet(key, startTS)
 		return nil
 	})
 	if result.err == nil {
@@ -55,9 +57,14 @@ type valueResult struct {
 	err      error
 }
 
-func (store *MVCCStore) mvGet(txn *badger.Txn, iter *badger.Iterator, key []byte, startTS uint64) (result valueResult) {
+type getter struct {
+	txn  *badger.Txn
+	iter *badger.Iterator
+}
+
+func (g *getter) mvGet(key []byte, startTS uint64) (result valueResult) {
 	mvKey := codec.EncodeBytes(nil, key)
-	item, err := txn.Get(mvKey)
+	item, err := g.txn.Get(mvKey)
 	if err != nil && err != badger.ErrKeyNotFound {
 		result.err = errors.Trace(err)
 		return
@@ -71,7 +78,7 @@ func (store *MVCCStore) mvGet(txn *badger.Txn, iter *badger.Iterator, key []byte
 		return
 	}
 	if mixed.hasLock() {
-		result.err = store.checkLock(mixed.lock, key, startTS)
+		result.err = checkLock(mixed.lock, key, startTS)
 		if result.err != nil {
 			return
 		}
@@ -86,14 +93,14 @@ func (store *MVCCStore) mvGet(txn *badger.Txn, iter *badger.Iterator, key []byte
 		return
 	}
 	oldKey := encodeOldKeyFromMVKey(mvKey, startTS)
-	if iter == nil {
-		iter = newIterator(txn)
+	if g.iter == nil {
+		g.iter = newIterator(g.txn)
 	}
-	iter.Seek(oldKey)
-	if !iter.ValidForPrefix(oldKey[:len(oldKey)-8]) {
+	g.iter.Seek(oldKey)
+	if !g.iter.ValidForPrefix(oldKey[:len(oldKey)-8]) {
 		return
 	}
-	item = iter.Item()
+	item = g.iter.Item()
 	mvVal, err = decodeValue(item)
 	if err != nil {
 		result.err = errors.Trace(err)
@@ -104,7 +111,13 @@ func (store *MVCCStore) mvGet(txn *badger.Txn, iter *badger.Iterator, key []byte
 	return
 }
 
-func (store *MVCCStore) checkLock(lock mvccLock, key []byte, startTS uint64) error {
+func (g *getter) close() {
+	if g.iter != nil {
+		g.iter.Close()
+	}
+}
+
+func checkLock(lock mvccLock, key []byte, startTS uint64) error {
 	lockVisible := lock.startTS < startTS
 	isWriteLock := lock.op == kvrpcpb.Op_Put || lock.op == kvrpcpb.Op_Del
 	isPrimaryGet := lock.startTS == lockVer && bytes.Equal(lock.primary, key)
@@ -122,10 +135,10 @@ func (store *MVCCStore) checkLock(lock mvccLock, key []byte, startTS uint64) err
 func (store *MVCCStore) BatchGet(keys [][]byte, startTS uint64) []Pair {
 	var pairs []Pair
 	err := store.db.View(func(txn *badger.Txn) error {
-		iter := newIterator(txn)
-		defer iter.Close()
+		g := &getter{txn: txn}
+		defer g.close()
 		for _, key := range keys {
-			result := store.mvGet(txn, iter, key, startTS)
+			result := g.mvGet(key, startTS)
 			if len(result.value) == 0 {
 				continue
 			}
@@ -454,7 +467,7 @@ func (store *MVCCStore) Scan(startKey, endKey []byte, limit int, startTS uint64)
 				return errors.Trace(err1)
 			}
 			if mixed.hasLock() {
-				err1 = store.checkLock(mixed.lock, rawKey, startTS)
+				err1 = checkLock(mixed.lock, rawKey, startTS)
 				if err1 != nil {
 					return errors.Trace(err1)
 				}
@@ -527,7 +540,7 @@ func (store *MVCCStore) ReverseScan(startKey, endKey []byte, limit int, startTS 
 				return errors.Trace(err1)
 			}
 			if mixed.hasLock() {
-				err1 = store.checkLock(mixed.lock, rawKey, startTS)
+				err1 = checkLock(mixed.lock, rawKey, startTS)
 				if err1 != nil {
 					return errors.Trace(err1)
 				}
