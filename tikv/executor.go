@@ -203,7 +203,7 @@ func (e *tableScanExec) fillRowsFromRange(ran kv.KeyRange) error {
 	}
 	lastPair := pairs[len(pairs)-1]
 	if e.Desc {
-		e.seekKey = lastPair.Key
+		e.seekKey = prefixPrev(lastPair.Key)
 	} else {
 		e.seekKey = []byte(kv.Key(lastPair.Key).PrefixNext())
 	}
@@ -404,11 +404,28 @@ func (e *indexScanExec) fillRowsFromRange(ran kv.KeyRange) error {
 	}
 	lastPair := pairs[len(pairs)-1]
 	if e.Desc {
-		e.seekKey = lastPair.Key
+		e.seekKey = prefixPrev(lastPair.Key)
 	} else {
 		e.seekKey = []byte(kv.Key(lastPair.Key).PrefixNext())
 	}
 	return nil
+}
+
+// previous version of kv.PrefixNext.
+func prefixPrev(k []byte) []byte {
+	buf := make([]byte, len([]byte(k)))
+	copy(buf, []byte(k))
+	var i int
+	for i = len(k) - 1; i >= 0; i-- {
+		buf[i]--
+		if buf[i] != 255 {
+			break
+		}
+	}
+	if i == -1 {
+		return nil
+	}
+	return buf
 }
 
 type selectionExec struct {
