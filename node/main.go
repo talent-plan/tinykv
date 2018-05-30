@@ -32,8 +32,13 @@ var (
 	syncWrites       = flag.Bool("sync-write", true, "Sync all writes to disk. Setting this to true would slow down data loading significantly.")
 )
 
+var (
+	gitHash = "None"
+)
+
 func main() {
 	flag.Parse()
+	log.Info("gitHash:", gitHash)
 	log.SetLevelByString(*logLevel)
 	go http.ListenAndServe(*httpAddr, nil)
 

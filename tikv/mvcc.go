@@ -773,7 +773,7 @@ func (store *MVCCStore) gcOldVersions(regCtx *regionCtx, safePoint uint64) error
 		iter := newIterator(txn)
 		defer iter.Close()
 		oldStartKey := encodeOldKeyFromMVKey(regCtx.meta.StartKey, lockVer)
-		oldEndKey := encodeOldKeyFromMVKey(regCtx.meta.StartKey, lockVer)
+		oldEndKey := encodeOldKeyFromMVKey(regCtx.meta.EndKey, lockVer)
 		for iter.Seek(oldStartKey); iter.Valid(); iter.Next() {
 			item := iter.Item()
 			if exceedEndKey(item.Key(), oldEndKey) {
@@ -815,7 +815,7 @@ func (store *MVCCStore) gcDelAndRollbacks(regCtx *regionCtx, safePoint uint64) e
 				if err != nil {
 					return errors.Trace(err)
 				}
-				if mixed.hasLock() {
+				if mixed.hasLock() && !mixed.hasValue() {
 					lock := mixed.lock
 					if lock.op == kvrpcpb.Op_Rollback && lock.startTS <= safePoint {
 						gcKeys = append(gcKeys, item.KeyCopy(nil))
