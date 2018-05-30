@@ -5,6 +5,9 @@ import (
 	"net"
 	"net/http"
 	_ "net/http/pprof"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/coocood/badger"
 	"github.com/coocood/badger/options"
@@ -32,6 +35,8 @@ var (
 func main() {
 	flag.Parse()
 	log.SetLevelByString(*logLevel)
+	go http.ListenAndServe(*httpAddr, nil)
+
 	opts := badger.DefaultOptions
 	opts.ValueThreshold = *valThreshold
 	opts.Dir = *dbPath
@@ -63,7 +68,29 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	go http.ListenAndServe(*httpAddr, nil)
+	handleSignal(db, grpcServer)
 	err = grpcServer.Serve(l)
-	log.Error(err)
+	if err != nil {
+		log.Error(err)
+	}
+}
+
+func handleSignal(db *badger.DB, server *grpc.Server) {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh,
+		syscall.SIGHUP,
+		syscall.SIGINT,
+		syscall.SIGTERM,
+		syscall.SIGQUIT)
+	go func() {
+		sig := <-sigCh
+		log.Infof("Got signal [%s] to exit.", sig)
+		err := db.Close()
+		if err != nil {
+			log.Error(err)
+		} else {
+			log.Info("DB closed.")
+		}
+		server.Stop()
+	}()
 }
