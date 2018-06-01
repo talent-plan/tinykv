@@ -160,6 +160,18 @@ func (ri *regionCtx) addTxnKeys(startTS uint64, keys [][]byte) {
 	ri.txnKeysMap[startTS] = keys
 }
 
+func (ri *regionCtx) addTxnKey(startTS uint64, key []byte) {
+	ri.txnKeysMu.Lock()
+	defer ri.txnKeysMu.Unlock()
+	keys := ri.txnKeysMap[startTS]
+	for _, k := range keys {
+		if bytes.Equal(k, key) {
+			return
+		}
+	}
+	ri.txnKeysMap[startTS] = append(keys, key)
+}
+
 func (ri *regionCtx) removeTxnKeys(startTS uint64) {
 	ri.txnKeysMu.Lock()
 	defer ri.txnKeysMu.Unlock()

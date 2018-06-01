@@ -31,15 +31,15 @@ import (
 var dummySlice = make([]byte, 0)
 
 type dagContext struct {
-	regInfo   *regionCtx
+	regCtx    *regionCtx
 	dagReq    *tipb.DAGRequest
 	keyRanges []*coprocessor.KeyRange
 	evalCtx   *evalContext
 }
 
-func (svr *Server) handleCopDAGRequest(regInfo *regionCtx, req *coprocessor.Request) *coprocessor.Response {
+func (svr *Server) handleCopDAGRequest(regCtx *regionCtx, req *coprocessor.Request) *coprocessor.Response {
 	resp := &coprocessor.Response{}
-	dagCtx, e, dagReq, err := svr.buildDAGExecutor(regInfo, req)
+	dagCtx, e, dagReq, err := svr.buildDAGExecutor(regCtx, req)
 	if err != nil {
 		resp.OtherError = err.Error()
 		return resp
@@ -70,7 +70,7 @@ func (svr *Server) handleCopDAGRequest(regInfo *regionCtx, req *coprocessor.Requ
 	return buildResp(chunks, e.Counts(), err, warnings)
 }
 
-func (svr *Server) buildDAGExecutor(regInfo *regionCtx, req *coprocessor.Request) (*dagContext, executor, *tipb.DAGRequest, error) {
+func (svr *Server) buildDAGExecutor(regCtx *regionCtx, req *coprocessor.Request) (*dagContext, executor, *tipb.DAGRequest, error) {
 	if len(req.Ranges) == 0 {
 		return nil, nil, nil, errors.New("request range is null")
 	}
@@ -86,7 +86,7 @@ func (svr *Server) buildDAGExecutor(regInfo *regionCtx, req *coprocessor.Request
 	sc := flagsToStatementContext(dagReq.Flags)
 	sc.TimeZone = time.FixedZone("UTC", int(dagReq.TimeZoneOffset))
 	ctx := &dagContext{
-		regInfo:   regInfo,
+		regCtx:    regCtx,
 		dagReq:    dagReq,
 		keyRanges: req.Ranges,
 		evalCtx:   &evalContext{sc: sc},
@@ -153,7 +153,7 @@ func (svr *Server) buildDAG(ctx *dagContext, executors []*tipb.Executor) (execut
 func (svr *Server) buildTableScan(ctx *dagContext, executor *tipb.Executor) (*tableScanExec, error) {
 	columns := executor.TblScan.Columns
 	ctx.evalCtx.setColumnInfo(columns)
-	ranges, err := svr.extractKVRanges(ctx.regInfo, ctx.keyRanges, executor.TblScan.Desc)
+	ranges, err := svr.extractKVRanges(ctx.regCtx, ctx.keyRanges, executor.TblScan.Desc)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -164,6 +164,7 @@ func (svr *Server) buildTableScan(ctx *dagContext, executor *tipb.Executor) (*ta
 		colIDs:    ctx.evalCtx.colIDs,
 		startTS:   ctx.dagReq.GetStartTs(),
 		mvccStore: svr.mvccStore,
+		regCtx:    ctx.regCtx,
 	}
 	if ctx.dagReq.CollectRangeCounts != nil && *ctx.dagReq.CollectRangeCounts {
 		e.counts = make([]int64, len(ranges))
@@ -189,7 +190,7 @@ func (svr *Server) buildIndexScan(ctx *dagContext, executor *tipb.Executor) (*in
 		pkStatus = pkColIsSigned
 		columns = columns[:length-1]
 	}
-	ranges, err := svr.extractKVRanges(ctx.regInfo, ctx.keyRanges, executor.IdxScan.Desc)
+	ranges, err := svr.extractKVRanges(ctx.regCtx, ctx.keyRanges, executor.IdxScan.Desc)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -200,6 +201,7 @@ func (svr *Server) buildIndexScan(ctx *dagContext, executor *tipb.Executor) (*in
 		colsLen:   len(columns),
 		startTS:   ctx.dagReq.GetStartTs(),
 		mvccStore: svr.mvccStore,
+		regCtx:    ctx.regCtx,
 		pkStatus:  pkStatus,
 	}
 	if ctx.dagReq.CollectRangeCounts != nil && *ctx.dagReq.CollectRangeCounts {

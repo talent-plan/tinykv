@@ -45,7 +45,7 @@ func (svr *Server) KvGet(ctx context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb
 		return &kvrpcpb.GetResponse{RegionError: regErr}, nil
 	}
 	regCtx.assertContainsKey(req.Key)
-	val, err := svr.mvccStore.Get(req.Key, req.GetVersion())
+	val, err := svr.mvccStore.Get(regCtx, req.Key, req.GetVersion())
 	if err != nil {
 		return &kvrpcpb.GetResponse{
 			Error: convertToKeyError(err),
@@ -65,7 +65,7 @@ func (svr *Server) KvScan(ctx context.Context, req *kvrpcpb.ScanRequest) (*kvrpc
 	if !isMvccRegion(regCtx) {
 		return &kvrpcpb.ScanResponse{}, nil
 	}
-	pairs := svr.mvccStore.Scan(req.GetStartKey(), regCtx.rawEndKey(), int(req.GetLimit()), req.GetVersion())
+	pairs := svr.mvccStore.Scan(regCtx, req.GetStartKey(), regCtx.rawEndKey(), int(req.GetLimit()), req.GetVersion())
 	return &kvrpcpb.ScanResponse{
 		Pairs: convertToPbPairs(pairs),
 	}, nil
@@ -135,7 +135,7 @@ func (svr *Server) KvBatchGet(ctx context.Context, req *kvrpcpb.BatchGetRequest)
 	for _, k := range req.Keys {
 		regCtx.assertContainsKey(k)
 	}
-	pairs := svr.mvccStore.BatchGet(req.Keys, req.GetVersion())
+	pairs := svr.mvccStore.BatchGet(regCtx, req.Keys, req.GetVersion())
 	return &kvrpcpb.BatchGetResponse{
 		Pairs: convertToPbPairs(pairs),
 	}, nil

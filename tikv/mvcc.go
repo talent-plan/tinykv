@@ -31,10 +31,10 @@ func NewMVCCStore(db *badger.DB) *MVCCStore {
 	return store
 }
 
-func (store *MVCCStore) Get(key []byte, startTS uint64) ([]byte, error) {
+func (store *MVCCStore) Get(regCtx *regionCtx, key []byte, startTS uint64) ([]byte, error) {
 	var result valueResult
 	err := store.db.View(func(txn *badger.Txn) error {
-		g := &getter{txn: txn}
+		g := &getter{txn: txn, regCtx: regCtx}
 		defer g.close()
 		result = g.mvGet(key, startTS)
 		return nil
@@ -58,8 +58,9 @@ type valueResult struct {
 }
 
 type getter struct {
-	txn  *badger.Txn
-	iter *badger.Iterator
+	txn    *badger.Txn
+	regCtx *regionCtx
+	iter   *badger.Iterator
 }
 
 func (g *getter) mvGet(key []byte, startTS uint64) (result valueResult) {
@@ -78,7 +79,7 @@ func (g *getter) mvGet(key []byte, startTS uint64) (result valueResult) {
 		return
 	}
 	if mixed.hasLock() {
-		result.err = checkLock(mixed.lock, key, startTS)
+		result.err = checkLock(g.regCtx, mixed.lock, key, startTS)
 		if result.err != nil {
 			return
 		}
@@ -117,11 +118,14 @@ func (g *getter) close() {
 	}
 }
 
-func checkLock(lock mvccLock, key []byte, startTS uint64) error {
+func checkLock(regCtx *regionCtx, lock mvccLock, key []byte, startTS uint64) error {
 	lockVisible := lock.startTS < startTS
 	isWriteLock := lock.op == kvrpcpb.Op_Put || lock.op == kvrpcpb.Op_Del
 	isPrimaryGet := lock.startTS == lockVer && bytes.Equal(lock.primary, key)
 	if lockVisible && isWriteLock && !isPrimaryGet {
+		if extractPhysical(lock.startTS)+lock.ttl < extractPhysical(startTS) {
+			regCtx.addTxnKey(lock.startTS, key)
+		}
 		return &ErrLocked{
 			Key:     key,
 			StartTS: lock.startTS,
@@ -132,10 +136,14 @@ func checkLock(lock mvccLock, key []byte, startTS uint64) error {
 	return nil
 }
 
-func (store *MVCCStore) BatchGet(keys [][]byte, startTS uint64) []Pair {
+func extractPhysical(ts uint64) uint64 {
+	return ts >> 18
+}
+
+func (store *MVCCStore) BatchGet(regCtx *regionCtx, keys [][]byte, startTS uint64) []Pair {
 	var pairs []Pair
 	err := store.db.View(func(txn *badger.Txn) error {
-		g := &getter{txn: txn}
+		g := &getter{txn: txn, regCtx: regCtx}
 		defer g.close()
 		for _, key := range keys {
 			result := g.mvGet(key, startTS)
@@ -162,7 +170,7 @@ func (store *MVCCStore) Prewrite(regCtx *regionCtx, mutations []*kvrpcpb.Mutatio
 	var anyError bool
 	err := store.db.View(func(txn *badger.Txn) error {
 		for _, m := range mutations {
-			err1 := batch.prewriteMutation(txn, m, primary, startTS, ttl)
+			err1 := batch.prewriteMutation(regCtx, txn, m, primary, startTS, ttl)
 			if err1 != nil {
 				anyError = true
 			}
@@ -190,7 +198,7 @@ func (store *MVCCStore) Prewrite(regCtx *regionCtx, mutations []*kvrpcpb.Mutatio
 
 const lockVer uint64 = math.MaxUint64
 
-func (batch *writeBatch) prewriteMutation(txn *badger.Txn, mutation *kvrpcpb.Mutation, primary []byte, startTS uint64, ttl uint64) error {
+func (batch *writeBatch) prewriteMutation(regCtx *regionCtx, txn *badger.Txn, mutation *kvrpcpb.Mutation, primary []byte, startTS uint64, ttl uint64) error {
 	mvKey := codec.EncodeBytes(nil, mutation.Key)
 	item, err := txn.Get(mvKey)
 	if err != nil && err != badger.ErrKeyNotFound {
@@ -206,6 +214,9 @@ func (batch *writeBatch) prewriteMutation(txn *badger.Txn, mutation *kvrpcpb.Mut
 			lock := mixed.lock
 			if lock.op != kvrpcpb.Op_Rollback {
 				if lock.startTS != startTS {
+					if extractPhysical(lock.startTS)+lock.ttl < extractPhysical(startTS) {
+						regCtx.addTxnKey(lock.startTS, mutation.Key)
+					}
 					return ErrRetryable("key is locked, try again later")
 				}
 				// Same ts, no need to overwrite.
@@ -445,7 +456,7 @@ func (batch *writeBatch) rollbackKey(txn *badger.Txn, key []byte, startTS uint64
 	return nil
 }
 
-func (store *MVCCStore) Scan(startKey, endKey []byte, limit int, startTS uint64) []Pair {
+func (store *MVCCStore) Scan(regCtx *regionCtx, startKey, endKey []byte, limit int, startTS uint64) []Pair {
 	var pairs []Pair
 	err := store.db.View(func(txn *badger.Txn) error {
 		iter := newIterator(txn)
@@ -467,7 +478,7 @@ func (store *MVCCStore) Scan(startKey, endKey []byte, limit int, startTS uint64)
 				return errors.Trace(err1)
 			}
 			if mixed.hasLock() {
-				err1 = checkLock(mixed.lock, rawKey, startTS)
+				err1 = checkLock(regCtx, mixed.lock, rawKey, startTS)
 				if err1 != nil {
 					return errors.Trace(err1)
 				}
@@ -515,7 +526,7 @@ func isVisibleKey(mvKey []byte, startTS uint64) bool {
 }
 
 // ReverseScan implements the MVCCStore interface. The search range is [startKey, endKey).
-func (store *MVCCStore) ReverseScan(startKey, endKey []byte, limit int, startTS uint64) []Pair {
+func (store *MVCCStore) ReverseScan(regCtx *regionCtx, startKey, endKey []byte, limit int, startTS uint64) []Pair {
 	var pairs []Pair
 	err := store.db.View(func(txn *badger.Txn) error {
 		var opts badger.IteratorOptions
@@ -540,7 +551,7 @@ func (store *MVCCStore) ReverseScan(startKey, endKey []byte, limit int, startTS 
 				return errors.Trace(err1)
 			}
 			if mixed.hasLock() {
-				err1 = checkLock(mixed.lock, rawKey, startTS)
+				err1 = checkLock(regCtx, mixed.lock, rawKey, startTS)
 				if err1 != nil {
 					return errors.Trace(err1)
 				}
@@ -634,6 +645,7 @@ func (store *MVCCStore) ScanLock(regCtx *regionCtx, maxTS uint64) ([]*kvrpcpb.Lo
 func (store *MVCCStore) ResolveLock(regCtx *regionCtx, startTS, commitTS uint64, diff *int64) error {
 	lockKeys := regCtx.getTxnKeys(startTS)
 	if len(lockKeys) == 0 {
+		log.Debugf("no lock keys found for startTS:%d, commitTS:%d", startTS, commitTS)
 		return nil
 	}
 	hashVals := keysToHashVals(lockKeys)
@@ -678,6 +690,9 @@ func (store *MVCCStore) ResolveLock(regCtx *regionCtx, startTS, commitTS uint64,
 	if err != nil {
 		log.Errorf("resolve lock failed with %d locks, %v", len(lockKeys), err)
 		return errors.Trace(err)
+	}
+	if len(wb.entries) == 0 {
+		return nil
 	}
 	atomic.AddInt64(diff, tmpDiff)
 	regCtx.removeTxnKeys(startTS)

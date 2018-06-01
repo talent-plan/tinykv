@@ -44,6 +44,7 @@ type tableScanExec struct {
 	startTS        uint64
 	isolationLevel kvrpcpb.IsolationLevel
 	mvccStore      *MVCCStore
+	regCtx         *regionCtx
 	rangeCursor    int
 
 	rowCursor int
@@ -149,7 +150,7 @@ func (e *tableScanExec) fillRows() error {
 }
 
 func (e *tableScanExec) fillRowsFromPoint(ran kv.KeyRange) error {
-	val, err := e.mvccStore.Get(ran.StartKey, e.startTS)
+	val, err := e.mvccStore.Get(e.regCtx, ran.StartKey, e.startTS)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -180,9 +181,9 @@ func (e *tableScanExec) fillRowsFromRange(ran kv.KeyRange) error {
 	}
 	var pairs []Pair
 	if e.Desc {
-		pairs = e.mvccStore.ReverseScan(ran.StartKey, e.seekKey, scanLimit, e.startTS)
+		pairs = e.mvccStore.ReverseScan(e.regCtx, ran.StartKey, e.seekKey, scanLimit, e.startTS)
 	} else {
-		pairs = e.mvccStore.Scan(e.seekKey, ran.EndKey, scanLimit, e.startTS)
+		pairs = e.mvccStore.Scan(e.regCtx, e.seekKey, ran.EndKey, scanLimit, e.startTS)
 	}
 	if len(pairs) == 0 {
 		return nil
@@ -223,6 +224,7 @@ type indexScanExec struct {
 	startTS        uint64
 	isolationLevel kvrpcpb.IsolationLevel
 	mvccStore      *MVCCStore
+	regCtx         *regionCtx
 	ranCursor      int
 	seekKey        []byte
 	pkStatus       int
@@ -330,7 +332,7 @@ func (e *indexScanExec) fillRows() error {
 
 // fillRowsFromPoint is only used for unique key.
 func (e *indexScanExec) fillRowsFromPoint(ran kv.KeyRange) error {
-	val, err := e.mvccStore.Get(ran.StartKey, e.startTS)
+	val, err := e.mvccStore.Get(e.regCtx, ran.StartKey, e.startTS)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -384,9 +386,9 @@ func (e *indexScanExec) fillRowsFromRange(ran kv.KeyRange) error {
 	}
 	var pairs []Pair
 	if e.Desc {
-		pairs = e.mvccStore.ReverseScan(ran.StartKey, e.seekKey, scanLimit, e.startTS)
+		pairs = e.mvccStore.ReverseScan(e.regCtx, ran.StartKey, e.seekKey, scanLimit, e.startTS)
 	} else {
-		pairs = e.mvccStore.Scan(e.seekKey, ran.EndKey, scanLimit, e.startTS)
+		pairs = e.mvccStore.Scan(e.regCtx, e.seekKey, ran.EndKey, scanLimit, e.startTS)
 	}
 	if len(pairs) == 0 {
 		return nil
