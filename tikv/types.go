@@ -203,21 +203,9 @@ func decodeMixed(item *badger.Item) (mixedValue, error) {
 	return mixed, errors.Trace(err)
 }
 
-func encodeMVKey(key []byte) []byte {
-	return codec.EncodeBytes(nil, key)
-}
-
-func encodeOldKeyFromMVKey(mvKey []byte, ts uint64) []byte {
-	b := append([]byte{}, mvKey...)
+func encodeOldKey(key []byte, ts uint64) []byte {
+	b := append([]byte{}, key...)
 	ret := codec.EncodeUintDesc(b, ts)
 	ret[0]++
 	return ret
-}
-
-func decodeRawKey(mvKey []byte) ([]byte, error) {
-	_, rawKey, err := codec.DecodeBytes(mvKey, nil)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	return rawKey, nil
 }

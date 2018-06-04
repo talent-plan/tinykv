@@ -35,6 +35,8 @@ func InternalRegionMetaKey(regionId uint64) []byte {
 
 type regionCtx struct {
 	meta     *metapb.Region
+	startKey []byte
+	endKey   []byte
 	sizeHint int64
 	diff     int64
 
@@ -54,6 +56,8 @@ func newRegionCtx(meta *metapb.Region, parent *regionCtx) *regionCtx {
 		txnKeysMap: make(map[uint64][][]byte),
 		parent:     parent,
 	}
+	regCtx.startKey = regCtx.rawStartKey()
+	regCtx.endKey = regCtx.rawEndKey()
 	regCtx.refCount.Add(1)
 	return regCtx
 }
@@ -80,33 +84,29 @@ func (ri *regionCtx) rawEndKey() []byte {
 	return rawKey
 }
 
-func (ri *regionCtx) assertContainsKey(rawKey []byte) {
-	var keyBuf [128]byte
-	mvKey := codec.EncodeBytes(keyBuf[:0], rawKey)
-	if ri.lessThanStartKey(mvKey) || ri.greaterEqualEndKey(mvKey) {
-		tid, handle, er := tablecodec.DecodeRecordKey(rawKey)
+func (ri *regionCtx) assertContainsKey(key []byte) {
+	if ri.lessThanStartKey(key) || ri.greaterEqualEndKey(key) {
+		tid, handle, er := tablecodec.DecodeRecordKey(key)
 		log.Error(tid, handle, er)
-		panic(fmt.Sprintf("key %q not in region %s", mvKey, ri.meta))
+		panic(fmt.Sprintf("key %q not in region %s", key, ri.meta))
 	}
 }
 
-func (ri *regionCtx) lessThanStartKey(mvKey []byte) bool {
-	return bytes.Compare(mvKey, ri.meta.StartKey) < 0
+func (ri *regionCtx) lessThanStartKey(key []byte) bool {
+	return bytes.Compare(key, ri.startKey) < 0
 }
 
-func (ri *regionCtx) greaterEqualEndKey(mvKey []byte) bool {
-	return len(ri.meta.EndKey) > 0 && bytes.Compare(mvKey, ri.meta.EndKey) >= 0
+func (ri *regionCtx) greaterEqualEndKey(key []byte) bool {
+	return len(ri.endKey) > 0 && bytes.Compare(key, ri.endKey) >= 0
 }
 
-func (ri *regionCtx) greaterThanEndKey(mvKey []byte) bool {
-	return len(ri.meta.EndKey) > 0 && bytes.Compare(mvKey, ri.meta.EndKey) > 0
+func (ri *regionCtx) greaterThanEndKey(key []byte) bool {
+	return len(ri.endKey) > 0 && bytes.Compare(key, ri.endKey) > 0
 }
 
 func (ri *regionCtx) assertContainsRange(r *coprocessor.KeyRange) {
 	ri.assertContainsKey(r.Start)
-	var keyBuf [128]byte
-	mvEndKey := codec.EncodeBytes(keyBuf[:0], r.End)
-	if ri.greaterThanEndKey(mvEndKey) {
+	if ri.greaterThanEndKey(r.End) {
 		panic(fmt.Sprintf("end key %q not in region %s", r.End, ri.meta))
 	}
 }
@@ -601,7 +601,6 @@ func (rm *RegionManager) splitCheckRegion(region *regionCtx) error {
 	}
 	splitKey, leftSize := s.getSplitKeyAndSize()
 	log.Infof("region:%d leftSize %d, rightSize %d", region.meta.Id, leftSize, s.totalSize-leftSize)
-	_, _, err = codec.DecodeBytes(splitKey, nil)
 	log.Info("splitKey", splitKey, err)
 	err = rm.splitRegion(region, splitKey, s.totalSize, leftSize)
 	if err != nil {
@@ -614,7 +613,7 @@ func (rm *RegionManager) splitRegion(oldRegionCtx *regionCtx, splitKey []byte, o
 	oldRegion := oldRegionCtx.meta
 	rightMeta := &metapb.Region{
 		Id:       oldRegion.Id,
-		StartKey: splitKey,
+		StartKey: codec.EncodeBytes(nil, splitKey),
 		EndKey:   oldRegion.EndKey,
 		RegionEpoch: &metapb.RegionEpoch{
 			ConfVer: oldRegion.RegionEpoch.ConfVer,
@@ -631,7 +630,7 @@ func (rm *RegionManager) splitRegion(oldRegionCtx *regionCtx, splitKey []byte, o
 	leftMeta := &metapb.Region{
 		Id:       id,
 		StartKey: oldRegion.StartKey,
-		EndKey:   splitKey,
+		EndKey:   codec.EncodeBytes(nil, splitKey),
 		RegionEpoch: &metapb.RegionEpoch{
 			ConfVer: 1,
 			Version: 1,

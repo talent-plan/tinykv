@@ -19,7 +19,7 @@ import (
 	"golang.org/x/net/context"
 )
 
-func (svr *Server) handleCopAnalyzeRequest(regInfo *regionCtx, req *coprocessor.Request) *coprocessor.Response {
+func (svr *Server) handleCopAnalyzeRequest(regCtx *regionCtx, req *coprocessor.Request) *coprocessor.Response {
 	resp := &coprocessor.Response{}
 	if len(req.Ranges) == 0 {
 		return resp
@@ -33,15 +33,15 @@ func (svr *Server) handleCopAnalyzeRequest(regInfo *regionCtx, req *coprocessor.
 		resp.OtherError = err.Error()
 		return resp
 	}
-	ranges, err := svr.extractKVRanges(regInfo, req.Ranges, false)
+	ranges, err := svr.extractKVRanges(regCtx, req.Ranges, false)
 	if err != nil {
 		resp.OtherError = err.Error()
 		return resp
 	}
 	if analyzeReq.Tp == tipb.AnalyzeType_TypeIndex {
-		resp, err = svr.handleAnalyzeIndexReq(ranges, analyzeReq)
+		resp, err = svr.handleAnalyzeIndexReq(regCtx, ranges, analyzeReq)
 	} else {
-		resp, err = svr.handleAnalyzeColumnsReq(ranges, analyzeReq)
+		resp, err = svr.handleAnalyzeColumnsReq(regCtx, ranges, analyzeReq)
 	}
 	if err != nil {
 		resp = &coprocessor.Response{
@@ -51,12 +51,13 @@ func (svr *Server) handleCopAnalyzeRequest(regInfo *regionCtx, req *coprocessor.
 	return resp
 }
 
-func (svr *Server) handleAnalyzeIndexReq(ranges []kv.KeyRange, analyzeReq *tipb.AnalyzeReq) (*coprocessor.Response, error) {
+func (svr *Server) handleAnalyzeIndexReq(regCtx *regionCtx, ranges []kv.KeyRange, analyzeReq *tipb.AnalyzeReq) (*coprocessor.Response, error) {
 	e := &indexScanExec{
 		colsLen:   int(analyzeReq.IdxReq.NumColumns),
 		kvRanges:  ranges,
 		startTS:   analyzeReq.StartTs,
 		mvccStore: svr.mvccStore,
+		regCtx:    regCtx,
 		IndexScan: &tipb.IndexScan{Desc: false},
 	}
 	statsBuilder := statistics.NewSortedBuilder(flagsToStatementContext(analyzeReq.Flags), analyzeReq.IdxReq.BucketSize, 0, types.NewFieldType(mysql.TypeBlob))
@@ -102,7 +103,7 @@ type analyzeColumnsExec struct {
 	fields  []*ast.ResultField
 }
 
-func (svr *Server) handleAnalyzeColumnsReq(ranges []kv.KeyRange, analyzeReq *tipb.AnalyzeReq) (*coprocessor.Response, error) {
+func (svr *Server) handleAnalyzeColumnsReq(regCtx *regionCtx, ranges []kv.KeyRange, analyzeReq *tipb.AnalyzeReq) (*coprocessor.Response, error) {
 	sc := flagsToStatementContext(analyzeReq.Flags)
 	sc.TimeZone = time.FixedZone("UTC", int(analyzeReq.TimeZoneOffset))
 	evalCtx := &evalContext{sc: sc}
@@ -115,6 +116,7 @@ func (svr *Server) handleAnalyzeColumnsReq(ranges []kv.KeyRange, analyzeReq *tip
 			colIDs:    evalCtx.colIDs,
 			startTS:   analyzeReq.GetStartTs(),
 			mvccStore: svr.mvccStore,
+			regCtx:    regCtx,
 		},
 	}
 	e.fields = make([]*ast.ResultField, len(columns))
