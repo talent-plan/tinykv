@@ -215,7 +215,12 @@ func (batch *writeBatch) prewriteMutation(regCtx *regionCtx, txn *badger.Txn, mu
 					if extractPhysical(lock.startTS)+lock.ttl < extractPhysical(startTS) {
 						regCtx.addTxnKey(lock.startTS, mutation.Key)
 					}
-					return ErrRetryable("key is locked, try again later")
+					return &ErrLocked{
+						Key:     mutation.Key,
+						StartTS: lock.startTS,
+						Primary: lock.primary,
+						TTL:     lock.ttl,
+					}
 				}
 				// Same ts, no need to overwrite.
 				return nil
