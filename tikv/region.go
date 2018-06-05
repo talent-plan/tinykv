@@ -115,7 +115,16 @@ func (ri *regionCtx) unmarshal(data []byte) error {
 	ri.sizeHint = int64(binary.LittleEndian.Uint64(data))
 	data = data[8:]
 	ri.meta = &metapb.Region{}
-	return ri.meta.Unmarshal(data)
+	err := ri.meta.Unmarshal(data)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	ri.memLocks = make(map[uint64]*sync.WaitGroup)
+	ri.txnKeysMap = make(map[uint64][][]byte)
+	ri.startKey = ri.rawStartKey()
+	ri.endKey = ri.rawEndKey()
+	ri.refCount.Add(1)
+	return nil
 }
 
 func (ri *regionCtx) marshal() []byte {
@@ -273,8 +282,11 @@ func NewRegionManager(db *badger.DB, opts RegionOptions) *RegionManager {
 			if err1 != nil {
 				return err1
 			}
-			r := newRegionCtx(nil, nil)
+			r := new(regionCtx)
 			err = r.unmarshal(val)
+			if err != nil {
+				return errors.Trace(err)
+			}
 			rm.regions[r.meta.Id] = r
 		}
 		return nil
@@ -447,17 +459,17 @@ func (rm *RegionManager) getRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *er
 		parent.refCount.Wait()
 		if atomic.CompareAndSwapPointer(&ptr, unsafe.Pointer(parent), nil) {
 			// Inherent the txnKeysMap from parent.
-			isLeft := bytes.Equal(parent.meta.StartKey, ri.meta.StartKey)
+			isLeft := bytes.Equal(parent.startKey, ri.startKey)
 			ri.txnKeysMu.Lock()
 			for startTS, parentKeys := range parent.txnKeysMap {
 				var newKeys [][]byte
 				for _, parentKey := range parentKeys {
 					if isLeft {
-						if bytes.Compare(parentKey, ri.meta.EndKey) < 0 {
+						if bytes.Compare(parentKey, ri.endKey) < 0 {
 							newKeys = append(newKeys, parentKey)
 						}
 					} else {
-						if bytes.Compare(parentKey, ri.meta.StartKey) >= 0 {
+						if bytes.Compare(parentKey, ri.startKey) >= 0 {
 							newKeys = append(newKeys, parentKey)
 						}
 					}
@@ -581,7 +593,7 @@ func (rm *RegionManager) splitCheckRegion(region *regionCtx) error {
 	err := rm.db.View(func(txn *badger.Txn) error {
 		iter := txn.NewIterator(badger.IteratorOptions{PrefetchValues: false})
 		defer iter.Close()
-		for iter.Seek(region.meta.StartKey); iter.Valid(); iter.Next() {
+		for iter.Seek(region.startKey); iter.Valid(); iter.Next() {
 			item := iter.Item()
 			if region.greaterEqualEndKey(item.Key()) {
 				break

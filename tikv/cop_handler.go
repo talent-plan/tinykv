@@ -38,6 +38,7 @@ type dagContext struct {
 }
 
 func (svr *Server) handleCopDAGRequest(regCtx *regionCtx, req *coprocessor.Request) *coprocessor.Response {
+	startTime := time.Now()
 	resp := &coprocessor.Response{}
 	dagCtx, e, dagReq, err := svr.buildDAGExecutor(regCtx, req)
 	if err != nil {
@@ -67,7 +68,7 @@ func (svr *Server) handleCopDAGRequest(regCtx *regionCtx, req *coprocessor.Reque
 		rowCnt++
 	}
 	warnings := dagCtx.evalCtx.sc.GetWarnings()
-	return buildResp(chunks, e.Counts(), err, warnings)
+	return buildResp(chunks, e.Counts(), err, warnings, time.Since(startTime))
 }
 
 func (svr *Server) buildDAGExecutor(regCtx *regionCtx, req *coprocessor.Request) (*dagContext, executor, *tipb.DAGRequest, error) {
@@ -517,7 +518,7 @@ func (mock *mockCopStreamClient) readBlockFromExecutor() (tipb.Chunk, bool, *cop
 	return chunk, finish, &ran, mock.exec.Counts(), nil
 }
 
-func buildResp(chunks []tipb.Chunk, counts []int64, err error, warnings []error) *coprocessor.Response {
+func buildResp(chunks []tipb.Chunk, counts []int64, err error, warnings []error, dur time.Duration) *coprocessor.Response {
 	resp := &coprocessor.Response{}
 	selResp := &tipb.SelectResponse{
 		Error:        toPBError(err),
@@ -541,6 +542,9 @@ func buildResp(chunks []tipb.Chunk, counts []int64, err error, warnings []error)
 		} else {
 			resp.OtherError = err.Error()
 		}
+	}
+	resp.ExecDetails = &kvrpcpb.ExecDetails{
+		HandleTime: &kvrpcpb.HandleTime{ProcessMs: int64(dur / time.Millisecond)},
 	}
 	data, err := proto.Marshal(selResp)
 	if err != nil {

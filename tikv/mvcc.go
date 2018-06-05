@@ -772,8 +772,8 @@ func (store *MVCCStore) gcOldVersions(regCtx *regionCtx, safePoint uint64) error
 	err := store.db.View(func(txn *badger.Txn) error {
 		iter := newIterator(txn)
 		defer iter.Close()
-		oldStartKey := encodeOldKey(regCtx.meta.StartKey, lockVer)
-		oldEndKey := encodeOldKey(regCtx.meta.EndKey, lockVer)
+		oldStartKey := encodeOldKey(regCtx.startKey, lockVer)
+		oldEndKey := encodeOldKey(regCtx.endKey, lockVer)
 		for iter.Seek(oldStartKey); iter.Valid(); iter.Next() {
 			item := iter.Item()
 			if exceedEndKey(item.Key(), oldEndKey) {
@@ -804,9 +804,9 @@ func (store *MVCCStore) gcDelAndRollbacks(regCtx *regionCtx, safePoint uint64) e
 	err := store.db.View(func(txn *badger.Txn) error {
 		iter := newIterator(txn)
 		defer iter.Close()
-		for iter.Seek(regCtx.meta.StartKey); iter.Valid(); iter.Next() {
+		for iter.Seek(regCtx.startKey); iter.Valid(); iter.Next() {
 			item := iter.Item()
-			if exceedEndKey(item.Key(), regCtx.meta.EndKey) {
+			if exceedEndKey(item.Key(), regCtx.endKey) {
 				return nil
 			}
 			flag := item.UserMeta()
@@ -893,7 +893,7 @@ func (store *MVCCStore) acquireLocks(regCtx *regionCtx, hashVals []uint64) {
 		ok, wg, lockLen := regCtx.acquireLocks(hashVals)
 		if ok {
 			dur := time.Since(start)
-			if dur > time.Millisecond*10 {
+			if dur > time.Millisecond*50 {
 				log.Warnf("acquire %d locks takes %v, memLock size %d", len(hashVals), dur, lockLen)
 			}
 			return

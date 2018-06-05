@@ -376,9 +376,9 @@ func convertToPbPairs(pairs []Pair) []*kvrpcpb.KvPair {
 }
 
 func isMvccRegion(regCtx *regionCtx) bool {
-	if len(regCtx.meta.StartKey) == 0 {
+	if len(regCtx.startKey) == 0 {
 		return false
 	}
-	first := regCtx.meta.StartKey[0]
+	first := regCtx.startKey[0]
 	return first == 't' || first == 'm'
 }
