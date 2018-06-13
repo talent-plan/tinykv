@@ -22,6 +22,7 @@ var (
 	storeAddr        = flag.String("store-addr", "127.0.0.1:9191", "store address")
 	httpAddr         = flag.String("http-addr", "127.0.0.1:9291", "http address")
 	dbPath           = flag.String("db-path", "/tmp/badger", "Directory to store the data in. Should exist and be writable.")
+	vlogPath         = flag.String("vlog-path", "/tmp/badger", "Directory to store the value log in. can be the same as db-path.")
 	valThreshold     = flag.Int("value-threshold", 20, "If value size >= this threshold, only store value offsets in tree.")
 	regionSize       = flag.Int64("region-size", 96*1024*1024, "Average region size.")
 	logLevel         = flag.String("L", "info", "log level")
@@ -45,7 +46,7 @@ func main() {
 	opts := badger.DefaultOptions
 	opts.ValueThreshold = *valThreshold
 	opts.Dir = *dbPath
-	opts.ValueDir = *dbPath
+	opts.ValueDir = *vlogPath
 	if *tableLoadingMode == "memory-map" {
 		opts.TableLoadingMode = options.MemoryMap
 	}
