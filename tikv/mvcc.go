@@ -162,11 +162,13 @@ func (store *MVCCStore) BatchGet(regCtx *regionCtx, keys [][]byte, startTS uint6
 
 func (store *MVCCStore) Prewrite(regCtx *regionCtx, mutations []*kvrpcpb.Mutation, primary []byte, startTS uint64, ttl uint64) []error {
 	hashVals := mutationsToHashVals(mutations)
-	store.acquireLocks(regCtx, hashVals)
-	defer regCtx.releaseLocks(hashVals)
 	errs := make([]error, 0, len(mutations))
 	batch := &writeBatch{entries: make([]*badger.Entry, 0, len(mutations))}
 	var anyError bool
+
+	store.acquireLocks(regCtx, hashVals)
+	defer regCtx.releaseLocks(hashVals)
+
 	err := store.db.View(func(txn *badger.Txn) error {
 		for _, m := range mutations {
 			err1 := batch.prewriteMutation(regCtx, txn, m, primary, startTS, ttl)
