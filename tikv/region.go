@@ -217,9 +217,7 @@ func (ri *regionCtx) getTxnKeys(startTS uint64) [][]byte {
 func (ri *regionCtx) getAllKeys(maxTS uint64) [][]byte {
 	ri.txnKeysMu.RLock()
 	length := len(ri.txnKeysMap)
-	ri.txnKeysMu.RUnlock()
 	allKeys := make([][]byte, 0, length)
-	ri.txnKeysMu.RLock()
 	for startTS, keys := range ri.txnKeysMap {
 		if startTS < maxTS {
 			allKeys = append(allKeys, keys...)
