@@ -453,31 +453,11 @@ func (rm *RegionManager) getRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *er
 	parent := (*regionCtx)(atomic.LoadPointer(&ptr))
 	if parent != nil {
 		// Wait for the parent region reference decrease to zero, so the memLocks would be clean.
-		// We are not going to face any
 		parent.refCount.Wait()
-		if atomic.CompareAndSwapPointer(&ptr, unsafe.Pointer(parent), nil) {
-			// Inherent the txnKeysMap from parent.
-			isLeft := bytes.Equal(parent.startKey, ri.startKey)
-			ri.txnKeysMu.Lock()
-			for startTS, parentKeys := range parent.txnKeysMap {
-				var newKeys [][]byte
-				for _, parentKey := range parentKeys {
-					if isLeft {
-						if bytes.Compare(parentKey, ri.endKey) < 0 {
-							newKeys = append(newKeys, parentKey)
-						}
-					} else {
-						if bytes.Compare(parentKey, ri.startKey) >= 0 {
-							newKeys = append(newKeys, parentKey)
-						}
-					}
-				}
-				if len(newKeys) > 0 {
-					ri.txnKeysMap[startTS] = newKeys
-				}
-			}
-			ri.txnKeysMu.Unlock()
-		}
+		// TODO: the txnKeysMap in parent is discarded, if a large transaction failed
+		// and the client is down, leaves many locks, we can only resolve a single key at a time.
+		// Need to find a way to address this later.
+		atomic.StorePointer(&ptr, nil)
 	}
 	return ri, nil
 }
