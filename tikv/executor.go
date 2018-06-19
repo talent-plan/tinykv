@@ -192,10 +192,11 @@ func (e *tableScanExec) fillRowsFromRange(ran kv.KeyRange) error {
 		}
 	}
 	var pairs []Pair
+	reader := e.reqCtx.getDBReader()
 	if e.Desc {
-		pairs = e.reqCtx.getDBReader().ReverseScan(ran.StartKey, e.seekKey, scanLimit, e.startTS)
+		pairs = reader.ReverseScan(ran.StartKey, e.seekKey, scanLimit, e.startTS)
 	} else {
-		pairs = e.reqCtx.getDBReader().Scan(e.seekKey, ran.EndKey, scanLimit, e.startTS)
+		pairs = reader.Scan(e.seekKey, ran.EndKey, scanLimit, e.startTS)
 	}
 	if len(pairs) == 0 {
 		return nil
@@ -237,7 +238,6 @@ type indexScanExec struct {
 	isolationLevel kvrpcpb.IsolationLevel
 	mvccStore      *MVCCStore
 	reqCtx         *requestCtx
-	reader         *DBReader
 	ranCursor      int
 	seekKey        []byte
 	pkStatus       int
@@ -409,10 +409,11 @@ func (e *indexScanExec) fillRowsFromRange(ran kv.KeyRange) error {
 		}
 	}
 	var pairs []Pair
+	reader := e.reqCtx.getDBReader()
 	if e.Desc {
-		pairs = e.reader.ReverseScan(ran.StartKey, e.seekKey, scanLimit, e.startTS)
+		pairs = reader.ReverseScan(ran.StartKey, e.seekKey, scanLimit, e.startTS)
 	} else {
-		pairs = e.reader.Scan(e.seekKey, ran.EndKey, scanLimit, e.startTS)
+		pairs = reader.Scan(e.seekKey, ran.EndKey, scanLimit, e.startTS)
 	}
 	if len(pairs) == 0 {
 		return nil

@@ -69,7 +69,7 @@ func (g *DBReader) getReverseIter() *badger.Iterator {
 	if g.revIter == nil {
 		g.revIter = newIterator(g.txn, true)
 	}
-	return g.iter
+	return g.revIter
 }
 
 func (g *DBReader) getOldIter() *badger.Iterator {
