@@ -10,11 +10,11 @@ import (
 )
 
 // LockStore is a skiplist variant used to store lock.
-// Compares to normal skip list, it only support Insert and Delete operation.
+// Compares to normal skip list, it only supports Insert and Delete operation.
 // and only support single thread write.
 // But it can reuse the memory, so that the memory usage doesn't keep growing.
 type LockStore struct {
-	height   int32 // Current height. 1 <= height <= kMaxHeight.
+	height   int32 // Current height. 1 <= height <= maxHeight.
 	head     *node
 	arenaPtr unsafe.Pointer
 
