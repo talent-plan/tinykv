@@ -6,7 +6,6 @@ import (
 	"math"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/coocood/badger"
 	"github.com/cznic/mathutil"
@@ -58,7 +57,7 @@ func NewMVCCStore(db *badger.DB, dataDir string) *MVCCStore {
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	// mark worker count
 	store.wg.Add(3)
 	// run all the workers
@@ -100,7 +99,7 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 	hashVals := mutationsToHashVals(mutations)
 	errs := make([]error, 0, len(mutations))
 	anyError := false
-	store.acquireLatches(regCtx, hashVals)
+	regCtx.acquireLatches(hashVals)
 	reqCtx.trace(eventAcquireLatches)
 	defer regCtx.releaseLatches(hashVals)
 	// Must check the LockStore first.
@@ -197,7 +196,7 @@ func (store *MVCCStore) Commit(req *requestCtx, keys [][]byte, startTS, commitTS
 	store.updateLatestTS(commitTS)
 	regCtx := req.regCtx
 	hashVals := keysToHashVals(keys)
-	store.acquireLatches(regCtx, hashVals)
+	regCtx.acquireLatches(hashVals)
 	req.trace(eventAcquireLatches)
 	defer regCtx.releaseLatches(hashVals)
 	dbBatch := newWriteBatch(req)
@@ -290,9 +289,10 @@ func (store *MVCCStore) handleLockNotFound(reqCtx *requestCtx, key []byte, start
 func (store *MVCCStore) Rollback(reqCtx *requestCtx, keys [][]byte, startTS uint64) error {
 	store.updateLatestTS(startTS)
 	hashVals := keysToHashVals(keys)
-	store.acquireLatches(reqCtx.regCtx, hashVals)
+	regCtx := reqCtx.regCtx
+	regCtx.acquireLatches(hashVals)
 	reqCtx.trace(eventAcquireLatches)
-	defer reqCtx.regCtx.releaseLatches(hashVals)
+	defer regCtx.releaseLatches(hashVals)
 	lockBatch := newWriteBatch(reqCtx)
 	var err error
 	for _, key := range keys {
@@ -440,9 +440,10 @@ func (store *MVCCStore) CheckRangeLock(startTS uint64, startKey, endKey []byte) 
 func (store *MVCCStore) Cleanup(reqCtx *requestCtx, key []byte, startTS uint64) error {
 	store.updateLatestTS(startTS)
 	hashVals := keysToHashVals([][]byte{key})
-	store.acquireLatches(reqCtx.regCtx, hashVals)
+	regCtx := reqCtx.regCtx
+	regCtx.acquireLatches(hashVals)
 	reqCtx.trace(eventAcquireLatches)
-	defer reqCtx.regCtx.releaseLatches(hashVals)
+	defer regCtx.releaseLatches(hashVals)
 	wb := newWriteBatch(reqCtx)
 	err := store.rollbackKey(reqCtx, wb, key, startTS)
 	reqCtx.trace(eventReadDB)
@@ -495,7 +496,7 @@ func (store *MVCCStore) ResolveLock(reqCtx *requestCtx, startTS, commitTS uint64
 		return nil
 	}
 	hashVals := keysToHashVals(lockKeys)
-	store.acquireLatches(regCtx, hashVals)
+	regCtx.acquireLatches(hashVals)
 	reqCtx.trace(eventAcquireLatches)
 	defer regCtx.releaseLatches(hashVals)
 	lockBatch := newWriteBatch(reqCtx)
@@ -571,7 +572,7 @@ func (store *MVCCStore) deleteKeysInBatch(reqCtx *requestCtx, keys [][]byte, bat
 		batchKeys := keys[:batchSize]
 		keys = keys[batchSize:]
 		hashVals := keysToHashVals(batchKeys)
-		store.acquireLatches(regCtx, hashVals)
+		regCtx.acquireLatches(hashVals)
 		wb := newWriteBatch(reqCtx)
 		for _, key := range batchKeys {
 			wb.delete(key)
@@ -588,19 +589,4 @@ func (store *MVCCStore) deleteKeysInBatch(reqCtx *requestCtx, keys [][]byte, bat
 func (store *MVCCStore) GC(reqCtx *requestCtx, safePoint uint64) error {
 	// TODO: implement GC in badger.
 	return nil
-}
-
-func (store *MVCCStore) acquireLatches(regCtx *regionCtx, hashVals []uint64) {
-	start := time.Now()
-	for {
-		ok, wg := regCtx.acquireLatches(hashVals)
-		if ok {
-			dur := time.Since(start)
-			if dur > time.Millisecond*50 {
-				log.Warnf("acquire %d locks takes %v", len(hashVals), dur)
-			}
-			return
-		}
-		wg.Wait()
-	}
 }
