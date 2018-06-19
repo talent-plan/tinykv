@@ -58,6 +58,9 @@ func NewMVCCStore(db *badger.DB, dataDir string) *MVCCStore {
 	if err != nil {
 		log.Fatal(err)
 	}
+	
+	// mark worker count
+	store.wg.Add(3)
 	// run all the workers
 	go store.writeDBWorker.run()
 	go store.writeLockWorker.run()
@@ -65,9 +68,6 @@ func NewMVCCStore(db *badger.DB, dataDir string) *MVCCStore {
 		rbGCWorker := rollbackGCWorker{store: store}
 		rbGCWorker.run()
 	}()
-
-	// mark worker count
-	store.wg.Add(3)
 
 	return store
 }
