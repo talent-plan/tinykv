@@ -115,20 +115,20 @@ func (ri *regionCtx) marshal() []byte {
 	return data
 }
 
-func (ri *regionCtx) acquireLatches(hashVals []uint64) (bool, *sync.WaitGroup, int) {
+func (ri *regionCtx) acquireLatches(hashVals []uint64) (bool, *sync.WaitGroup) {
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
 	ri.latchesMu.Lock()
 	defer ri.latchesMu.Unlock()
 	for _, hashVal := range hashVals {
 		if wg, ok := ri.latches[hashVal]; ok {
-			return false, wg, len(ri.latches)
+			return false, wg
 		}
 	}
 	for _, hashVal := range hashVals {
 		ri.latches[hashVal] = wg
 	}
-	return true, nil, len(ri.latches)
+	return true, nil
 }
 
 func (ri *regionCtx) releaseLatches(hashVals []uint64) {

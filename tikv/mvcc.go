@@ -58,20 +58,27 @@ func NewMVCCStore(db *badger.DB, dataDir string) *MVCCStore {
 	if err != nil {
 		log.Fatal(err)
 	}
+	
+	// mark worker count
 	store.wg.Add(3)
+	// run all the workers
 	go store.writeDBWorker.run()
 	go store.writeLockWorker.run()
-	rbGCWorker := rollbackGCWorker{store: store}
-	go rbGCWorker.run()
+	go func() {
+		rbGCWorker := rollbackGCWorker{store: store}
+		rbGCWorker.run()
+	}()
+
 	return store
 }
 
 func (store *MVCCStore) Close() error {
 	close(store.closeCh)
 	store.wg.Wait()
+
 	err := store.dumpLockStore()
 	if err != nil {
-		log.Error(err)
+		log.Fatal(err)
 	}
 	return nil
 }
@@ -92,7 +99,7 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 	regCtx := reqCtx.regCtx
 	hashVals := mutationsToHashVals(mutations)
 	errs := make([]error, 0, len(mutations))
-	var anyError bool
+	anyError := false
 	store.acquireLatches(regCtx, hashVals)
 	reqCtx.trace(eventAcquireLatches)
 	defer regCtx.releaseLatches(hashVals)
@@ -586,11 +593,11 @@ func (store *MVCCStore) GC(reqCtx *requestCtx, safePoint uint64) error {
 func (store *MVCCStore) acquireLatches(regCtx *regionCtx, hashVals []uint64) {
 	start := time.Now()
 	for {
-		ok, wg, lockLen := regCtx.acquireLatches(hashVals)
+		ok, wg := regCtx.acquireLatches(hashVals)
 		if ok {
 			dur := time.Since(start)
 			if dur > time.Millisecond*50 {
-				log.Warnf("acquire %d locks takes %v, memLock size %d", len(hashVals), dur, lockLen)
+				log.Warnf("acquire %d locks takes %v", len(hashVals), dur)
 			}
 			return
 		}
