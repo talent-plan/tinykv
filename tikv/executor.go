@@ -44,14 +44,16 @@ type tableScanExec struct {
 	startTS        uint64
 	isolationLevel kvrpcpb.IsolationLevel
 	mvccStore      *MVCCStore
-	regCtx         *regionCtx
+	reqCtx         *requestCtx
 	rangeCursor    int
 
-	rowCursor int
-	rows      [][][]byte
-	seekKey   []byte
-	start     int
-	counts    []int64
+	rowCursor   int
+	rows        [][][]byte
+	seekKey     []byte
+	start       int
+	counts      []int64
+	ignoreLock  bool
+	lockChecked bool
 
 	src executor
 }
@@ -105,6 +107,15 @@ func (e *tableScanExec) Cursor() ([]byte, bool) {
 }
 
 func (e *tableScanExec) Next(ctx context.Context) (value [][]byte, err error) {
+	if !e.ignoreLock && !e.lockChecked {
+		for _, ran := range e.kvRanges {
+			err := e.mvccStore.CheckRangeLock(e.startTS, ran.StartKey, ran.EndKey)
+			if err != nil {
+				return nil, err
+			}
+		}
+		e.lockChecked = true
+	}
 	for {
 		if e.rowCursor < len(e.rows) {
 			value = e.rows[e.rowCursor]
@@ -150,7 +161,8 @@ func (e *tableScanExec) fillRows() error {
 }
 
 func (e *tableScanExec) fillRowsFromPoint(ran kv.KeyRange) error {
-	val, err := e.mvccStore.Get(e.regCtx, ran.StartKey, e.startTS)
+	reader := e.reqCtx.getDBReader()
+	val, err := reader.Get(ran.StartKey, e.startTS)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -181,9 +193,9 @@ func (e *tableScanExec) fillRowsFromRange(ran kv.KeyRange) error {
 	}
 	var pairs []Pair
 	if e.Desc {
-		pairs = e.mvccStore.ReverseScan(e.regCtx, ran.StartKey, e.seekKey, scanLimit, e.startTS)
+		pairs = e.reqCtx.getDBReader().ReverseScan(ran.StartKey, e.seekKey, scanLimit, e.startTS)
 	} else {
-		pairs = e.mvccStore.Scan(e.regCtx, e.seekKey, ran.EndKey, scanLimit, e.startTS)
+		pairs = e.reqCtx.getDBReader().Scan(e.seekKey, ran.EndKey, scanLimit, e.startTS)
 	}
 	if len(pairs) == 0 {
 		return nil
@@ -224,12 +236,15 @@ type indexScanExec struct {
 	startTS        uint64
 	isolationLevel kvrpcpb.IsolationLevel
 	mvccStore      *MVCCStore
-	regCtx         *regionCtx
+	reqCtx         *requestCtx
+	reader         *DBReader
 	ranCursor      int
 	seekKey        []byte
 	pkStatus       int
 	start          int
 	counts         []int64
+	ignoreLock     bool
+	lockChecked    bool
 
 	rowCursor int
 	rows      [][][]byte
@@ -286,6 +301,15 @@ func (e *indexScanExec) Cursor() ([]byte, bool) {
 }
 
 func (e *indexScanExec) Next(ctx context.Context) (value [][]byte, err error) {
+	if !e.ignoreLock && !e.lockChecked {
+		for _, ran := range e.kvRanges {
+			err := e.mvccStore.CheckRangeLock(e.startTS, ran.StartKey, ran.EndKey)
+			if err != nil {
+				return nil, err
+			}
+		}
+		e.lockChecked = true
+	}
 	for {
 		if e.rowCursor < len(e.rows) {
 			value = e.rows[e.rowCursor]
@@ -332,7 +356,7 @@ func (e *indexScanExec) fillRows() error {
 
 // fillRowsFromPoint is only used for unique key.
 func (e *indexScanExec) fillRowsFromPoint(ran kv.KeyRange) error {
-	val, err := e.mvccStore.Get(e.regCtx, ran.StartKey, e.startTS)
+	val, err := e.reqCtx.getDBReader().Get(ran.StartKey, e.startTS)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -386,9 +410,9 @@ func (e *indexScanExec) fillRowsFromRange(ran kv.KeyRange) error {
 	}
 	var pairs []Pair
 	if e.Desc {
-		pairs = e.mvccStore.ReverseScan(e.regCtx, ran.StartKey, e.seekKey, scanLimit, e.startTS)
+		pairs = e.reader.ReverseScan(ran.StartKey, e.seekKey, scanLimit, e.startTS)
 	} else {
-		pairs = e.mvccStore.Scan(e.regCtx, e.seekKey, ran.EndKey, scanLimit, e.startTS)
+		pairs = e.reader.Scan(e.seekKey, ran.EndKey, scanLimit, e.startTS)
 	}
 	if len(pairs) == 0 {
 		return nil

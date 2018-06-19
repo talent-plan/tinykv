@@ -1,7 +1,10 @@
 package tikv
 
 import (
-	"github.com/coocood/badger"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
@@ -17,11 +20,14 @@ var _ tikvpb.TikvServer = new(Server)
 type Server struct {
 	mvccStore     *MVCCStore
 	regionManager *RegionManager
+	wg            sync.WaitGroup
+	refCount      int32
+	stopped       int32
 }
 
-func NewServer(rm *RegionManager, db *badger.DB) *Server {
+func NewServer(rm *RegionManager, store *MVCCStore) *Server {
 	return &Server{
-		mvccStore:     NewMVCCStore(db),
+		mvccStore:     store,
 		regionManager: rm,
 	}
 }
@@ -39,13 +45,122 @@ func (svr *Server) checkRequestSize(size int) *errorpb.Error {
 	return nil
 }
 
-func (svr *Server) KvGet(ctx context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb.GetResponse, error) {
-	regCtx, regErr := svr.regionManager.getRegionFromCtx(req.Context)
-	if regErr != nil {
-		return &kvrpcpb.GetResponse{RegionError: regErr}, nil
+func (svr *Server) Stop() {
+	atomic.StoreInt32(&svr.stopped, 1)
+	for {
+		if atomic.LoadInt32(&svr.refCount) == 0 {
+			return
+		}
+		time.Sleep(time.Millisecond * 10)
 	}
-	regCtx.assertContainsKey(req.Key)
-	val, err := svr.mvccStore.Get(regCtx, req.Key, req.GetVersion())
+}
+
+type requestCtx struct {
+	svr       *Server
+	regCtx    *regionCtx
+	regErr    *errorpb.Error
+	buf       []byte
+	reader    *DBReader
+	method    string
+	startTime time.Time
+	traces    []traceItem
+}
+
+type traceItem struct {
+	event      string
+	sinceStart time.Duration
+}
+
+const (
+	eventReadLock       = ">RLock"
+	eventReadDB         = ">RDB"
+	eventBeginWriteLock = "<WLock"
+	eventEndWriteLock   = ">WLock"
+	eventBeginWriteDB   = "<WDB"
+	eventInWriteDB      = "=WDB"
+	eventEndWriteDB     = ">WDB"
+	eventAcquireLatches = ">Latch"
+	eventFinish         = ">Fin"
+)
+
+func (ti traceItem) String() string {
+	return ti.event + ":" + ti.sinceStart.String()
+}
+
+func newRequestCtx(svr *Server, ctx *kvrpcpb.Context, method string) (*requestCtx, error) {
+	atomic.AddInt32(&svr.refCount, 1)
+	if atomic.LoadInt32(&svr.stopped) > 0 {
+		atomic.AddInt32(&svr.refCount, -1)
+		return nil, ErrRetryable("server is closed")
+	}
+	req := &requestCtx{
+		svr:       svr,
+		method:    method,
+		startTime: time.Now(),
+		traces:    make([]traceItem, 0, 16),
+	}
+	req.regCtx, req.regErr = svr.regionManager.getRegionFromCtx(ctx)
+	if req.regErr != nil {
+		return req, nil
+	}
+	req.regCtx.refCount.Add(1)
+	return req, nil
+}
+
+func (req *requestCtx) trace(event string) {
+	req.traces = append(req.traces, traceItem{
+		event:      event,
+		sinceStart: time.Since(req.startTime),
+	})
+}
+
+func (req *requestCtx) traceAt(event string, t time.Time) {
+	req.traces = append(req.traces, traceItem{
+		event:      event,
+		sinceStart: t.Sub(req.startTime),
+	})
+}
+
+// For read-only requests that doesn't acquire latches, this function must be called after all locks has been checked.
+func (req *requestCtx) getDBReader() *DBReader {
+	if req.reader == nil {
+		req.reader = req.svr.mvccStore.NewDBReader(req)
+	}
+	return req.reader
+}
+
+var LogTraceMS uint = 300
+
+func (req *requestCtx) finish() {
+	atomic.AddInt32(&req.svr.refCount, -1)
+	if req.reader != nil {
+		req.reader.Close()
+	}
+	if req.regCtx != nil {
+		req.regCtx.refCount.Done()
+	}
+	req.trace(eventFinish)
+	last := req.traces[len(req.traces)-1]
+	if last.sinceStart > time.Millisecond*time.Duration(LogTraceMS) {
+		log.Warnf("SLOW %s %#s", req.method, req.traces)
+	}
+}
+
+func (svr *Server) KvGet(ctx context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb.GetResponse, error) {
+	reqCtx, err := newRequestCtx(svr, req.Context, "KvGet")
+	if err != nil {
+		return &kvrpcpb.GetResponse{Error: convertToKeyError(err)}, nil
+	}
+	defer reqCtx.finish()
+	if reqCtx.regErr != nil {
+		return &kvrpcpb.GetResponse{RegionError: reqCtx.regErr}, nil
+	}
+	err = svr.mvccStore.CheckKeysLock(req.GetVersion(), req.Key)
+	if err != nil {
+		return &kvrpcpb.GetResponse{Error: convertToKeyError(err)}, nil
+	}
+	reader := reqCtx.getDBReader()
+	val, err := reader.Get(req.Key, req.GetVersion())
 	if err != nil {
 		return &kvrpcpb.GetResponse{
 			Error: convertToKeyError(err),
@@ -57,47 +172,55 @@ func (svr *Server) KvGet(ctx context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb
 }
 
 func (svr *Server) KvScan(ctx context.Context, req *kvrpcpb.ScanRequest) (*kvrpcpb.ScanResponse, error) {
-	regCtx, regErr := svr.regionManager.getRegionFromCtx(req.GetContext())
-	if regErr != nil {
-		return &kvrpcpb.ScanResponse{RegionError: regErr}, nil
+	reqCtx, err := newRequestCtx(svr, req.Context, "KvScan")
+	if err != nil {
+		return &kvrpcpb.ScanResponse{Pairs: convertToPbPairs([]Pair{{Err: err}})}, nil
 	}
-	regCtx.assertContainsKey(req.StartKey)
-	if !isMvccRegion(regCtx) {
+	defer reqCtx.finish()
+	if reqCtx.regErr != nil {
+		return &kvrpcpb.ScanResponse{RegionError: reqCtx.regErr}, nil
+	}
+	if !isMvccRegion(reqCtx.regCtx) {
 		return &kvrpcpb.ScanResponse{}, nil
 	}
-	pairs := svr.mvccStore.Scan(regCtx, req.GetStartKey(), regCtx.rawEndKey(), int(req.GetLimit()), req.GetVersion())
+	startKey := req.GetStartKey()
+	endKey := reqCtx.regCtx.rawEndKey()
+	err = svr.mvccStore.CheckRangeLock(req.GetVersion(), startKey, endKey)
+	if err != nil {
+		return &kvrpcpb.ScanResponse{Pairs: convertToPbPairs([]Pair{{Err: err}})}, nil
+	}
+	reader := reqCtx.getDBReader()
+	pairs := reader.Scan(startKey, endKey, int(req.GetLimit()), req.GetVersion())
 	return &kvrpcpb.ScanResponse{
 		Pairs: convertToPbPairs(pairs),
 	}, nil
 }
 
 func (svr *Server) KvPrewrite(ctx context.Context, req *kvrpcpb.PrewriteRequest) (*kvrpcpb.PrewriteResponse, error) {
-	regCtx, regErr := svr.regionManager.getRegionFromCtx(req.GetContext())
-	if regErr != nil {
-		return &kvrpcpb.PrewriteResponse{RegionError: regErr}, nil
+	reqCtx, err := newRequestCtx(svr, req.Context, "KvPrewrite")
+	if err != nil {
+		return &kvrpcpb.PrewriteResponse{Errors: convertToKeyErrors([]error{err})}, nil
 	}
-	for _, m := range req.Mutations {
-		regCtx.assertContainsKey(m.Key)
+	defer reqCtx.finish()
+	if reqCtx.regErr != nil {
+		return &kvrpcpb.PrewriteResponse{RegionError: reqCtx.regErr}, nil
 	}
-	regCtx.refCount.Add(1)
-	defer regCtx.refCount.Done()
-	errs := svr.mvccStore.Prewrite(regCtx, req.Mutations, req.PrimaryLock, req.GetStartVersion(), req.GetLockTtl())
+	errs := svr.mvccStore.Prewrite(reqCtx, req.Mutations, req.PrimaryLock, req.GetStartVersion(), req.GetLockTtl())
 	return &kvrpcpb.PrewriteResponse{
 		Errors: convertToKeyErrors(errs),
 	}, nil
 }
 
 func (svr *Server) KvCommit(ctx context.Context, req *kvrpcpb.CommitRequest) (*kvrpcpb.CommitResponse, error) {
-	regCtx, regErr := svr.regionManager.getRegionFromCtx(req.GetContext())
-	if regErr != nil {
-		return &kvrpcpb.CommitResponse{RegionError: regErr}, nil
+	reqCtx, err := newRequestCtx(svr, req.Context, "KvCommit")
+	if err != nil {
+		return &kvrpcpb.CommitResponse{Error: convertToKeyError(err)}, nil
 	}
-	for _, k := range req.Keys {
-		regCtx.assertContainsKey(k)
+	defer reqCtx.finish()
+	if reqCtx.regErr != nil {
+		return &kvrpcpb.CommitResponse{RegionError: reqCtx.regErr}, nil
 	}
-	regCtx.refCount.Add(1)
-	defer regCtx.refCount.Done()
-	err := svr.mvccStore.Commit(regCtx, req.Keys, req.GetStartVersion(), req.GetCommitVersion(), &regCtx.diff)
+	err = svr.mvccStore.Commit(reqCtx, req.Keys, req.GetStartVersion(), req.GetCommitVersion())
 	return &kvrpcpb.CommitResponse{
 		Error: convertToKeyError(err),
 	}, nil
@@ -109,14 +232,15 @@ func (svr *Server) KvImport(context.Context, *kvrpcpb.ImportRequest) (*kvrpcpb.I
 }
 
 func (svr *Server) KvCleanup(ctx context.Context, req *kvrpcpb.CleanupRequest) (*kvrpcpb.CleanupResponse, error) {
-	regCtx, regErr := svr.regionManager.getRegionFromCtx(req.GetContext())
-	if regErr != nil {
-		return &kvrpcpb.CleanupResponse{RegionError: regErr}, nil
+	reqCtx, err := newRequestCtx(svr, req.Context, "KvCleanup")
+	if err != nil {
+		return &kvrpcpb.CleanupResponse{Error: convertToKeyError(err)}, nil
 	}
-	regCtx.assertContainsKey(req.Key)
-	regCtx.refCount.Add(1)
-	defer regCtx.refCount.Done()
-	err := svr.mvccStore.Cleanup(regCtx, req.Key, req.StartVersion)
+	defer reqCtx.finish()
+	if reqCtx.regErr != nil {
+		return &kvrpcpb.CleanupResponse{RegionError: reqCtx.regErr}, nil
+	}
+	err = svr.mvccStore.Cleanup(reqCtx, req.Key, req.StartVersion)
 	resp := new(kvrpcpb.CleanupResponse)
 	if committed, ok := err.(ErrAlreadyCommitted); ok {
 		resp.CommitVersion = uint64(committed)
@@ -128,75 +252,82 @@ func (svr *Server) KvCleanup(ctx context.Context, req *kvrpcpb.CleanupRequest) (
 }
 
 func (svr *Server) KvBatchGet(ctx context.Context, req *kvrpcpb.BatchGetRequest) (*kvrpcpb.BatchGetResponse, error) {
-	regCtx, regErr := svr.regionManager.getRegionFromCtx(req.GetContext())
-	if regErr != nil {
-		return &kvrpcpb.BatchGetResponse{RegionError: regErr}, nil
+	reqCtx, err := newRequestCtx(svr, req.Context, "KvBatchGet")
+	if err != nil {
+		return &kvrpcpb.BatchGetResponse{Pairs: convertToPbPairs([]Pair{{Err: err}})}, nil
 	}
-	for _, k := range req.Keys {
-		regCtx.assertContainsKey(k)
+	defer reqCtx.finish()
+	if reqCtx.regErr != nil {
+		return &kvrpcpb.BatchGetResponse{RegionError: reqCtx.regErr}, nil
 	}
-	pairs := svr.mvccStore.BatchGet(regCtx, req.Keys, req.GetVersion())
+	err = svr.mvccStore.CheckKeysLock(req.GetVersion(), req.Keys...)
+	if err != nil {
+		return &kvrpcpb.BatchGetResponse{Pairs: convertToPbPairs([]Pair{{Err: err}})}, nil
+	}
+	pairs := reqCtx.getDBReader().BatchGet(req.Keys, req.GetVersion())
 	return &kvrpcpb.BatchGetResponse{
 		Pairs: convertToPbPairs(pairs),
 	}, nil
 }
 
 func (svr *Server) KvBatchRollback(ctx context.Context, req *kvrpcpb.BatchRollbackRequest) (*kvrpcpb.BatchRollbackResponse, error) {
-	regCtx, regErr := svr.regionManager.getRegionFromCtx(req.GetContext())
-	if regErr != nil {
-		return &kvrpcpb.BatchRollbackResponse{RegionError: regErr}, nil
-	}
-	for _, k := range req.Keys {
-		regCtx.assertContainsKey(k)
-	}
-	regCtx.refCount.Add(1)
-	defer regCtx.refCount.Done()
-	err := svr.mvccStore.Rollback(regCtx, req.Keys, req.StartVersion)
+	reqCtx, err := newRequestCtx(svr, req.Context, "KvBatchRollback")
 	if err != nil {
-		return &kvrpcpb.BatchRollbackResponse{
-			Error: convertToKeyError(err),
-		}, nil
+		return &kvrpcpb.BatchRollbackResponse{Error: convertToKeyError(err)}, nil
+	}
+	defer reqCtx.finish()
+	if reqCtx.regErr != nil {
+		return &kvrpcpb.BatchRollbackResponse{RegionError: reqCtx.regErr}, nil
+	}
+	err = svr.mvccStore.Rollback(reqCtx, req.Keys, req.StartVersion)
+	if err != nil {
+		return &kvrpcpb.BatchRollbackResponse{Error: convertToKeyError(err)}, nil
 	}
 	return &kvrpcpb.BatchRollbackResponse{}, nil
 }
 
 func (svr *Server) KvScanLock(ctx context.Context, req *kvrpcpb.ScanLockRequest) (*kvrpcpb.ScanLockResponse, error) {
-	log.Debug("kv scan lock")
-	regCtx, regErr := svr.regionManager.getRegionFromCtx(req.GetContext())
-	if regErr != nil {
-		return &kvrpcpb.ScanLockResponse{RegionError: regErr}, nil
+	reqCtx, err := newRequestCtx(svr, req.Context, "KvScanLock")
+	if err != nil {
+		return &kvrpcpb.ScanLockResponse{Error: convertToKeyError(err)}, nil
 	}
-	regCtx.assertContainsKey(req.StartKey)
-	if !isMvccRegion(regCtx) {
+	defer reqCtx.finish()
+	if reqCtx.regErr != nil {
+		return &kvrpcpb.ScanLockResponse{RegionError: reqCtx.regErr}, nil
+	}
+	log.Debug("kv scan lock")
+	if !isMvccRegion(reqCtx.regCtx) {
 		return &kvrpcpb.ScanLockResponse{}, nil
 	}
-	locks, err := svr.mvccStore.ScanLock(regCtx, req.MaxVersion)
+	locks, err := svr.mvccStore.ScanLock(reqCtx, req.MaxVersion)
 	return &kvrpcpb.ScanLockResponse{Error: convertToKeyError(err), Locks: locks}, nil
 }
 
 func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRequest) (*kvrpcpb.ResolveLockResponse, error) {
-	regCtx, regErr := svr.regionManager.getRegionFromCtx(req.GetContext())
-	if regErr != nil {
-		return &kvrpcpb.ResolveLockResponse{RegionError: regErr}, nil
+	reqCtx, err := newRequestCtx(svr, req.Context, "KvResolveLock")
+	if err != nil {
+		return &kvrpcpb.ResolveLockResponse{Error: convertToKeyError(err)}, nil
 	}
-	if !isMvccRegion(regCtx) {
+	defer reqCtx.finish()
+	if reqCtx.regErr != nil {
+		return &kvrpcpb.ResolveLockResponse{RegionError: reqCtx.regErr}, nil
+	}
+	if !isMvccRegion(reqCtx.regCtx) {
 		return &kvrpcpb.ResolveLockResponse{}, nil
 	}
-	regCtx.refCount.Add(1)
-	defer regCtx.refCount.Done()
 	resp := &kvrpcpb.ResolveLockResponse{}
 	if len(req.TxnInfos) > 0 {
 		for _, txnInfo := range req.TxnInfos {
-			log.Debugf("kv resolve lock region:%d txn:%v", regCtx.meta.Id, txnInfo.Txn)
-			err := svr.mvccStore.ResolveLock(regCtx, txnInfo.Txn, txnInfo.Status, &regCtx.diff)
+			log.Debugf("kv resolve lock region:%d txn:%v", reqCtx.regCtx.meta.Id, txnInfo.Txn)
+			err := svr.mvccStore.ResolveLock(reqCtx, txnInfo.Txn, txnInfo.Status)
 			if err != nil {
 				resp.Error = convertToKeyError(err)
 				break
 			}
 		}
 	} else {
-		log.Debugf("kv resolve lock region:%d txn:%v", regCtx.meta.Id, req.StartVersion)
-		err := svr.mvccStore.ResolveLock(regCtx, req.StartVersion, req.CommitVersion, &regCtx.diff)
+		log.Debugf("kv resolve lock region:%d txn:%v", reqCtx.regCtx.meta.Id, req.StartVersion)
+		err := svr.mvccStore.ResolveLock(reqCtx, req.StartVersion, req.CommitVersion)
 		if err != nil {
 			resp.Error = convertToKeyError(err)
 		}
@@ -205,32 +336,35 @@ func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRe
 }
 
 func (svr *Server) KvGC(ctx context.Context, req *kvrpcpb.GCRequest) (*kvrpcpb.GCResponse, error) {
-	log.Debug("kv GC safePoint:", extractPhysicalTime(req.SafePoint))
-	regCtx, regErr := svr.regionManager.getRegionFromCtx(req.GetContext())
-	if regErr != nil {
-		return &kvrpcpb.GCResponse{RegionError: regErr}, nil
+	reqCtx, err := newRequestCtx(svr, req.Context, "KvGC")
+	if err != nil {
+		return &kvrpcpb.GCResponse{Error: convertToKeyError(err)}, nil
 	}
-	if !isMvccRegion(regCtx) {
+	defer reqCtx.finish()
+	if reqCtx.regErr != nil {
+		return &kvrpcpb.GCResponse{RegionError: reqCtx.regErr}, nil
+	}
+	log.Debug("kv GC safePoint:", extractPhysicalTime(req.SafePoint))
+	if !isMvccRegion(reqCtx.regCtx) {
 		return &kvrpcpb.GCResponse{}, nil
 	}
-	regCtx.refCount.Add(1)
-	defer regCtx.refCount.Done()
-	err := svr.mvccStore.GC(regCtx, req.SafePoint)
+	err = svr.mvccStore.GC(reqCtx, req.SafePoint)
 	return &kvrpcpb.GCResponse{Error: convertToKeyError(err)}, nil
 }
 
 func (svr *Server) KvDeleteRange(ctx context.Context, req *kvrpcpb.DeleteRangeRequest) (*kvrpcpb.DeleteRangeResponse, error) {
-	regCtx, regErr := svr.regionManager.getRegionFromCtx(req.GetContext())
-	if regErr != nil {
-		return &kvrpcpb.DeleteRangeResponse{RegionError: regErr}, nil
+	reqCtx, err := newRequestCtx(svr, req.Context, "KvDeleteRange")
+	if err != nil {
+		return &kvrpcpb.DeleteRangeResponse{Error: convertToKeyError(err).String()}, nil
 	}
-	regCtx.assertContainsRange(&coprocessor.KeyRange{Start: req.StartKey, End: req.EndKey})
-	if !isMvccRegion(regCtx) {
+	defer reqCtx.finish()
+	if reqCtx.regErr != nil {
+		return &kvrpcpb.DeleteRangeResponse{RegionError: reqCtx.regErr}, nil
+	}
+	if !isMvccRegion(reqCtx.regCtx) {
 		return &kvrpcpb.DeleteRangeResponse{}, nil
 	}
-	regCtx.refCount.Add(1)
-	defer regCtx.refCount.Done()
-	err := svr.mvccStore.DeleteRange(regCtx, req.StartKey, req.EndKey)
+	err = svr.mvccStore.DeleteRange(reqCtx, req.StartKey, req.EndKey)
 	if err != nil {
 		log.Error(err)
 	}
@@ -276,18 +410,19 @@ func (svr *Server) RawDeleteRange(context.Context, *kvrpcpb.RawDeleteRangeReques
 
 // SQL push down commands.
 func (svr *Server) Coprocessor(ctx context.Context, req *coprocessor.Request) (*coprocessor.Response, error) {
-	regCtx, regErr := svr.regionManager.getRegionFromCtx(req.GetContext())
-	if regErr != nil {
-		return &coprocessor.Response{RegionError: regErr}, nil
+	reqCtx, err := newRequestCtx(svr, req.Context, "Coprocessor")
+	if err != nil {
+		return &coprocessor.Response{OtherError: convertToKeyError(err).String()}, nil
 	}
-	for _, r := range req.Ranges {
-		regCtx.assertContainsRange(r)
+	defer reqCtx.finish()
+	if reqCtx.regErr != nil {
+		return &coprocessor.Response{RegionError: reqCtx.regErr}, nil
 	}
 	switch req.Tp {
 	case kv.ReqTypeDAG:
-		return svr.handleCopDAGRequest(regCtx, req), nil
+		return svr.handleCopDAGRequest(reqCtx, req), nil
 	case kv.ReqTypeAnalyze:
-		return svr.handleCopAnalyzeRequest(regCtx, req), nil
+		return svr.handleCopAnalyzeRequest(reqCtx, req), nil
 	}
 	return nil, errors.Errorf("unsupported request type %d", req.GetTp())
 }

@@ -2,23 +2,20 @@ package tikv
 
 import (
 	"bytes"
-	"fmt"
+	"encoding/binary"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
 
-	"encoding/binary"
 	"github.com/coocood/badger"
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
-	"github.com/pingcap/kvproto/pkg/coprocessor"
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
-	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"golang.org/x/net/context"
 )
@@ -40,21 +37,18 @@ type regionCtx struct {
 	sizeHint int64
 	diff     int64
 
-	memLocks map[uint64]*sync.WaitGroup
-	txnMu    sync.RWMutex
+	latches   map[uint64]*sync.WaitGroup
+	latchesMu sync.RWMutex
 
-	txnKeysMap map[uint64][][]byte
-	txnKeysMu  sync.RWMutex
-	refCount   sync.WaitGroup
-	parent     *regionCtx // Parent is used to inherent txnKeys and wait for all memLocks being released.
+	refCount sync.WaitGroup
+	parent   *regionCtx // Parent is used to wait for all latches being released.
 }
 
 func newRegionCtx(meta *metapb.Region, parent *regionCtx) *regionCtx {
 	regCtx := &regionCtx{
-		meta:       meta,
-		memLocks:   make(map[uint64]*sync.WaitGroup),
-		txnKeysMap: make(map[uint64][][]byte),
-		parent:     parent,
+		meta:    meta,
+		latches: make(map[uint64]*sync.WaitGroup),
+		parent:  parent,
 	}
 	regCtx.startKey = regCtx.rawStartKey()
 	regCtx.endKey = regCtx.rawEndKey()
@@ -84,14 +78,6 @@ func (ri *regionCtx) rawEndKey() []byte {
 	return rawKey
 }
 
-func (ri *regionCtx) assertContainsKey(key []byte) {
-	if ri.lessThanStartKey(key) || ri.greaterEqualEndKey(key) {
-		tid, handle, er := tablecodec.DecodeRecordKey(key)
-		log.Error(tid, handle, er)
-		panic(fmt.Sprintf("key %q not in region %s", key, ri.meta))
-	}
-}
-
 func (ri *regionCtx) lessThanStartKey(key []byte) bool {
 	return bytes.Compare(key, ri.startKey) < 0
 }
@@ -104,13 +90,6 @@ func (ri *regionCtx) greaterThanEndKey(key []byte) bool {
 	return len(ri.endKey) > 0 && bytes.Compare(key, ri.endKey) > 0
 }
 
-func (ri *regionCtx) assertContainsRange(r *coprocessor.KeyRange) {
-	ri.assertContainsKey(r.Start)
-	if ri.greaterThanEndKey(r.End) {
-		panic(fmt.Sprintf("end key %q not in region %s", r.End, ri.meta))
-	}
-}
-
 func (ri *regionCtx) unmarshal(data []byte) error {
 	ri.sizeHint = int64(binary.LittleEndian.Uint64(data))
 	data = data[8:]
@@ -119,8 +98,7 @@ func (ri *regionCtx) unmarshal(data []byte) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	ri.memLocks = make(map[uint64]*sync.WaitGroup)
-	ri.txnKeysMap = make(map[uint64][][]byte)
+	ri.latches = make(map[uint64]*sync.WaitGroup)
 	ri.startKey = ri.rawStartKey()
 	ri.endKey = ri.rawEndKey()
 	ri.refCount.Add(1)
@@ -137,94 +115,30 @@ func (ri *regionCtx) marshal() []byte {
 	return data
 }
 
-func (ri *regionCtx) acquireLocks(hashVals []uint64) (bool, *sync.WaitGroup, int) {
-	ri.txnMu.Lock()
-	defer ri.txnMu.Unlock()
-	for _, hashVal := range hashVals {
-		if wg, ok := ri.memLocks[hashVal]; ok {
-			return false, wg, len(ri.memLocks)
-		}
-	}
+func (ri *regionCtx) acquireLatches(hashVals []uint64) (bool, *sync.WaitGroup, int) {
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
+	ri.latchesMu.Lock()
+	defer ri.latchesMu.Unlock()
 	for _, hashVal := range hashVals {
-		ri.memLocks[hashVal] = wg
+		if wg, ok := ri.latches[hashVal]; ok {
+			return false, wg, len(ri.latches)
+		}
 	}
-	return true, nil, len(ri.memLocks)
+	for _, hashVal := range hashVals {
+		ri.latches[hashVal] = wg
+	}
+	return true, nil, len(ri.latches)
 }
 
-func (ri *regionCtx) releaseLocks(hashVals []uint64) {
-	ri.txnMu.Lock()
-	defer ri.txnMu.Unlock()
-	wg := ri.memLocks[hashVals[0]]
+func (ri *regionCtx) releaseLatches(hashVals []uint64) {
+	ri.latchesMu.Lock()
+	defer ri.latchesMu.Unlock()
+	wg := ri.latches[hashVals[0]]
 	for _, hashVal := range hashVals {
-		delete(ri.memLocks, hashVal)
+		delete(ri.latches, hashVal)
 	}
 	wg.Done()
-}
-
-func (ri *regionCtx) addTxnKeys(startTS uint64, keys [][]byte) {
-	ri.txnKeysMu.Lock()
-	defer ri.txnKeysMu.Unlock()
-	ri.txnKeysMap[startTS] = keys
-}
-
-func (ri *regionCtx) addTxnKey(startTS uint64, key []byte) {
-	ri.txnKeysMu.Lock()
-	defer ri.txnKeysMu.Unlock()
-	keys := ri.txnKeysMap[startTS]
-	for _, k := range keys {
-		if bytes.Equal(k, key) {
-			return
-		}
-	}
-	ri.txnKeysMap[startTS] = append(keys, key)
-}
-
-func (ri *regionCtx) removeTxnKeys(startTS uint64) {
-	ri.txnKeysMu.Lock()
-	defer ri.txnKeysMu.Unlock()
-	delete(ri.txnKeysMap, startTS)
-}
-
-func (ri *regionCtx) removeTxnKey(startTS uint64, key []byte) {
-	ri.txnKeysMu.Lock()
-	defer ri.txnKeysMu.Unlock()
-	keys := ri.txnKeysMap[startTS]
-	if len(keys) == 1 {
-		if bytes.Equal(keys[0], key) {
-			delete(ri.txnKeysMap, startTS)
-		}
-	} else {
-		for i, oldKey := range keys {
-			if bytes.Equal(oldKey, key) {
-				newKeys := make([][]byte, len(keys)-1)
-				copy(newKeys, keys[:i])
-				copy(newKeys[i:], keys[i+1:])
-				ri.txnKeysMap[startTS] = newKeys
-			}
-		}
-	}
-}
-
-func (ri *regionCtx) getTxnKeys(startTS uint64) [][]byte {
-	ri.txnKeysMu.RLock()
-	defer ri.txnKeysMu.RUnlock()
-	keys := ri.txnKeysMap[startTS]
-	return keys
-}
-
-func (ri *regionCtx) getAllKeys(maxTS uint64) [][]byte {
-	ri.txnKeysMu.RLock()
-	length := len(ri.txnKeysMap)
-	allKeys := make([][]byte, 0, length)
-	for startTS, keys := range ri.txnKeysMap {
-		if startTS < maxTS {
-			allKeys = append(allKeys, keys...)
-		}
-	}
-	ri.txnKeysMu.RUnlock()
-	return allKeys
 }
 
 type RegionOptions struct {
@@ -241,6 +155,8 @@ type RegionManager struct {
 	pdc        Client
 	clusterID  uint64
 	regionSize int64
+	closeCh    chan struct{}
+	wg         sync.WaitGroup
 }
 
 func NewRegionManager(db *badger.DB, opts RegionOptions) *RegionManager {
@@ -256,6 +172,7 @@ func NewRegionManager(db *badger.DB, opts RegionOptions) *RegionManager {
 		clusterID:  clusterID,
 		regions:    make(map[uint64]*regionCtx),
 		regionSize: opts.RegionSize,
+		closeCh:    make(chan struct{}),
 	}
 	err = rm.db.View(func(txn *badger.Txn) error {
 		item, err1 := txn.Get(InternalStoreMetaKey)
@@ -300,6 +217,7 @@ func NewRegionManager(db *badger.DB, opts RegionOptions) *RegionManager {
 	}
 	rm.storeMeta.Address = opts.StoreAddr
 	rm.pdc.PutStore(context.TODO(), &rm.storeMeta)
+	rm.wg.Add(2)
 	go rm.runSplitWorker()
 	go rm.storeHeartBeatLoop()
 	return rm
@@ -407,9 +325,14 @@ func (rm *RegionManager) allocIDs(n int) ([]uint64, error) {
 }
 
 func (rm *RegionManager) storeHeartBeatLoop() {
+	defer rm.wg.Done()
 	ticker := time.Tick(time.Second * 3)
 	for {
-		<-ticker
+		select {
+		case <-rm.closeCh:
+			return
+		case <-ticker:
+		}
 		storeStats := new(pdpb.StoreStats)
 		storeStats.StoreId = rm.storeMeta.Id
 		storeStats.Available = 1024 * 1024 * 1024
@@ -452,7 +375,7 @@ func (rm *RegionManager) getRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *er
 	ptr := unsafe.Pointer(ri.parent)
 	parent := (*regionCtx)(atomic.LoadPointer(&ptr))
 	if parent != nil {
-		// Wait for the parent region reference decrease to zero, so the memLocks would be clean.
+		// Wait for the parent region reference decrease to zero, so the latches would be clean.
 		parent.refCount.Wait()
 		// TODO: the txnKeysMap in parent is discarded, if a large transaction failed
 		// and the client is down, leaves many locks, we can only resolve a single key at a time.
@@ -521,6 +444,8 @@ func (s *sampler) getSplitKeyAndSize() ([]byte, int64) {
 }
 
 func (rm *RegionManager) runSplitWorker() {
+	defer rm.wg.Done()
+	ticker := time.NewTicker(time.Second * 5)
 	var regionsToCheck []*regionCtx
 	var regionsToSave []*regionCtx
 	for {
@@ -545,8 +470,11 @@ func (rm *RegionManager) runSplitWorker() {
 		}
 		rm.mu.RUnlock()
 		rm.saveSizeHint(regionsToSave)
-
-		time.Sleep(time.Second * 5)
+		select {
+		case <-rm.closeCh:
+			return
+		case <-ticker.C:
+		}
 	}
 }
 
@@ -649,5 +577,11 @@ func (rm *RegionManager) splitRegion(oldRegionCtx *regionCtx, splitKey []byte, o
 	rm.pdc.ReportRegion(left)
 	log.Infof("region %d split to left %d with size %d and right %d with size %d",
 		oldRegion.Id, left.meta.Id, left.sizeHint, right.meta.Id, right.sizeHint)
+	return nil
+}
+
+func (rm *RegionManager) Close() error {
+	close(rm.closeCh)
+	rm.wg.Wait()
 	return nil
 }

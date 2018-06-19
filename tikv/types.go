@@ -1,211 +1,130 @@
 package tikv
 
 import (
+	"unsafe"
+
 	"github.com/coocood/badger"
 	"github.com/juju/errors"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/tidb/util/codec"
 )
 
-type mvccValueType int
+type mvccValueHdr struct {
+	startTS  uint64
+	commitTS uint64
+}
 
-const (
-	typePut mvccValueType = iota
-	typeDelete
-	typeRollback
-)
+const mvccValueHdrSize = int(unsafe.Sizeof(mvccValueHdr{}))
 
 type mvccValue struct {
-	valueType mvccValueType
-	startTS   uint64
-	commitTS  uint64
-	value     []byte
+	mvccValueHdr
+	value []byte
 }
 
 // MarshalBinary implements encoding.BinaryMarshaler interface.
 func (v mvccValue) MarshalBinary() []byte {
-	buf := make([]byte, 0, len(v.value)+32)
-	buf = codec.EncodeUint(buf, uint64(v.valueType))
-	buf = codec.EncodeUint(buf, v.startTS)
-	buf = codec.EncodeUint(buf, v.commitTS)
-	buf = codec.EncodeCompactBytes(buf, v.value)
+	buf := make([]byte, mvccValueHdrSize+len(v.value))
+	hdr := (*mvccValueHdr)(unsafe.Pointer(&buf[0]))
+	*hdr = v.mvccValueHdr
+	copy(buf[mvccValueHdrSize:], v.value)
 	return buf
 }
 
-func decodeValue(item *badger.Item) (mvVal mvccValue, err error) {
+func decodeValue(item *badger.Item) (v mvccValue, err error) {
 	val, err := item.Value()
 	if err != nil {
-		return mvVal, errors.Trace(err)
+		return v, errors.Trace(err)
 	}
-	_, err = mvVal.UnmarshalBinary(val)
-	if err != nil {
-		return mvVal, errors.Trace(err)
+	v.mvccValueHdr = *(*mvccValueHdr)(unsafe.Pointer(&val[0]))
+	if len(val) > mvccValueHdrSize {
+		v.value = append(v.value[:0], val[mvccValueHdrSize:]...)
 	}
-	return mvVal, nil
+	return v, nil
+}
+
+// decodeLock decodes data to lock, the primary and value is copied.
+func decodeLock(data []byte) (l mvccLock) {
+	l.mvccLockHdr = *(*mvccLockHdr)(unsafe.Pointer(&data[0]))
+	buf := append([]byte{}, data[mvccLockHdrSize:]...)
+	l.primary = buf[:l.primaryLen]
+	l.value = buf[l.primaryLen:]
+	return
 }
 
 // UnmarshalBinary implements encoding.BinaryUnmarshaler interface.
-func (v *mvccValue) UnmarshalBinary(data []byte) ([]byte, error) {
-	data, uVal, err := codec.DecodeUint(data)
-	if err != nil {
-		return nil, errors.Trace(err)
+func (v *mvccValue) UnmarshalBinary(data []byte) {
+	v.mvccValueHdr = *(*mvccValueHdr)(unsafe.Pointer(&data[0]))
+	if len(data) > mvccValueHdrSize {
+		v.value = append(v.value[:0], data[mvccValueHdrSize:]...)
 	}
-	v.valueType = mvccValueType(uVal)
-	data, uVal, err = codec.DecodeUint(data)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	v.startTS = uVal
-	data, uVal, err = codec.DecodeUint(data)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	v.commitTS = uVal
-	data, bVal, err := codec.DecodeCompactBytes(data)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	v.value = append([]byte{}, bVal...)
-	return data, nil
 }
 
-type mvccLock struct {
+type mvccLockHdr struct {
 	startTS    uint64
-	primary    []byte
-	value      []byte
-	op         kvrpcpb.Op
-	ttl        uint64
-	rollbackTS uint64
+	ttl        uint32
+	op         uint16
+	primaryLen uint16
+}
+
+const mvccLockHdrSize = int(unsafe.Sizeof(mvccLockHdr{}))
+
+type mvccLock struct {
+	mvccLockHdr
+	primary []byte
+	value   []byte
 }
 
 // MarshalBinary implements encoding.BinaryMarshaler interface.
 func (l *mvccLock) MarshalBinary() []byte {
-	buf := make([]byte, 0, len(l.primary)+len(l.value)+32)
-	buf = codec.EncodeUint(buf, l.startTS)
-	buf = codec.EncodeCompactBytes(buf, l.primary)
-	buf = codec.EncodeCompactBytes(buf, l.value)
-	buf = codec.EncodeUint(buf, uint64(l.op))
-	buf = codec.EncodeUint(buf, l.ttl)
-	buf = codec.EncodeUint(buf, l.rollbackTS)
+	buf := make([]byte, mvccLockHdrSize+len(l.primary)+len(l.value))
+	hdr := (*mvccLockHdr)(unsafe.Pointer(&buf[0]))
+	*hdr = l.mvccLockHdr
+	copy(buf[mvccLockHdrSize:], l.primary)
+	copy(buf[mvccLockHdrSize+int(l.primaryLen):], l.value)
 	return buf
 }
 
-// UnmarshalBinary implements encoding.BinaryUnmarshaler interface.
-func (l *mvccLock) UnmarshalBinary(data []byte) ([]byte, error) {
-	data, uVal, err := codec.DecodeUint(data)
-	if err != nil {
-		return nil, errors.Trace(err)
+func mvLockToMvVal(lock mvccLock, commitTS uint64) (mvVal mvccValue, userMeta byte) {
+	if lock.op == uint16(kvrpcpb.Op_Del) {
+		userMeta = userMetaDelete
 	}
-	l.startTS = uVal
-	data, bVal, err := codec.DecodeCompactBytes(data)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	l.primary = append([]byte{}, bVal...)
-	data, bVal, err = codec.DecodeCompactBytes(data)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	l.value = append([]byte{}, bVal...)
-	data, uVal, err = codec.DecodeUint(data)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	l.op = kvrpcpb.Op(uVal)
-	data, uVal, err = codec.DecodeUint(data)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	l.ttl = uVal
-	data, uVal, err = codec.DecodeUint(data)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	l.rollbackTS = uVal
-	return data, nil
-}
-
-func decodeLock(item *badger.Item) (mvccLock, error) {
-	var lock mvccLock
-	lockVal, err := item.Value()
-	if err != nil {
-		return lock, err
-	}
-	_, err = lock.UnmarshalBinary(lockVal)
-	return lock, err
+	mvVal.startTS = lock.startTS
+	mvVal.commitTS = commitTS
+	mvVal.value = lock.value
+	return
 }
 
 const (
-	mixedLockFlag  byte = 1 << 0
-	mixedValueFlag byte = 1 << 1
-	mixedDelFlag   byte = 1 << 2
+	userMetaRollback   byte = 1
+	userMetaDelete     byte = 2
+	userMetaRollbackGC byte = 3
 )
-
-type mixedValue struct {
-	mixedType byte
-	val       mvccValue
-	lock      mvccLock
-}
-
-func (mixed *mixedValue) hasLock() bool {
-	return mixed.mixedType&mixedLockFlag > 0
-}
-
-func (mixed *mixedValue) hasValue() bool {
-	return mixed.mixedType&mixedValueFlag > 0
-}
-
-func (mixed *mixedValue) isDelete() bool {
-	return mixed.mixedType&mixedDelFlag > 0
-}
-
-func (mixed *mixedValue) unsetLock() {
-	mixed.mixedType &= ^mixedLockFlag
-}
-
-func (mixed *mixedValue) UnmarshalBinary(data []byte) error {
-	mixed.mixedType = data[0]
-	data = data[1:]
-	var err error
-	if mixed.hasLock() {
-		data, err = mixed.lock.UnmarshalBinary(data)
-		if err != nil {
-			return errors.Trace(err)
-		}
-	}
-	if mixed.hasValue() {
-		data, err = mixed.val.UnmarshalBinary(data)
-		if err != nil {
-			return errors.Trace(err)
-		}
-	}
-	return nil
-}
-
-func (mixed *mixedValue) MarshalBinary() []byte {
-	buf := []byte{mixed.mixedType}
-	if mixed.hasLock() {
-		buf = append(buf, mixed.lock.MarshalBinary()...)
-	}
-	if mixed.hasValue() {
-		buf = append(buf, mixed.val.MarshalBinary()...)
-	}
-	return buf
-}
-
-func decodeMixed(item *badger.Item) (mixedValue, error) {
-	data, err := item.Value()
-	if err != nil {
-		return mixedValue{}, errors.Trace(err)
-	}
-	var mixed mixedValue
-	err = mixed.UnmarshalBinary(data)
-	return mixed, errors.Trace(err)
-}
 
 func encodeOldKey(key []byte, ts uint64) []byte {
 	b := append([]byte{}, key...)
 	ret := codec.EncodeUintDesc(b, ts)
 	ret[0]++
 	return ret
+}
+
+func encodeRollbackKey(buf, key []byte, ts uint64) []byte {
+	buf = append(buf[:0], key...)
+	buf = codec.EncodeUintDesc(buf, ts)
+	return buf
+}
+
+func decodeRollbackTS(buf []byte) uint64 {
+	tsBin := buf[len(buf)-8:]
+	_, ts, err := codec.DecodeUintDesc(tsBin)
+	if err != nil {
+		panic(err)
+	}
+	return ts
+}
+
+// Pair is a KV pair read from MvccStore or an error if any occurs.
+type Pair struct {
+	Key   []byte
+	Value []byte
+	Err   error
 }

@@ -17,6 +17,12 @@ func extractPhysicalTime(ts uint64) time.Time {
 	return time.Unix(t/1e3, (t%1e3)*1e6)
 }
 
+func tsSub(tsA, tsB uint64) time.Duration {
+	tsAPhysical := int64(tsA >> 18)
+	tsBPhysical := int64(tsB >> 18)
+	return time.Duration(tsAPhysical-tsBPhysical) * time.Millisecond
+}
+
 func mutationsToHashVals(mutations []*kvrpcpb.Mutation) []uint64 {
 	hashVals := make([]uint64, len(mutations))
 	for i, mut := range mutations {
@@ -31,4 +37,8 @@ func keysToHashVals(keys [][]byte) []uint64 {
 		hashVals[i] = farm.Fingerprint64(key)
 	}
 	return hashVals
+}
+
+func safeCopy(b []byte) []byte {
+	return append([]byte{}, b...)
 }
