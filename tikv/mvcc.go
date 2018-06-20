@@ -265,8 +265,11 @@ func (store *MVCCStore) Commit(req *requestCtx, keys [][]byte, startTS, commitTS
 func (store *MVCCStore) handleLockNotFound(reqCtx *requestCtx, key []byte, startTS, commitTS uint64) error {
 	txn := reqCtx.getDBReader().txn
 	item, err := txn.Get(key)
-	if err != nil {
+	if err != nil && err != badger.ErrKeyNotFound {
 		return errors.Trace(err)
+	}
+	if item == nil {
+		return ErrLockNotFound
 	}
 	mvVal, err := decodeValue(item)
 	if err != nil {
@@ -284,7 +287,7 @@ func (store *MVCCStore) handleLockNotFound(reqCtx *requestCtx, key []byte, start
 			return nil
 		}
 	}
-	return errors.New("lock not found")
+	return ErrLockNotFound
 }
 
 func (store *MVCCStore) Rollback(reqCtx *requestCtx, keys [][]byte, startTS uint64) error {
@@ -339,7 +342,7 @@ func (store *MVCCStore) rollbackKey(req *requestCtx, batch *writeBatch, key []by
 	}
 	reader := req.getDBReader()
 	item, err := reader.txn.Get(key)
-	if err != nil {
+	if err != nil && err != badger.ErrKeyNotFound {
 		return errors.Trace(err)
 	}
 	hasVal := item != nil

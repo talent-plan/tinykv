@@ -26,7 +26,10 @@ func (e ErrRetryable) Error() string {
 	return fmt.Sprintf("retryable: %s", string(e))
 }
 
-var ErrWriteConflict = errors.New("write conflict")
+var (
+	ErrWriteConflict = errors.New("write conflict")
+	ErrLockNotFound  = errors.New("lock not found")
+)
 
 // ErrAbort means something is wrong and client should abort the txn.
 type ErrAbort string
