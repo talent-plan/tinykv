@@ -570,11 +570,12 @@ func (store *MVCCStore) deleteKeysInBatch(reqCtx *requestCtx, keys [][]byte, bat
 		batchKeys := keys[:batchSize]
 		keys = keys[batchSize:]
 		hashVals := keysToHashVals(batchKeys)
-		regCtx.acquireLatches(hashVals)
 		wb := newWriteBatch(reqCtx)
 		for _, key := range batchKeys {
 			wb.delete(key)
 		}
+
+		regCtx.acquireLatches(hashVals)
 		err := store.write(wb)
 		regCtx.releaseLatches(hashVals)
 		if err != nil {
