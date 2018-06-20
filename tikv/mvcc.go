@@ -139,7 +139,7 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 			primary: primary,
 			value:   m.Value,
 		}
-		lockBatch.setWithMeta(m.Key, lock.MarshalBinary(), 0)
+		lockBatch.setWithMeta(m.Key, lock.MarshalBinary(), userMetaNone)
 	}
 	err := store.writeLock(lockBatch)
 	reqCtx.trace(eventEndWriteLock)
@@ -237,11 +237,9 @@ func (store *MVCCStore) Commit(req *requestCtx, keys [][]byte, startTS, commitTS
 			return errors.Trace(err)
 		}
 		oldKey := encodeOldKey(key, mvVal.commitTS)
-		var userMeta byte
+		userMeta := userMetaNone
 		if len(mvVal.value) == 0 {
 			userMeta = userMetaDelete
-		} else {
-			userMeta = 0
 		}
 		dbBatch.setWithMeta(oldKey, mvVal.MarshalBinary(), userMeta)
 	}

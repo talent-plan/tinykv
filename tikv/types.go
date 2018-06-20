@@ -95,6 +95,7 @@ func mvLockToMvVal(lock mvccLock, commitTS uint64) (mvVal mvccValue, userMeta by
 }
 
 const (
+	userMetaNone       byte = 0
 	userMetaRollback   byte = 1
 	userMetaDelete     byte = 2
 	userMetaRollbackGC byte = 3
