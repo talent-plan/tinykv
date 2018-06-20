@@ -78,7 +78,7 @@ func (store *MVCCStore) write(batch *writeBatch) error {
 	return batch.err
 }
 
-func (store *MVCCStore) writeLock(batch *writeBatch) error {
+func (store *MVCCStore) writeLocks(batch *writeBatch) error {
 	if len(batch.entries) == 0 {
 		return nil
 	}
@@ -253,7 +253,7 @@ func (w *rollbackGCWorker) run() {
 		if len(wb.entries) == 0 {
 			continue
 		}
-		store.writeLock(wb)
+		store.writeLocks(wb)
 	}
 }
 

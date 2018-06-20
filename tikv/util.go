@@ -31,7 +31,7 @@ func mutationsToHashVals(mutations []*kvrpcpb.Mutation) []uint64 {
 	return hashVals
 }
 
-func keysToHashVals(keys [][]byte) []uint64 {
+func keysToHashVals(keys ...[]byte) []uint64 {
 	hashVals := make([]uint64, len(keys))
 	for i, key := range keys {
 		hashVals[i] = farm.Fingerprint64(key)

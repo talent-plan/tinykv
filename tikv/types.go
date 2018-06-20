@@ -84,7 +84,7 @@ func (l *mvccLock) MarshalBinary() []byte {
 	return buf
 }
 
-func mvLockToMvVal(lock mvccLock, commitTS uint64) (mvVal mvccValue, userMeta byte) {
+func lockToValue(lock mvccLock, commitTS uint64) (mvVal mvccValue, userMeta byte) {
 	if lock.op == uint16(kvrpcpb.Op_Del) {
 		userMeta = userMetaDelete
 	}
