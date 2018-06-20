@@ -494,15 +494,17 @@ func (store *MVCCStore) ResolveLock(reqCtx *requestCtx, startTS, commitTS uint64
 		return nil
 	}
 	hashVals := keysToHashVals(lockKeys)
-	regCtx.acquireLatches(hashVals)
-	reqCtx.trace(eventAcquireLatches)
-	defer regCtx.releaseLatches(hashVals)
 	lockBatch := newWriteBatch(reqCtx)
-	var buf []byte
 	var commitBatch *writeBatch
 	if commitTS > 0 {
 		commitBatch = newWriteBatch(reqCtx)
 	}
+
+	regCtx.acquireLatches(hashVals)
+	reqCtx.trace(eventAcquireLatches)
+	defer regCtx.releaseLatches(hashVals)
+
+	var buf []byte
 	for i, lockKey := range lockKeys {
 		buf = store.lockStore.Get(lockKey, buf)
 		// We need to check again make sure the lock is not changed.
