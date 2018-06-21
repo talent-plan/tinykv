@@ -103,9 +103,9 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 	reqCtx.trace(eventAcquireLatches)
 	defer regCtx.releaseLatches(hashVals)
 
-	// Must check the MemStore first.
+	// Must check the LockStore first.
 	for _, m := range mutations {
-		duplicate, err := store.checkPrewriteInMemStore(reqCtx, m, startTS)
+		duplicate, err := store.checkPrewriteInLockStore(reqCtx, m, startTS)
 		if err != nil {
 			anyError = true
 		}
@@ -155,7 +155,7 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 	return nil
 }
 
-func (store *MVCCStore) checkPrewriteInMemStore(
+func (store *MVCCStore) checkPrewriteInLockStore(
 	req *requestCtx, mutation *kvrpcpb.Mutation, startTS uint64) (duplicate bool, err error) {
 	req.buf = encodeRollbackKey(req.buf, mutation.Key, startTS)
 	if len(store.rollbackStore.Get(req.buf, nil)) > 0 {
