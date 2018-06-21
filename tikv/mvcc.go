@@ -383,11 +383,11 @@ func (store *MVCCStore) rollbackKey(req *requestCtx, batch *writeBatch, key []by
 		return nil
 	}
 	// val.startTS > startTS, look for the key in the old version to check if the key is committed.
-	iter := reader.getOldIter()
+	it := reader.getOldIter()
 	oldKey := encodeOldKey(key, val.commitTS)
 	// find greater commit version.
-	for iter.Seek(oldKey); iter.ValidForPrefix(oldKey[:len(oldKey)-8]); iter.Next() {
-		item := iter.Item()
+	for it.Seek(oldKey); it.ValidForPrefix(oldKey[:len(oldKey)-8]); it.Next() {
+		item := it.Item()
 		foundKey := item.Key()
 		if isVisibleKey(foundKey, startTS) {
 			break
@@ -441,13 +441,13 @@ func (store *MVCCStore) CheckKeysLock(startTS uint64, keys ...[]byte) error {
 }
 
 func (store *MVCCStore) CheckRangeLock(startTS uint64, startKey, endKey []byte) error {
-	lockIter := store.lockStore.NewIterator()
-	for lockIter.Seek(startKey); lockIter.Valid(); lockIter.Next() {
-		if exceedEndKey(lockIter.Key(), endKey) {
+	it := store.lockStore.NewIterator()
+	for it.Seek(startKey); it.Valid(); it.Next() {
+		if exceedEndKey(it.Key(), endKey) {
 			break
 		}
-		lock := decodeLock(lockIter.Value())
-		err := checkLock(lock, lockIter.Key(), startTS)
+		lock := decodeLock(it.Value())
+		err := checkLock(lock, it.Key(), startTS)
 		if err != nil {
 			return err
 		}
@@ -572,9 +572,9 @@ func (store *MVCCStore) DeleteRange(reqCtx *requestCtx, startKey, endKey []byte)
 	return errors.Trace(err)
 }
 
-func (store *MVCCStore) collectRangeKeys(iter *badger.Iterator, startKey, endKey []byte, keys [][]byte) [][]byte {
-	for iter.Seek(startKey); iter.Valid(); iter.Next() {
-		item := iter.Item()
+func (store *MVCCStore) collectRangeKeys(it *badger.Iterator, startKey, endKey []byte, keys [][]byte) [][]byte {
+	for it.Seek(startKey); it.Valid(); it.Next() {
+		item := it.Item()
 		key := item.KeyCopy(nil)
 		if exceedEndKey(key, endKey) {
 			break
