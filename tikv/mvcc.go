@@ -105,9 +105,12 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 
 	// Must check the LockStore first.
 	for _, m := range mutations {
-		err := store.checkPrewriteInLockStore(reqCtx, m, startTS)
+		duplicate, err := store.checkPrewriteInLockStore(reqCtx, m, startTS)
 		if err != nil {
 			anyError = true
+		}
+		if duplicate {
+			return nil
 		}
 		errs = append(errs, err)
 	}
@@ -150,21 +153,22 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 	return nil
 }
 
-func (store *MVCCStore) checkPrewriteInLockStore(req *requestCtx, mutation *kvrpcpb.Mutation, startTS uint64) error {
+func (store *MVCCStore) checkPrewriteInLockStore(
+	req *requestCtx, mutation *kvrpcpb.Mutation, startTS uint64) (duplicate bool, err error) {
 	req.buf = encodeRollbackKey(req.buf, mutation.Key, startTS)
 	if len(store.rollbackStore.Get(req.buf, nil)) > 0 {
-		return ErrAbort("already rollback")
+		return false, ErrAbort("already rollback")
 	}
 	req.buf = store.lockStore.Get(mutation.Key, req.buf)
 	if len(req.buf) == 0 {
-		return nil
+		return false, nil
 	}
 	lock := decodeLock(req.buf)
 	if lock.startTS == startTS {
 		// Same ts, no need to overwrite.
-		return nil
+		return true, nil
 	}
-	return &ErrLocked{
+	return false, &ErrLocked{
 		Key:     mutation.Key,
 		StartTS: lock.startTS,
 		Primary: lock.primary,
