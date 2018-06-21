@@ -199,7 +199,7 @@ func (store *MVCCStore) checkPrewriteInDB(
 	return true, nil
 }
 
-const lockVer uint64 = math.MaxUint64
+const maxSystemTS uint64 = math.MaxUint64
 
 // Commit implements the MVCCStore interface.
 func (store *MVCCStore) Commit(req *requestCtx, keys [][]byte, startTS, commitTS uint64) error {
@@ -412,7 +412,7 @@ func isVisibleKey(key []byte, startTS uint64) bool {
 func checkLock(lock mvccLock, key []byte, startTS uint64) error {
 	lockVisible := lock.startTS < startTS
 	isWriteLock := lock.op == uint8(kvrpcpb.Op_Put) || lock.op == uint8(kvrpcpb.Op_Del)
-	isPrimaryGet := lock.startTS == lockVer && bytes.Equal(lock.primary, key)
+	isPrimaryGet := startTS == maxSystemTS && bytes.Equal(lock.primary, key)
 	if lockVisible && isWriteLock && !isPrimaryGet {
 		return &ErrLocked{
 			Key:     key,
@@ -474,7 +474,7 @@ func (store *MVCCStore) Cleanup(reqCtx *requestCtx, key []byte, startTS uint64) 
 	return err
 }
 
-func (store *MVCCStore) ScanLock(reqCtx *requestCtx, maxTS uint64) ([]*kvrpcpb.LockInfo, error) {
+func (store *MVCCStore) ScanLock(reqCtx *requestCtx, maxSystemTS uint64) ([]*kvrpcpb.LockInfo, error) {
 	var locks []*kvrpcpb.LockInfo
 	it := store.lockStore.NewIterator()
 	for it.Seek(reqCtx.regCtx.startKey); it.Valid(); it.Next() {
@@ -482,7 +482,7 @@ func (store *MVCCStore) ScanLock(reqCtx *requestCtx, maxTS uint64) ([]*kvrpcpb.L
 			return locks, nil
 		}
 		lock := decodeLock(it.Value())
-		if lock.startTS < maxTS {
+		if lock.startTS < maxSystemTS {
 			locks = append(locks, &kvrpcpb.LockInfo{
 				PrimaryLock: lock.primary,
 				LockVersion: lock.startTS,
@@ -559,8 +559,8 @@ const delRangeBatchSize = 4096
 
 func (store *MVCCStore) DeleteRange(reqCtx *requestCtx, startKey, endKey []byte) error {
 	keys := make([][]byte, 0, delRangeBatchSize)
-	oldStartKey := encodeOldKey(startKey, lockVer)
-	oldEndKey := encodeOldKey(endKey, lockVer)
+	oldStartKey := encodeOldKey(startKey, maxSystemTS)
+	oldEndKey := encodeOldKey(endKey, maxSystemTS)
 	reader := reqCtx.getDBReader()
 	keys = store.collectRangeKeys(reader.getIter(), startKey, endKey, keys)
 	keys = store.collectRangeKeys(reader.getIter(), oldStartKey, oldEndKey, keys)
