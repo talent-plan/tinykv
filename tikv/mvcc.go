@@ -118,32 +118,34 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 	if anyError {
 		return errs
 	}
+
+	lockBatch := newWriteBatch(reqCtx)
 	// Check the DB.
 	txn := reqCtx.getDBReader().txn
 	for i, m := range mutations {
-		err := store.checkPrewriteInDB(reqCtx, txn, m, startTS)
+		hasOldVer, err := store.checkPrewriteInDB(reqCtx, txn, m, startTS)
 		if err != nil {
 			anyError = true
 		}
 		errs[i] = err
+		if !anyError {
+			lock := mvccLock{
+				mvccLockHdr: mvccLockHdr{
+					startTS:    startTS,
+					op:         uint8(m.Op),
+					hasOldVer:  hasOldVer,
+					ttl:        uint32(ttl),
+					primaryLen: uint16(len(primary)),
+				},
+				primary: primary,
+				value:   m.Value,
+			}
+			lockBatch.setWithMeta(m.Key, lock.MarshalBinary(), userMetaNone)
+		}
 	}
 	reqCtx.trace(eventReadDB)
 	if anyError {
 		return errs
-	}
-	lockBatch := newWriteBatch(reqCtx)
-	for _, m := range mutations {
-		lock := mvccLock{
-			mvccLockHdr: mvccLockHdr{
-				startTS:    startTS,
-				op:         uint16(m.Op),
-				ttl:        uint32(ttl),
-				primaryLen: uint16(len(primary)),
-			},
-			primary: primary,
-			value:   m.Value,
-		}
-		lockBatch.setWithMeta(m.Key, lock.MarshalBinary(), userMetaNone)
 	}
 	err := store.writeLocks(lockBatch)
 	reqCtx.trace(eventEndWriteLock)
@@ -176,22 +178,25 @@ func (store *MVCCStore) checkPrewriteInLockStore(
 	}
 }
 
-func (store *MVCCStore) checkPrewriteInDB(req *requestCtx, txn *badger.Txn, mutation *kvrpcpb.Mutation, startTS uint64) error {
+// checkPrewrietInDB checks that there is no committed version greater than startTS or return write conflict error.
+// And it returns a bool value indicates if there is an old version.
+func (store *MVCCStore) checkPrewriteInDB(
+	req *requestCtx, txn *badger.Txn, mutation *kvrpcpb.Mutation, startTS uint64) (hasOldVer bool, err error) {
 	item, err := txn.Get(mutation.Key)
 	if err != nil && err != badger.ErrKeyNotFound {
-		return errors.Trace(err)
+		return false, errors.Trace(err)
 	}
 	if item == nil {
-		return nil
+		return false, nil
 	}
 	mvVal, err := decodeValue(item)
 	if err != nil {
-		return errors.Trace(err)
+		return false, errors.Trace(err)
 	}
 	if mvVal.commitTS > startTS {
-		return ErrRetryable("write conflict")
+		return false, ErrRetryable("write conflict")
 	}
-	return nil
+	return true, nil
 }
 
 const lockVer uint64 = math.MaxUint64
@@ -209,7 +214,8 @@ func (store *MVCCStore) Commit(req *requestCtx, keys [][]byte, startTS, commitTS
 
 	var buf []byte
 	var tmpDiff int
-	for _, key := range keys {
+	needMove := make([]bool, len(keys))
+	for i, key := range keys {
 		buf = store.lockStore.Get(key, buf)
 		if len(buf) == 0 {
 			// We never commit partial keys in Commit request, so if one lock is not found,
@@ -220,9 +226,10 @@ func (store *MVCCStore) Commit(req *requestCtx, keys [][]byte, startTS, commitTS
 		if lock.startTS != startTS {
 			return errors.New("replaced by another transaction")
 		}
-		if lock.op == uint16(kvrpcpb.Op_Lock) {
+		if lock.op == uint8(kvrpcpb.Op_Lock) {
 			continue
 		}
+		needMove[i] = lock.hasOldVer
 		val, userMeta := lockToValue(lock, commitTS)
 		commitVal := val.MarshalBinary()
 		tmpDiff += len(key) + len(commitVal)
@@ -231,7 +238,10 @@ func (store *MVCCStore) Commit(req *requestCtx, keys [][]byte, startTS, commitTS
 	req.trace(eventReadLock)
 	// Move current latest to old.
 	txn := req.getDBReader().txn
-	for _, key := range keys {
+	for i, key := range keys {
+		if !needMove[i] {
+			continue
+		}
 		item, err := txn.Get(key)
 		if err != nil && err != badger.ErrKeyNotFound {
 			return errors.Trace(err)
@@ -401,7 +411,7 @@ func isVisibleKey(key []byte, startTS uint64) bool {
 
 func checkLock(lock mvccLock, key []byte, startTS uint64) error {
 	lockVisible := lock.startTS < startTS
-	isWriteLock := lock.op == uint16(kvrpcpb.Op_Put) || lock.op == uint16(kvrpcpb.Op_Del)
+	isWriteLock := lock.op == uint8(kvrpcpb.Op_Put) || lock.op == uint8(kvrpcpb.Op_Del)
 	isPrimaryGet := lock.startTS == lockVer && bytes.Equal(lock.primary, key)
 	if lockVisible && isWriteLock && !isPrimaryGet {
 		return &ErrLocked{

@@ -62,7 +62,8 @@ func (v *mvccValue) UnmarshalBinary(data []byte) {
 type mvccLockHdr struct {
 	startTS    uint64
 	ttl        uint32
-	op         uint16
+	op         uint8
+	hasOldVer  bool
 	primaryLen uint16
 }
 
@@ -85,7 +86,7 @@ func (l *mvccLock) MarshalBinary() []byte {
 }
 
 func lockToValue(lock mvccLock, commitTS uint64) (mvVal mvccValue, userMeta byte) {
-	if lock.op == uint16(kvrpcpb.Op_Del) {
+	if lock.op == uint8(kvrpcpb.Op_Del) {
 		userMeta = userMetaDelete
 	}
 	mvVal.startTS = lock.startTS
