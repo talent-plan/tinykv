@@ -21,8 +21,8 @@ type MVCCStore struct {
 	dir             string
 	db              *badger.DB
 	writeDBWorker   *writeDBWorker
-	lockStore       *lockstore.LockStore
-	rollbackStore   *lockstore.LockStore
+	lockStore       *lockstore.MemStore
+	rollbackStore   *lockstore.MemStore
 	writeLockWorker *writeLockWorker
 	closeCh         chan struct{}
 	wg              sync.WaitGroup
@@ -33,8 +33,8 @@ type MVCCStore struct {
 
 // NewMVCCStore creates a new MVCCStore
 func NewMVCCStore(db *badger.DB, dataDir string) *MVCCStore {
-	ls := lockstore.NewLockStore(8 << 20)
-	rollbackStore := lockstore.NewLockStore(256 << 10)
+	ls := lockstore.NewMemStore(8 << 20)
+	rollbackStore := lockstore.NewMemStore(256 << 10)
 	closeCh := make(chan struct{})
 	store := &MVCCStore{
 		db:  db,
@@ -53,7 +53,7 @@ func NewMVCCStore(db *badger.DB, dataDir string) *MVCCStore {
 	}
 	store.writeDBWorker.store = store
 	store.writeLockWorker.store = store
-	err := store.loadLockStore()
+	err := store.loadLocks()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func (store *MVCCStore) Close() error {
 	close(store.closeCh)
 	store.wg.Wait()
 
-	err := store.dumpLockStore()
+	err := store.dumpMemLocks()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -103,9 +103,9 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 	reqCtx.trace(eventAcquireLatches)
 	defer regCtx.releaseLatches(hashVals)
 
-	// Must check the LockStore first.
+	// Must check the MemStore first.
 	for _, m := range mutations {
-		duplicate, err := store.checkPrewriteInLockStore(reqCtx, m, startTS)
+		duplicate, err := store.checkPrewriteInMemStore(reqCtx, m, startTS)
 		if err != nil {
 			anyError = true
 		}
@@ -155,7 +155,7 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 	return nil
 }
 
-func (store *MVCCStore) checkPrewriteInLockStore(
+func (store *MVCCStore) checkPrewriteInMemStore(
 	req *requestCtx, mutation *kvrpcpb.Mutation, startTS uint64) (duplicate bool, err error) {
 	req.buf = encodeRollbackKey(req.buf, mutation.Key, startTS)
 	if len(store.rollbackStore.Get(req.buf, nil)) > 0 {

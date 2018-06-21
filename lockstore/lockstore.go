@@ -9,11 +9,11 @@ import (
 	"unsafe"
 )
 
-// LockStore is a skiplist variant used to store lock.
+// MemStore is a skiplist variant used to store lock.
 // Compares to normal skip list, it only supports Insert and Delete operation.
 // and only support single thread write.
 // But it can reuse the memory, so that the memory usage doesn't keep growing.
-type LockStore struct {
+type MemStore struct {
 	height   int32 // Current height. 1 <= height <= maxHeight.
 	head     *node
 	arenaPtr unsafe.Pointer
@@ -81,8 +81,8 @@ func (n *node) getValue(a *arena) []byte {
 	return entryData[nodeLenKeyLen:]
 }
 
-func NewLockStore(arenaBlockSize int) *LockStore {
-	return &LockStore{
+func NewMemStore(arenaBlockSize int) *MemStore {
+	return &MemStore{
 		height:   1,
 		head:     new(node),
 		arenaPtr: unsafe.Pointer(newArenaLocator(arenaBlockSize)),
@@ -90,15 +90,15 @@ func NewLockStore(arenaBlockSize int) *LockStore {
 	}
 }
 
-func (ls *LockStore) getHeight() int {
+func (ls *MemStore) getHeight() int {
 	return int(atomic.LoadInt32(&ls.height))
 }
 
-func (ls *LockStore) setHeight(height int) {
+func (ls *MemStore) setHeight(height int) {
 	atomic.StoreInt32(&ls.height, int32(height))
 }
 
-func (ls *LockStore) Get(key, buf []byte) []byte {
+func (ls *MemStore) Get(key, buf []byte) []byte {
 	e, match := ls.findGreater(key, true)
 	if !match {
 		return nil
@@ -107,7 +107,7 @@ func (ls *LockStore) Get(key, buf []byte) []byte {
 	return append(buf[:0], e.getValue(ls.getArena())...)
 }
 
-func (ls *LockStore) getNext(n *node, level int) (e entry) {
+func (ls *MemStore) getNext(n *node, level int) (e entry) {
 	addr := n.getNextAddr(level)
 	if addr == nullArenaAddr {
 		return
@@ -119,7 +119,7 @@ func (ls *LockStore) getNext(n *node, level int) (e entry) {
 	return e
 }
 
-func (ls *LockStore) findGreater(key []byte, allowEqual bool) (entry, bool) {
+func (ls *MemStore) findGreater(key []byte, allowEqual bool) (entry, bool) {
 	var prev entry
 	prev.node = ls.head
 	level := ls.getHeight() - 1
@@ -156,7 +156,7 @@ func (ls *LockStore) findGreater(key []byte, allowEqual bool) (entry, bool) {
 	}
 }
 
-func (ls *LockStore) findLess(key []byte, allowEqual bool) (entry, bool) {
+func (ls *MemStore) findLess(key []byte, allowEqual bool) (entry, bool) {
 	var prev entry
 	prev.node = ls.head
 	level := ls.getHeight() - 1
@@ -191,7 +191,7 @@ func (ls *LockStore) findLess(key []byte, allowEqual bool) (entry, bool) {
 // findSpliceForLevel returns (outBefore, outAfter) with outBefore.key < key <= outAfter.key.
 // The input "before" tells us where to start looking.
 // If we found a node with the same key, then we return true.
-func (ls *LockStore) findSpliceForLevel(arena *arena, key []byte, before *node, level int) (*node, *node, bool) {
+func (ls *MemStore) findSpliceForLevel(arena *arena, key []byte, before *node, level int) (*node, *node, bool) {
 	for {
 		// Assume before.key < key.
 		nextAddr := before.getNextAddr(level)
@@ -212,7 +212,7 @@ func (ls *LockStore) findSpliceForLevel(arena *arena, key []byte, before *node, 
 
 // findLast returns the last element. If head (empty ls), we return nil. All the find functions
 // will NEVER return the head nodes.
-func (ls *LockStore) findLast() entry {
+func (ls *MemStore) findLast() entry {
 	var e entry
 	e.node = ls.head
 	level := ls.getHeight() - 1
@@ -232,13 +232,13 @@ func (ls *LockStore) findLast() entry {
 	}
 }
 
-func (ls *LockStore) getNode(arena *arena, addr arenaAddr) *node {
+func (ls *MemStore) getNode(arena *arena, addr arenaAddr) *node {
 	data := arena.get(addr, nodeHeadrSize)
 	return (*node)(unsafe.Pointer(&data[0]))
 }
 
 // Put inserts the key-value pair.
-func (ls *LockStore) Insert(key []byte, v []byte) bool {
+func (ls *MemStore) Insert(key []byte, v []byte) bool {
 	arena := ls.getArena()
 	lsHeight := ls.getHeight()
 	var prev [maxHeight + 1]*node
@@ -275,7 +275,7 @@ func (ls *LockStore) Insert(key []byte, v []byte) bool {
 	return true
 }
 
-func (ls *LockStore) newNode(arena *arena, key []byte, v []byte, height int) *node {
+func (ls *MemStore) newNode(arena *arena, key []byte, v []byte, height int) *node {
 	// The base level is already allocated in the node struct.
 	nodeSize := int(nodeHeadrSize) + height*8 + len(key) + len(v)
 	addr := arena.alloc(nodeSize)
@@ -296,15 +296,15 @@ func (ls *LockStore) newNode(arena *arena, key []byte, v []byte, height int) *no
 	return node
 }
 
-func (ls *LockStore) getArena() *arena {
+func (ls *MemStore) getArena() *arena {
 	return (*arena)(atomic.LoadPointer(&ls.arenaPtr))
 }
 
-func (ls *LockStore) setArena(al *arena) {
+func (ls *MemStore) setArena(al *arena) {
 	atomic.StorePointer(&ls.arenaPtr, unsafe.Pointer(al))
 }
 
-func (ls *LockStore) randomHeight() int {
+func (ls *MemStore) randomHeight() int {
 	h := 1
 	for h < maxHeight && ls.rand.Uint64() < uint64(math.MaxUint64)/4 {
 		h++
@@ -312,7 +312,7 @@ func (ls *LockStore) randomHeight() int {
 	return h
 }
 
-func (ls *LockStore) Delete(key []byte) bool {
+func (ls *MemStore) Delete(key []byte) bool {
 	listHeight := ls.getHeight()
 	var prevs [maxHeight + 1]*node
 	prevs[listHeight] = ls.head

@@ -10,20 +10,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLockStore(t *testing.T) {
+func TestMemStore(t *testing.T) {
 	prefix := "ls"
 	n := 30000
-	ls := NewLockStore(1 << 10)
+	ls := NewMemStore(1 << 10)
 	val := ls.Get([]byte("a"), nil)
 	require.Len(t, val, 0)
 
-	insertLockStore(ls, prefix, n)
+	insertMemStore(ls, prefix, n)
 	numBlocks := len(ls.getArena().blocks)
-	checkLockStore(t, ls, prefix, n)
-	deleteLockStore(t, ls, prefix, n)
+	checkMemStore(t, ls, prefix, n)
+	deleteMemStore(t, ls, prefix, n)
 	require.Equal(t, len(ls.getArena().blocks), numBlocks)
 	time.Sleep(reuseSafeDuration)
-	insertLockStore(ls, prefix, n)
+	insertMemStore(ls, prefix, n)
 	// Because the height is random, we insert again, the block number may be different.
 	diff := len(ls.getArena().blocks) - numBlocks
 	require.True(t, diff < numBlocks/100)
@@ -33,7 +33,7 @@ func TestLockStore(t *testing.T) {
 
 const keyFormat = "%s%020d"
 
-func insertLockStore(ls *LockStore, prefix string, n int) *LockStore {
+func insertMemStore(ls *MemStore, prefix string, n int) *MemStore {
 	perms := rand.Perm(n)
 	for _, v := range perms {
 		key := []byte(fmt.Sprintf(keyFormat, prefix, v))
@@ -42,7 +42,7 @@ func insertLockStore(ls *LockStore, prefix string, n int) *LockStore {
 	return ls
 }
 
-func checkLockStore(t *testing.T, ls *LockStore, prefix string, n int) {
+func checkMemStore(t *testing.T, ls *MemStore, prefix string, n int) {
 	perms := rand.Perm(n)
 	for _, v := range perms {
 		key := []byte(fmt.Sprintf(keyFormat, prefix, v))
@@ -51,7 +51,7 @@ func checkLockStore(t *testing.T, ls *LockStore, prefix string, n int) {
 	}
 }
 
-func deleteLockStore(t *testing.T, ls *LockStore, prefix string, n int) {
+func deleteMemStore(t *testing.T, ls *MemStore, prefix string, n int) {
 	perms := rand.Perm(n)
 	for _, v := range perms {
 		key := []byte(fmt.Sprintf(keyFormat, prefix, v))
@@ -60,7 +60,7 @@ func deleteLockStore(t *testing.T, ls *LockStore, prefix string, n int) {
 }
 
 func TestIterator(t *testing.T) {
-	ls := NewLockStore(1 << 10)
+	ls := NewMemStore(1 << 10)
 	for i := 10; i < 1000; i += 10 {
 		key := []byte(fmt.Sprintf(keyFormat, "ls", i))
 		ls.Insert(key, bytes.Repeat(key, 10))
@@ -115,7 +115,7 @@ func TestConcurrent(t *testing.T) {
 		concurrentKeys[i] = numToKey(i)
 	}
 
-	ls := NewLockStore(1 << 20)
+	ls := NewMemStore(1 << 20)
 	// Starts 10 readers and 1 writer.
 	closeCh := make(chan bool)
 	for i := 0; i < keyRange; i++ {
@@ -146,7 +146,7 @@ func TestConcurrent(t *testing.T) {
 	fmt.Println(len(arena.pendingBlocks), len(arena.writableQueue), len(arena.blocks))
 }
 
-func runReader(ls *LockStore, closeCh chan bool, i int) {
+func runReader(ls *MemStore, closeCh chan bool, i int) {
 	key := numToKey(i)
 	buf := make([]byte, 100)
 	var n int
@@ -167,8 +167,8 @@ func runReader(ls *LockStore, closeCh chan bool, i int) {
 	}
 }
 
-func BenchmarkLockStoreDeleteInsertGet(b *testing.B) {
-	ls := NewLockStore(1 << 23)
+func BenchmarkMemStoreDeleteInsertGet(b *testing.B) {
+	ls := NewMemStore(1 << 23)
 	keys := make([][]byte, 10000)
 	for i := 0; i < 10000; i++ {
 		keys[i] = numToKey(i)
@@ -185,8 +185,8 @@ func BenchmarkLockStoreDeleteInsertGet(b *testing.B) {
 	}
 }
 
-func BenchmarkLockStoreIterate(b *testing.B) {
-	ls := NewLockStore(1 << 23)
+func BenchmarkMemStoreIterate(b *testing.B) {
+	ls := NewMemStore(1 << 23)
 	keys := make([][]byte, 10000)
 	for i := 0; i < 10000; i++ {
 		keys[i] = numToKey(i)

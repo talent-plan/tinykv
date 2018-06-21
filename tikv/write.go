@@ -262,7 +262,7 @@ type lockEntryHdr struct {
 	valLen uint32
 }
 
-func (store *MVCCStore) dumpLockStore() error {
+func (store *MVCCStore) dumpMemLocks() error {
 	tmpFileName := store.dir + "/lock_store.tmp"
 	f, err := os.OpenFile(tmpFileName, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0666)
 	if err != nil {
@@ -293,7 +293,7 @@ func (store *MVCCStore) dumpLockStore() error {
 	return os.Rename(tmpFileName, store.dir+"/lock_store")
 }
 
-func (store *MVCCStore) loadLockStore() error {
+func (store *MVCCStore) loadLocks() error {
 	fileName := store.dir + "/lock_store"
 	f, err := os.Open(fileName)
 	if err != nil {

@@ -1,14 +1,14 @@
 package lockstore
 
-// Iterator iterates the entries in the LockStore.
+// Iterator iterates the entries in the MemStore.
 type Iterator struct {
-	ls  *LockStore
+	ls  *MemStore
 	key []byte
 	val []byte
 }
 
 // NewIterator returns a new Iterator for the lock store.
-func (ls *LockStore) NewIterator() *Iterator {
+func (ls *MemStore) NewIterator() *Iterator {
 	return &Iterator{
 		ls: ls,
 	}
