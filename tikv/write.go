@@ -12,7 +12,7 @@ import (
 	"github.com/juju/errors"
 )
 
-type writeBatch struct {
+type writeDBBatch struct {
 	entries []*badger.Entry
 	buf     []byte
 	err     error
@@ -20,40 +20,25 @@ type writeBatch struct {
 	reqCtx  *requestCtx
 }
 
-func newWriteBatch(reqCtx *requestCtx) *writeBatch {
-	return &writeBatch{reqCtx: reqCtx}
+func newWriteDBBatch(reqCtx *requestCtx) *writeDBBatch {
+	return &writeDBBatch{reqCtx: reqCtx}
 }
 
-func (batch *writeBatch) setWithMeta(key, val []byte, meta byte) {
+func (batch *writeDBBatch) set(key, val []byte) {
 	batch.entries = append(batch.entries, &badger.Entry{
-		Key:      key,
-		Value:    val,
-		UserMeta: meta,
+		Key:   key,
+		Value: val,
 	})
 }
 
-func (batch *writeBatch) rollback(key []byte) {
-	batch.entries = append(batch.entries, &badger.Entry{
-		Key:      key,
-		UserMeta: userMetaRollback,
-	})
-}
-
-func (batch *writeBatch) rollbackGC(key []byte) {
-	batch.entries = append(batch.entries, &badger.Entry{
-		Key:      key,
-		UserMeta: userMetaRollbackGC,
-	})
-}
-
-func (batch *writeBatch) delete(key []byte) {
+func (batch *writeDBBatch) delete(key []byte) {
 	batch.entries = append(batch.entries, &badger.Entry{
 		Key:      key,
 		UserMeta: userMetaDelete,
 	})
 }
 
-func (batch *writeBatch) size() int64 {
+func (batch *writeDBBatch) size() int64 {
 	var s int
 	for _, entry := range batch.entries {
 		s += len(entry.Key) + len(entry.Value)
@@ -61,7 +46,47 @@ func (batch *writeBatch) size() int64 {
 	return int64(s)
 }
 
-func (store *MVCCStore) write(batch *writeBatch) error {
+type writeLockBatch struct {
+	entries []*badger.Entry
+	buf     []byte
+	err     error
+	wg      sync.WaitGroup
+	reqCtx  *requestCtx
+}
+
+func newWriteLockBatch(reqCtx *requestCtx) *writeLockBatch {
+	return &writeLockBatch{reqCtx: reqCtx}
+}
+
+func (batch *writeLockBatch) set(key, val []byte) {
+	batch.entries = append(batch.entries, &badger.Entry{
+		Key:   key,
+		Value: val,
+	})
+}
+
+func (batch *writeLockBatch) rollback(key []byte) {
+	batch.entries = append(batch.entries, &badger.Entry{
+		Key:      key,
+		UserMeta: userMetaRollback,
+	})
+}
+
+func (batch *writeLockBatch) rollbackGC(key []byte) {
+	batch.entries = append(batch.entries, &badger.Entry{
+		Key:      key,
+		UserMeta: userMetaRollbackGC,
+	})
+}
+
+func (batch *writeLockBatch) delete(key []byte) {
+	batch.entries = append(batch.entries, &badger.Entry{
+		Key:      key,
+		UserMeta: userMetaDelete,
+	})
+}
+
+func (store *MVCCStore) writeDB(batch *writeDBBatch) error {
 	if len(batch.entries) == 0 {
 		return nil
 	}
@@ -78,7 +103,7 @@ func (store *MVCCStore) write(batch *writeBatch) error {
 	return batch.err
 }
 
-func (store *MVCCStore) writeLocks(batch *writeBatch) error {
+func (store *MVCCStore) writeLocks(batch *writeLockBatch) error {
 	if len(batch.entries) == 0 {
 		return nil
 	}
@@ -98,7 +123,7 @@ func (store *MVCCStore) writeLocks(batch *writeBatch) error {
 type writeDBWorker struct {
 	mu struct {
 		sync.Mutex
-		batches []*writeBatch
+		batches []*writeDBBatch
 	}
 	wakeUp  chan struct{}
 	closeCh <-chan struct{}
@@ -107,7 +132,7 @@ type writeDBWorker struct {
 
 func (w *writeDBWorker) run() {
 	defer w.store.wg.Done()
-	var batches []*writeBatch
+	var batches []*writeDBBatch
 	for {
 		select {
 		case <-w.store.closeCh:
@@ -125,8 +150,8 @@ func (w *writeDBWorker) run() {
 	}
 }
 
-func (w *writeDBWorker) splitBatches(batches []*writeBatch) [][]*writeBatch {
-	var batchGroups [][]*writeBatch
+func (w *writeDBWorker) splitBatches(batches []*writeDBBatch) [][]*writeDBBatch {
+	var batchGroups [][]*writeDBBatch
 	splitOffsets := []int{0}
 	var batchGroupEntries int
 	for i, batch := range batches {
@@ -142,18 +167,13 @@ func (w *writeDBWorker) splitBatches(batches []*writeBatch) [][]*writeBatch {
 	return batchGroups
 }
 
-func (w *writeDBWorker) updateBatchGroup(batchGroup []*writeBatch) {
+func (w *writeDBWorker) updateBatchGroup(batchGroup []*writeDBBatch) {
 	begin := time.Now()
 	var in time.Time
 	err := w.store.db.Update(func(txn *badger.Txn) error {
 		for _, batch := range batchGroup {
 			for _, entry := range batch.entries {
-				var err error
-				if entry.UserMeta == userMetaDelete {
-					err = txn.Delete(entry.Key)
-				} else {
-					err = txn.SetEntry(entry)
-				}
+				err := txn.SetEntry(entry)
 				if err != nil {
 					return errors.Trace(err)
 				}
@@ -175,7 +195,7 @@ func (w *writeDBWorker) updateBatchGroup(batchGroup []*writeBatch) {
 type writeLockWorker struct {
 	mu struct {
 		sync.Mutex
-		batches []*writeBatch
+		batches []*writeLockBatch
 	}
 	wakeUp  chan struct{}
 	closeCh <-chan struct{}
@@ -186,7 +206,7 @@ func (w *writeLockWorker) run() {
 	defer w.store.wg.Done()
 	rollbackStore := w.store.rollbackStore
 	ls := w.store.lockStore
-	var batches []*writeBatch
+	var batches []*writeLockBatch
 	for {
 		select {
 		case <-w.store.closeCh:
@@ -241,19 +261,19 @@ func (w *rollbackGCWorker) run() {
 			return
 		case <-ticker:
 		}
-		wb := newWriteBatch(new(requestCtx))
+		lockBatch := newWriteLockBatch(new(requestCtx))
 		it := store.rollbackStore.NewIterator()
 		latestTS := store.getLatestTS()
 		for it.SeekToFirst(); it.Valid(); it.Next() {
 			ts := decodeRollbackTS(it.Key())
 			if tsSub(latestTS, ts) > time.Minute {
-				wb.rollbackGC(safeCopy(it.Key()))
+				lockBatch.rollbackGC(safeCopy(it.Key()))
 			}
 		}
-		if len(wb.entries) == 0 {
+		if len(lockBatch.entries) == 0 {
 			continue
 		}
-		store.writeLocks(wb)
+		store.writeLocks(lockBatch)
 	}
 }
 

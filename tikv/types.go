@@ -5,7 +5,6 @@ import (
 
 	"github.com/coocood/badger"
 	"github.com/juju/errors"
-	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/tidb/util/codec"
 )
 
@@ -85,10 +84,7 @@ func (l *mvccLock) MarshalBinary() []byte {
 	return buf
 }
 
-func lockToValue(lock mvccLock, commitTS uint64) (mvVal mvccValue, userMeta byte) {
-	if lock.op == uint8(kvrpcpb.Op_Del) {
-		userMeta = userMetaDelete
-	}
+func lockToValue(lock mvccLock, commitTS uint64) (mvVal mvccValue) {
 	mvVal.startTS = lock.startTS
 	mvVal.commitTS = commitTS
 	mvVal.value = lock.value

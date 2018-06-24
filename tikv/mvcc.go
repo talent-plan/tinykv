@@ -119,7 +119,7 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 		return errs
 	}
 
-	lockBatch := newWriteBatch(reqCtx)
+	lockBatch := newWriteLockBatch(reqCtx)
 	// Check the DB.
 	txn := reqCtx.getDBReader().txn
 	for i, m := range mutations {
@@ -140,7 +140,7 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 				primary: primary,
 				value:   m.Value,
 			}
-			lockBatch.setWithMeta(m.Key, lock.MarshalBinary(), userMetaNone)
+			lockBatch.set(m.Key, lock.MarshalBinary())
 		}
 	}
 	reqCtx.trace(eventReadDB)
@@ -206,7 +206,7 @@ func (store *MVCCStore) Commit(req *requestCtx, keys [][]byte, startTS, commitTS
 	store.updateLatestTS(commitTS)
 	regCtx := req.regCtx
 	hashVals := keysToHashVals(keys...)
-	dbBatch := newWriteBatch(req)
+	dbBatch := newWriteDBBatch(req)
 
 	regCtx.acquireLatches(hashVals)
 	req.trace(eventAcquireLatches)
@@ -230,10 +230,10 @@ func (store *MVCCStore) Commit(req *requestCtx, keys [][]byte, startTS, commitTS
 			continue
 		}
 		needMove[i] = lock.hasOldVer
-		val, userMeta := lockToValue(lock, commitTS)
+		val := lockToValue(lock, commitTS)
 		commitVal := val.MarshalBinary()
 		tmpDiff += len(key) + len(commitVal)
-		dbBatch.setWithMeta(key, commitVal, userMeta)
+		dbBatch.set(key, commitVal)
 	}
 	req.trace(eventReadLock)
 	// Move current latest to old.
@@ -254,20 +254,16 @@ func (store *MVCCStore) Commit(req *requestCtx, keys [][]byte, startTS, commitTS
 			return errors.Trace(err)
 		}
 		oldKey := encodeOldKey(key, mvVal.commitTS)
-		userMeta := userMetaNone
-		if len(mvVal.value) == 0 {
-			userMeta = userMetaDelete
-		}
-		dbBatch.setWithMeta(oldKey, mvVal.MarshalBinary(), userMeta)
+		dbBatch.set(oldKey, mvVal.MarshalBinary())
 	}
 	req.trace(eventReadDB)
 	atomic.AddInt64(&regCtx.diff, int64(tmpDiff))
-	err := store.write(dbBatch)
+	err := store.writeDB(dbBatch)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	// We must delete lock after commit succeed, or there will be inconsistency.
-	lockBatch := newWriteBatch(req)
+	lockBatch := newWriteLockBatch(req)
 	for _, key := range keys {
 		lockBatch.delete(key)
 	}
@@ -304,36 +300,49 @@ func (store *MVCCStore) handleLockNotFound(reqCtx *requestCtx, key []byte, start
 	return ErrLockNotFound
 }
 
+const (
+	rollbackStatusDone    = 0
+	rollbackStatusNoLock  = 1
+	rollbackStatusNewLock = 2
+)
+
 func (store *MVCCStore) Rollback(reqCtx *requestCtx, keys [][]byte, startTS uint64) error {
 	store.updateLatestTS(startTS)
 	hashVals := keysToHashVals(keys...)
 	regCtx := reqCtx.regCtx
-	lockBatch := newWriteBatch(reqCtx)
+	lockBatch := newWriteLockBatch(reqCtx)
 
 	regCtx.acquireLatches(hashVals)
 	reqCtx.trace(eventAcquireLatches)
 	defer regCtx.releaseLatches(hashVals)
 
-	var err error
-	for _, key := range keys {
-		err = store.rollbackKey(reqCtx, lockBatch, key, startTS)
+	statuses := make([]int, len(keys))
+	for i, key := range keys {
+		statuses[i] = store.rollbackKeyReadLock(lockBatch, key, startTS)
+	}
+	reqCtx.trace(eventReadLock)
+	for i, key := range keys {
+		if statuses[i] == rollbackStatusDone {
+			continue
+		}
+		err := store.rollbackKeyReadDB(reqCtx, lockBatch, key, startTS, statuses[i] == rollbackStatusNewLock)
 		if err != nil {
-			return errors.Trace(err)
+			return err
 		}
 	}
 	reqCtx.trace(eventReadDB)
-	err = store.writeLocks(lockBatch)
+	err := store.writeLocks(lockBatch)
 	reqCtx.trace(eventEndWriteLock)
 	return errors.Trace(err)
 }
 
-func (store *MVCCStore) rollbackKey(req *requestCtx, batch *writeBatch, key []byte, startTS uint64) error {
+func (store *MVCCStore) rollbackKeyReadLock(batch *writeLockBatch, key []byte, startTS uint64) (status int) {
 	batch.buf = encodeRollbackKey(batch.buf, key, startTS)
 	rollbackKey := safeCopy(batch.buf)
 	batch.buf = store.rollbackStore.Get(rollbackKey, batch.buf)
 	if len(batch.buf) != 0 {
 		// Already rollback.
-		return nil
+		return rollbackStatusDone
 	}
 	batch.buf = store.lockStore.Get(key, batch.buf)
 	hasLock := len(batch.buf) > 0
@@ -343,24 +352,31 @@ func (store *MVCCStore) rollbackKey(req *requestCtx, batch *writeBatch, key []by
 			// The lock is old, means this is written by an old transaction, and the current transaction may not arrive.
 			// We should write a rollback lock.
 			batch.rollback(rollbackKey)
-			return nil
+			return rollbackStatusDone
 		}
 		if lock.startTS == startTS {
 			// We can not simply delete the lock because the prewrite may be sent multiple times.
 			// To prevent that we update it a rollback lock.
 			batch.rollback(rollbackKey)
 			batch.delete(key)
-			return nil
+			return rollbackStatusDone
 		}
 		// lock.startTS > startTS, go to DB to check if the key is committed.
+		return rollbackStatusNewLock
 	}
+	return rollbackStatusNoLock
+}
+
+func (store *MVCCStore) rollbackKeyReadDB(req *requestCtx, batch *writeLockBatch, key []byte, startTS uint64, hasLock bool) error {
+	batch.buf = encodeRollbackKey(batch.buf, key, startTS)
+	rollbackKey := safeCopy(batch.buf)
 	reader := req.getDBReader()
 	item, err := reader.txn.Get(key)
 	if err != nil && err != badger.ErrKeyNotFound {
 		return errors.Trace(err)
 	}
 	hasVal := item != nil
-	if !hasLock && !hasVal {
+	if !hasVal && !hasLock {
 		// The prewrite request is not arrived, we write a rollback lock to prevent the future prewrite.
 		batch.rollback(rollbackKey)
 		return nil
@@ -459,19 +475,21 @@ func (store *MVCCStore) Cleanup(reqCtx *requestCtx, key []byte, startTS uint64) 
 	store.updateLatestTS(startTS)
 	hashVals := keysToHashVals(key)
 	regCtx := reqCtx.regCtx
-	wb := newWriteBatch(reqCtx)
+	lockBatch := newWriteLockBatch(reqCtx)
 
 	regCtx.acquireLatches(hashVals)
 	reqCtx.trace(eventAcquireLatches)
 	defer regCtx.releaseLatches(hashVals)
 
-	err := store.rollbackKey(reqCtx, wb, key, startTS)
-	reqCtx.trace(eventReadDB)
-	if err != nil {
-		return err
+	status := store.rollbackKeyReadLock(lockBatch, key, startTS)
+	if status != rollbackStatusDone {
+		err := store.rollbackKeyReadDB(reqCtx, lockBatch, key, startTS, status == rollbackStatusNewLock)
+		reqCtx.trace(eventReadDB)
+		if err != nil {
+			return err
+		}
 	}
-	err = store.write(wb)
-	return err
+	return store.writeLocks(lockBatch)
 }
 
 func (store *MVCCStore) ScanLock(reqCtx *requestCtx, maxSystemTS uint64) ([]*kvrpcpb.LockInfo, error) {
@@ -516,10 +534,10 @@ func (store *MVCCStore) ResolveLock(reqCtx *requestCtx, startTS, commitTS uint64
 		return nil
 	}
 	hashVals := keysToHashVals(lockKeys...)
-	lockBatch := newWriteBatch(reqCtx)
-	var commitBatch *writeBatch
+	lockBatch := newWriteLockBatch(reqCtx)
+	var dbBatch *writeDBBatch
 	if commitTS > 0 {
-		commitBatch = newWriteBatch(reqCtx)
+		dbBatch = newWriteDBBatch(reqCtx)
 	}
 
 	regCtx.acquireLatches(hashVals)
@@ -533,8 +551,8 @@ func (store *MVCCStore) ResolveLock(reqCtx *requestCtx, startTS, commitTS uint64
 		if bytes.Equal(buf, lockVals[i]) {
 			if commitTS > 0 {
 				lock := decodeLock(lockVals[i])
-				mvVal, useMeta := lockToValue(lock, commitTS)
-				commitBatch.setWithMeta(lockKey, mvVal.MarshalBinary(), useMeta)
+				mvVal := lockToValue(lock, commitTS)
+				dbBatch.set(lockKey, mvVal.MarshalBinary())
 			}
 			lockBatch.delete(lockKey)
 		}
@@ -543,9 +561,9 @@ func (store *MVCCStore) ResolveLock(reqCtx *requestCtx, startTS, commitTS uint64
 	if len(lockBatch.entries) == 0 {
 		return nil
 	}
-	if commitBatch != nil {
-		atomic.AddInt64(&regCtx.diff, commitBatch.size())
-		err := store.write(commitBatch)
+	if dbBatch != nil {
+		atomic.AddInt64(&regCtx.diff, dbBatch.size())
+		err := store.writeDB(dbBatch)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -594,13 +612,13 @@ func (store *MVCCStore) deleteKeysInBatch(reqCtx *requestCtx, keys [][]byte, bat
 		batchKeys := keys[:batchSize]
 		keys = keys[batchSize:]
 		hashVals := keysToHashVals(batchKeys...)
-		wb := newWriteBatch(reqCtx)
+		dbBatch := newWriteDBBatch(reqCtx)
 		for _, key := range batchKeys {
-			wb.delete(key)
+			dbBatch.delete(key)
 		}
 
 		regCtx.acquireLatches(hashVals)
-		err := store.write(wb)
+		err := store.writeDB(dbBatch)
 		regCtx.releaseLatches(hashVals)
 		if err != nil {
 			return errors.Trace(err)
