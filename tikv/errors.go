@@ -27,16 +27,10 @@ func (e ErrRetryable) Error() string {
 }
 
 var (
-	ErrWriteConflict = errors.New("write conflict")
-	ErrLockNotFound  = errors.New("lock not found")
+	ErrLockNotFound    = ErrRetryable("lock not found")
+	ErrAlreadyRollback = ErrRetryable("already rollback")
+	ErrReplaced        = ErrRetryable("replaced by another transaction")
 )
-
-// ErrAbort means something is wrong and client should abort the txn.
-type ErrAbort string
-
-func (e ErrAbort) Error() string {
-	return fmt.Sprintf("abort: %s", string(e))
-}
 
 // ErrAlreadyCommitted is returned specially when client tries to rollback a
 // committed lock.

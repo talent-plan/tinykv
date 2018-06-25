@@ -159,7 +159,7 @@ func (store *MVCCStore) checkPrewriteInLockStore(
 	req *requestCtx, mutation *kvrpcpb.Mutation, startTS uint64) (duplicate bool, err error) {
 	req.buf = encodeRollbackKey(req.buf, mutation.Key, startTS)
 	if len(store.rollbackStore.Get(req.buf, nil)) > 0 {
-		return false, ErrAbort("already rollback")
+		return false, ErrAlreadyRollback
 	}
 	req.buf = store.lockStore.Get(mutation.Key, req.buf)
 	if len(req.buf) == 0 {
@@ -224,7 +224,7 @@ func (store *MVCCStore) Commit(req *requestCtx, keys [][]byte, startTS, commitTS
 		}
 		lock := decodeLock(buf)
 		if lock.startTS != startTS {
-			return errors.New("replaced by another transaction")
+			return ErrReplaced
 		}
 		if lock.op == uint8(kvrpcpb.Op_Lock) {
 			continue
