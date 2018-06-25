@@ -2,7 +2,6 @@ package tikv
 
 import (
 	"fmt"
-	"github.com/pkg/errors"
 )
 
 // ErrLocked is returned when trying to Read/Write on a locked key. Client should
