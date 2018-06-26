@@ -369,6 +369,9 @@ func (rm *RegionManager) getRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *er
 	}
 	rm.mu.RLock()
 	ri := rm.regions[ctx.RegionId]
+	if ri != nil {
+		ri.refCount.Add(1)
+	}
 	rm.mu.RUnlock()
 	if ri == nil {
 		return nil, &errorpb.Error{
@@ -380,6 +383,7 @@ func (rm *RegionManager) getRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *er
 	}
 	// Region epoch does not match.
 	if *ri.meta.GetRegionEpoch() != *ctx.GetRegionEpoch() {
+		ri.refCount.Done()
 		return nil, &errorpb.Error{
 			Message: "stale epoch",
 			StaleEpoch: &errorpb.StaleEpoch{

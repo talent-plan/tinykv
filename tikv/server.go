@@ -103,7 +103,6 @@ func newRequestCtx(svr *Server, ctx *kvrpcpb.Context, method string) (*requestCt
 	if req.regErr != nil {
 		return req, nil
 	}
-	req.regCtx.refCount.Add(1)
 	return req, nil
 }
 
