@@ -269,6 +269,10 @@ func (w *rollbackGCWorker) run() {
 			if tsSub(latestTS, ts) > time.Minute {
 				lockBatch.rollbackGC(safeCopy(it.Key()))
 			}
+			if len(lockBatch.entries) >= 1000 {
+				store.writeLocks(lockBatch)
+				lockBatch.entries = lockBatch.entries[:0]
+			}
 		}
 		if len(lockBatch.entries) == 0 {
 			continue
