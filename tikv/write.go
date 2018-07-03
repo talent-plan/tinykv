@@ -151,7 +151,6 @@ func (w *writeDBWorker) run() {
 }
 
 func (w *writeDBWorker) splitBatches(batches []*writeDBBatch) [][]*writeDBBatch {
-	var batchGroups [][]*writeDBBatch
 	splitOffsets := []int{0}
 	var batchGroupEntries int
 	for i, batch := range batches {
@@ -161,8 +160,10 @@ func (w *writeDBWorker) splitBatches(batches []*writeDBBatch) [][]*writeDBBatch 
 			splitOffsets = append(splitOffsets, i+1)
 		}
 	}
+
+	batchGroups := make([][]*writeDBBatch, len(splitOffsets))
 	for i := 1; i < len(splitOffsets); i++ {
-		batchGroups = append(batchGroups, batches[splitOffsets[i-1]:splitOffsets[i]])
+		batchGroups[i] = batches[splitOffsets[i-1]:splitOffsets[i]]
 	}
 	return batchGroups
 }

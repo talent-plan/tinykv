@@ -576,6 +576,7 @@ func toPBError(err error) *tipb.Error {
 func (svr *Server) extractKVRanges(regCtx *regionCtx, keyRanges []*coprocessor.KeyRange, descScan bool) (kvRanges []kv.KeyRange, err error) {
 	startKey := regCtx.rawStartKey()
 	endKey := regCtx.rawEndKey()
+	kvRanges = make([]kv.KeyRange, 0, len(keyRanges))
 	for _, kran := range keyRanges {
 		if bytes.Compare(kran.GetStart(), kran.GetEnd()) >= 0 {
 			err = errors.Errorf("invalid range, start should be smaller than end: %v %v", kran.GetStart(), kran.GetEnd())
@@ -590,10 +591,11 @@ func (svr *Server) extractKVRanges(regCtx *regionCtx, keyRanges []*coprocessor.K
 		if len(endKey) != 0 && bytes.Compare(lowerKey, endKey) >= 0 {
 			break
 		}
-		var kvr kv.KeyRange
-		kvr.StartKey = kv.Key(maxStartKey(lowerKey, startKey))
-		kvr.EndKey = kv.Key(minEndKey(upperKey, endKey))
-		kvRanges = append(kvRanges, kvr)
+		r := kv.KeyRange{
+			StartKey: kv.Key(maxStartKey(lowerKey, startKey)),
+			EndKey:   kv.Key(minEndKey(upperKey, endKey)),
+		}
+		kvRanges = append(kvRanges, r)
 	}
 	if descScan {
 		reverseKVRanges(kvRanges)
