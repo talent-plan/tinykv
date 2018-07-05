@@ -106,7 +106,22 @@ func (e *tableScanExec) Cursor() ([]byte, bool) {
 	return e.kvRanges[len(e.kvRanges)-1].EndKey, e.Desc
 }
 
-func (e *tableScanExec) Next(ctx context.Context) (value [][]byte, err error) {
+func (e *tableScanExec) refill() error {
+	e.rowCursor = 0
+	e.rows = e.rows[:0]
+	return e.fillRows()
+}
+
+func (e *tableScanExec) getOneRow() [][]byte {
+	if e.rowCursor < len(e.rows) {
+		value := e.rows[e.rowCursor]
+		e.rowCursor++
+		return value
+	}
+	return nil
+}
+
+func (e *tableScanExec) Next(ctx context.Context) ([][]byte, error) {
 	if !e.ignoreLock && !e.lockChecked {
 		for _, ran := range e.kvRanges {
 			err := e.mvccStore.CheckRangeLock(e.startTS, ran.StartKey, ran.EndKey)
@@ -117,15 +132,10 @@ func (e *tableScanExec) Next(ctx context.Context) (value [][]byte, err error) {
 		e.lockChecked = true
 	}
 	for {
-		if e.rowCursor < len(e.rows) {
-			value = e.rows[e.rowCursor]
-			e.rowCursor++
+		if value := e.getOneRow(); value != nil {
 			return value, nil
 		}
-		e.rowCursor = 0
-		e.rows = e.rows[:0]
-		err := e.fillRows()
-		if err != nil {
+		if err := e.refill(); err != nil {
 			return nil, errors.Trace(err)
 		}
 		if len(e.rows) == 0 {

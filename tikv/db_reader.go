@@ -97,16 +97,16 @@ func (r *DBReader) Scan(startKey, endKey []byte, limit int, startTS uint64) []Pa
 	iter := r.getIter()
 	for iter.Seek(startKey); iter.Valid(); iter.Next() {
 		item := iter.Item()
-		if exceedEndKey(item.Key(), endKey) {
+		key := item.KeyCopy(nil)
+		if exceedEndKey(key, endKey) {
 			break
 		}
-		key := item.KeyCopy(nil)
 		mvVal, err := decodeValue(item)
 		if err != nil {
 			return []Pair{{Err: err}}
 		}
 		if mvVal.commitTS > startTS {
-			mvVal, err = r.getOldValue(encodeOldKey(item.Key(), startTS))
+			mvVal, err = r.getOldValue(encodeOldKey(key, startTS))
 			if err == badger.ErrKeyNotFound {
 				continue
 			}
@@ -137,16 +137,16 @@ func (r *DBReader) ReverseScan(startKey, endKey []byte, limit int, startTS uint6
 	iter := r.getReverseIter()
 	for iter.Seek(endKey); iter.Valid(); iter.Next() {
 		item := iter.Item()
-		if bytes.Compare(item.Key(), startKey) < 0 {
+		key := item.KeyCopy(nil)
+		if bytes.Compare(key, startKey) < 0 {
 			break
 		}
-		key := item.KeyCopy(nil)
 		mvVal, err := decodeValue(item)
 		if err != nil {
 			return []Pair{{Err: err}}
 		}
 		if mvVal.commitTS > startTS {
-			mvVal, err = r.getOldValue(encodeOldKey(item.Key(), startTS))
+			mvVal, err = r.getOldValue(encodeOldKey(key, startTS))
 			if err == badger.ErrKeyNotFound {
 				continue
 			}
