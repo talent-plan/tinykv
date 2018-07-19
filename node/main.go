@@ -7,6 +7,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 
 	"github.com/coocood/badger"
@@ -32,6 +33,7 @@ var (
 	numL0Table       = flag.Int("num-level-zero-tables", 3, "Maximum number of Level 0 tables before we start compacting.")
 	syncWrites       = flag.Bool("sync-write", true, "Sync all writes to disk. Setting this to true would slow down data loading significantly.")
 	logTrace         = flag.Uint("log-trace", 300, "Prints trace log if the request duration is greater than this value in milliseconds.")
+	maxProcs         = flag.Int("max-procs", 0, "Max CPU cores to use, set 0 to use all CPU cores in the machine.")
 )
 
 var (
@@ -40,6 +42,7 @@ var (
 
 func main() {
 	flag.Parse()
+	runtime.GOMAXPROCS(*maxProcs)
 	log.Info("gitHash:", gitHash)
 	log.SetLevelByString(*logLevel)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
