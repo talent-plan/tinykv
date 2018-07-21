@@ -269,7 +269,11 @@ func (e *tableScanExec) fillChunkFromRange(chk *chunk.Chunk, ran kv.KeyRange) (e
 			return errors.Trace(err1)
 		}
 		err1 = e.decodeChunkRow(handle, val, chk)
-		return errors.Trace(err1)
+		// errors.Trace can't be inlined by compiler, let's check error explicitly
+		if err1 != nil {
+			return errors.Trace(err1)
+		}
+		return nil
 	}
 	reader := e.reqCtx.getDBReader()
 	if e.Desc {
