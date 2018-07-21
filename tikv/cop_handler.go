@@ -11,6 +11,8 @@ import (
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/tikvpb"
+	"github.com/pingcap/tidb/ast"
+	"github.com/pingcap/tidb/executor/aggfuncs"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/expression/aggregation"
 	"github.com/pingcap/tidb/kv"
@@ -20,6 +22,7 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/terror"
 	"github.com/pingcap/tidb/types"
+	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/codec"
 	mockpkg "github.com/pingcap/tidb/util/mock"
 	tipb "github.com/pingcap/tipb/go-tipb"
@@ -45,7 +48,15 @@ func (svr *Server) handleCopDAGRequest(reqCtx *requestCtx, req *coprocessor.Requ
 		resp.OtherError = err.Error()
 		return resp
 	}
-
+	switch x := e.(type) {
+	case *tableScanExec, *indexScanExec, *limitExec, *selectionExec:
+		return svr.handleCopDAGRequestInChunk(dagCtx, e, dagReq, startTime)
+	case *streamAggExec:
+		// TODO: remove the check when SUM is supported.
+		if x.newAggFuncs != nil {
+			return svr.handleCopDAGRequestInChunk(dagCtx, e, dagReq, startTime)
+		}
+	}
 	var (
 		chunks []tipb.Chunk
 		rowCnt int
@@ -69,6 +80,41 @@ func (svr *Server) handleCopDAGRequest(reqCtx *requestCtx, req *coprocessor.Requ
 	}
 	warnings := dagCtx.evalCtx.sc.GetWarnings()
 	return buildResp(chunks, e.Counts(), err, warnings, time.Since(startTime))
+}
+
+func (svr *Server) handleCopDAGRequestInChunk(dagCtx *dagContext, e executor, dagReq *tipb.DAGRequest, startTime time.Time) *coprocessor.Response {
+	ctx := context.TODO()
+	var oldChunks []tipb.Chunk
+	var rowCnt int
+	var err error
+	tps := e.fieldTypes()
+	chk := chunk.NewChunkWithCapacity(tps, 8)
+	for {
+		err = e.nextChunk(ctx, chk)
+		if err != nil {
+			break
+		}
+		if chk.NumRows() == 0 {
+			break
+		}
+		var oldRow []types.Datum
+		for i := 0; i < chk.NumRows(); i++ {
+			oldRow = oldRow[:0]
+			for _, outputOff := range dagReq.OutputOffsets {
+				d := chk.GetRow(i).GetDatum(int(outputOff), tps[outputOff])
+				oldRow = append(oldRow, d)
+			}
+			var rowData []byte
+			rowData, err = codec.EncodeValue(dagCtx.evalCtx.sc, nil, oldRow...)
+			if err != nil {
+				break
+			}
+			oldChunks = appendRow(oldChunks, rowData, rowCnt)
+			rowCnt++
+		}
+	}
+	warnings := dagCtx.evalCtx.sc.GetWarnings()
+	return buildResp(oldChunks, e.Counts(), err, warnings, time.Since(startTime))
 }
 
 func (svr *Server) buildDAGExecutor(reqCtx *requestCtx, req *coprocessor.Request) (*dagContext, executor, *tipb.DAGRequest, error) {
@@ -166,6 +212,9 @@ func (svr *Server) buildTableScan(ctx *dagContext, executor *tipb.Executor) (*ta
 		startTS:   ctx.dagReq.GetStartTs(),
 		mvccStore: svr.mvccStore,
 		reqCtx:    ctx.reqCtx,
+		tps:       ctx.evalCtx.fieldTps,
+		buf:       make([][]byte, len(columns)),
+		loc:       ctx.evalCtx.sc.TimeZone,
 	}
 	if ctx.dagReq.CollectRangeCounts != nil && *ctx.dagReq.CollectRangeCounts {
 		e.counts = make([]int64, len(ranges))
@@ -204,6 +253,8 @@ func (svr *Server) buildIndexScan(ctx *dagContext, executor *tipb.Executor) (*in
 		mvccStore: svr.mvccStore,
 		reqCtx:    ctx.reqCtx,
 		pkStatus:  pkStatus,
+		tps:       ctx.evalCtx.fieldTps,
+		loc:       ctx.evalCtx.sc.TimeZone,
 	}
 	if ctx.dagReq.CollectRangeCounts != nil && *ctx.dagReq.CollectRangeCounts {
 		e.counts = make([]int64, len(ranges))
@@ -225,21 +276,23 @@ func (svr *Server) buildSelection(ctx *dagContext, executor *tipb.Executor) (*se
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-
+	seCtx := mockpkg.NewContext()
+	seCtx.GetSessionVars().StmtCtx = ctx.evalCtx.sc
 	return &selectionExec{
 		evalCtx:           ctx.evalCtx,
 		relatedColOffsets: relatedColOffsets,
 		conditions:        conds,
 		row:               make([]types.Datum, len(ctx.evalCtx.columnInfos)),
+		seCtx:             seCtx,
 	}, nil
 }
 
-func (svr *Server) getAggInfo(ctx *dagContext, executor *tipb.Executor) ([]aggregation.Aggregation, []expression.Expression, []int, error) {
-	length := len(executor.Aggregation.AggFunc)
+func (svr *Server) getAggInfo(ctx *dagContext, pbAgg *tipb.Aggregation) ([]aggregation.Aggregation, []expression.Expression, []int, error) {
+	length := len(pbAgg.AggFunc)
 	aggs := make([]aggregation.Aggregation, 0, length)
 	var err error
 	var relatedColOffsets []int
-	for _, expr := range executor.Aggregation.AggFunc {
+	for _, expr := range pbAgg.AggFunc {
 		var aggExpr aggregation.Aggregation
 		aggExpr, err = aggregation.NewDistAggFunc(expr, ctx.evalCtx.fieldTps, ctx.evalCtx.sc)
 		if err != nil {
@@ -251,13 +304,13 @@ func (svr *Server) getAggInfo(ctx *dagContext, executor *tipb.Executor) ([]aggre
 			return nil, nil, nil, errors.Trace(err)
 		}
 	}
-	for _, item := range executor.Aggregation.GroupBy {
+	for _, item := range pbAgg.GroupBy {
 		relatedColOffsets, err = extractOffsetsInExpr(item, ctx.evalCtx.columnInfos, relatedColOffsets)
 		if err != nil {
 			return nil, nil, nil, errors.Trace(err)
 		}
 	}
-	groupBys, err := convertToExprs(ctx.evalCtx.sc, ctx.evalCtx.fieldTps, executor.Aggregation.GetGroupBy())
+	groupBys, err := convertToExprs(ctx.evalCtx.sc, ctx.evalCtx.fieldTps, pbAgg.GetGroupBy())
 	if err != nil {
 		return nil, nil, nil, errors.Trace(err)
 	}
@@ -266,9 +319,14 @@ func (svr *Server) getAggInfo(ctx *dagContext, executor *tipb.Executor) ([]aggre
 }
 
 func (svr *Server) buildHashAgg(ctx *dagContext, executor *tipb.Executor) (*hashAggExec, error) {
-	aggs, groupBys, relatedColOffsets, err := svr.getAggInfo(ctx, executor)
+	pbAgg := executor.Aggregation
+	aggs, groupBys, relatedColOffsets, err := svr.getAggInfo(ctx, pbAgg)
 	if err != nil {
 		return nil, errors.Trace(err)
+	}
+	tps := make([]*types.FieldType, len(aggs))
+	for i := 0; i < len(aggs); i++ {
+		tps[i] = fieldTypeFromPBFieldType(pbAgg.AggFunc[i].FieldType)
 	}
 
 	return &hashAggExec{
@@ -279,20 +337,30 @@ func (svr *Server) buildHashAgg(ctx *dagContext, executor *tipb.Executor) (*hash
 		groupKeys:         make([][]byte, 0),
 		relatedColOffsets: relatedColOffsets,
 		row:               make([]types.Datum, len(ctx.evalCtx.columnInfos)),
+		tps:               tps,
 	}, nil
 }
 
 func (svr *Server) buildStreamAgg(ctx *dagContext, executor *tipb.Executor) (*streamAggExec, error) {
-	aggs, groupBys, relatedColOffsets, err := svr.getAggInfo(ctx, executor)
+	pbAgg := executor.Aggregation
+	aggs, groupBys, relatedColOffsets, err := svr.getAggInfo(ctx, pbAgg)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	aggCtxs := make([]*aggregation.AggEvaluateContext, 0, len(aggs))
-	for _, agg := range aggs {
-		aggCtxs = append(aggCtxs, agg.CreateContext(ctx.evalCtx.sc))
+	aggCtxs := make([]*aggregation.AggEvaluateContext, len(aggs))
+	for i, agg := range aggs {
+		aggCtxs[i] = agg.CreateContext(ctx.evalCtx.sc)
 	}
-
-	return &streamAggExec{
+	tps := make([]*types.FieldType, 0, len(groupBys)+len(aggs))
+	for i := 0; i < len(groupBys); i++ {
+		tps = append(tps, groupBys[i].GetType())
+	}
+	for i := 0; i < len(aggs); i++ {
+		tps = append(tps, fieldTypeFromPBFieldType(pbAgg.AggFunc[i].FieldType))
+	}
+	seCtx := mockpkg.NewContext()
+	seCtx.GetSessionVars().StmtCtx = ctx.evalCtx.sc
+	e := &streamAggExec{
 		evalCtx:           ctx.evalCtx,
 		aggExprs:          aggs,
 		aggCtxs:           aggCtxs,
@@ -300,7 +368,43 @@ func (svr *Server) buildStreamAgg(ctx *dagContext, executor *tipb.Executor) (*st
 		currGroupByValues: make([][]byte, 0),
 		relatedColOffsets: relatedColOffsets,
 		row:               make([]types.Datum, len(ctx.evalCtx.columnInfos)),
-	}, nil
+		seCtx:             seCtx,
+		tps:               tps,
+	}
+	groupKeyLen := len(e.groupByExprs)
+	// Try to use the new agg frame work.
+	aggFuncs := make([]aggfuncs.AggFunc, len(pbAgg.AggFunc))
+	for i, expr := range pbAgg.AggFunc {
+		args := make([]expression.Expression, 0, len(expr.Children))
+		for _, child := range expr.Children {
+			arg, err := expression.PBToExpr(child, ctx.evalCtx.fieldTps, ctx.evalCtx.sc)
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			args = append(args, arg)
+		}
+		name, err := aggTypeToName(expr.Tp)
+		if err != nil {
+			// If not supported, execute in the old way.
+			return e, nil
+		}
+		desc := aggregation.NewAggFuncDesc(seCtx, name, args, false)
+		aggFuncs[i] = aggfuncs.Build(desc, groupKeyLen+i)
+	}
+	e.newAggFuncs = aggFuncs
+	e.partialResults = make([]aggfuncs.PartialResult, 0, len(e.newAggFuncs))
+	for _, newAggFunc := range e.newAggFuncs {
+		e.partialResults = append(e.partialResults, newAggFunc.AllocPartialResult())
+	}
+	return e, nil
+}
+
+func aggTypeToName(tp tipb.ExprType) (string, error) {
+	switch tp {
+	case tipb.ExprType_Count:
+		return ast.AggFuncCount, nil
+	}
+	return "", errors.New("unknown aggregation type")
 }
 
 func (svr *Server) buildTopN(ctx *dagContext, executor *tipb.Executor) (*topNExec, error) {
@@ -677,5 +781,20 @@ func fieldTypeFromPBColumn(col *tipb.ColumnInfo) *types.FieldType {
 		Decimal: int(col.GetDecimal()),
 		Elems:   col.Elems,
 		Collate: mysql.Collations[uint8(col.GetCollation())],
+	}
+}
+
+// fieldTypeFromPBFieldType creates a types.FieldType from tipb.FieldType.
+func fieldTypeFromPBFieldType(ft *tipb.FieldType) *types.FieldType {
+	if ft == nil {
+		return nil
+	}
+	return &types.FieldType{
+		Tp:      byte(ft.Tp),
+		Flag:    uint(ft.Flag),
+		Flen:    int(ft.Flen),
+		Decimal: int(ft.Decimal),
+		Collate: mysql.Collations[uint8(ft.Collate)],
+		Charset: ft.Charset,
 	}
 }

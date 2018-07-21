@@ -2,9 +2,12 @@ package tikv
 
 import (
 	"github.com/juju/errors"
+	"github.com/pingcap/tidb/executor/aggfuncs"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/expression/aggregation"
+	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/types"
+	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/codec"
 	"golang.org/x/net/context"
 )
@@ -31,6 +34,8 @@ type hashAggExec struct {
 	count             int64
 
 	src executor
+
+	tps []*types.FieldType
 }
 
 func (e *hashAggExec) SetSrcExec(exec executor) {
@@ -174,6 +179,14 @@ func (e *hashAggExec) getContexts(groupKey []byte) []*aggregation.AggEvaluateCon
 	return aggCtxs
 }
 
+func (e *hashAggExec) nextChunk(ctx context.Context, chk *chunk.Chunk) error {
+	return nil
+}
+
+func (e *hashAggExec) fieldTypes() []*types.FieldType {
+	return e.tps
+}
+
 type streamAggExec struct {
 	evalCtx           *evalContext
 	aggExprs          []aggregation.Aggregation
@@ -190,6 +203,18 @@ type streamAggExec struct {
 	count             int64
 
 	src executor
+
+	seCtx          sessionctx.Context
+	tps            []*types.FieldType
+	newAggFuncs    []aggfuncs.AggFunc
+	partialResults []aggfuncs.PartialResult
+	groupRows      []chunk.Row
+
+	childResult *chunk.Chunk
+	// isChildReturnEmpty indicates whether the child executor only returns an empty input.
+	isChildReturnEmpty bool
+	inputIter          *chunk.Iterator4Chunk
+	inputRow           chunk.Row
 }
 
 func (e *streamAggExec) SetSrcExec(exec executor) {
@@ -316,4 +341,167 @@ func (e *streamAggExec) Next(ctx context.Context) (retRow [][]byte, err error) {
 			return retRow, nil
 		}
 	}
+}
+
+func (e *streamAggExec) nextChunk(ctx context.Context, chk *chunk.Chunk) error {
+	chk.Reset()
+	for !e.executed && chk.NumRows() < chunkMaxRows {
+		if e.childResult == nil {
+			e.childResult = chunk.NewChunkWithCapacity(e.src.fieldTypes(), 1024)
+			e.isChildReturnEmpty = true
+			e.inputIter = chunk.NewIterator4Chunk(e.childResult)
+			e.inputRow = e.inputIter.End()
+		}
+		err := e.consumeOneGroup(ctx, chk)
+		if err != nil {
+			e.executed = true
+			return errors.Trace(err)
+		}
+	}
+	return nil
+}
+
+func (e *streamAggExec) fieldTypes() []*types.FieldType {
+	return e.tps
+}
+
+func (e *streamAggExec) open(ctx context.Context) error {
+	e.childResult = chunk.NewChunkWithCapacity(e.src.fieldTypes(), 1024)
+	e.executed = false
+	e.isChildReturnEmpty = true
+	e.inputIter = chunk.NewIterator4Chunk(e.childResult)
+	e.inputRow = e.inputIter.End()
+	e.partialResults = make([]aggfuncs.PartialResult, 0, len(e.newAggFuncs))
+	for _, newAggFunc := range e.newAggFuncs {
+		e.partialResults = append(e.partialResults, newAggFunc.AllocPartialResult())
+	}
+	return nil
+}
+
+func (e *streamAggExec) consumeOneGroup(ctx context.Context, chk *chunk.Chunk) error {
+	for !e.executed {
+		if err := e.fetchChildIfNecessary(ctx, chk); err != nil {
+			return errors.Trace(err)
+		}
+		for ; e.inputRow != e.inputIter.End(); e.inputRow = e.inputIter.Next() {
+			meetNewGroup, err := e.meetNewGroupChunk(e.inputRow)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			if meetNewGroup {
+				err := e.consumeGroupRows()
+				if err != nil {
+					return errors.Trace(err)
+				}
+				err = e.appendResult2Chunk(chk)
+				if err != nil {
+					return errors.Trace(err)
+				}
+			}
+			e.groupRows = append(e.groupRows, e.inputRow)
+			if meetNewGroup {
+				e.inputRow = e.inputIter.Next()
+				return nil
+			}
+		}
+	}
+	return nil
+}
+
+func (e *streamAggExec) fetchChildIfNecessary(ctx context.Context, chk *chunk.Chunk) (err error) {
+	if e.inputRow != e.inputIter.End() {
+		return nil
+	}
+
+	// Before fetching a new batch of input, we should consume the last group.
+	err = e.consumeGroupRows()
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	err = e.src.nextChunk(ctx, e.childResult)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	// No more data.
+	if e.childResult.NumRows() == 0 {
+		if !e.isChildReturnEmpty {
+			err = e.appendResult2Chunk(chk)
+		}
+		e.executed = true
+		return errors.Trace(err)
+	}
+	// Reach here, "e.childrenResults[0].NumRows() > 0" is guaranteed.
+	e.isChildReturnEmpty = false
+	e.inputRow = e.inputIter.Begin()
+	return nil
+}
+
+// appendResult2Chunk appends result of all the aggregation functions to the
+// result chunk, and reset the evaluation context for each aggregation.
+func (e *streamAggExec) appendResult2Chunk(chk *chunk.Chunk) error {
+	for i := range e.currGroupByRow {
+		chk.AppendDatum(i, &e.currGroupByRow[i])
+	}
+	for i, newAggFunc := range e.newAggFuncs {
+		err := newAggFunc.AppendFinalResult2Chunk(e.seCtx, e.partialResults[i], chk)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		newAggFunc.ResetPartialResult(e.partialResults[i])
+	}
+	if len(e.currGroupByRow)+len(e.newAggFuncs) == 0 {
+		chk.SetNumVirtualRows(chk.NumRows() + 1)
+	}
+	return nil
+}
+
+func (e *streamAggExec) consumeGroupRows() error {
+	if len(e.groupRows) == 0 {
+		return nil
+	}
+
+	for i, newAggFunc := range e.newAggFuncs {
+		err := newAggFunc.UpdatePartialResult(e.seCtx, e.groupRows, e.partialResults[i])
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
+	e.groupRows = e.groupRows[:0]
+	return nil
+}
+
+func (e *streamAggExec) meetNewGroupChunk(row chunk.Row) (bool, error) {
+	// meetNewGroup returns a value that represents if the new group is different from last group.
+	if len(e.groupByExprs) == 0 {
+		return false, nil
+	}
+	e.tmpGroupByRow = e.tmpGroupByRow[:0]
+	matched, firstGroup := true, false
+	if len(e.currGroupByRow) == 0 {
+		matched, firstGroup = false, true
+	}
+	for i, item := range e.groupByExprs {
+		v, err := item.Eval(row)
+		if err != nil {
+			return false, errors.Trace(err)
+		}
+		if matched {
+			c, err := v.CompareDatum(e.evalCtx.sc, &e.currGroupByRow[i])
+			if err != nil {
+				return false, errors.Trace(err)
+			}
+			matched = c == 0
+		}
+		e.tmpGroupByRow = append(e.tmpGroupByRow, v)
+	}
+	if matched {
+		return false, nil
+	}
+	e.currGroupByRow = e.currGroupByRow[:0]
+	for _, v := range e.tmpGroupByRow {
+		e.currGroupByRow = append(e.currGroupByRow, *((&v).Copy()))
+	}
+	return !firstGroup, nil
 }

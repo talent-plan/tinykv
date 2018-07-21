@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"sort"
+	"time"
 
 	"github.com/juju/errors"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
@@ -11,11 +12,13 @@ import (
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/model"
 	"github.com/pingcap/tidb/mysql"
+	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/types"
+	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/codec"
-	tipb "github.com/pingcap/tipb/go-tipb"
+	"github.com/pingcap/tipb/go-tipb"
 	"golang.org/x/net/context"
 )
 
@@ -33,6 +36,8 @@ type executor interface {
 	ResetCounts()
 	Counts() []int64
 	Next(ctx context.Context) ([][]byte, error)
+	nextChunk(ctx context.Context, chk *chunk.Chunk) error
+	fieldTypes() []*types.FieldType
 	// Cursor returns the key gonna to be scanned by the Next() function.
 	Cursor() (key []byte, desc bool)
 }
@@ -54,6 +59,11 @@ type tableScanExec struct {
 	counts      []int64
 	ignoreLock  bool
 	lockChecked bool
+
+	// for chunk
+	tps []*types.FieldType
+	buf [][]byte
+	loc *time.Location
 
 	src executor
 }
@@ -122,20 +132,15 @@ func (e *tableScanExec) getOneRow() [][]byte {
 }
 
 func (e *tableScanExec) Next(ctx context.Context) ([][]byte, error) {
-	if !e.ignoreLock && !e.lockChecked {
-		for _, ran := range e.kvRanges {
-			err := e.mvccStore.CheckRangeLock(e.startTS, ran.StartKey, ran.EndKey)
-			if err != nil {
-				return nil, err
-			}
-		}
-		e.lockChecked = true
+	err := e.checkRangeLock()
+	if err != nil {
+		return nil, errors.Trace(err)
 	}
 	for {
 		if value := e.getOneRow(); value != nil {
 			return value, nil
 		}
-		if err := e.refill(); err != nil {
+		if err = e.refill(); err != nil {
 			return nil, errors.Trace(err)
 		}
 		if len(e.rows) == 0 {
@@ -143,6 +148,144 @@ func (e *tableScanExec) Next(ctx context.Context) ([][]byte, error) {
 		}
 	}
 	return nil, nil
+}
+
+func (e *tableScanExec) checkRangeLock() error {
+	if !e.ignoreLock && !e.lockChecked {
+		for _, ran := range e.kvRanges {
+			err := e.mvccStore.CheckRangeLock(e.startTS, ran.StartKey, ran.EndKey)
+			if err != nil {
+				return err
+			}
+		}
+		e.lockChecked = true
+	}
+	return nil
+}
+
+const chunkMaxRows = 1024
+
+func (e *tableScanExec) nextChunk(ctx context.Context, chk *chunk.Chunk) error {
+	chk.Reset()
+	err := e.checkRangeLock()
+	if err != nil {
+		return errors.Trace(err)
+	}
+	for e.rangeCursor < len(e.kvRanges) {
+		ran := e.kvRanges[e.rangeCursor]
+		if ran.IsPoint() {
+			err = e.fillChunkFromPoint(chk, ran.StartKey)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			e.rangeCursor++
+			e.seekKey = nil
+			if chk.NumRows() == chunkMaxRows {
+				return nil
+			}
+		} else {
+			err = e.fillChunkFromRange(chk, ran)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			if chk.NumRows() == chunkMaxRows {
+				// When chunk is full after fill from range, the range may not finished.
+				// So we do not increase range cursor here.
+				return nil
+			}
+			// If chunk is not full, the range is finished.
+			e.rangeCursor++
+			e.seekKey = nil
+		}
+	}
+	return nil
+}
+
+func (e *tableScanExec) fieldTypes() []*types.FieldType {
+	return e.tps
+}
+
+func (e *tableScanExec) fillChunkFromPoint(chk *chunk.Chunk, key kv.Key) error {
+	reader := e.reqCtx.getDBReader()
+	val, err := reader.Get(key, e.startTS)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if len(val) == 0 {
+		return nil
+	}
+	handle, err := tablecodec.DecodeRowKey(key)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = e.decodeChunkRow(handle, val, chk)
+	return errors.Trace(err)
+}
+
+func (e *tableScanExec) decodeChunkRow(handle int64, rowData []byte, chk *chunk.Chunk) error {
+	for i := range e.buf {
+		e.buf[i] = nil
+	}
+	err := cutRowToBuf(rowData, e.colIDs, e.buf)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	decoder := codec.NewDecoder(chk, e.loc)
+	for i, val := range e.buf {
+		col := e.Columns[i]
+		if val == nil {
+			if col.GetPkHandle() || col.ColumnId == model.ExtraHandleID {
+				chk.AppendInt64(i, handle)
+				continue
+			}
+			if col.DefaultVal != nil {
+				val = col.DefaultVal
+			} else {
+				val = []byte{codec.NilFlag}
+			}
+		}
+		_, err = decoder.DecodeOne(val, i, e.tps[i])
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
+	return nil
+}
+
+func (e *tableScanExec) fillChunkFromRange(chk *chunk.Chunk, ran kv.KeyRange) (err error) {
+	if e.seekKey == nil {
+		if e.Desc {
+			e.seekKey = ran.EndKey
+		} else {
+			e.seekKey = ran.StartKey
+		}
+	}
+	limit := chunkMaxRows - chk.NumRows()
+	var lastKey []byte
+	var scanFunc ScanFunc = func(key, val []byte) error {
+		lastKey = key
+		handle, err1 := tablecodec.DecodeRowKey(key)
+		if err != nil {
+			return errors.Trace(err1)
+		}
+		err1 = e.decodeChunkRow(handle, val, chk)
+		return errors.Trace(err1)
+	}
+	reader := e.reqCtx.getDBReader()
+	if e.Desc {
+		err = reader.ReverseScanWithFunc(ran.StartKey, e.seekKey, limit, e.startTS, scanFunc)
+	} else {
+		err = reader.ScanWithFunc(e.seekKey, ran.EndKey, limit, e.startTS, scanFunc)
+	}
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if e.Desc {
+		e.seekKey = prefixPrev(lastKey)
+	} else {
+		e.seekKey = []byte(kv.Key(lastKey).PrefixNext())
+	}
+	return
 }
 
 func (e *tableScanExec) fillRows() error {
@@ -259,6 +402,8 @@ type indexScanExec struct {
 	rowCursor int
 	rows      [][][]byte
 	src       executor
+	tps       []*types.FieldType
+	loc       *time.Location
 }
 
 func (e *indexScanExec) SetSrcExec(exec executor) {
@@ -310,15 +455,137 @@ func (e *indexScanExec) Cursor() ([]byte, bool) {
 	return e.kvRanges[len(e.kvRanges)-1].EndKey, e.Desc
 }
 
-func (e *indexScanExec) Next(ctx context.Context) (value [][]byte, err error) {
+func (e *indexScanExec) nextChunk(ctx context.Context, chk *chunk.Chunk) error {
+	chk.Reset()
+	err := e.checkRangeLock()
+	if err != nil {
+		return errors.Trace(err)
+	}
+	for e.ranCursor < len(e.kvRanges) {
+		ran := e.kvRanges[e.ranCursor]
+		if e.isUnique() && ran.IsPoint() {
+			err = e.fillChunkFromPoint(chk, ran.StartKey)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			e.ranCursor++
+			if chk.NumRows() == chunkMaxRows {
+				return nil
+			}
+		} else {
+			err = e.fillChunkFromRange(chk, ran)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			if chk.NumRows() == chunkMaxRows {
+				// When chunk is full after fill from range, the range may not finished.
+				// So we do not increase range cursor here.
+				return nil
+			}
+			// If chunk is not full, the range is finished.
+			e.ranCursor++
+		}
+	}
+	return nil
+}
+
+func (e *indexScanExec) fillChunkFromPoint(chk *chunk.Chunk, key kv.Key) error {
+	reader := e.reqCtx.getDBReader()
+	val, err := reader.Get(key, e.startTS)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if len(val) == 0 {
+		return nil
+	}
+	err = e.decodeToChunk(chk, key, val)
+	return errors.Trace(err)
+}
+
+func (e *indexScanExec) decodeToChunk(chk *chunk.Chunk, key kv.Key, val []byte) error {
+	values, b, err := tablecodec.CutIndexKeyNew(key, e.colsLen)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	decoder := codec.NewDecoder(chk, e.loc)
+	for i, colVal := range values {
+		_, err = decoder.DecodeOne(colVal, i, e.tps[i])
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
+	if len(b) > 0 {
+		if e.pkStatus != pkColNotExists {
+			_, err = decoder.DecodeOne(b, e.colsLen, e.tps[e.colsLen])
+			if err != nil {
+				return errors.Trace(err)
+			}
+		}
+	} else if e.pkStatus != pkColNotExists {
+		handle, err := decodeHandle(val)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		chk.AppendInt64(e.colsLen, handle)
+	}
+	return nil
+}
+
+func (e *indexScanExec) fillChunkFromRange(chk *chunk.Chunk, ran kv.KeyRange) (err error) {
+	if e.seekKey == nil {
+		if e.Desc {
+			e.seekKey = ran.EndKey
+		} else {
+			e.seekKey = ran.StartKey
+		}
+	}
+	limit := chunkMaxRows - chk.NumRows()
+	var pairs []Pair
+	reader := e.reqCtx.getDBReader()
+	if e.Desc {
+		pairs = reader.ReverseScan(ran.StartKey, e.seekKey, limit, e.startTS)
+	} else {
+		pairs = reader.Scan(e.seekKey, ran.EndKey, limit, e.startTS)
+	}
+	if len(pairs) == 0 {
+		return
+	}
+	lastPair := pairs[len(pairs)-1]
+	if e.Desc {
+		e.seekKey = prefixPrev(lastPair.Key)
+	} else {
+		e.seekKey = []byte(kv.Key(lastPair.Key).PrefixNext())
+	}
+	for _, pair := range pairs {
+		err = e.decodeToChunk(chk, pair.Key, pair.Value)
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
+	return nil
+}
+
+func (e *indexScanExec) fieldTypes() []*types.FieldType {
+	return e.tps
+}
+
+func (e *indexScanExec) checkRangeLock() error {
 	if !e.ignoreLock && !e.lockChecked {
 		for _, ran := range e.kvRanges {
 			err := e.mvccStore.CheckRangeLock(e.startTS, ran.StartKey, ran.EndKey)
 			if err != nil {
-				return nil, err
+				return err
 			}
 		}
 		e.lockChecked = true
+	}
+	return nil
+}
+
+func (e *indexScanExec) Next(ctx context.Context) (value [][]byte, err error) {
+	err = e.checkRangeLock()
+	if err != nil {
+		return nil, errors.Trace(err)
 	}
 	for {
 		if e.rowCursor < len(e.rows) {
@@ -471,6 +738,11 @@ type selectionExec struct {
 	row               []types.Datum
 	evalCtx           *evalContext
 	src               executor
+	srcChk            *chunk.Chunk
+	srcIter           *chunk.Iterator4Chunk
+	selected          []bool
+	seCtx             sessionctx.Context
+	inputRow          chunk.Row
 }
 
 func (e *selectionExec) SetSrcExec(exec executor) {
@@ -539,6 +811,43 @@ func (e *selectionExec) Next(ctx context.Context) (value [][]byte, err error) {
 	}
 }
 
+func (e *selectionExec) nextChunk(ctx context.Context, chk *chunk.Chunk) error {
+	chk.Reset()
+	if e.srcChk == nil {
+		e.srcChk = chunk.NewChunkWithCapacity(e.src.fieldTypes(), 16)
+		e.srcIter = chunk.NewIterator4Chunk(e.srcChk)
+	}
+	for {
+		for ; e.inputRow != e.srcIter.End(); e.inputRow = e.srcIter.Next() {
+			if !e.selected[e.inputRow.Idx()] {
+				continue
+			}
+			if chk.NumRows() == chunkMaxRows {
+				return nil
+			}
+			chk.AppendRow(e.inputRow)
+		}
+		err := e.src.nextChunk(ctx, e.srcChk)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		// no more data.
+		if e.srcChk.NumRows() == 0 {
+			return nil
+		}
+		e.selected, err = expression.VectorizedFilter(e.seCtx, e.conditions, e.srcIter, e.selected)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		e.inputRow = e.srcIter.Begin()
+	}
+	return nil
+}
+
+func (e *selectionExec) fieldTypes() []*types.FieldType {
+	return e.src.fieldTypes()
+}
+
 type topNExec struct {
 	heap              *topNHeap
 	evalCtx           *evalContext
@@ -548,7 +857,9 @@ type topNExec struct {
 	cursor            int
 	executed          bool
 
-	src executor
+	src     executor
+	srcChks *chunk.List
+	rowPtrs []chunk.RowPtr
 }
 
 func (e *topNExec) SetSrcExec(src executor) {
@@ -634,6 +945,44 @@ func (e *topNExec) evalTopN(value [][]byte) error {
 	return errors.Trace(e.heap.err)
 }
 
+func (e *topNExec) nextChunk(ctx context.Context, chk *chunk.Chunk) error {
+	chk.Reset()
+	return nil
+}
+
+func (e *topNExec) loadToLimit(ctx context.Context) error {
+	for e.srcChks.Len() < e.heap.totalCount {
+		srcChk := chunk.NewChunkWithCapacity(e.src.fieldTypes(), chunkMaxRows)
+		err := e.src.nextChunk(ctx, srcChk)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		if srcChk.NumRows() == 0 {
+			break
+		}
+		e.srcChks.Add(srcChk)
+	}
+	e.initPointers()
+	return nil
+}
+
+func (e *topNExec) initPointers() {
+	e.rowPtrs = make([]chunk.RowPtr, 0, e.srcChks.Len())
+	for chkIdx := 0; chkIdx < e.srcChks.NumChunks(); chkIdx++ {
+		rowChk := e.srcChks.GetChunk(chkIdx)
+		for rowIdx := 0; rowIdx < rowChk.NumRows(); rowIdx++ {
+			e.rowPtrs = append(e.rowPtrs, chunk.RowPtr{ChkIdx: uint32(chkIdx), RowIdx: uint32(rowIdx)})
+		}
+	}
+}
+
+func (e *topNExec) initCompareFuncs() {
+}
+
+func (e *topNExec) fieldTypes() []*types.FieldType {
+	return e.src.fieldTypes()
+}
+
 type limitExec struct {
 	limit  uint64
 	cursor uint64
@@ -675,6 +1024,32 @@ func (e *limitExec) Next(ctx context.Context) (value [][]byte, err error) {
 	}
 	e.cursor++
 	return value, nil
+}
+
+func (e *limitExec) nextChunk(ctx context.Context, chk *chunk.Chunk) error {
+	chk.Reset()
+	if e.cursor == e.limit {
+		return nil
+	}
+	err := e.src.nextChunk(ctx, chk)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if chk.NumRows() == 0 {
+		return nil
+	}
+	limitRemain := int(e.limit - e.cursor)
+	if chk.NumRows() > limitRemain {
+		chk.TruncateTo(limitRemain)
+		e.cursor = e.limit
+	} else {
+		e.cursor += uint64(chk.NumRows())
+	}
+	return nil
+}
+
+func (e *limitExec) fieldTypes() []*types.FieldType {
+	return e.src.fieldTypes()
 }
 
 func hasColVal(data [][]byte, colIDs map[int64]int, id int64) bool {
@@ -747,4 +1122,34 @@ func decodeHandle(data []byte) (int64, error) {
 	buf := bytes.NewBuffer(data)
 	err := binary.Read(buf, binary.BigEndian, &h)
 	return h, errors.Trace(err)
+}
+
+// cutRowToBuf cuts encoded row into byte slices.
+// Row layout: colID1, value1, colID2, value2, .....
+func cutRowToBuf(data []byte, colIDs map[int64]int, buf [][]byte) error {
+	if data == nil {
+		return nil
+	}
+	if len(data) == 1 && data[0] == codec.NilFlag {
+		return nil
+	}
+	var (
+		cnt int
+		b   []byte
+	)
+	for len(data) > 0 && cnt < len(colIDs) {
+		// Get col id.
+		remain, cid, err := codec.DecodeVarint(data[1:])
+		// Get col value.
+		b, data, err = codec.CutOne(remain)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		offset, ok := colIDs[int64(cid)]
+		if ok {
+			buf[offset] = b
+			cnt++
+		}
+	}
+	return nil
 }

@@ -28,6 +28,7 @@ type DBReader struct {
 	iter    *badger.Iterator
 	revIter *badger.Iterator
 	oldIter *badger.Iterator
+	mvVal   mvccValue
 }
 
 func (r *DBReader) Get(key []byte, startTS uint64) ([]byte, error) {
@@ -106,7 +107,7 @@ func (r *DBReader) Scan(startKey, endKey []byte, limit int, startTS uint64) []Pa
 			return []Pair{{Err: err}}
 		}
 		if mvVal.commitTS > startTS {
-			mvVal, err = r.getOldValue(encodeOldKey(key, startTS))
+			err = r.getOldValue(encodeOldKey(key, startTS), &mvVal)
 			if err == badger.ErrKeyNotFound {
 				continue
 			}
@@ -122,13 +123,49 @@ func (r *DBReader) Scan(startKey, endKey []byte, limit int, startTS uint64) []Pa
 	return pairs
 }
 
-func (r *DBReader) getOldValue(oldKey []byte) (mvccValue, error) {
+type ScanFunc func(key, value []byte) error
+
+func (r *DBReader) ScanWithFunc(startKey, endKey []byte, limit int, startTS uint64, f ScanFunc) error {
+	iter := r.getIter()
+	var cnt int
+	for iter.Seek(startKey); iter.Valid(); iter.Next() {
+		item := iter.Item()
+		key := item.Key()
+		if exceedEndKey(key, endKey) {
+			break
+		}
+		err := decodeValueTo(item, &r.mvVal)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		if r.mvVal.commitTS > startTS {
+			err = r.getOldValue(encodeOldKey(key, startTS), &r.mvVal)
+			if err == badger.ErrKeyNotFound {
+				continue
+			}
+		}
+		if len(r.mvVal.value) == 0 {
+			continue
+		}
+		err = f(key, r.mvVal.value)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		cnt++
+		if cnt >= limit {
+			break
+		}
+	}
+	return nil
+}
+
+func (r *DBReader) getOldValue(oldKey []byte, mvVal *mvccValue) error {
 	oldIter := r.getOldIter()
 	oldIter.Seek(oldKey)
 	if !oldIter.ValidForPrefix(oldKey[:len(oldKey)-8]) {
-		return mvccValue{}, badger.ErrKeyNotFound
+		return badger.ErrKeyNotFound
 	}
-	return decodeValue(oldIter.Item())
+	return decodeValueTo(oldIter.Item(), mvVal)
 }
 
 // ReverseScan implements the MVCCStore interface. The search range is [startKey, endKey).
@@ -146,7 +183,7 @@ func (r *DBReader) ReverseScan(startKey, endKey []byte, limit int, startTS uint6
 			return []Pair{{Err: err}}
 		}
 		if mvVal.commitTS > startTS {
-			mvVal, err = r.getOldValue(encodeOldKey(key, startTS))
+			err = r.getOldValue(encodeOldKey(key, startTS), &mvVal)
 			if err == badger.ErrKeyNotFound {
 				continue
 			}
@@ -160,6 +197,38 @@ func (r *DBReader) ReverseScan(startKey, endKey []byte, limit int, startTS uint6
 		}
 	}
 	return pairs
+}
+
+// ReverseScan implements the MVCCStore interface. The search range is [startKey, endKey).
+func (r *DBReader) ReverseScanWithFunc(startKey, endKey []byte, limit int, startTS uint64, f ScanFunc) error {
+	iter := r.getReverseIter()
+	var cnt int
+	for iter.Seek(endKey); iter.Valid(); iter.Next() {
+		item := iter.Item()
+		key := item.Key()
+		if bytes.Compare(key, startKey) < 0 {
+			break
+		}
+		err := decodeValueTo(item, &r.mvVal)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		if r.mvVal.commitTS > startTS {
+			err = r.getOldValue(encodeOldKey(key, startTS), &r.mvVal)
+			if err == badger.ErrKeyNotFound {
+				continue
+			}
+		}
+		if len(r.mvVal.value) == 0 {
+			continue
+		}
+		f(key, r.mvVal.value)
+		cnt++
+		if cnt >= limit {
+			break
+		}
+	}
+	return nil
 }
 
 func (r *DBReader) Close() {

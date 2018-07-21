@@ -41,6 +41,17 @@ func decodeValue(item *badger.Item) (v mvccValue, err error) {
 	return v, nil
 }
 
+func decodeValueTo(item *badger.Item, v *mvccValue) error {
+	var err error
+	v.value, err = item.ValueCopy(v.value[:0])
+	if err != nil {
+		return errors.Trace(err)
+	}
+	v.mvccValueHdr = *(*mvccValueHdr)(unsafe.Pointer(&v.value[0]))
+	v.value = v.value[mvccValueHdrSize:]
+	return nil
+}
+
 // decodeLock decodes data to lock, the primary and value is copied.
 func decodeLock(data []byte) (l mvccLock) {
 	l.mvccLockHdr = *(*mvccLockHdr)(unsafe.Pointer(&data[0]))
