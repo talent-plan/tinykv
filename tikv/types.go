@@ -130,10 +130,3 @@ func decodeRollbackTS(buf []byte) uint64 {
 	}
 	return ts
 }
-
-// Pair is a KV pair read from MvccStore or an error if any occurs.
-type Pair struct {
-	Key   []byte
-	Value []byte
-	Err   error
-}

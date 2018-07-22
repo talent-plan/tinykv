@@ -173,7 +173,7 @@ func (svr *Server) KvGet(ctx context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb
 func (svr *Server) KvScan(ctx context.Context, req *kvrpcpb.ScanRequest) (*kvrpcpb.ScanResponse, error) {
 	reqCtx, err := newRequestCtx(svr, req.Context, "KvScan")
 	if err != nil {
-		return &kvrpcpb.ScanResponse{Pairs: convertToPbPairs([]Pair{{Err: err}})}, nil
+		return &kvrpcpb.ScanResponse{Pairs: []*kvrpcpb.KvPair{{Error: convertToKeyError(err)}}}, nil
 	}
 	defer reqCtx.finish()
 	if reqCtx.regErr != nil {
@@ -186,12 +186,25 @@ func (svr *Server) KvScan(ctx context.Context, req *kvrpcpb.ScanRequest) (*kvrpc
 	endKey := reqCtx.regCtx.rawEndKey()
 	err = svr.mvccStore.CheckRangeLock(req.GetVersion(), startKey, endKey)
 	if err != nil {
-		return &kvrpcpb.ScanResponse{Pairs: convertToPbPairs([]Pair{{Err: err}})}, nil
+		return &kvrpcpb.ScanResponse{Pairs: []*kvrpcpb.KvPair{{Error: convertToKeyError(err)}}}, nil
+	}
+	var pairs []*kvrpcpb.KvPair
+	var scanFunc ScanFunc = func(key, value []byte) error {
+		pairs = append(pairs, &kvrpcpb.KvPair{
+			Key:   safeCopy(key),
+			Value: safeCopy(value),
+		})
+		return nil
 	}
 	reader := reqCtx.getDBReader()
-	pairs := reader.Scan(startKey, endKey, int(req.GetLimit()), req.GetVersion())
+	err = reader.Scan(startKey, endKey, int(req.GetLimit()), req.GetVersion(), scanFunc)
+	if err != nil {
+		pairs = append(pairs[:0], &kvrpcpb.KvPair{
+			Error: convertToKeyError(err),
+		})
+	}
 	return &kvrpcpb.ScanResponse{
-		Pairs: convertToPbPairs(pairs),
+		Pairs: pairs,
 	}, nil
 }
 
@@ -253,7 +266,7 @@ func (svr *Server) KvCleanup(ctx context.Context, req *kvrpcpb.CleanupRequest) (
 func (svr *Server) KvBatchGet(ctx context.Context, req *kvrpcpb.BatchGetRequest) (*kvrpcpb.BatchGetResponse, error) {
 	reqCtx, err := newRequestCtx(svr, req.Context, "KvBatchGet")
 	if err != nil {
-		return &kvrpcpb.BatchGetResponse{Pairs: convertToPbPairs([]Pair{{Err: err}})}, nil
+		return &kvrpcpb.BatchGetResponse{Pairs: []*kvrpcpb.KvPair{{Error: convertToKeyError(err)}}}, nil
 	}
 	defer reqCtx.finish()
 	if reqCtx.regErr != nil {
@@ -261,11 +274,21 @@ func (svr *Server) KvBatchGet(ctx context.Context, req *kvrpcpb.BatchGetRequest)
 	}
 	err = svr.mvccStore.CheckKeysLock(req.GetVersion(), req.Keys...)
 	if err != nil {
-		return &kvrpcpb.BatchGetResponse{Pairs: convertToPbPairs([]Pair{{Err: err}})}, nil
+		return &kvrpcpb.BatchGetResponse{Pairs: []*kvrpcpb.KvPair{{Error: convertToKeyError(err)}}}, nil
 	}
-	pairs := reqCtx.getDBReader().BatchGet(req.Keys, req.GetVersion())
+	pairs := make([]*kvrpcpb.KvPair, 0, len(req.Keys))
+	batchGetFunc := func(key, value []byte, err error) {
+		if len(value) != 0 {
+			pairs = append(pairs, &kvrpcpb.KvPair{
+				Key:   safeCopy(key),
+				Value: safeCopy(value),
+				Error: convertToKeyError(err),
+			})
+		}
+	}
+	reqCtx.getDBReader().BatchGet(req.Keys, req.GetVersion(), batchGetFunc)
 	return &kvrpcpb.BatchGetResponse{
-		Pairs: convertToPbPairs(pairs),
+		Pairs: pairs,
 	}, nil
 }
 
@@ -488,25 +511,6 @@ func convertToKeyErrors(errs []error) []*kvrpcpb.KeyError {
 		}
 	}
 	return keyErrors
-}
-
-func convertToPbPairs(pairs []Pair) []*kvrpcpb.KvPair {
-	kvPairs := make([]*kvrpcpb.KvPair, 0, len(pairs))
-	for _, p := range pairs {
-		var kvPair *kvrpcpb.KvPair
-		if p.Err == nil {
-			kvPair = &kvrpcpb.KvPair{
-				Key:   p.Key,
-				Value: p.Value,
-			}
-		} else {
-			kvPair = &kvrpcpb.KvPair{
-				Error: convertToKeyError(p.Err),
-			}
-		}
-		kvPairs = append(kvPairs, kvPair)
-	}
-	return kvPairs
 }
 
 func isMvccRegion(regCtx *regionCtx) bool {
