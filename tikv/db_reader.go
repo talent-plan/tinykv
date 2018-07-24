@@ -5,8 +5,8 @@ import (
 	"math"
 
 	"github.com/coocood/badger"
-	"github.com/juju/errors"
 	"github.com/coocood/badger/y"
+	"github.com/juju/errors"
 )
 
 func (store *MVCCStore) NewDBReader(reqCtx *requestCtx) *DBReader {
@@ -32,7 +32,6 @@ type DBReader struct {
 	iter    *badger.Iterator
 	revIter *badger.Iterator
 	oldIter *badger.Iterator
-	mvVal   mvccValue
 }
 
 func (r *DBReader) Get(key []byte, startTS uint64) ([]byte, error) {
@@ -107,26 +106,27 @@ type ScanFunc = func(key, value []byte) error
 func (r *DBReader) Scan(startKey, endKey []byte, limit int, startTS uint64, f ScanFunc) error {
 	iter := r.getIter()
 	var cnt int
+	var mvVal mvccValue
 	for iter.Seek(startKey); iter.Valid(); iter.Next() {
 		item := iter.Item()
 		key := item.Key()
 		if exceedEndKey(key, endKey) {
 			break
 		}
-		err := decodeValueTo(item, &r.mvVal)
+		err := decodeValueTo(item, &mvVal)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		if r.mvVal.commitTS > startTS {
-			err = r.getOldValue(encodeOldKey(key, startTS), &r.mvVal)
+		if mvVal.commitTS > startTS {
+			err = r.getOldValue(encodeOldKey(key, startTS), &mvVal)
 			if err == badger.ErrKeyNotFound {
 				continue
 			}
 		}
-		if len(r.mvVal.value) == 0 {
+		if len(mvVal.value) == 0 {
 			continue
 		}
-		err = f(key, r.mvVal.value)
+		err = f(key, mvVal.value)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -151,26 +151,27 @@ func (r *DBReader) getOldValue(oldKey []byte, mvVal *mvccValue) error {
 func (r *DBReader) ReverseScan(startKey, endKey []byte, limit int, startTS uint64, f ScanFunc) error {
 	iter := r.getReverseIter()
 	var cnt int
+	var mvVal mvccValue
 	for iter.Seek(endKey); iter.Valid(); iter.Next() {
 		item := iter.Item()
 		key := item.Key()
 		if bytes.Compare(key, startKey) < 0 {
 			break
 		}
-		err := decodeValueTo(item, &r.mvVal)
+		err := decodeValueTo(item, &mvVal)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		if r.mvVal.commitTS > startTS {
-			err = r.getOldValue(encodeOldKey(key, startTS), &r.mvVal)
+		if mvVal.commitTS > startTS {
+			err = r.getOldValue(encodeOldKey(key, startTS), &mvVal)
 			if err == badger.ErrKeyNotFound {
 				continue
 			}
 		}
-		if len(r.mvVal.value) == 0 {
+		if len(mvVal.value) == 0 {
 			continue
 		}
-		f(key, r.mvVal.value)
+		f(key, mvVal.value)
 		cnt++
 		if cnt >= limit {
 			break
