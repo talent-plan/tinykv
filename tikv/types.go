@@ -42,13 +42,12 @@ func decodeValue(item *badger.Item) (v mvccValue, err error) {
 }
 
 func decodeValueTo(item *badger.Item, v *mvccValue) error {
-	var err error
-	v.value, err = item.ValueCopy(v.value[:0])
+	val, err := item.Value()
 	if err != nil {
 		return errors.Trace(err)
 	}
-	v.mvccValueHdr = *(*mvccValueHdr)(unsafe.Pointer(&v.value[0]))
-	v.value = v.value[mvccValueHdrSize:]
+	v.mvccValueHdr = *(*mvccValueHdr)(unsafe.Pointer(&val[0]))
+	v.value = val[mvccValueHdrSize:]
 	return nil
 }
 
