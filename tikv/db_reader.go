@@ -2,9 +2,11 @@ package tikv
 
 import (
 	"bytes"
+	"math"
 
 	"github.com/coocood/badger"
 	"github.com/juju/errors"
+	"github.com/coocood/badger/y"
 )
 
 func (store *MVCCStore) NewDBReader(reqCtx *requestCtx) *DBReader {
@@ -14,10 +16,12 @@ func (store *MVCCStore) NewDBReader(reqCtx *requestCtx) *DBReader {
 	}
 }
 
-func newIterator(txn *badger.Txn, reverse bool) *badger.Iterator {
+func newIterator(txn *badger.Txn, reverse bool, startKey, endKey []byte) *badger.Iterator {
 	opts := badger.DefaultIteratorOptions
 	opts.PrefetchValues = false
 	opts.Reverse = reverse
+	opts.StartKey = y.KeyWithTs(startKey, math.MaxUint64)
+	opts.EndKey = y.KeyWithTs(endKey, math.MaxUint64)
 	return txn.NewIterator(opts)
 }
 
@@ -62,21 +66,28 @@ func (r *DBReader) Get(key []byte, startTS uint64) ([]byte, error) {
 
 func (r *DBReader) getIter() *badger.Iterator {
 	if r.iter == nil {
-		r.iter = newIterator(r.txn, false)
+		regCtx := r.reqCtx.regCtx
+		r.iter = newIterator(r.txn, false, regCtx.startKey, regCtx.endKey)
 	}
 	return r.iter
 }
 
 func (r *DBReader) getReverseIter() *badger.Iterator {
 	if r.revIter == nil {
-		r.revIter = newIterator(r.txn, true)
+		regCtx := r.reqCtx.regCtx
+		r.revIter = newIterator(r.txn, true, regCtx.startKey, regCtx.endKey)
 	}
 	return r.revIter
 }
 
 func (r *DBReader) getOldIter() *badger.Iterator {
 	if r.oldIter == nil {
-		r.oldIter = newIterator(r.txn, false)
+		regCtx := r.reqCtx.regCtx
+		oldStartKey := safeCopy(regCtx.startKey)
+		oldStartKey[0]++
+		oldEndKey := safeCopy(regCtx.endKey)
+		oldEndKey[0]++
+		r.oldIter = newIterator(r.txn, false, oldStartKey, oldEndKey)
 	}
 	return r.oldIter
 }
