@@ -213,7 +213,7 @@ func (svr *Server) buildTableScan(ctx *dagContext, executor *tipb.Executor) (*ta
 		mvccStore: svr.mvccStore,
 		reqCtx:    ctx.reqCtx,
 		tps:       ctx.evalCtx.fieldTps,
-		buf:       make([][]byte, len(columns)),
+		cols:      make([][]byte, len(columns)),
 		loc:       ctx.evalCtx.sc.TimeZone,
 	}
 	if len(columns) == 1 && columns[0].PkHandle {

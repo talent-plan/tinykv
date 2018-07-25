@@ -62,7 +62,7 @@ type tableScanExec struct {
 
 	// for chunk
 	tps        []*types.FieldType
-	buf        [][]byte
+	cols       [][]byte
 	loc        *time.Location
 	handleOnly bool
 
@@ -227,15 +227,15 @@ func (e *tableScanExec) fillChunkFromPoint(chk *chunk.Chunk, key kv.Key) error {
 }
 
 func (e *tableScanExec) decodeChunkRow(handle int64, rowData []byte, chk *chunk.Chunk) error {
-	for i := range e.buf {
-		e.buf[i] = nil
+	for i := range e.cols {
+		e.cols[i] = nil
 	}
-	err := cutRowToBuf(rowData, e.colIDs, e.buf)
+	err := cutRowToBuf(rowData, e.colIDs, e.cols)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	decoder := codec.NewDecoder(chk, e.loc)
-	for i, val := range e.buf {
+	for i, val := range e.cols {
 		col := e.Columns[i]
 		if val == nil {
 			if col.GetPkHandle() || col.ColumnId == model.ExtraHandleID {
