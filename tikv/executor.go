@@ -218,8 +218,8 @@ func (e *tableScanExec) fillChunkFromPoint(chk *chunk.Chunk, key kv.Key) error {
 	if len(val) == 0 {
 		return nil
 	}
-	handle, ok := e.decodeRowKeyHandle(key)
-	if !ok {
+	handle, err := tablecodec.DecodeRowKey(key)
+	if err != nil {
 		return errors.Errorf("invalid record key %q", key)
 	}
 	err = e.decodeChunkRow(handle, val, chk)
