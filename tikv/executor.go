@@ -61,9 +61,10 @@ type tableScanExec struct {
 	lockChecked bool
 
 	// for chunk
-	tps []*types.FieldType
-	buf [][]byte
-	loc *time.Location
+	tps        []*types.FieldType
+	buf        [][]byte
+	loc        *time.Location
+	handleOnly bool
 
 	src executor
 }
@@ -217,9 +218,9 @@ func (e *tableScanExec) fillChunkFromPoint(chk *chunk.Chunk, key kv.Key) error {
 	if len(val) == 0 {
 		return nil
 	}
-	handle, err := tablecodec.DecodeRowKey(key)
-	if err != nil {
-		return errors.Trace(err)
+	handle, ok := e.decodeRowKeyHandle(key)
+	if !ok {
+		return errors.Errorf("invalid record key %q", key)
 	}
 	err = e.decodeChunkRow(handle, val, chk)
 	return errors.Trace(err)
@@ -267,14 +268,18 @@ func (e *tableScanExec) fillChunkFromRange(chk *chunk.Chunk, ran kv.KeyRange) (e
 	var lastKey []byte
 	scanFunc := func(key, val []byte) error {
 		lastKey = key
-		handle, err1 := tablecodec.DecodeRowKey(key)
+		handle, err := tablecodec.DecodeRowKey(key)
 		if err != nil {
-			return errors.Trace(err1)
+			return errors.Trace(err)
 		}
-		err1 = e.decodeChunkRow(handle, val, chk)
+		if e.handleOnly {
+			chk.AppendInt64(0, handle)
+			return nil
+		}
+		err = e.decodeChunkRow(handle, val, chk)
 		// errors.Trace can't be inlined by compiler, let's check error explicitly
-		if err1 != nil {
-			return errors.Trace(err1)
+		if err != nil {
+			return errors.Trace(err)
 		}
 		return nil
 	}
