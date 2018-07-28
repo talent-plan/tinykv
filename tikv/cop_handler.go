@@ -392,7 +392,7 @@ func (svr *Server) buildStreamAgg(ctx *dagContext, executor *tipb.Executor) (*st
 			return e, nil
 		}
 		desc := aggregation.NewAggFuncDesc(seCtx, name, args, false)
-		aggFuncs[i] = aggfuncs.Build(desc, groupKeyLen+i)
+		aggFuncs[i] = aggfuncs.Build(seCtx, desc, groupKeyLen+i)
 	}
 	e.newAggFuncs = aggFuncs
 	e.partialResults = make([]aggfuncs.PartialResult, 0, len(e.newAggFuncs))
@@ -578,8 +578,8 @@ func (mock *mockCopStreamClient) Recv() (*coprocessor.Response, error) {
 		return &resp, nil
 	}
 	streamResponse := tipb.StreamResponse{
-		Error:      toPBError(err),
-		Data:       data,
+		Error: toPBError(err),
+		Data:  data,
 	}
 	// The counts was the output count of each executor, but now it is the scan count of each range,
 	// so we need a flag to tell them apart.

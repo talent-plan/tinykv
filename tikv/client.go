@@ -67,12 +67,12 @@ func NewClient(pdAddr string, tag string) (Client, error) {
 	log.Infof("[%s][pd] create pd client with endpoints %v", tag, pdAddr)
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &client{
-		url: pdAddr,
+		url:                      pdAddr,
 		receiveRegionHeartbeatCh: make(chan *pdpb.RegionHeartbeatResponse, 1),
-		ctx:      ctx,
-		cancel:   cancel,
-		tag:      tag,
-		regionCh: make(chan *regionCtx, 64),
+		ctx:                      ctx,
+		cancel:                   cancel,
+		tag:                      tag,
+		regionCh:                 make(chan *regionCtx, 64),
 	}
 	cc, err := c.createConn()
 	if err != nil {

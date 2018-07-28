@@ -25,7 +25,8 @@ type hashAggExec struct {
 	aggCtxsMap        aggCtxsMapper
 	groupByExprs      []expression.Expression
 	relatedColOffsets []int
-	row               types.DatumRow
+	row               []types.Datum
+	chkRow            chkMutRow
 	groups            map[string]struct{}
 	groupKeys         [][]byte
 	groupKeyRows      [][][]byte
@@ -120,8 +121,9 @@ func (e *hashAggExec) getGroupKey() ([]byte, [][]byte, error) {
 	}
 	bufLen := 0
 	row := make([][]byte, 0, length)
+	e.chkRow.update(e.row)
 	for _, item := range e.groupByExprs {
-		v, err := item.Eval(e.row)
+		v, err := item.Eval(e.chkRow.row())
 		if err != nil {
 			return nil, nil, errors.Trace(err)
 		}
@@ -157,8 +159,9 @@ func (e *hashAggExec) aggregate(value [][]byte) error {
 	}
 	// Update aggregate expressions.
 	aggCtxs := e.getContexts(gk)
+	e.chkRow.update(e.row)
 	for i, agg := range e.aggExprs {
-		err = agg.Update(aggCtxs[i], e.evalCtx.sc, e.row)
+		err = agg.Update(aggCtxs[i], e.evalCtx.sc, e.chkRow.row())
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -193,10 +196,11 @@ type streamAggExec struct {
 	aggCtxs           []*aggregation.AggEvaluateContext
 	groupByExprs      []expression.Expression
 	relatedColOffsets []int
-	row               types.DatumRow
-	tmpGroupByRow     types.DatumRow
-	currGroupByRow    types.DatumRow
-	nextGroupByRow    types.DatumRow
+	row               []types.Datum
+	chkRow            chkMutRow
+	tmpGroupByRow     []types.Datum
+	currGroupByRow    []types.Datum
+	nextGroupByRow    []types.Datum
 	currGroupByValues [][]byte
 	executed          bool
 	hasData           bool
@@ -255,7 +259,7 @@ func (e *streamAggExec) getPartialResult() ([][]byte, error) {
 		}
 		e.currGroupByValues = append(e.currGroupByValues, buf)
 	}
-	e.currGroupByRow = e.nextGroupByRow.Copy()
+	e.currGroupByRow = types.CopyRow(e.nextGroupByRow)
 	return append(value, e.currGroupByValues...), nil
 }
 
@@ -269,8 +273,9 @@ func (e *streamAggExec) meetNewGroup(row [][]byte) (bool, error) {
 	if e.nextGroupByRow == nil {
 		matched, firstGroup = false, true
 	}
+	e.chkRow.update(e.row)
 	for i, item := range e.groupByExprs {
-		d, err := item.Eval(e.row)
+		d, err := item.Eval(e.chkRow.row())
 		if err != nil {
 			return false, errors.Trace(err)
 		}
@@ -284,7 +289,7 @@ func (e *streamAggExec) meetNewGroup(row [][]byte) (bool, error) {
 		e.tmpGroupByRow = append(e.tmpGroupByRow, d)
 	}
 	if firstGroup {
-		e.currGroupByRow = e.tmpGroupByRow.Copy()
+		e.currGroupByRow = types.CopyRow(e.tmpGroupByRow)
 	}
 	if matched {
 		return false, nil
@@ -331,8 +336,9 @@ func (e *streamAggExec) Next(ctx context.Context) (retRow [][]byte, err error) {
 				return nil, errors.Trace(err)
 			}
 		}
+		e.chkRow.update(e.row)
 		for i, agg := range e.aggExprs {
-			err = agg.Update(e.aggCtxs[i], e.evalCtx.sc, e.row)
+			err = agg.Update(e.aggCtxs[i], e.evalCtx.sc, e.chkRow.row())
 			if err != nil {
 				return nil, errors.Trace(err)
 			}

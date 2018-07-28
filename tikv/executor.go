@@ -759,6 +759,7 @@ type selectionExec struct {
 	conditions        []expression.Expression
 	relatedColOffsets []int
 	row               []types.Datum
+	chkRow            chkMutRow
 	evalCtx           *evalContext
 	src               executor
 	srcChk            *chunk.Chunk
@@ -785,9 +786,10 @@ func (e *selectionExec) Counts() []int64 {
 }
 
 // evalBool evaluates expression to a boolean value.
-func evalBool(exprs []expression.Expression, row types.DatumRow, ctx *stmtctx.StatementContext) (bool, error) {
+func (e *selectionExec) evalBool(exprs []expression.Expression, row []types.Datum, ctx *stmtctx.StatementContext) (bool, error) {
+	e.chkRow.update(row)
 	for _, expr := range exprs {
-		data, err := expr.Eval(row)
+		data, err := expr.Eval(e.chkRow.row())
 		if err != nil {
 			return false, errors.Trace(err)
 		}
@@ -824,7 +826,7 @@ func (e *selectionExec) Next(ctx context.Context) (value [][]byte, err error) {
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		match, err := evalBool(e.conditions, e.row, e.evalCtx.sc)
+		match, err := e.evalBool(e.conditions, e.row, e.evalCtx.sc)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -876,7 +878,8 @@ type topNExec struct {
 	evalCtx           *evalContext
 	relatedColOffsets []int
 	orderByExprs      []expression.Expression
-	row               types.DatumRow
+	row               []types.Datum
+	chkRow            chkMutRow
 	cursor            int
 	executed          bool
 
@@ -953,8 +956,9 @@ func (e *topNExec) evalTopN(value [][]byte) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+	e.chkRow.update(e.row)
 	for i, expr := range e.orderByExprs {
-		newRow.key[i], err = expr.Eval(e.row)
+		newRow.key[i], err = expr.Eval(e.chkRow.row())
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -1175,4 +1179,21 @@ func cutRowToBuf(data []byte, colIDs map[int64]int, buf [][]byte) error {
 		}
 	}
 	return nil
+}
+
+type chkMutRow struct {
+	mutRow *chunk.MutRow
+}
+
+func (c *chkMutRow) update(row []types.Datum) {
+	if c.mutRow == nil {
+		chkRow := chunk.MutRowFromDatums(row)
+		c.mutRow = &chkRow
+	} else {
+		c.mutRow.SetDatums(row...)
+	}
+}
+
+func (c *chkMutRow) row() chunk.Row {
+	return c.mutRow.ToRow()
 }
