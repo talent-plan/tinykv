@@ -43,11 +43,20 @@ type dagContext struct {
 func (svr *Server) handleCopDAGRequest(reqCtx *requestCtx, req *coprocessor.Request) *coprocessor.Response {
 	startTime := time.Now()
 	resp := &coprocessor.Response{}
-	dagCtx, e, dagReq, err := svr.buildDAGExecutor(reqCtx, req)
+	dagCtx, dagReq, err := svr.buildDAG(reqCtx, req)
 	if err != nil {
 		resp.OtherError = err.Error()
 		return resp
 	}
+	var (
+		chunks []tipb.Chunk
+		rowCnt int
+	)
+	if cloureExec := svr.tryBuildClosureExecutor(dagCtx, dagReq); cloureExec != nil {
+		chunks, err = cloureExec.execute()
+		return buildResp(chunks, nil, err, dagCtx.evalCtx.sc.GetWarnings(), time.Since(startTime))
+	}
+	e, err := svr.buildDAGExecutor(dagCtx, dagReq.Executors)
 	switch x := e.(type) {
 	case *tableScanExec, *indexScanExec, *limitExec, *selectionExec:
 		return svr.handleCopDAGRequestInChunk(dagCtx, e, dagReq, startTime)
@@ -57,10 +66,6 @@ func (svr *Server) handleCopDAGRequest(reqCtx *requestCtx, req *coprocessor.Requ
 			return svr.handleCopDAGRequestInChunk(dagCtx, e, dagReq, startTime)
 		}
 	}
-	var (
-		chunks []tipb.Chunk
-		rowCnt int
-	)
 	ctx := context.TODO()
 	for {
 		var row [][]byte
@@ -117,18 +122,18 @@ func (svr *Server) handleCopDAGRequestInChunk(dagCtx *dagContext, e executor, da
 	return buildResp(oldChunks, e.Counts(), err, warnings, time.Since(startTime))
 }
 
-func (svr *Server) buildDAGExecutor(reqCtx *requestCtx, req *coprocessor.Request) (*dagContext, executor, *tipb.DAGRequest, error) {
+func (svr *Server) buildDAG(reqCtx *requestCtx, req *coprocessor.Request) (*dagContext, *tipb.DAGRequest, error) {
 	if len(req.Ranges) == 0 {
-		return nil, nil, nil, errors.New("request range is null")
+		return nil, nil, errors.New("request range is null")
 	}
 	if req.GetTp() != kv.ReqTypeDAG {
-		return nil, nil, nil, errors.Errorf("unsupported request type %d", req.GetTp())
+		return nil, nil, errors.Errorf("unsupported request type %d", req.GetTp())
 	}
 
 	dagReq := new(tipb.DAGRequest)
 	err := proto.Unmarshal(req.Data, dagReq)
 	if err != nil {
-		return nil, nil, nil, errors.Trace(err)
+		return nil, nil, errors.Trace(err)
 	}
 	sc := flagsToStatementContext(dagReq.Flags)
 	sc.TimeZone = time.FixedZone("UTC", int(dagReq.TimeZoneOffset))
@@ -138,19 +143,18 @@ func (svr *Server) buildDAGExecutor(reqCtx *requestCtx, req *coprocessor.Request
 		keyRanges: req.Ranges,
 		evalCtx:   &evalContext{sc: sc},
 	}
-	e, err := svr.buildDAG(ctx, dagReq.Executors)
-	if err != nil {
-		return nil, nil, nil, errors.Trace(err)
-	}
-	return ctx, e, dagReq, err
+	return ctx, dagReq, err
 }
 
 func (svr *Server) handleCopStream(ctx context.Context, reqCtx *requestCtx, req *coprocessor.Request) (tikvpb.Tikv_CoprocessorStreamClient, error) {
-	_, e, dagReq, err := svr.buildDAGExecutor(reqCtx, req)
+	dagCtx, dagReq, err := svr.buildDAG(reqCtx, req)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-
+	e, err := svr.buildDAGExecutor(dagCtx, dagReq.Executors)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
 	return &mockCopStreamClient{
 		exec: e,
 		req:  dagReq,
@@ -184,7 +188,7 @@ func (svr *Server) buildExec(ctx *dagContext, curr *tipb.Executor) (executor, er
 	return currExec, errors.Trace(err)
 }
 
-func (svr *Server) buildDAG(ctx *dagContext, executors []*tipb.Executor) (executor, error) {
+func (svr *Server) buildDAGExecutor(ctx *dagContext, executors []*tipb.Executor) (executor, error) {
 	var src executor
 	for i := 0; i < len(executors); i++ {
 		curr, err := svr.buildExec(ctx, executors[i])
