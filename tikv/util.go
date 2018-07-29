@@ -9,7 +9,7 @@ import (
 )
 
 func exceedEndKey(current, endKey []byte) bool {
-	return len(endKey) > 0 && bytes.Compare(current, endKey) >= 0
+	return bytes.Compare(current, endKey) >= 0
 }
 
 func extractPhysicalTime(ts uint64) time.Time {

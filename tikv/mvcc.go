@@ -457,6 +457,10 @@ func (store *MVCCStore) CheckKeysLock(startTS uint64, keys ...[]byte) error {
 }
 
 func (store *MVCCStore) CheckRangeLock(startTS uint64, startKey, endKey []byte) error {
+	if len(endKey) == 0 {
+		panic("invalid end key")
+	}
+
 	it := store.lockStore.NewIterator()
 	for it.Seek(startKey); it.Valid(); it.Next() {
 		if exceedEndKey(it.Key(), endKey) {
@@ -494,6 +498,10 @@ func (store *MVCCStore) Cleanup(reqCtx *requestCtx, key []byte, startTS uint64) 
 
 func (store *MVCCStore) ScanLock(reqCtx *requestCtx, maxSystemTS uint64) ([]*kvrpcpb.LockInfo, error) {
 	var locks []*kvrpcpb.LockInfo
+	if len(reqCtx.regCtx.endKey) == 0 {
+		panic("invalid end key")
+	}
+
 	it := store.lockStore.NewIterator()
 	for it.Seek(reqCtx.regCtx.startKey); it.Valid(); it.Next() {
 		if exceedEndKey(it.Key(), reqCtx.regCtx.endKey) {
@@ -515,6 +523,9 @@ func (store *MVCCStore) ScanLock(reqCtx *requestCtx, maxSystemTS uint64) ([]*kvr
 
 func (store *MVCCStore) ResolveLock(reqCtx *requestCtx, startTS, commitTS uint64) error {
 	regCtx := reqCtx.regCtx
+	if len(regCtx.endKey) == 0 {
+		panic("invalid end key")
+	}
 	var lockKeys [][]byte
 	var lockVals [][]byte
 	it := store.lockStore.NewIterator()
@@ -591,6 +602,9 @@ func (store *MVCCStore) DeleteRange(reqCtx *requestCtx, startKey, endKey []byte)
 }
 
 func (store *MVCCStore) collectRangeKeys(it *badger.Iterator, startKey, endKey []byte, keys [][]byte) [][]byte {
+	if len(endKey) == 0 {
+		panic("invalid end key")
+	}
 	for it.Seek(startKey); it.Valid(); it.Next() {
 		item := it.Item()
 		key := item.KeyCopy(nil)
