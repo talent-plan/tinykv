@@ -36,8 +36,6 @@ type executor interface {
 	ResetCounts()
 	Counts() []int64
 	Next(ctx context.Context) ([][]byte, error)
-	nextChunk(ctx context.Context, chk *chunk.Chunk) error
-	fieldTypes() []*types.FieldType
 	// Cursor returns the key gonna to be scanned by the Next() function.
 	Cursor() (key []byte, desc bool)
 }
@@ -59,12 +57,6 @@ type tableScanExec struct {
 	counts      []int64
 	ignoreLock  bool
 	lockChecked bool
-
-	// for chunk
-	tps        []*types.FieldType
-	cols       [][]byte
-	loc        *time.Location
-	handleOnly bool
 
 	src executor
 }
@@ -166,141 +158,9 @@ func (e *tableScanExec) checkRangeLock() error {
 
 const chunkMaxRows = 1024
 
-func (e *tableScanExec) nextChunk(ctx context.Context, chk *chunk.Chunk) error {
-	chk.Reset()
-	err := e.checkRangeLock()
-	if err != nil {
-		return errors.Trace(err)
-	}
-	for e.rangeCursor < len(e.kvRanges) {
-		ran := e.kvRanges[e.rangeCursor]
-		if ran.IsPoint() {
-			err = e.fillChunkFromPoint(chk, ran.StartKey)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			e.nextRange()
-			if chk.NumRows() == chunkMaxRows {
-				return nil
-			}
-		} else {
-			err = e.fillChunkFromRange(chk, ran)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			if chk.NumRows() == chunkMaxRows {
-				// When chunk is full after fill from range, the range may not finished.
-				// So we do not increase range cursor here.
-				return nil
-			}
-			// If chunk is not full, the range is finished.
-			e.nextRange()
-		}
-	}
-	return nil
-}
-
 func (e *tableScanExec) nextRange() {
 	e.rangeCursor++
 	e.seekKey = nil
-}
-
-func (e *tableScanExec) fieldTypes() []*types.FieldType {
-	return e.tps
-}
-
-func (e *tableScanExec) fillChunkFromPoint(chk *chunk.Chunk, key kv.Key) error {
-	reader := e.reqCtx.getDBReader()
-	val, err := reader.Get(key, e.startTS)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	if len(val) == 0 {
-		return nil
-	}
-	handle, err := tablecodec.DecodeRowKey(key)
-	if err != nil {
-		return errors.Errorf("invalid record key %q", key)
-	}
-	err = e.decodeChunkRow(handle, val, chk)
-	return errors.Trace(err)
-}
-
-func (e *tableScanExec) decodeChunkRow(handle int64, rowData []byte, chk *chunk.Chunk) error {
-	for i := range e.cols {
-		e.cols[i] = nil
-	}
-	err := cutRowToBuf(rowData, e.colIDs, e.cols)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	decoder := codec.NewDecoder(chk, e.loc)
-	for i, val := range e.cols {
-		col := e.Columns[i]
-		if val == nil {
-			if col.GetPkHandle() || col.ColumnId == model.ExtraHandleID {
-				chk.AppendInt64(i, handle)
-				continue
-			}
-			if col.DefaultVal != nil {
-				val = col.DefaultVal
-			} else {
-				val = []byte{codec.NilFlag}
-			}
-		}
-		_, err = decoder.DecodeOne(val, i, e.tps[i])
-		if err != nil {
-			return errors.Trace(err)
-		}
-	}
-	return nil
-}
-
-func (e *tableScanExec) fillChunkFromRange(chk *chunk.Chunk, ran kv.KeyRange) (err error) {
-	if e.seekKey == nil {
-		if e.Desc {
-			e.seekKey = ran.EndKey
-		} else {
-			e.seekKey = ran.StartKey
-		}
-	}
-	limit := chunkMaxRows - chk.NumRows()
-	var lastKey []byte
-	scanFunc := func(key, val []byte) error {
-		lastKey = key
-		handle, err := tablecodec.DecodeRowKey(key)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		if e.handleOnly {
-			chk.AppendInt64(0, handle)
-			return nil
-		}
-		err = e.decodeChunkRow(handle, val, chk)
-		// errors.Trace can't be inlined by compiler, let's check error explicitly
-		if err != nil {
-			return errors.Trace(err)
-		}
-		return nil
-	}
-	reader := e.reqCtx.getDBReader()
-	if e.Desc {
-		err = reader.ReverseScan(ran.StartKey, e.seekKey, limit, e.startTS, scanFunc)
-	} else {
-		err = reader.Scan(e.seekKey, ran.EndKey, limit, e.startTS, scanFunc)
-	}
-	if err != nil {
-		return errors.Trace(err)
-	}
-	if lastKey == nil {
-		return
-	}
-	if e.Desc {
-		e.seekKey = prefixPrev(lastKey)
-	} else {
-		e.seekKey = []byte(kv.Key(lastKey).PrefixNext())
-	}
-	return
 }
 
 func (e *tableScanExec) fillRows() error {
@@ -468,124 +328,6 @@ func (e *indexScanExec) Cursor() ([]byte, bool) {
 		return e.kvRanges[len(e.kvRanges)-1].StartKey, e.Desc
 	}
 	return e.kvRanges[len(e.kvRanges)-1].EndKey, e.Desc
-}
-
-func (e *indexScanExec) nextChunk(ctx context.Context, chk *chunk.Chunk) error {
-	chk.Reset()
-	err := e.checkRangeLock()
-	if err != nil {
-		return errors.Trace(err)
-	}
-	for e.ranCursor < len(e.kvRanges) {
-		ran := e.kvRanges[e.ranCursor]
-		if e.isUnique() && ran.IsPoint() {
-			err = e.fillChunkFromPoint(chk, ran.StartKey)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			e.nextRange()
-			if chk.NumRows() == chunkMaxRows {
-				return nil
-			}
-		} else {
-			err = e.fillChunkFromRange(chk, ran)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			if chk.NumRows() == chunkMaxRows {
-				// When chunk is full after fill from range, the range may not finished.
-				// So we do not increase range cursor here.
-				return nil
-			}
-			// If chunk is not full, the range is finished.
-			e.nextRange()
-		}
-	}
-	return nil
-}
-
-func (e *indexScanExec) fillChunkFromPoint(chk *chunk.Chunk, key kv.Key) error {
-	reader := e.reqCtx.getDBReader()
-	val, err := reader.Get(key, e.startTS)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	if len(val) == 0 {
-		return nil
-	}
-	err = e.decodeToChunk(chk, key, val)
-	return errors.Trace(err)
-}
-
-func (e *indexScanExec) decodeToChunk(chk *chunk.Chunk, key kv.Key, val []byte) error {
-	values, b, err := tablecodec.CutIndexKeyNew(key, e.colsLen)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	decoder := codec.NewDecoder(chk, e.loc)
-	for i, colVal := range values {
-		_, err = decoder.DecodeOne(colVal, i, e.tps[i])
-		if err != nil {
-			return errors.Trace(err)
-		}
-	}
-	if len(b) > 0 {
-		if e.pkStatus != pkColNotExists {
-			_, err = decoder.DecodeOne(b, e.colsLen, e.tps[e.colsLen])
-			if err != nil {
-				return errors.Trace(err)
-			}
-		}
-	} else if e.pkStatus != pkColNotExists {
-		handle, err := decodeHandle(val)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		chk.AppendInt64(e.colsLen, handle)
-	}
-	return nil
-}
-
-func (e *indexScanExec) fillChunkFromRange(chk *chunk.Chunk, ran kv.KeyRange) (err error) {
-	if e.seekKey == nil {
-		if e.Desc {
-			e.seekKey = ran.EndKey
-		} else {
-			e.seekKey = ran.StartKey
-		}
-	}
-	limit := chunkMaxRows - chk.NumRows()
-	var lastKey []byte
-	scanFunc := func(key, value []byte) error {
-		lastKey = key
-		err = e.decodeToChunk(chk, key, value)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		return nil
-	}
-	reader := e.reqCtx.getDBReader()
-	if e.Desc {
-		err = reader.ReverseScan(ran.StartKey, e.seekKey, limit, e.startTS, scanFunc)
-	} else {
-		err = reader.Scan(e.seekKey, ran.EndKey, limit, e.startTS, scanFunc)
-	}
-	if err != nil {
-		return errors.Trace(err)
-	}
-	if lastKey == nil {
-		return
-	}
-	if e.Desc {
-		e.seekKey = prefixPrev(lastKey)
-	} else {
-		e.seekKey = []byte(kv.Key(lastKey).PrefixNext())
-	}
-	return nil
-}
-
-func (e *indexScanExec) fieldTypes() []*types.FieldType {
-	return e.tps
 }
 
 func (e *indexScanExec) checkRangeLock() error {
@@ -762,11 +504,7 @@ type selectionExec struct {
 	chkRow            chkMutRow
 	evalCtx           *evalContext
 	src               executor
-	srcChk            *chunk.Chunk
-	srcIter           *chunk.Iterator4Chunk
-	selected          []bool
 	seCtx             sessionctx.Context
-	inputRow          chunk.Row
 }
 
 func (e *selectionExec) SetSrcExec(exec executor) {
@@ -834,43 +572,6 @@ func (e *selectionExec) Next(ctx context.Context) (value [][]byte, err error) {
 			return value, nil
 		}
 	}
-}
-
-func (e *selectionExec) nextChunk(ctx context.Context, chk *chunk.Chunk) error {
-	chk.Reset()
-	if e.srcChk == nil {
-		e.srcChk = chunk.NewChunkWithCapacity(e.src.fieldTypes(), 16)
-		e.srcIter = chunk.NewIterator4Chunk(e.srcChk)
-	}
-	for {
-		for ; e.inputRow != e.srcIter.End(); e.inputRow = e.srcIter.Next() {
-			if !e.selected[e.inputRow.Idx()] {
-				continue
-			}
-			if chk.NumRows() == chunkMaxRows {
-				return nil
-			}
-			chk.AppendRow(e.inputRow)
-		}
-		err := e.src.nextChunk(ctx, e.srcChk)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		// no more data.
-		if e.srcChk.NumRows() == 0 {
-			return nil
-		}
-		e.selected, err = expression.VectorizedFilter(e.seCtx, e.conditions, e.srcIter, e.selected)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		e.inputRow = e.srcIter.Begin()
-	}
-	return nil
-}
-
-func (e *selectionExec) fieldTypes() []*types.FieldType {
-	return e.src.fieldTypes()
 }
 
 type topNExec struct {
@@ -972,44 +673,6 @@ func (e *topNExec) evalTopN(value [][]byte) error {
 	return errors.Trace(e.heap.err)
 }
 
-func (e *topNExec) nextChunk(ctx context.Context, chk *chunk.Chunk) error {
-	chk.Reset()
-	return nil
-}
-
-func (e *topNExec) loadToLimit(ctx context.Context) error {
-	for e.srcChks.Len() < e.heap.totalCount {
-		srcChk := chunk.NewChunkWithCapacity(e.src.fieldTypes(), chunkMaxRows)
-		err := e.src.nextChunk(ctx, srcChk)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		if srcChk.NumRows() == 0 {
-			break
-		}
-		e.srcChks.Add(srcChk)
-	}
-	e.initPointers()
-	return nil
-}
-
-func (e *topNExec) initPointers() {
-	e.rowPtrs = make([]chunk.RowPtr, 0, e.srcChks.Len())
-	for chkIdx := 0; chkIdx < e.srcChks.NumChunks(); chkIdx++ {
-		rowChk := e.srcChks.GetChunk(chkIdx)
-		for rowIdx := 0; rowIdx < rowChk.NumRows(); rowIdx++ {
-			e.rowPtrs = append(e.rowPtrs, chunk.RowPtr{ChkIdx: uint32(chkIdx), RowIdx: uint32(rowIdx)})
-		}
-	}
-}
-
-func (e *topNExec) initCompareFuncs() {
-}
-
-func (e *topNExec) fieldTypes() []*types.FieldType {
-	return e.src.fieldTypes()
-}
-
 type limitExec struct {
 	limit  uint64
 	cursor uint64
@@ -1051,32 +714,6 @@ func (e *limitExec) Next(ctx context.Context) (value [][]byte, err error) {
 	}
 	e.cursor++
 	return value, nil
-}
-
-func (e *limitExec) nextChunk(ctx context.Context, chk *chunk.Chunk) error {
-	chk.Reset()
-	if e.cursor == e.limit {
-		return nil
-	}
-	err := e.src.nextChunk(ctx, chk)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	if chk.NumRows() == 0 {
-		return nil
-	}
-	limitRemain := int(e.limit - e.cursor)
-	if chk.NumRows() > limitRemain {
-		chk.TruncateTo(limitRemain)
-		e.cursor = e.limit
-	} else {
-		e.cursor += uint64(chk.NumRows())
-	}
-	return nil
-}
-
-func (e *limitExec) fieldTypes() []*types.FieldType {
-	return e.src.fieldTypes()
 }
 
 func hasColVal(data [][]byte, colIDs map[int64]int, id int64) bool {
@@ -1153,7 +790,10 @@ func decodeHandle(data []byte) (int64, error) {
 
 // cutRowToBuf cuts encoded row into byte slices.
 // Row layout: colID1, value1, colID2, value2, .....
-func cutRowToBuf(data []byte, colIDs map[int64]int, buf [][]byte) error {
+func cutRowToBuf(data []byte, colIDs map[int64]int, colsBuf [][]byte) error {
+	for i := range colsBuf {
+		colsBuf[i] = nil
+	}
 	if data == nil {
 		return nil
 	}
@@ -1174,7 +814,7 @@ func cutRowToBuf(data []byte, colIDs map[int64]int, buf [][]byte) error {
 		}
 		offset, ok := colIDs[int64(cid)]
 		if ok {
-			buf[offset] = b
+			colsBuf[offset] = b
 			cnt++
 		}
 	}

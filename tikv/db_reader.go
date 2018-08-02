@@ -101,6 +101,11 @@ func (r *DBReader) BatchGet(keys [][]byte, startTS uint64, f BatchGetFunc) {
 	return
 }
 
+// ScanBreak is returnd by ScanFunc to break the scan loop.
+var ScanBreak = errors.New("scan break")
+
+// ScanFunc accepts key and value, should not keep reference to them.
+// Returns ScanBreak will break the scan loop.
 type ScanFunc = func(key, value []byte) error
 
 func (r *DBReader) Scan(startKey, endKey []byte, limit int, startTS uint64, f ScanFunc) error {
@@ -132,6 +137,9 @@ func (r *DBReader) Scan(startKey, endKey []byte, limit int, startTS uint64, f Sc
 		}
 		err = f(key, mvVal.value)
 		if err != nil {
+			if err == ScanBreak {
+				break
+			}
 			return errors.Trace(err)
 		}
 		cnt++
@@ -175,7 +183,13 @@ func (r *DBReader) ReverseScan(startKey, endKey []byte, limit int, startTS uint6
 		if len(mvVal.value) == 0 {
 			continue
 		}
-		f(key, mvVal.value)
+		err = f(key, mvVal.value)
+		if err != nil {
+			if err == ScanBreak {
+				break
+			}
+			return errors.Trace(err)
+		}
 		cnt++
 		if cnt >= limit {
 			break
