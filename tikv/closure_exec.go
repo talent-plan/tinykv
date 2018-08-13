@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"github.com/juju/errors"
+	"github.com/ngaut/faketikv/rowcodec"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/model"
@@ -94,7 +95,12 @@ func (svr *Server) newClosureExecutor(dagCtx *dagContext, dagReq *tipb.DAGReques
 	}
 	e.kvRanges = ranges
 	e.scanCtx.chk = chunk.NewChunkWithCapacity(e.fieldTps, 32)
-	e.scanCtx.cols = make([][]byte, len(e.fieldTps))
+	if e.idxScanCtx == nil {
+		e.scanCtx.decoder, err = e.evalContext.newRowDecoder()
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+	}
 	return e, nil
 }
 
@@ -180,11 +186,11 @@ type closureExecutor struct {
 }
 
 type scanCtx struct {
-	count int
-	limit int
-	chk   *chunk.Chunk
-	cols  [][]byte
-	desc  bool
+	count   int
+	limit   int
+	chk     *chunk.Chunk
+	desc    bool
+	decoder *rowcodec.XRowDecoder
 }
 
 type idxScanCtx struct {
@@ -277,12 +283,14 @@ func (e *closureExecutor) countColumnProcess(key, value []byte) error {
 			e.rowCount++
 		}
 	} else {
-		err := cutRowToBuf(value, e.colIDs, e.scanCtx.cols)
+		// Since the handle value doesn't affect the count result, we don't need to decode the handle.
+		e.scanCtx.chk.Reset()
+		err := e.scanCtx.decoder.Decode(value, 0, e.scanCtx.chk)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		val := e.scanCtx.cols[e.aggCtx.colIdx]
-		if len(val) > 0 && val[0] != codec.NilFlag {
+		row := e.scanCtx.chk.GetRow(0)
+		if !row.IsNull(e.aggCtx.colIdx) {
 			e.rowCount++
 		}
 	}
@@ -306,29 +314,9 @@ func (e *closureExecutor) tableScanProcessCore(key, value []byte) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	err = cutRowToBuf(value, e.colIDs, e.scanCtx.cols)
+	err = e.scanCtx.decoder.Decode(value, handle, e.scanCtx.chk)
 	if err != nil {
 		return errors.Trace(err)
-	}
-	chk := e.scanCtx.chk
-	decoder := codec.NewDecoder(chk, e.sc.TimeZone)
-	for i, val := range e.scanCtx.cols {
-		col := e.columnInfos[i]
-		if val == nil {
-			if col.GetPkHandle() || col.ColumnId == model.ExtraHandleID {
-				e.scanCtx.chk.AppendInt64(i, handle)
-				continue
-			}
-			if len(col.DefaultVal) != 0 {
-				val = col.DefaultVal
-			} else {
-				val = []byte{codec.NilFlag}
-			}
-		}
-		_, err = decoder.DecodeOne(val, i, e.fieldTps[i])
-		if err != nil {
-			return errors.Trace(err)
-		}
 	}
 	return nil
 }

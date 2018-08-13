@@ -7,6 +7,7 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/juju/errors"
+	"github.com/ngaut/faketikv/rowcodec"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
@@ -373,6 +374,20 @@ func (e *evalContext) setColumnInfo(cols []*tipb.ColumnInfo) {
 		e.fieldTps = append(e.fieldTps, ft)
 		e.colIDs[col.GetColumnId()] = i
 	}
+}
+
+func (e *evalContext) newRowDecoder() (*rowcodec.XRowDecoder, error) {
+	colIDs := make([]int64, len(e.columnInfos))
+	defaultVals := make([][]byte, len(e.columnInfos))
+	var handleColID int64
+	for i, colInfo := range e.columnInfos {
+		colIDs[i] = colInfo.ColumnId
+		defaultVals[i] = colInfo.DefaultVal
+		if colInfo.PkHandle {
+			handleColID = colInfo.ColumnId
+		}
+	}
+	return rowcodec.NewXRowDecoder(colIDs, handleColID, e.fieldTps, defaultVals, e.sc.TimeZone)
 }
 
 // decodeRelatedColumnVals decodes data to Datum slice according to the row information.

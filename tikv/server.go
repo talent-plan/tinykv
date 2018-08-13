@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/juju/errors"
+	"github.com/ngaut/faketikv/rowcodec"
 	"github.com/ngaut/log"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
 	"github.com/pingcap/kvproto/pkg/errorpb"
@@ -165,6 +166,10 @@ func (svr *Server) KvGet(ctx context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb
 			Error: convertToKeyError(err),
 		}, nil
 	}
+	if rowcodec.IsRowKey(req.Key) {
+		log.Errorf("kv get key:%x val:%v", req.Key, val)
+		val, err = rowcodec.XRowToOldRow(val, nil)
+	}
 	return &kvrpcpb.GetResponse{
 		Value: val,
 	}, nil
@@ -189,7 +194,15 @@ func (svr *Server) KvScan(ctx context.Context, req *kvrpcpb.ScanRequest) (*kvrpc
 		return &kvrpcpb.ScanResponse{Pairs: []*kvrpcpb.KvPair{{Error: convertToKeyError(err)}}}, nil
 	}
 	var pairs []*kvrpcpb.KvPair
+	var buf []byte
 	var scanFunc ScanFunc = func(key, value []byte) error {
+		if rowcodec.IsRowKey(key) {
+			buf, err = rowcodec.XRowToOldRow(value, buf)
+			if err != nil {
+				return err
+			}
+			value = buf
+		}
 		pairs = append(pairs, &kvrpcpb.KvPair{
 			Key:   safeCopy(key),
 			Value: safeCopy(value),
@@ -277,8 +290,14 @@ func (svr *Server) KvBatchGet(ctx context.Context, req *kvrpcpb.BatchGetRequest)
 		return &kvrpcpb.BatchGetResponse{Pairs: []*kvrpcpb.KvPair{{Error: convertToKeyError(err)}}}, nil
 	}
 	pairs := make([]*kvrpcpb.KvPair, 0, len(req.Keys))
+	var buf []byte
 	batchGetFunc := func(key, value []byte, err error) {
 		if len(value) != 0 {
+			if rowcodec.IsRowKey(key) && err == nil {
+				log.Errorf("kv batch get key:%q val:%v", key, value)
+				buf, err = rowcodec.XRowToOldRow(value, buf)
+				value = buf
+			}
 			pairs = append(pairs, &kvrpcpb.KvPair{
 				Key:   safeCopy(key),
 				Value: safeCopy(value),

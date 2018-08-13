@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/juju/errors"
+	"github.com/ngaut/faketikv/rowcodec"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/kv"
@@ -726,7 +727,11 @@ func hasColVal(data [][]byte, colIDs map[int64]int, id int64) bool {
 
 // getRowData decodes raw byte slice to row data.
 func getRowData(columns []*tipb.ColumnInfo, colIDs map[int64]int, handle int64, value []byte) ([][]byte, error) {
-	values, err := tablecodec.CutRowNew(value, colIDs)
+	oldRow, err := rowcodec.XRowToOldRow(value, nil)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	values, err := tablecodec.CutRowNew(oldRow, colIDs)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

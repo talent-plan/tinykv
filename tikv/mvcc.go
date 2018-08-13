@@ -11,6 +11,7 @@ import (
 	"github.com/cznic/mathutil"
 	"github.com/juju/errors"
 	"github.com/ngaut/faketikv/lockstore"
+	"github.com/ngaut/faketikv/rowcodec"
 	"github.com/ngaut/log"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/tidb/util/codec"
@@ -122,6 +123,7 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 	lockBatch := newWriteLockBatch(reqCtx)
 	// Check the DB.
 	txn := reqCtx.getDBReader().txn
+	var buf []byte
 	for i, m := range mutations {
 		hasOldVer, err := store.checkPrewriteInDB(reqCtx, txn, m, startTS)
 		if err != nil {
@@ -129,6 +131,14 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 		}
 		errs[i] = err
 		if !anyError {
+			if rowcodec.IsRowKey(m.Key) && m.Op == kvrpcpb.Op_Put {
+				buf, err = rowcodec.OldRowToXRow(m.Value, buf)
+				if err != nil {
+					log.Errorf("err:%v m.Value:%v m.Key:%q m.Op:%d", err, m.Value, m.Key, m.Op)
+					return []error{err}
+				}
+				m.Value = buf
+			}
 			lock := mvccLock{
 				mvccLockHdr: mvccLockHdr{
 					startTS:    startTS,
