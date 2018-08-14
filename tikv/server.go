@@ -294,7 +294,6 @@ func (svr *Server) KvBatchGet(ctx context.Context, req *kvrpcpb.BatchGetRequest)
 	batchGetFunc := func(key, value []byte, err error) {
 		if len(value) != 0 {
 			if rowcodec.IsRowKey(key) && err == nil {
-				log.Errorf("kv batch get key:%q val:%v", key, value)
 				buf, err = rowcodec.XRowToOldRow(value, buf)
 				value = buf
 			}
