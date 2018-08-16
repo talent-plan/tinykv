@@ -727,7 +727,7 @@ func hasColVal(data [][]byte, colIDs map[int64]int, id int64) bool {
 
 // getRowData decodes raw byte slice to row data.
 func getRowData(columns []*tipb.ColumnInfo, colIDs map[int64]int, handle int64, value []byte) ([][]byte, error) {
-	oldRow, err := rowcodec.XRowToOldRow(value, nil)
+	oldRow, err := rowcodec.RowToOldRow(value, nil)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -791,39 +791,6 @@ func decodeHandle(data []byte) (int64, error) {
 	buf := bytes.NewBuffer(data)
 	err := binary.Read(buf, binary.BigEndian, &h)
 	return h, errors.Trace(err)
-}
-
-// cutRowToBuf cuts encoded row into byte slices.
-// Row layout: colID1, value1, colID2, value2, .....
-func cutRowToBuf(data []byte, colIDs map[int64]int, colsBuf [][]byte) error {
-	for i := range colsBuf {
-		colsBuf[i] = nil
-	}
-	if data == nil {
-		return nil
-	}
-	if len(data) == 1 && data[0] == codec.NilFlag {
-		return nil
-	}
-	var (
-		cnt int
-		b   []byte
-	)
-	for len(data) > 0 && cnt < len(colIDs) {
-		// Get col id.
-		remain, cid, err := codec.DecodeVarint(data[1:])
-		// Get col value.
-		b, data, err = codec.CutOne(remain)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		offset, ok := colIDs[int64(cid)]
-		if ok {
-			colsBuf[offset] = b
-			cnt++
-		}
-	}
-	return nil
 }
 
 type chkMutRow struct {

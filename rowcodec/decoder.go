@@ -12,19 +12,22 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 )
 
-// XRowDecoder decodes the row in new format to chunk.Chunk.
-type XRowDecoder struct {
-	XRow
-	schemaColIDs []int64
-	handleColID  int64
-	schemaTypes  []*types.FieldType
-	origDefaults [][]byte
-	loc          *time.Location
+// Decoder decodes the row to chunk.Chunk.
+type Decoder struct {
+	row
+	requestColIDs []int64
+	handleColID   int64
+	requestTypes  []*types.FieldType
+	origDefaults  [][]byte
+	loc           *time.Location
 }
 
-// NewXRowDecoder creates a NewXRowDecoder.
-func NewXRowDecoder(colIDs []int64, handleColID int64, tps []*types.FieldType, origDefaults [][]byte,
-	loc *time.Location) (*XRowDecoder, error) {
+// NewDecoder creates a NewDecoder.
+// requestColIDs is the columnIDs to decode. tps is the field types for request columns.
+// origDefault is the original default value in old format, if the column ID is not found in the row,
+// the origDefault will be used.
+func NewDecoder(requestColIDs []int64, handleColID int64, tps []*types.FieldType, origDefaults [][]byte,
+	loc *time.Location) (*Decoder, error) {
 	xOrigDefaultVals := make([][]byte, len(origDefaults))
 	for i := 0; i < len(origDefaults); i++ {
 		if len(origDefaults[i]) == 0 {
@@ -36,12 +39,12 @@ func NewXRowDecoder(colIDs []int64, handleColID int64, tps []*types.FieldType, o
 		}
 		xOrigDefaultVals[i] = xDefaultVal
 	}
-	return &XRowDecoder{
-		schemaColIDs: colIDs,
-		handleColID:  handleColID,
-		schemaTypes:  tps,
-		origDefaults: xOrigDefaultVals,
-		loc:          loc,
+	return &Decoder{
+		requestColIDs: requestColIDs,
+		handleColID:   handleColID,
+		requestTypes:  tps,
+		origDefaults:  xOrigDefaultVals,
+		loc:           loc,
 	}, nil
 }
 
@@ -55,26 +58,27 @@ func convertDefaultValue(defaultVal []byte) (colVal []byte, err error) {
 	case types.KindNull:
 		return nil, nil
 	case types.KindInt64:
-		return encodeInt(d.GetInt64()), nil
+		return encodeInt(nil, d.GetInt64()), nil
 	case types.KindUint64:
-		return encodeUint(d.GetUint64()), nil
+		return encodeUint(nil, d.GetUint64()), nil
 	case types.KindString, types.KindBytes:
 		return d.GetBytes(), nil
 	case types.KindFloat32:
-		return encodeUint(uint64(math.Float32bits(d.GetFloat32()))), nil
+		return encodeUint(nil, uint64(math.Float32bits(d.GetFloat32()))), nil
 	case types.KindFloat64:
-		return encodeUint(math.Float64bits(d.GetFloat64())), nil
+		return encodeUint(nil, math.Float64bits(d.GetFloat64())), nil
 	default:
 		return defaultVal[1:], nil
 	}
 }
 
-func (decoder *XRowDecoder) Decode(xRowData []byte, handle int64, chk *chunk.Chunk) error {
-	err := decoder.setRowData(xRowData)
+// Decode decodes a row to chunk.
+func (decoder *Decoder) Decode(rowData []byte, handle int64, chk *chunk.Chunk) error {
+	err := decoder.setRowData(rowData)
 	if err != nil {
 		return err
 	}
-	for colIdx, colID := range decoder.schemaColIDs {
+	for colIdx, colID := range decoder.requestColIDs {
 		if colID == decoder.handleColID {
 			chk.AppendInt64(colIdx, handle)
 			continue
@@ -140,8 +144,8 @@ func (decoder *XRowDecoder) Decode(xRowData []byte, handle int64, chk *chunk.Chu
 	return nil
 }
 
-func (decoder *XRowDecoder) decodeColData(colIdx int, colData []byte, chk *chunk.Chunk) error {
-	ft := decoder.schemaTypes[colIdx]
+func (decoder *Decoder) decodeColData(colIdx int, colData []byte, chk *chunk.Chunk) error {
+	ft := decoder.requestTypes[colIdx]
 	switch ft.Tp {
 	case mysql.TypeLonglong, mysql.TypeLong, mysql.TypeInt24, mysql.TypeShort, mysql.TypeTiny, mysql.TypeYear:
 		if mysql.HasUnsignedFlag(ft.Flag) {

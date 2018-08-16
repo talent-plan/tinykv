@@ -376,7 +376,7 @@ func (e *evalContext) setColumnInfo(cols []*tipb.ColumnInfo) {
 	}
 }
 
-func (e *evalContext) newRowDecoder() (*rowcodec.XRowDecoder, error) {
+func (e *evalContext) newRowDecoder() (*rowcodec.Decoder, error) {
 	colIDs := make([]int64, len(e.columnInfos))
 	defaultVals := make([][]byte, len(e.columnInfos))
 	var handleColID int64
@@ -387,7 +387,7 @@ func (e *evalContext) newRowDecoder() (*rowcodec.XRowDecoder, error) {
 			handleColID = colInfo.ColumnId
 		}
 	}
-	return rowcodec.NewXRowDecoder(colIDs, handleColID, e.fieldTps, defaultVals, e.sc.TimeZone)
+	return rowcodec.NewDecoder(colIDs, handleColID, e.fieldTps, defaultVals, e.sc.TimeZone)
 }
 
 // decodeRelatedColumnVals decodes data to Datum slice according to the row information.

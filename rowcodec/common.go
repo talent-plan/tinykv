@@ -25,8 +25,8 @@ const (
 	VarintFlag       byte = 8
 )
 
-// XRow is the struct type used to access the new row format.
-type XRow struct {
+// row is the struct type used to access the a row.
+type row struct {
 	// small:  colID []byte, offsets []uint16, optimized for most cases.
 	// large:  colID []uint32, offsets []uint32.
 	large          bool
@@ -46,7 +46,7 @@ type XRow struct {
 }
 
 // String implements the strings.Stringer interface.
-func (r XRow) String() string {
+func (r row) String() string {
 	var colValStrs []string
 	for i := 0; i < int(r.numNotNullCols); i++ {
 		var colID, offStart, offEnd int64
@@ -76,7 +76,7 @@ func (r XRow) String() string {
 	return strings.Join(colValStrs, ",")
 }
 
-func (r *XRow) getData(i int) []byte {
+func (r *row) getData(i int) []byte {
 	var start, end uint32
 	if r.large {
 		if i > 0 {
@@ -92,7 +92,7 @@ func (r *XRow) getData(i int) []byte {
 	return r.data[start:end]
 }
 
-func (r *XRow) setRowData(rowData []byte) error {
+func (r *row) setRowData(rowData []byte) error {
 	if rowData[0] != CodecVer {
 		return invalidCodecVer
 	}
@@ -169,19 +169,19 @@ func u32SliceToBytes(u32s []uint32) []byte {
 	return b
 }
 
-func encodeInt(iVal int64) []byte {
-	buf := make([]byte, 8)
+func encodeInt(buf []byte, iVal int64) []byte {
+	var tmp [8]byte
 	if int64(int8(iVal)) == iVal {
-		buf[0] = byte(iVal)
-		buf = buf[:1]
+		buf = append(buf, byte(iVal))
 	} else if int64(int16(iVal)) == iVal {
-		binary.LittleEndian.PutUint16(buf, uint16(iVal))
-		buf = buf[:2]
+		binary.LittleEndian.PutUint16(tmp[:], uint16(iVal))
+		buf = append(buf, tmp[:2]...)
 	} else if int64(int32(iVal)) == iVal {
-		binary.LittleEndian.PutUint32(buf, uint32(iVal))
-		buf = buf[:4]
+		binary.LittleEndian.PutUint32(tmp[:], uint32(iVal))
+		buf = append(buf, tmp[:4]...)
 	} else {
-		binary.LittleEndian.PutUint64(buf, uint64(iVal))
+		binary.LittleEndian.PutUint64(tmp[:], uint64(iVal))
+		buf = append(buf, tmp[:8]...)
 	}
 	return buf
 }
@@ -199,19 +199,19 @@ func decodeInt(val []byte) int64 {
 	}
 }
 
-func encodeUint(uVal uint64) []byte {
-	buf := make([]byte, 8)
+func encodeUint(buf []byte, uVal uint64) []byte {
+	var tmp [8]byte
 	if uint64(uint8(uVal)) == uVal {
-		buf[0] = byte(uVal)
-		buf = buf[:1]
+		buf = append(buf, byte(uVal))
 	} else if uint64(uint16(uVal)) == uVal {
-		binary.LittleEndian.PutUint16(buf, uint16(uVal))
-		buf = buf[:2]
+		binary.LittleEndian.PutUint16(tmp[:], uint16(uVal))
+		buf = append(buf, tmp[:2]...)
 	} else if uint64(uint32(uVal)) == uVal {
-		binary.LittleEndian.PutUint32(buf, uint32(uVal))
-		buf = buf[:4]
+		binary.LittleEndian.PutUint32(tmp[:], uint32(uVal))
+		buf = append(buf, tmp[:4]...)
 	} else {
-		binary.LittleEndian.PutUint64(buf, uint64(uVal))
+		binary.LittleEndian.PutUint64(tmp[:], uint64(uVal))
+		buf = append(buf, tmp[:8]...)
 	}
 	return buf
 }

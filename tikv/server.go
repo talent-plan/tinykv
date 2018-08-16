@@ -167,8 +167,7 @@ func (svr *Server) KvGet(ctx context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb
 		}, nil
 	}
 	if rowcodec.IsRowKey(req.Key) {
-		log.Errorf("kv get key:%x val:%v", req.Key, val)
-		val, err = rowcodec.XRowToOldRow(val, nil)
+		val, err = rowcodec.RowToOldRow(val, nil)
 	}
 	return &kvrpcpb.GetResponse{
 		Value: val,
@@ -197,7 +196,7 @@ func (svr *Server) KvScan(ctx context.Context, req *kvrpcpb.ScanRequest) (*kvrpc
 	var buf []byte
 	var scanFunc ScanFunc = func(key, value []byte) error {
 		if rowcodec.IsRowKey(key) {
-			buf, err = rowcodec.XRowToOldRow(value, buf)
+			buf, err = rowcodec.RowToOldRow(value, buf)
 			if err != nil {
 				return err
 			}
@@ -294,7 +293,7 @@ func (svr *Server) KvBatchGet(ctx context.Context, req *kvrpcpb.BatchGetRequest)
 	batchGetFunc := func(key, value []byte, err error) {
 		if len(value) != 0 {
 			if rowcodec.IsRowKey(key) && err == nil {
-				buf, err = rowcodec.XRowToOldRow(value, buf)
+				buf, err = rowcodec.RowToOldRow(value, buf)
 				value = buf
 			}
 			pairs = append(pairs, &kvrpcpb.KvPair{

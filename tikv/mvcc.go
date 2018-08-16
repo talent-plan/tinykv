@@ -124,6 +124,7 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 	// Check the DB.
 	txn := reqCtx.getDBReader().txn
 	var buf []byte
+	var enc rowcodec.Encoder
 	for i, m := range mutations {
 		hasOldVer, err := store.checkPrewriteInDB(reqCtx, txn, m, startTS)
 		if err != nil {
@@ -132,7 +133,7 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 		errs[i] = err
 		if !anyError {
 			if rowcodec.IsRowKey(m.Key) && m.Op == kvrpcpb.Op_Put {
-				buf, err = rowcodec.OldRowToXRow(m.Value, buf)
+				buf, err = enc.EncodeFromOldRow(m.Value, buf)
 				if err != nil {
 					log.Errorf("err:%v m.Value:%v m.Key:%q m.Op:%d", err, m.Value, m.Key, m.Op)
 					return []error{err}

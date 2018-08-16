@@ -190,7 +190,7 @@ type scanCtx struct {
 	limit   int
 	chk     *chunk.Chunk
 	desc    bool
-	decoder *rowcodec.XRowDecoder
+	decoder *rowcodec.Decoder
 }
 
 type idxScanCtx struct {

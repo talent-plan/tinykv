@@ -30,12 +30,10 @@ func (s *testSuite) TestRowCodec(c *C) {
 	oldRow, err := tablecodec.EncodeRow(sc, types.MakeDatums(1, 2, 3), colIDs, nil, nil)
 	c.Check(err, IsNil)
 
-	rb := new(XRowBuilder)
-	rb.SetOldRow(oldRow)
-
-	newRow, err := rb.Build(nil)
+	var rb Encoder
+	newRow, err := rb.EncodeFromOldRow(oldRow, nil)
 	c.Check(err, IsNil)
-	rd, err := NewXRowDecoder(colIDs, 0, tps, make([][]byte, 3), time.Local)
+	rd, err := NewDecoder(colIDs, 0, tps, make([][]byte, 3), time.Local)
 	c.Assert(err, IsNil)
 	chk := chunk.NewChunkWithCapacity(tps, 1)
 	err = rd.Decode(newRow, -1, chk)
@@ -43,5 +41,65 @@ func (s *testSuite) TestRowCodec(c *C) {
 	row := chk.GetRow(0)
 	for i := 0; i < 3; i++ {
 		c.Assert(row.GetInt64(i), Equals, int64(i)+1)
+	}
+}
+
+func BenchmarkEncode(b *testing.B) {
+	b.ReportAllocs()
+	oldRow := types.MakeDatums(1, "abc", 1.1)
+	var xb Encoder
+	var buf []byte
+	colIDs := []int64{1, 2, 3}
+	var err error
+	for i := 0; i < b.N; i++ {
+		buf, err = xb.Encode(colIDs, oldRow, buf)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkEncodeFromOldRow(b *testing.B) {
+	b.ReportAllocs()
+	oldRow := types.MakeDatums(1, "abc", 1.1)
+	oldRowData, err := tablecodec.EncodeRow(new(stmtctx.StatementContext), oldRow, []int64{1, 2, 3}, nil, nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+	var xb Encoder
+	var buf []byte
+	for i := 0; i < b.N; i++ {
+		buf, err = xb.EncodeFromOldRow(oldRowData, buf)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkDecode(b *testing.B) {
+	b.ReportAllocs()
+	oldRow := types.MakeDatums(1, "abc", 1.1)
+	colIDs := []int64{-1, 2, 3}
+	tps := []*types.FieldType{
+		types.NewFieldType(mysql.TypeLonglong),
+		types.NewFieldType(mysql.TypeString),
+		types.NewFieldType(mysql.TypeDouble),
+	}
+	var xb Encoder
+	xRowData, err := xb.Encode(colIDs, oldRow, nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+	decoder, err := NewDecoder(colIDs, -1, tps, make([][]byte, 3), time.Local)
+	if err != nil {
+		b.Fatal(err)
+	}
+	chk := chunk.NewChunkWithCapacity(tps, 1)
+	for i := 0; i < b.N; i++ {
+		chk.Reset()
+		err = decoder.Decode(xRowData, 1, chk)
+		if err != nil {
+			b.Fatal(err)
+		}
 	}
 }
