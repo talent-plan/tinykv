@@ -126,7 +126,7 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 	var buf []byte
 	var enc rowcodec.Encoder
 	for i, m := range mutations {
-		hasOldVer, err := store.checkPrewriteInDB(reqCtx, txn, m, startTS)
+		oldVal, err := store.checkPrewriteInDB(reqCtx, txn, m, startTS)
 		if err != nil {
 			anyError = true
 		}
@@ -144,12 +144,15 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 				mvccLockHdr: mvccLockHdr{
 					startTS:    startTS,
 					op:         uint8(m.Op),
-					hasOldVer:  hasOldVer,
+					hasOldVer:  oldVal.commitTS > 0,
 					ttl:        uint32(ttl),
 					primaryLen: uint16(len(primary)),
 				},
 				primary: primary,
 				value:   m.Value,
+			}
+			if oldVal.commitTS > 0 {
+				lock.oldVal = oldVal
 			}
 			lockBatch.set(m.Key, lock.MarshalBinary())
 		}
@@ -190,24 +193,24 @@ func (store *MVCCStore) checkPrewriteInLockStore(
 }
 
 // checkPrewrietInDB checks that there is no committed version greater than startTS or return write conflict error.
-// And it returns a bool value indicates if there is an old version.
+// And it returns the old version if there is one.
 func (store *MVCCStore) checkPrewriteInDB(
-	req *requestCtx, txn *badger.Txn, mutation *kvrpcpb.Mutation, startTS uint64) (hasOldVer bool, err error) {
+	req *requestCtx, txn *badger.Txn, mutation *kvrpcpb.Mutation, startTS uint64) (mvVal mvccValue, err error) {
 	item, err := txn.Get(mutation.Key)
 	if err != nil && err != badger.ErrKeyNotFound {
-		return false, errors.Trace(err)
+		return mvVal, errors.Trace(err)
 	}
 	if item == nil {
-		return false, nil
+		return mvVal, nil
 	}
-	mvVal, err := decodeValue(item)
+	mvVal, err = decodeValue(item)
 	if err != nil {
-		return false, errors.Trace(err)
+		return mvVal, errors.Trace(err)
 	}
 	if mvVal.commitTS > startTS {
-		return false, ErrRetryable("write conflict")
+		return mvVal, ErrRetryable("write conflict")
 	}
-	return true, nil
+	return mvVal, nil
 }
 
 const maxSystemTS uint64 = math.MaxUint64
@@ -225,8 +228,7 @@ func (store *MVCCStore) Commit(req *requestCtx, keys [][]byte, startTS, commitTS
 
 	var buf []byte
 	var tmpDiff int
-	needMove := make([]bool, len(keys))
-	for i, key := range keys {
+	for _, key := range keys {
 		buf = store.lockStore.Get(key, buf)
 		if len(buf) == 0 {
 			// We never commit partial keys in Commit request, so if one lock is not found,
@@ -240,34 +242,17 @@ func (store *MVCCStore) Commit(req *requestCtx, keys [][]byte, startTS, commitTS
 		if lock.op == uint8(kvrpcpb.Op_Lock) {
 			continue
 		}
-		needMove[i] = lock.hasOldVer
+
 		val := lockToValue(lock, commitTS)
 		commitVal := val.MarshalBinary()
 		tmpDiff += len(key) + len(commitVal)
 		dbBatch.set(key, commitVal)
+		if lock.hasOldVer {
+			oldKey := encodeOldKey(key, lock.oldVal.commitTS)
+			dbBatch.set(oldKey, lock.oldVal.MarshalBinary())
+		}
 	}
 	req.trace(eventReadLock)
-	// Move current latest to old.
-	txn := req.getDBReader().txn
-	for i, key := range keys {
-		if !needMove[i] {
-			continue
-		}
-		item, err := txn.Get(key)
-		if err != nil && err != badger.ErrKeyNotFound {
-			return errors.Trace(err)
-		}
-		if item == nil {
-			continue
-		}
-		mvVal, err := decodeValue(item)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		oldKey := encodeOldKey(key, mvVal.commitTS)
-		dbBatch.set(oldKey, mvVal.MarshalBinary())
-	}
-	req.trace(eventReadDB)
 	atomic.AddInt64(&regCtx.diff, int64(tmpDiff))
 	err := store.writeDB(dbBatch)
 	if err != nil {

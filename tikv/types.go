@@ -1,6 +1,7 @@
 package tikv
 
 import (
+	"encoding/binary"
 	"unsafe"
 
 	"github.com/coocood/badger"
@@ -54,9 +55,22 @@ func decodeValueTo(item *badger.Item, v *mvccValue) error {
 // decodeLock decodes data to lock, the primary and value is copied.
 func decodeLock(data []byte) (l mvccLock) {
 	l.mvccLockHdr = *(*mvccLockHdr)(unsafe.Pointer(&data[0]))
-	buf := append([]byte{}, data[mvccLockHdrSize:]...)
-	l.primary = buf[:l.primaryLen]
-	l.value = buf[l.primaryLen:]
+	cursor := mvccLockHdrSize
+	var oldValLen int
+	if l.hasOldVer {
+		oldValLen = int(binary.LittleEndian.Uint32(data[cursor:]))
+		cursor += 4
+	}
+	buf := append([]byte{}, data[cursor:]...)
+	oldOff := len(buf) - oldValLen
+	lockBuf := buf[:oldOff]
+	l.primary = lockBuf[:l.primaryLen]
+	l.value = lockBuf[l.primaryLen:]
+	if l.hasOldVer {
+		oldBuf := buf[oldOff:]
+		l.oldVal.mvccValueHdr = *(*mvccValueHdr)(unsafe.Pointer(&oldBuf[0]))
+		l.oldVal.value = oldBuf[mvccValueHdrSize:]
+	}
 	return
 }
 
@@ -82,15 +96,34 @@ type mvccLock struct {
 	mvccLockHdr
 	primary []byte
 	value   []byte
+	oldVal  mvccValue
 }
 
 // MarshalBinary implements encoding.BinaryMarshaler interface.
 func (l *mvccLock) MarshalBinary() []byte {
-	buf := make([]byte, mvccLockHdrSize+len(l.primary)+len(l.value))
+	lockLen := mvccLockHdrSize + len(l.primary) + len(l.value)
+	length := lockLen
+	if l.oldVal.commitTS > 0 {
+		length += 4 + mvccValueHdrSize + len(l.oldVal.value)
+	}
+	buf := make([]byte, length)
 	hdr := (*mvccLockHdr)(unsafe.Pointer(&buf[0]))
 	*hdr = l.mvccLockHdr
-	copy(buf[mvccLockHdrSize:], l.primary)
-	copy(buf[mvccLockHdrSize+int(l.primaryLen):], l.value)
+	cursor := mvccLockHdrSize
+	if l.hasOldVer {
+		binary.LittleEndian.PutUint32(buf[cursor:], uint32(mvccValueHdrSize+len(l.oldVal.value)))
+		cursor += 4
+	}
+	copy(buf[cursor:], l.primary)
+	cursor += len(l.primary)
+	copy(buf[cursor:], l.value)
+	cursor += len(l.value)
+	if l.hasOldVer {
+		oldValHdr := (*mvccValueHdr)(unsafe.Pointer(&buf[cursor]))
+		*oldValHdr = l.oldVal.mvccValueHdr
+		cursor += mvccValueHdrSize
+		copy(buf[cursor:], l.oldVal.value)
+	}
 	return buf
 }
 
