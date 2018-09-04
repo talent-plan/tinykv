@@ -143,9 +143,11 @@ func (w *writeDBWorker) run() {
 		w.mu.Lock()
 		batches, w.mu.batches = w.mu.batches, batches
 		w.mu.Unlock()
-		batchesGroups := w.splitBatches(batches)
-		for _, batchGroup := range batchesGroups {
-			w.updateBatchGroup(batchGroup)
+		if len(batches) > 0 {
+			batchesGroups := w.splitBatches(batches)
+			for _, batchGroup := range batchesGroups {
+				w.updateBatchGroup(batchGroup)
+			}
 		}
 	}
 }
