@@ -5,7 +5,7 @@ import (
 	"math"
 
 	"github.com/juju/errors"
-	"github.com/ngaut/faketikv/rowcodec"
+	"github.com/ngaut/unistore/rowcodec"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/model"

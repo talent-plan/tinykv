@@ -12,7 +12,7 @@ import (
 func (store *MVCCStore) NewDBReader(reqCtx *requestCtx) *DBReader {
 	return &DBReader{
 		reqCtx: reqCtx,
-		txn:    store.db.NewTransaction(false),
+		txn:    store.dbs[reqCtx.dbIdx].NewTransaction(false),
 	}
 }
 

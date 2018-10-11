@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/juju/errors"
-	"github.com/ngaut/faketikv/rowcodec"
 	"github.com/ngaut/log"
+	"github.com/ngaut/unistore/rowcodec"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
@@ -64,28 +64,7 @@ type requestCtx struct {
 	reader    *DBReader
 	method    string
 	startTime time.Time
-	traces    []traceItem
-}
-
-type traceItem struct {
-	event      string
-	sinceStart time.Duration
-}
-
-const (
-	eventReadLock       = ">RLock"
-	eventReadDB         = ">RDB"
-	eventBeginWriteLock = "<WLock"
-	eventEndWriteLock   = ">WLock"
-	eventBeginWriteDB   = "<WDB"
-	eventInWriteDB      = "=WDB"
-	eventEndWriteDB     = ">WDB"
-	eventAcquireLatches = ">Latch"
-	eventFinish         = ">Fin"
-)
-
-func (ti traceItem) String() string {
-	return ti.event + ":" + ti.sinceStart.String()
+	dbIdx     int
 }
 
 func newRequestCtx(svr *Server, ctx *kvrpcpb.Context, method string) (*requestCtx, error) {
@@ -98,27 +77,13 @@ func newRequestCtx(svr *Server, ctx *kvrpcpb.Context, method string) (*requestCt
 		svr:       svr,
 		method:    method,
 		startTime: time.Now(),
-		traces:    make([]traceItem, 0, 16),
 	}
 	req.regCtx, req.regErr = svr.regionManager.getRegionFromCtx(ctx)
 	if req.regErr != nil {
 		return req, nil
 	}
+	req.dbIdx = req.regCtx.getDBIdx()
 	return req, nil
-}
-
-func (req *requestCtx) trace(event string) {
-	req.traces = append(req.traces, traceItem{
-		event:      event,
-		sinceStart: time.Since(req.startTime),
-	})
-}
-
-func (req *requestCtx) traceAt(event string, t time.Time) {
-	req.traces = append(req.traces, traceItem{
-		event:      event,
-		sinceStart: t.Sub(req.startTime),
-	})
 }
 
 // For read-only requests that doesn't acquire latches, this function must be called after all locks has been checked.
@@ -129,8 +94,6 @@ func (req *requestCtx) getDBReader() *DBReader {
 	return req.reader
 }
 
-var LogTraceMS uint = 300
-
 func (req *requestCtx) finish() {
 	atomic.AddInt32(&req.svr.refCount, -1)
 	if req.reader != nil {
@@ -138,11 +101,6 @@ func (req *requestCtx) finish() {
 	}
 	if req.regCtx != nil {
 		req.regCtx.refCount.Done()
-	}
-	req.trace(eventFinish)
-	last := req.traces[len(req.traces)-1]
-	if last.sinceStart > time.Millisecond*time.Duration(LogTraceMS) {
-		log.Warnf("SLOW %s %#s", req.method, req.traces)
 	}
 }
 

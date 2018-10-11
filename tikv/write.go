@@ -86,12 +86,12 @@ func (batch *writeLockBatch) delete(key []byte) {
 	})
 }
 
-func (store *MVCCStore) writeDB(batch *writeDBBatch) error {
+func (store *MVCCStore) writeDB(batch *writeDBBatch, dbIdx int) error {
 	if len(batch.entries) == 0 {
 		return nil
 	}
 	batch.wg.Add(1)
-	w := store.writeDBWorker
+	w := store.writeDBWorkers[dbIdx]
 	w.mu.Lock()
 	w.mu.batches = append(w.mu.batches, batch)
 	w.mu.Unlock()
@@ -128,69 +128,41 @@ type writeDBWorker struct {
 	wakeUp  chan struct{}
 	closeCh <-chan struct{}
 	store   *MVCCStore
+	idx     int
 }
 
 func (w *writeDBWorker) run() {
 	defer w.store.wg.Done()
-	var batches []*writeDBBatch
 	for {
 		select {
 		case <-w.store.closeCh:
 			return
 		case <-w.wakeUp:
 		}
-		batches = batches[:0]
+		batches := make([]*writeDBBatch, 0, 128)
 		w.mu.Lock()
 		batches, w.mu.batches = w.mu.batches, batches
 		w.mu.Unlock()
 		if len(batches) > 0 {
-			batchesGroups := w.splitBatches(batches)
-			for _, batchGroup := range batchesGroups {
-				w.updateBatchGroup(batchGroup)
-			}
+			w.updateBatchGroup(batches)
 		}
 	}
-}
-
-func (w *writeDBWorker) splitBatches(batches []*writeDBBatch) [][]*writeDBBatch {
-	splitOffsets := []int{0}
-	var batchGroupEntries int
-	for i, batch := range batches {
-		batchGroupEntries += len(batch.entries)
-		if batchGroupEntries > 4<<10 || i == len(batches)-1 {
-			batchGroupEntries = 0
-			splitOffsets = append(splitOffsets, i+1)
-		}
-	}
-
-	batchGroups := make([][]*writeDBBatch, len(splitOffsets))
-	for i := 1; i < len(splitOffsets); i++ {
-		batchGroups[i] = batches[splitOffsets[i-1]:splitOffsets[i]]
-	}
-	return batchGroups
 }
 
 func (w *writeDBWorker) updateBatchGroup(batchGroup []*writeDBBatch) {
-	begin := time.Now()
-	var in time.Time
-	err := w.store.db.Update(func(txn *badger.Txn) error {
+	e := w.store.dbs[w.idx].Update(func(txn *badger.Txn) error {
 		for _, batch := range batchGroup {
 			for _, entry := range batch.entries {
 				err := txn.SetEntry(entry)
 				if err != nil {
-					return errors.Trace(err)
+					return err
 				}
 			}
 		}
-		in = time.Now()
 		return nil
 	})
-	end := time.Now()
 	for _, batch := range batchGroup {
-		batch.reqCtx.traceAt(eventBeginWriteDB, begin)
-		batch.reqCtx.traceAt(eventInWriteDB, in)
-		batch.reqCtx.traceAt(eventEndWriteDB, end)
-		batch.err = err
+		batch.err = e
 		batch.wg.Done()
 	}
 }
@@ -220,10 +192,6 @@ func (w *writeLockWorker) run() {
 		w.mu.Lock()
 		batches, w.mu.batches = w.mu.batches, batches
 		w.mu.Unlock()
-		begin := time.Now()
-		for _, batch := range batches {
-			batch.reqCtx.traceAt(eventBeginWriteLock, begin)
-		}
 		var delCnt, insertCnt int
 		for _, batch := range batches {
 			for _, entry := range batch.entries {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -12,8 +13,8 @@ import (
 
 	"github.com/coocood/badger"
 	"github.com/coocood/badger/options"
-	"github.com/ngaut/faketikv/tikv"
 	"github.com/ngaut/log"
+	"github.com/ngaut/unistore/tikv"
 	"github.com/pingcap/kvproto/pkg/tikvpb"
 	"google.golang.org/grpc"
 )
@@ -32,7 +33,6 @@ var (
 	numMemTables     = flag.Int("num-mem-tables", 3, "Maximum number of tables to keep in memory, before stalling.")
 	numL0Table       = flag.Int("num-level-zero-tables", 3, "Maximum number of Level 0 tables before we start compacting.")
 	syncWrites       = flag.Bool("sync-write", true, "Sync all writes to disk. Setting this to true would slow down data loading significantly.")
-	logTrace         = flag.Uint("log-trace", 300, "Prints trace log if the request duration is greater than this value in milliseconds.")
 	maxProcs         = flag.Int("max-procs", 0, "Max CPU cores to use, set 0 to use all CPU cores in the machine.")
 )
 
@@ -46,37 +46,18 @@ func main() {
 	log.Info("gitHash:", gitHash)
 	log.SetLevelByString(*logLevel)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
-	tikv.LogTraceMS = *logTrace
 	go http.ListenAndServe(*httpAddr, nil)
-
-	opts := badger.DefaultOptions
-	opts.ValueThreshold = *valThreshold
-	opts.Dir = *dbPath
-	if *vlogPath != "" {
-		opts.ValueDir = *vlogPath
-	} else {
-		opts.ValueDir = opts.Dir
-	}
-	if *tableLoadingMode == "memory-map" {
-		opts.TableLoadingMode = options.MemoryMap
-	}
-	opts.ValueLogLoadingMode = options.FileIO
-	opts.MaxTableSize = *maxTableSize
-	opts.NumMemtables = *numMemTables
-	opts.NumLevelZeroTables = *numL0Table
-	opts.NumLevelZeroTablesStall = opts.NumLevelZeroTables + 5
-	opts.SyncWrites = *syncWrites
-	db, err := badger.Open(opts)
-	if err != nil {
-		log.Fatal(err)
+	dbs := make([]*badger.DB, 8)
+	for i := 0; i < 8; i++ {
+		dbs[i] = createDB(i)
 	}
 	regionOpts := tikv.RegionOptions{
 		StoreAddr:  *storeAddr,
 		PDAddr:     *pdAddr,
 		RegionSize: *regionSize,
 	}
-	rm := tikv.NewRegionManager(db, regionOpts)
-	store := tikv.NewMVCCStore(db, opts.Dir)
+	rm := tikv.NewRegionManager(dbs, regionOpts)
+	store := tikv.NewMVCCStore(dbs, *dbPath)
 	tikvServer := tikv.NewServer(rm, store)
 
 	grpcServer := grpc.NewServer()
@@ -104,12 +85,40 @@ func main() {
 	} else {
 		log.Info("RegionManager closed.")
 	}
-	err = db.Close()
-	if err != nil {
-		log.Error(err)
-	} else {
-		log.Info("DB closed.")
+	for i, db := range dbs {
+		err = db.Close()
+		if err != nil {
+			log.Error(err)
+		} else {
+			log.Infof("DB%d closed.", i)
+		}
 	}
+}
+
+func createDB(idx int) *badger.DB {
+	subPath := fmt.Sprintf("/%d", idx)
+	opts := badger.DefaultOptions
+	opts.ValueThreshold = *valThreshold
+	opts.Dir = *dbPath + subPath
+	if *vlogPath != "" {
+		opts.ValueDir = *vlogPath + subPath
+	} else {
+		opts.ValueDir = opts.Dir
+	}
+	if *tableLoadingMode == "memory-map" {
+		opts.TableLoadingMode = options.MemoryMap
+	}
+	opts.ValueLogLoadingMode = options.FileIO
+	opts.MaxTableSize = *maxTableSize
+	opts.NumMemtables = *numMemTables
+	opts.NumLevelZeroTables = *numL0Table
+	opts.NumLevelZeroTablesStall = opts.NumLevelZeroTables + 5
+	opts.SyncWrites = *syncWrites
+	db, err := badger.Open(opts)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return db
 }
 
 func handleSignal(grpcServer *grpc.Server) {

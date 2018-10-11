@@ -300,7 +300,7 @@ var defaultStmtCtx = &stmtctx.StatementContext{
 
 const (
 	rowKeyLen       = 19
-	recordPrefixIdx = 10
+	recordPrefixIdx = 1
 )
 
 func IsRowKey(key []byte) bool {
