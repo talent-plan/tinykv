@@ -1,0 +1,63 @@
+required = ["github.com/pingcap/tidb/parser/goyacc"]
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/coocood/badger"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/cznic/mathutil"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/dgryski/go-farm"
+
+[[constraint]]
+  name = "github.com/golang/protobuf"
+  version = "1.2.0"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/juju/errors"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/ngaut/log"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/pingcap/check"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/pingcap/kvproto"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/pingcap/tidb"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/pingcap/tipb"
+
+[[constraint]]
+  name = "github.com/stretchr/testify"
+  version = "1.2.2"
+
+[[constraint]]
+  branch = "master"
+  name = "golang.org/x/net"
+
+[[constraint]]
+  name = "google.golang.org/grpc"
+  source = "https://github.com/grpc/grpc-go.git"
+  version = "=1.12.2"
+
+[[override]]
+  name = "github.com/pkg/errors"
+  source = "https://github.com/pingcap/errors.git"
+
+[prune]
+  go-tests = true
+  unused-packages = true
+  non-go = true

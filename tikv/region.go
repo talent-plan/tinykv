@@ -388,7 +388,7 @@ func (rm *RegionManager) getRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *er
 		}
 	}
 	// Region epoch does not match.
-	if *ri.meta.GetRegionEpoch() != *ctx.GetRegionEpoch() {
+	if rm.isEpochStale(ri.meta.GetRegionEpoch(), ctx.GetRegionEpoch()) {
 		ri.refCount.Done()
 		return nil, &errorpb.Error{
 			Message: "stale epoch",
@@ -408,6 +408,10 @@ func (rm *RegionManager) getRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *er
 		atomic.StorePointer(&ptr, nil)
 	}
 	return ri, nil
+}
+
+func (rm *RegionManager) isEpochStale(lhs, rhs *metapb.RegionEpoch) bool {
+	return lhs.GetConfVer() != rhs.GetConfVer() || lhs.GetVersion() != rhs.GetVersion()
 }
 
 type keySample struct {
