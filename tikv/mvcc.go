@@ -137,7 +137,7 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 		}
 		errs[i] = err
 		if !anyError {
-			if rowcodec.IsRowKey(m.Key) && m.Op == kvrpcpb.Op_Put {
+			if isRowKey(m.Key) && m.Op == kvrpcpb.Op_Put {
 				buf, err = enc.EncodeFromOldRow(m.Value, buf)
 				if err != nil {
 					log.Errorf("err:%v m.Value:%v m.Key:%q m.Op:%d", err, m.Value, m.Key, m.Op)

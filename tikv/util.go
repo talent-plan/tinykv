@@ -2,6 +2,7 @@ package tikv
 
 import (
 	"bytes"
+	"github.com/ngaut/unistore/rowcodec"
 	"time"
 
 	"github.com/dgryski/go-farm"
@@ -41,4 +42,11 @@ func keysToHashVals(keys ...[]byte) []uint64 {
 
 func safeCopy(b []byte) []byte {
 	return append([]byte{}, b...)
+}
+
+func isRowKey(key []byte) bool {
+	if IsShardingEnabled() {
+		return rowcodec.IsRowKeyWithShardByte(key)
+	}
+	return rowcodec.IsRowKey(key)
 }

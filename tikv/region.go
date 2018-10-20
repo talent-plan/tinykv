@@ -157,13 +157,16 @@ func (ri *regionCtx) releaseLatches(hashVals []uint64) {
 }
 
 func (ri *regionCtx) getDBIdx() int {
+	if !IsShardingEnabled() {
+		return 0
+	}
 	startKey := ri.startKey
 	if len(startKey) > 2 && startKey[0] == 't' {
 		shardByte := startKey[2]
 		if startKey[1] == 'i' {
 			return int(shardByte) % 2
 		} else {
-			return 2 + int(shardByte) % 2
+			return 2 + int(shardByte)%2
 		}
 	}
 	return 0
@@ -195,7 +198,7 @@ func NewRegionManager(dbs []*badger.DB, opts RegionOptions) *RegionManager {
 	clusterID := pdc.GetClusterID(context.TODO())
 	log.Infof("cluster id %v", clusterID)
 	rm := &RegionManager{
-		dbs:         dbs,
+		dbs:        dbs,
 		pdc:        pdc,
 		clusterID:  clusterID,
 		regions:    make(map[uint64]*regionCtx),
@@ -300,18 +303,23 @@ func (rm *RegionManager) initialSplit(root *metapb.Region) {
 	root.EndKey = codec.EncodeBytes(nil, []byte{'m'})
 	root.RegionEpoch.Version = 2
 	rm.regions[root.Id] = newRegionCtx(root, nil)
-	preSplitStartKeys := [][]byte{
-		{'m'},
-		{'n'},
-		{'t', 'i', 0},
-		{'t', 'i', 64},
-		{'t', 'i', 128},
-		{'t', 'i', 192},
-		{'t', 'r', 0},
-		{'t', 'r', 64},
-		{'t', 'r', 128},
-		{'t', 'r', 192},
-		{'u'},
+	var preSplitStartKeys [][]byte
+	if IsShardingEnabled() {
+		preSplitStartKeys = [][]byte{
+			{'m'},
+			{'n'},
+			{'t', 'i', 0},
+			{'t', 'i', 64},
+			{'t', 'i', 128},
+			{'t', 'i', 192},
+			{'t', 'r', 0},
+			{'t', 'r', 64},
+			{'t', 'r', 128},
+			{'t', 'r', 192},
+			{'u'},
+		}
+	} else {
+		preSplitStartKeys = [][]byte{{'m'}, {'n'}, {'t'}, {'u'}}
 	}
 	ids, err := rm.allocIDs(len(preSplitStartKeys) * 2)
 	if err != nil {
