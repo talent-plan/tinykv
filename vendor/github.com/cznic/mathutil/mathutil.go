@@ -7,7 +7,9 @@
 //
 // Release history and compatibility issues
 //
-// 2018-04-25: New functions for determing Max/Min of nullable values. Ex:
+// 2018-10-21 Added BinaryLog
+//
+// 2018-04-25: New functions for determinig Max/Min of nullable values. Ex:
 //  func MaxPtr(a, b *int) *int {
 //  func MinPtr(a, b *int) *int {
 //  func MaxBytePtr(a, b *byte) *byte {

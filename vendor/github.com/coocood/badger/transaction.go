@@ -266,17 +266,6 @@ func (txn *Txn) SetWithMeta(key, val []byte, meta byte) error {
 	return txn.SetEntry(e)
 }
 
-// SetWithDiscard acts like SetWithMeta, but adds a marker to discard earlier versions of the key.
-func (txn *Txn) SetWithDiscard(key, val []byte, meta byte) error {
-	e := &Entry{
-		Key:      key,
-		Value:    val,
-		UserMeta: meta,
-		meta:     bitDiscardEarlierVersions,
-	}
-	return txn.SetEntry(e)
-}
-
 func (txn *Txn) modify(e *Entry) error {
 	if !txn.update {
 		return ErrReadOnlyTxn

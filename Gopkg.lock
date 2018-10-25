@@ -27,7 +27,7 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:f70e7f9d5cb7dc220a58ba455b2b75d78ca6888693eb6945c3bce3e53c4c2a89"
+  digest = "1:ae192e7bbb44668a91a2bb4b21eef833f58067b1876699585539bf71ded182d3"
   name = "github.com/coocood/badger"
   packages = [
     ".",
@@ -38,7 +38,7 @@
     "y",
   ]
   pruneopts = "NUT"
-  revision = "e7aa61729e3d5901ea828ed17a3cb8f9cf47f259"
+  revision = "18ab1b5524621cc1b9d882508c59aafbb1a4f2a0"
 
 [[projects]]
   branch = "master"
@@ -66,27 +66,11 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:1dbf961dda292dad9331aa764e8e082ba60f5a414ee8d95f6ce052360f9f1a15"
-  name = "github.com/cznic/golex"
-  packages = ["lex"]
-  pruneopts = "NUT"
-  revision = "4ab7c5e190e49208c823ce8ec803aa39e6a4b31a"
-
-[[projects]]
-  branch = "master"
-  digest = "1:bc6296bc26efac31fbf5b832f38bbd4be92a16ace77687723e55919b3059d0e3"
+  digest = "1:be5b97b5b5da2224556c71b7d38f1206cedbd88ca51703b6122c2aaa1dd2fae4"
   name = "github.com/cznic/mathutil"
   packages = ["."]
   pruneopts = "NUT"
-  revision = "ca4c9f2c136954238c3158b92de72078c7672ecc"
-
-[[projects]]
-  branch = "master"
-  digest = "1:a7e4a0d213c4c29e79a0da8fe9d16bbcedce561763ff643bff252ea14260f61c"
-  name = "github.com/cznic/parser"
-  packages = ["yacc"]
-  pruneopts = "NUT"
-  revision = "31edd927e5b19d1c4a260c41a397e7f81d6694d9"
+  revision = "eba54fb065b72d838b4b3481c6056998ead55e74"
 
 [[projects]]
   branch = "master"
@@ -95,22 +79,6 @@
   packages = ["."]
   pruneopts = "NUT"
   revision = "4c7342852e65c2088c981288f2c5610d10b9f7f4"
-
-[[projects]]
-  branch = "master"
-  digest = "1:05b40f15f27bc75792a9e6cad8ddf35fb2b170daacd2ae99bbcaf65d4aef3d96"
-  name = "github.com/cznic/strutil"
-  packages = ["."]
-  pruneopts = "NUT"
-  revision = "529a34b1c186b483642a7a230c67521d9aa4b0fb"
-
-[[projects]]
-  branch = "master"
-  digest = "1:564a3207fa20f4ed57a5176157c968e5023b6fb1d1f3dd07e061812162da53a1"
-  name = "github.com/cznic/y"
-  packages = ["."]
-  pruneopts = "NUT"
-  revision = "045f81c6662a943978e456166b7f30f13f633313"
 
 [[projects]]
   digest = "1:ffe9824d294da03b391f44e1ae8281281b4afc1bdaa9588c9097785e3af10cec"
@@ -216,6 +184,14 @@
   revision = "1c287c953996ab3a0bf535dba9d53d809d3dc0b6"
 
 [[projects]]
+  digest = "1:4b96ce0f151b10c52b1d6876c179e9a6d2329f98939c4cf8148daaf27f981413"
+  name = "github.com/pingcap/errors"
+  packages = ["."]
+  pruneopts = "NUT"
+  revision = "1176802fff62540cc87d289bd40c52a2d6b2ea16"
+  version = "v0.11.0"
+
+[[projects]]
   branch = "master"
   digest = "1:8fd099a567b1e9b3a7e1f66d8547a0d2b1852427e86a0dae96fa59e9583e13e6"
   name = "github.com/pingcap/goleveldb"
@@ -238,7 +214,7 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:b7e6317186aaf9c7a71714982a1f1c99d91f67ce9c463cde89c7d3c79859731c"
+  digest = "1:1278edf5985be7e95478507d5786005ac4364bc67afde8281cee800a68218043"
   name = "github.com/pingcap/kvproto"
   packages = [
     "pkg/coprocessor",
@@ -251,14 +227,32 @@
     "pkg/tikvpb",
   ]
   pruneopts = "NUT"
-  revision = "0ba3ca8a6e3775accbe4bdf844162cd7685dafe2"
+  revision = "e662f0da2dddda2201e808017c45dd3126403f89"
 
 [[projects]]
   branch = "master"
-  digest = "1:d347f2e09fb019b7d2ef573b6ccf2bc4804b6391b9e856bc6415b1a8f56c1526"
+  digest = "1:5c94c36f7291e82207aff9f34fcdf0382a7d7d78a85a7d21f30ee1b54637d843"
+  name = "github.com/pingcap/parser"
+  packages = [
+    ".",
+    "ast",
+    "auth",
+    "charset",
+    "format",
+    "model",
+    "mysql",
+    "opcode",
+    "terror",
+    "types",
+  ]
+  pruneopts = "NUT"
+  revision = "53ac409ed043f89a850043d2440aaaa7dd863a1c"
+
+[[projects]]
+  branch = "unistore"
+  digest = "1:e23ecf3fee07da6a05bafc7ea0c0459d89a350dec4d7237ea556bb1f71a2a876"
   name = "github.com/pingcap/tidb"
   packages = [
-    "ast",
     "config",
     "ddl/util",
     "expression",
@@ -268,12 +262,7 @@
     "meta",
     "meta/autoid",
     "metrics",
-    "model",
-    "mysql",
     "owner",
-    "parser",
-    "parser/goyacc",
-    "parser/opcode",
     "perfschema",
     "privilege",
     "sessionctx",
@@ -285,17 +274,15 @@
     "table",
     "table/tables",
     "tablecodec",
-    "terror",
     "types",
     "types/json",
+    "types/parser_driver",
     "util",
-    "util/auth",
-    "util/charset",
     "util/chunk",
     "util/codec",
+    "util/disjointset",
     "util/encrypt",
     "util/execdetails",
-    "util/format",
     "util/hack",
     "util/israce",
     "util/kvcache",
@@ -310,7 +297,8 @@
     "util/timeutil",
   ]
   pruneopts = "NUT"
-  revision = "1730798019727fbed90617dd749349727ac8c79a"
+  revision = "d9d631f4c10ec80c32d77136fad2d249e7923c88"
+  source = "https://github.com/bobotu/tidb.git"
 
 [[projects]]
   branch = "master"
@@ -325,13 +313,13 @@
   revision = "11e33c750323a0267a6aee335eaaeb7831bdae67"
 
 [[projects]]
-  digest = "1:677ff2ee188099669fbecf583de8c23111020adee48d71a6f60c733f6b2fea7a"
+  digest = "1:4b96ce0f151b10c52b1d6876c179e9a6d2329f98939c4cf8148daaf27f981413"
   name = "github.com/pkg/errors"
   packages = ["."]
   pruneopts = "NUT"
-  revision = "31ffda8a65b0f910c6d65f1fef40e761fd606384"
+  revision = "1176802fff62540cc87d289bd40c52a2d6b2ea16"
   source = "https://github.com/pingcap/errors.git"
-  version = "v0.10.1"
+  version = "v0.11.0"
 
 [[projects]]
   digest = "1:0028cb19b2e4c3112225cd871870f2d9cf49b9b4276531f03438a88e94be86fe"
@@ -359,7 +347,7 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:712c7be114f13d52202e440ef99d6ff810fdf9e41e3e3f7bfbbfa6bd13985d5a"
+  digest = "1:06375f3b602de9c99fa99b8484f0e949fd5273e6e9c6592b5a0dd4cd9085f3ea"
   name = "github.com/prometheus/common"
   packages = [
     "expfmt",
@@ -367,7 +355,7 @@
     "model",
   ]
   pruneopts = "NUT"
-  revision = "bcb74de08d37a417cb6789eec1d6c810040f0470"
+  revision = "7e9e6cabbd393fc208072eedef99188d0ce788b6"
 
 [[projects]]
   branch = "master"
@@ -381,6 +369,14 @@
   ]
   pruneopts = "NUT"
   revision = "185b4288413d2a0dd0806f78c90dde719829e5ae"
+
+[[projects]]
+  branch = "master"
+  digest = "1:e3eeca4ba9d81b6356de2fd9dd18268e4dfc701af55ad1d11e1e2e4d87342afd"
+  name = "github.com/remyoudompheng/bigfft"
+  packages = ["."]
+  pruneopts = "NUT"
+  revision = "52369c62f4463a21c8ff8531194c5526322b8521"
 
 [[projects]]
   digest = "1:4c173651d2deb815a0420aeb1b3f7ca3c4aef2d980ba164a501a53f6abf368ef"
@@ -464,15 +460,15 @@
     "trace",
   ]
   pruneopts = "NUT"
-  revision = "49bb7cea24b1df9410e1712aa6433dae904ff66a"
+  revision = "9b4f9f5ad5197c79fd623a3638e70d8b26cef344"
 
 [[projects]]
   branch = "master"
-  digest = "1:e1e75018db0765a0ac54aa7f9473417a7db770c75c9527b4bfff03d2e55f0a0a"
+  digest = "1:80947d9ae9919af170f738a8bf17bfbd0779597fdffd10092a77fa6d6410c9be"
   name = "golang.org/x/sys"
   packages = ["unix"]
   pruneopts = "NUT"
-  revision = "fa43e7bc11baaae89f3f902b2b4d832b68234844"
+  revision = "d989b31c87461dc8ab2f1cac6792814e27fadea9"
 
 [[projects]]
   digest = "1:f896505f33fdf5f120d202901ffcafef36c4ff5da2f1ac1aa09c9a51143ac535"
@@ -517,7 +513,7 @@
     "googleapis/rpc/status",
   ]
   pruneopts = "NUT"
-  revision = "af9cb2a35e7f169ec875002c1829c9b315cddc04"
+  revision = "94acd270e44e65579b9ee3cdab25034d33fed608"
 
 [[projects]]
   digest = "1:7cd8d3d0020bbbe235958c87a2c042c4a8505e401b6e0496880990228fc34f4b"
@@ -581,21 +577,20 @@
     "github.com/pingcap/kvproto/pkg/metapb",
     "github.com/pingcap/kvproto/pkg/pdpb",
     "github.com/pingcap/kvproto/pkg/tikvpb",
-    "github.com/pingcap/tidb/ast",
+    "github.com/pingcap/parser/ast",
+    "github.com/pingcap/parser/charset",
+    "github.com/pingcap/parser/model",
+    "github.com/pingcap/parser/mysql",
+    "github.com/pingcap/parser/terror",
     "github.com/pingcap/tidb/expression",
     "github.com/pingcap/tidb/expression/aggregation",
     "github.com/pingcap/tidb/kv",
-    "github.com/pingcap/tidb/model",
-    "github.com/pingcap/tidb/mysql",
-    "github.com/pingcap/tidb/parser/goyacc",
     "github.com/pingcap/tidb/sessionctx",
     "github.com/pingcap/tidb/sessionctx/stmtctx",
     "github.com/pingcap/tidb/statistics",
     "github.com/pingcap/tidb/tablecodec",
-    "github.com/pingcap/tidb/terror",
     "github.com/pingcap/tidb/types",
     "github.com/pingcap/tidb/types/json",
-    "github.com/pingcap/tidb/util/charset",
     "github.com/pingcap/tidb/util/chunk",
     "github.com/pingcap/tidb/util/codec",
     "github.com/pingcap/tidb/util/mock",

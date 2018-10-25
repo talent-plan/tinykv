@@ -133,10 +133,6 @@ func (item *Item) IsDeleted() bool {
 	return isDeleted(item.meta)
 }
 
-func (item *Item) DiscardEarlierVersions() bool {
-	return item.meta&bitDiscardEarlierVersions > 0
-}
-
 func (item *Item) yieldItemValue(dst []byte) ([]byte, error) {
 	if !item.hasValue() {
 		return nil, nil

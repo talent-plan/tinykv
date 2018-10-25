@@ -414,9 +414,6 @@ func encodeVarintCoprocessor(dAtA []byte, offset int, v uint64) int {
 	return offset + 1
 }
 func (m *KeyRange) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	l = len(m.Start)
@@ -434,9 +431,6 @@ func (m *KeyRange) Size() (n int) {
 }
 
 func (m *Request) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Context != nil {
@@ -463,9 +457,6 @@ func (m *Request) Size() (n int) {
 }
 
 func (m *Response) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	l = m.Data.Size()

@@ -41,9 +41,8 @@ var _ grpc.ClientConn
 // is compatible with the grpc package it is being compiled against.
 const _ = grpc.SupportPackageIsVersion4
 
-// TikvClient is the client API for Tikv service.
-//
-// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
+// Client API for Tikv service
+
 type TikvClient interface {
 	// KV commands with mvcc/txn supported.
 	KvGet(ctx context.Context, in *kvrpcpb.GetRequest, opts ...grpc.CallOption) (*kvrpcpb.GetResponse, error)
@@ -425,7 +424,8 @@ func (c *tikvClient) MvccGetByStartTs(ctx context.Context, in *kvrpcpb.MvccGetBy
 	return out, nil
 }
 
-// TikvServer is the server API for Tikv service.
+// Server API for Tikv service
+
 type TikvServer interface {
 	// KV commands with mvcc/txn supported.
 	KvGet(context.Context, *kvrpcpb.GetRequest) (*kvrpcpb.GetResponse, error)

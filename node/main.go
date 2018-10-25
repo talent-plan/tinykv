@@ -34,7 +34,7 @@ var (
 	numL0Table       = flag.Int("num-level-zero-tables", 3, "Maximum number of Level 0 tables before we start compacting.")
 	syncWrites       = flag.Bool("sync-write", true, "Sync all writes to disk. Setting this to true would slow down data loading significantly.")
 	maxProcs         = flag.Int("max-procs", 0, "Max CPU cores to use, set 0 to use all CPU cores in the machine.")
-	shardKey         = flag.Bool("shard-key", false, "Enable shard key support. (need specified TiDB branch)")
+	shardKey         = flag.Bool("shard-key", true, "Enable shard key support. (need specified TiDB branch)")
 )
 
 var (

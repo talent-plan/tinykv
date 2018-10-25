@@ -178,4 +178,32 @@ var (
 			Name:      "region_cache_operations_total",
 			Help:      "Counter of region cache.",
 		}, []string{LblType, LblResult})
+
+	FakeTiKVLatencyHistogram = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "tidb",
+			Subsystem: "faketikv",
+			Name:      "latency",
+			Help:      "different type of latency in faketikv",
+			Buckets:   prometheus.ExponentialBuckets(0.00001, 2, 20),
+		}, []string{LblType},
+	)
+
+	FakeTiKVCompactionHistogram = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "tidb",
+			Subsystem: "faketikv",
+			Name:      "compaction_duration",
+			Help:      "different level of compaction duration in faketikv",
+			Buckets:   prometheus.ExponentialBuckets(0.1, 1.25, 20),
+		}, []string{LblType},
+	)
+	FakeTiKVCompactionGauge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "tidb",
+			Subsystem: "faketikv",
+			Name:      "compaction_gauge",
+			Help:      "running compactions",
+		}, []string{LblType},
+	)
 )

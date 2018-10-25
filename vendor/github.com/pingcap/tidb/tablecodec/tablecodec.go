@@ -17,12 +17,13 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
+	"math/bits"
 	"time"
 
+	"github.com/pingcap/parser/mysql"
+	"github.com/pingcap/parser/terror"
 	"github.com/pingcap/tidb/kv"
-	"github.com/pingcap/tidb/mysql"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
-	"github.com/pingcap/tidb/terror"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pkg/errors"
@@ -37,16 +38,15 @@ var (
 
 var (
 	tablePrefix     = []byte{'t'}
-	recordPrefixSep = []byte("_r")
-	indexPrefixSep  = []byte("_i")
+	recordPrefix    = []byte("tr")
+	indexPrefix     = []byte("ti")
 )
 
 const (
 	idLen                 = 8
-	prefixLen             = 1 + idLen /*tableID*/ + 2
+	prefixLen             = 1 /* 't' */ + 1 /* 'i' or 'r' */ + 1 /* shard id */ + idLen /*tableID*/
 	recordRowKeyLen       = prefixLen + idLen /*handle*/
-	tablePrefixLength     = 1
-	recordPrefixSepLength = 2
+	tableIDOffset         = 3
 )
 
 // TableSplitKeyLen is the length of key 't{table_id}' which is used for table split.
@@ -91,7 +91,7 @@ func hasTablePrefix(key kv.Key) bool {
 }
 
 func hasRecordPrefixSep(key kv.Key) bool {
-	return key[0] == recordPrefixSep[0] && key[1] == recordPrefixSep[1]
+	return key[0] == recordPrefix[0] && key[1] == recordPrefix[1]
 }
 
 // DecodeRecordKey decodes the key and gets the tableID, handle.
@@ -101,21 +101,16 @@ func DecodeRecordKey(key kv.Key) (tableID int64, handle int64, err error) {
 	}
 
 	k := key
-	if !hasTablePrefix(key) {
+	if !hasRecordPrefixSep(key) {
 		return 0, 0, errInvalidRecordKey.GenWithStack("invalid record key - %q", k)
 	}
 
-	key = key[tablePrefixLength:]
+	key = key[tableIDOffset:]
 	key, tableID, err = codec.DecodeInt(key)
 	if err != nil {
 		return 0, 0, errors.Trace(err)
 	}
 
-	if !hasRecordPrefixSep(key) {
-		return 0, 0, errInvalidRecordKey.GenWithStack("invalid record key - %q", k)
-	}
-
-	key = key[recordPrefixSepLength:]
 	key, handle, err = codec.DecodeInt(key)
 	if err != nil {
 		return 0, 0, errors.Trace(err)
@@ -157,28 +152,19 @@ func DecodeIndexKey(key kv.Key) (tableID int64, indexID int64, indexValues []str
 func DecodeKeyHead(key kv.Key) (tableID int64, indexID int64, isRecordKey bool, err error) {
 	isRecordKey = false
 	k := key
-	if !key.HasPrefix(tablePrefix) {
+	if key.HasPrefix(recordPrefix) {
+		isRecordKey = true
+	} else if !key.HasPrefix(indexPrefix) {
 		err = errInvalidKey.GenWithStack("invalid key - %q", k)
 		return
 	}
 
-	key = key[len(tablePrefix):]
+	key = key[tableIDOffset:]
 	key, tableID, err = codec.DecodeInt(key)
 	if err != nil {
 		err = errors.Trace(err)
 		return
 	}
-
-	if key.HasPrefix(recordPrefixSep) {
-		isRecordKey = true
-		return
-	}
-	if !key.HasPrefix(indexPrefixSep) {
-		err = errInvalidKey.GenWithStack("invalid key - %q", k)
-		return
-	}
-
-	key = key[len(indexPrefixSep):]
 
 	key, indexID, err = codec.DecodeInt(key)
 	if err != nil {
@@ -193,7 +179,7 @@ func DecodeTableID(key kv.Key) int64 {
 	if !key.HasPrefix(tablePrefix) {
 		return 0
 	}
-	key = key[len(tablePrefix):]
+	key = key[tableIDOffset:]
 	_, tableID, err := codec.DecodeInt(key)
 	// TODO: return error.
 	terror.Log(errors.Trace(err))
@@ -202,7 +188,7 @@ func DecodeTableID(key kv.Key) int64 {
 
 // DecodeRowKey decodes the key and gets the handle.
 func DecodeRowKey(key kv.Key) (int64, error) {
-	if len(key) != recordRowKeyLen || !hasTablePrefix(key) || !hasRecordPrefixSep(key[prefixLen-2:]) {
+	if len(key) != recordRowKeyLen || !hasRecordPrefixSep(key) {
 		return 0, errInvalidKey.GenWithStack("invalid key - %q", key)
 	}
 	u := binary.BigEndian.Uint64(key[prefixLen:])
@@ -475,7 +461,7 @@ func unflatten(datum types.Datum, ft *types.FieldType, loc *time.Location) (type
 // EncodeIndexSeekKey encodes an index value to kv.Key.
 func EncodeIndexSeekKey(tableID int64, idxID int64, encodedValue []byte) kv.Key {
 	key := make([]byte, 0, prefixLen+len(encodedValue))
-	key = appendTableIndexPrefix(key, tableID)
+	key = appendTableIndexPrefix(key, tableID, idxID)
 	key = codec.EncodeInt(key, idxID)
 	key = append(key, encodedValue...)
 	return key
@@ -523,7 +509,7 @@ func CutIndexKeyNew(key kv.Key, length int) (values [][]byte, b []byte, err erro
 // EncodeTableIndexPrefix encodes index prefix with tableID and idxID.
 func EncodeTableIndexPrefix(tableID, idxID int64) kv.Key {
 	key := make([]byte, 0, prefixLen)
-	key = appendTableIndexPrefix(key, tableID)
+	key = appendTableIndexPrefix(key, tableID, idxID)
 	key = codec.EncodeInt(key, idxID)
 	return key
 }
@@ -531,24 +517,24 @@ func EncodeTableIndexPrefix(tableID, idxID int64) kv.Key {
 // EncodeTablePrefix encodes table prefix with table ID.
 func EncodeTablePrefix(tableID int64) kv.Key {
 	var key kv.Key
-	key = append(key, tablePrefix...)
-	key = codec.EncodeInt(key, tableID)
+	// TODO: this breaks DeleteRange so that index will not be deleted.
+	key = appendTableRecordPrefix(key, tableID)
 	return key
 }
 
 // appendTableRecordPrefix appends table record prefix  "t[tableID]_r".
 func appendTableRecordPrefix(buf []byte, tableID int64) []byte {
-	buf = append(buf, tablePrefix...)
+	buf = append(buf, recordPrefix...)
+	buf = append(buf, bits.Reverse8(byte(tableID))) // shard byte
 	buf = codec.EncodeInt(buf, tableID)
-	buf = append(buf, recordPrefixSep...)
 	return buf
 }
 
 // appendTableIndexPrefix appends table index prefix  "t[tableID]_i".
-func appendTableIndexPrefix(buf []byte, tableID int64) []byte {
-	buf = append(buf, tablePrefix...)
+func appendTableIndexPrefix(buf []byte, tableID, indexID int64) []byte {
+	buf = append(buf, indexPrefix...)
+	buf = append(buf, bits.Reverse8(byte(tableID+indexID))) // Shard byte
 	buf = codec.EncodeInt(buf, tableID)
-	buf = append(buf, indexPrefixSep...)
 	return buf
 }
 
@@ -558,21 +544,15 @@ func ReplaceRecordKeyTableID(buf []byte, tableID int64) []byte {
 		return buf
 	}
 
-	u := codec.EncodeIntToCmpUint(tableID)
+	u := bits.Reverse64(uint64(tableID))
 	binary.BigEndian.PutUint64(buf[len(tablePrefix):], u)
 	return buf
 }
 
-// GenTableRecordPrefix composes record prefix with tableID: "t[tableID]_r".
+// GenTableRecordPrefix composes record prefix with tableID: "tr[shard][tableID]".
 func GenTableRecordPrefix(tableID int64) kv.Key {
-	buf := make([]byte, 0, len(tablePrefix)+8+len(recordPrefixSep))
+	buf := make([]byte, 0, tableIDOffset + 8)
 	return appendTableRecordPrefix(buf, tableID)
-}
-
-// GenTableIndexPrefix composes index prefix with tableID: "t[tableID]_i".
-func GenTableIndexPrefix(tableID int64) kv.Key {
-	buf := make([]byte, 0, len(tablePrefix)+8+len(indexPrefixSep))
-	return appendTableIndexPrefix(buf, tableID)
 }
 
 // GenTablePrefix composes table record and index prefix: "t[tableID]".

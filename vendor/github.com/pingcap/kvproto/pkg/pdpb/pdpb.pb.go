@@ -3492,9 +3492,8 @@ var _ grpc.ClientConn
 // is compatible with the grpc package it is being compiled against.
 const _ = grpc.SupportPackageIsVersion4
 
-// PDClient is the client API for PD service.
-//
-// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
+// Client API for PD service
+
 type PDClient interface {
 	// GetMembers get the member list of this cluster. It does not require
 	// the cluster_id in request matchs the id of this cluster.
@@ -3806,7 +3805,8 @@ func (x *pDSyncRegionsClient) Recv() (*SyncRegionResponse, error) {
 	return m, nil
 }
 
-// PDServer is the server API for PD service.
+// Server API for PD service
+
 type PDServer interface {
 	// GetMembers get the member list of this cluster. It does not require
 	// the cluster_id in request matchs the id of this cluster.
@@ -6747,9 +6747,6 @@ func encodeVarintPdpb(dAtA []byte, offset int, v uint64) int {
 	return offset + 1
 }
 func (m *RequestHeader) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.ClusterId != 0 {
@@ -6762,9 +6759,6 @@ func (m *RequestHeader) Size() (n int) {
 }
 
 func (m *ResponseHeader) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.ClusterId != 0 {
@@ -6781,9 +6775,6 @@ func (m *ResponseHeader) Size() (n int) {
 }
 
 func (m *Error) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Type != 0 {
@@ -6800,9 +6791,6 @@ func (m *Error) Size() (n int) {
 }
 
 func (m *TsoRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -6819,9 +6807,6 @@ func (m *TsoRequest) Size() (n int) {
 }
 
 func (m *Timestamp) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Physical != 0 {
@@ -6837,9 +6822,6 @@ func (m *Timestamp) Size() (n int) {
 }
 
 func (m *TsoResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -6860,9 +6842,6 @@ func (m *TsoResponse) Size() (n int) {
 }
 
 func (m *BootstrapRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -6884,9 +6863,6 @@ func (m *BootstrapRequest) Size() (n int) {
 }
 
 func (m *BootstrapResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -6900,9 +6876,6 @@ func (m *BootstrapResponse) Size() (n int) {
 }
 
 func (m *IsBootstrappedRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -6916,9 +6889,6 @@ func (m *IsBootstrappedRequest) Size() (n int) {
 }
 
 func (m *IsBootstrappedResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -6935,9 +6905,6 @@ func (m *IsBootstrappedResponse) Size() (n int) {
 }
 
 func (m *AllocIDRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -6951,9 +6918,6 @@ func (m *AllocIDRequest) Size() (n int) {
 }
 
 func (m *AllocIDResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -6970,9 +6934,6 @@ func (m *AllocIDResponse) Size() (n int) {
 }
 
 func (m *GetStoreRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -6989,9 +6950,6 @@ func (m *GetStoreRequest) Size() (n int) {
 }
 
 func (m *GetStoreResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7009,9 +6967,6 @@ func (m *GetStoreResponse) Size() (n int) {
 }
 
 func (m *PutStoreRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7029,9 +6984,6 @@ func (m *PutStoreRequest) Size() (n int) {
 }
 
 func (m *PutStoreResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7045,9 +6997,6 @@ func (m *PutStoreResponse) Size() (n int) {
 }
 
 func (m *GetAllStoresRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7061,9 +7010,6 @@ func (m *GetAllStoresRequest) Size() (n int) {
 }
 
 func (m *GetAllStoresResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7083,9 +7029,6 @@ func (m *GetAllStoresResponse) Size() (n int) {
 }
 
 func (m *GetRegionRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7103,9 +7046,6 @@ func (m *GetRegionRequest) Size() (n int) {
 }
 
 func (m *GetRegionResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7127,9 +7067,6 @@ func (m *GetRegionResponse) Size() (n int) {
 }
 
 func (m *GetRegionByIDRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7146,9 +7083,6 @@ func (m *GetRegionByIDRequest) Size() (n int) {
 }
 
 func (m *GetClusterConfigRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7162,9 +7096,6 @@ func (m *GetClusterConfigRequest) Size() (n int) {
 }
 
 func (m *GetClusterConfigResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7182,9 +7113,6 @@ func (m *GetClusterConfigResponse) Size() (n int) {
 }
 
 func (m *PutClusterConfigRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7202,9 +7130,6 @@ func (m *PutClusterConfigRequest) Size() (n int) {
 }
 
 func (m *PutClusterConfigResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7218,9 +7143,6 @@ func (m *PutClusterConfigResponse) Size() (n int) {
 }
 
 func (m *Member) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	l = len(m.Name)
@@ -7252,9 +7174,6 @@ func (m *Member) Size() (n int) {
 }
 
 func (m *GetMembersRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7268,9 +7187,6 @@ func (m *GetMembersRequest) Size() (n int) {
 }
 
 func (m *GetMembersResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7298,9 +7214,6 @@ func (m *GetMembersResponse) Size() (n int) {
 }
 
 func (m *PeerStats) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Peer != nil {
@@ -7317,9 +7230,6 @@ func (m *PeerStats) Size() (n int) {
 }
 
 func (m *RegionHeartbeatRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7375,9 +7285,6 @@ func (m *RegionHeartbeatRequest) Size() (n int) {
 }
 
 func (m *ChangePeer) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Peer != nil {
@@ -7394,9 +7301,6 @@ func (m *ChangePeer) Size() (n int) {
 }
 
 func (m *TransferLeader) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Peer != nil {
@@ -7410,9 +7314,6 @@ func (m *TransferLeader) Size() (n int) {
 }
 
 func (m *Merge) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Target != nil {
@@ -7426,9 +7327,6 @@ func (m *Merge) Size() (n int) {
 }
 
 func (m *SplitRegion) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Policy != 0 {
@@ -7441,9 +7339,6 @@ func (m *SplitRegion) Size() (n int) {
 }
 
 func (m *RegionHeartbeatResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7484,9 +7379,6 @@ func (m *RegionHeartbeatResponse) Size() (n int) {
 }
 
 func (m *AskSplitRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7504,9 +7396,6 @@ func (m *AskSplitRequest) Size() (n int) {
 }
 
 func (m *AskSplitResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7530,9 +7419,6 @@ func (m *AskSplitResponse) Size() (n int) {
 }
 
 func (m *ReportSplitRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7554,9 +7440,6 @@ func (m *ReportSplitRequest) Size() (n int) {
 }
 
 func (m *ReportSplitResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7570,9 +7453,6 @@ func (m *ReportSplitResponse) Size() (n int) {
 }
 
 func (m *AskBatchSplitRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7593,9 +7473,6 @@ func (m *AskBatchSplitRequest) Size() (n int) {
 }
 
 func (m *SplitID) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.NewRegionId != 0 {
@@ -7615,9 +7492,6 @@ func (m *SplitID) Size() (n int) {
 }
 
 func (m *AskBatchSplitResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7637,9 +7511,6 @@ func (m *AskBatchSplitResponse) Size() (n int) {
 }
 
 func (m *ReportBatchSplitRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7659,9 +7530,6 @@ func (m *ReportBatchSplitRequest) Size() (n int) {
 }
 
 func (m *ReportBatchSplitResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7675,9 +7543,6 @@ func (m *ReportBatchSplitResponse) Size() (n int) {
 }
 
 func (m *TimeInterval) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.StartTimestamp != 0 {
@@ -7693,9 +7558,6 @@ func (m *TimeInterval) Size() (n int) {
 }
 
 func (m *StoreStats) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.StoreId != 0 {
@@ -7751,9 +7613,6 @@ func (m *StoreStats) Size() (n int) {
 }
 
 func (m *StoreHeartbeatRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7771,9 +7630,6 @@ func (m *StoreHeartbeatRequest) Size() (n int) {
 }
 
 func (m *StoreHeartbeatResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7787,9 +7643,6 @@ func (m *StoreHeartbeatResponse) Size() (n int) {
 }
 
 func (m *ScatterRegionRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7814,9 +7667,6 @@ func (m *ScatterRegionRequest) Size() (n int) {
 }
 
 func (m *ScatterRegionResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7830,9 +7680,6 @@ func (m *ScatterRegionResponse) Size() (n int) {
 }
 
 func (m *GetGCSafePointRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7846,9 +7693,6 @@ func (m *GetGCSafePointRequest) Size() (n int) {
 }
 
 func (m *GetGCSafePointResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7865,9 +7709,6 @@ func (m *GetGCSafePointResponse) Size() (n int) {
 }
 
 func (m *UpdateGCSafePointRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7884,9 +7725,6 @@ func (m *UpdateGCSafePointRequest) Size() (n int) {
 }
 
 func (m *UpdateGCSafePointResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7903,9 +7741,6 @@ func (m *UpdateGCSafePointResponse) Size() (n int) {
 }
 
 func (m *SyncRegionRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {
@@ -7923,9 +7758,6 @@ func (m *SyncRegionRequest) Size() (n int) {
 }
 
 func (m *SyncRegionResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Header != nil {

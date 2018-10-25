@@ -1,5 +1,3 @@
-required = ["github.com/pingcap/tidb/parser/goyacc"]
-
 [[constraint]]
   branch = "master"
   name = "github.com/coocood/badger"
@@ -33,8 +31,9 @@ required = ["github.com/pingcap/tidb/parser/goyacc"]
   name = "github.com/pingcap/kvproto"
 
 [[constraint]]
-  branch = "master"
+  branch = "unistore"
   name = "github.com/pingcap/tidb"
+  source = "https://github.com/bobotu/tidb.git"
 
 [[constraint]]
   branch = "master"

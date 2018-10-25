@@ -70,7 +70,6 @@ func (itr *blockIterator) loadEntryEndOffsets() {
 
 // Seek brings us to the first block element that is >= input key.
 func (itr *blockIterator) seek(key []byte) {
-	itr.err = nil
 	foundEntryIdx := sort.Search(len(itr.entryEndOffsets), func(idx int) bool {
 		itr.setIdx(idx)
 		return y.CompareKeys(itr.key, key) >= 0
@@ -80,13 +79,11 @@ func (itr *blockIterator) seek(key []byte) {
 
 // seekToFirst brings us to the first element. Valid should return true.
 func (itr *blockIterator) seekToFirst() {
-	itr.err = nil
 	itr.setIdx(0)
 }
 
 // seekToLast brings us to the last element. Valid should return true.
 func (itr *blockIterator) seekToLast() {
-	itr.err = nil
 	itr.setIdx(len(itr.entryEndOffsets) - 1)
 }
 
@@ -102,22 +99,24 @@ func (itr *blockIterator) setIdx(i int) {
 	if i > 0 {
 		startOffset = int(itr.entryEndOffsets[i-1])
 	}
+
+	if len(itr.baseKey) == 0 {
+		var baseHeader header
+		baseHeader.Decode(itr.data)
+		itr.baseKey = itr.data[headerSize : headerSize+baseHeader.diffLen]
+	}
+
 	endOffset := int(itr.entryEndOffsets[i])
 	entryData := itr.data[startOffset:endOffset]
 	var h header
 	h.Decode(entryData)
-	if len(itr.baseKey) == 0 {
-		var baseHeader header
-		baseHeader.Decode(itr.data)
-		itr.baseKey = itr.data[headerSize : headerSize+baseHeader.klen]
+	if h.baseLen > itr.keyPrefixLen {
+		itr.key = append(itr.key[:0], itr.baseKey[:h.baseLen]...)
 	}
-	if h.plen > itr.keyPrefixLen {
-		itr.key = append(itr.key[:0], itr.baseKey[:h.plen]...)
-	}
-	itr.keyPrefixLen = h.plen
-	valueOff := headerSize + int(h.klen)
+	itr.keyPrefixLen = h.baseLen
+	valueOff := headerSize + int(h.diffLen)
 	diffKey := entryData[headerSize:valueOff]
-	itr.key = append(itr.key[:h.plen], diffKey...)
+	itr.key = append(itr.key[:h.baseLen], diffKey...)
 	itr.val = entryData[valueOff:]
 }
 

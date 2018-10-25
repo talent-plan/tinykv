@@ -35,6 +35,7 @@ var (
 	ValidStorage = map[string]bool{
 		"mocktikv": true,
 		"tikv":     true,
+		"faketikv": true,
 	}
 	// checkTableBeforeDrop enable to execute `admin check table` before `drop table`.
 	CheckTableBeforeDrop = false
@@ -47,6 +48,7 @@ type Config struct {
 	Host             string          `toml:"host" json:"host"`
 	AdvertiseAddress string          `toml:"advertise-address" json:"advertise-address"`
 	Port             uint            `toml:"port" json:"port"`
+	Cors             string          `toml:"cors" json:"cors"`
 	Store            string          `toml:"store" json:"store"`
 	Path             string          `toml:"path" json:"path"`
 	Socket           string          `toml:"socket" json:"socket"`
@@ -71,6 +73,7 @@ type Config struct {
 	OpenTracing         OpenTracing       `toml:"opentracing" json:"opentracing"`
 	ProxyProtocol       ProxyProtocol     `toml:"proxy-protocol" json:"proxy-protocol"`
 	TiKVClient          TiKVClient        `toml:"tikv-client" json:"tikv-client"`
+	FakeTiKV            FakeTiKV          `toml:"faketikv" json:"faketikv"`
 	Binlog              Binlog            `toml:"binlog" json:"binlog"`
 	CompatibleKillQuery bool              `toml:"compatible-kill-query" json:"compatible-kill-query"`
 }
@@ -248,10 +251,21 @@ type Binlog struct {
 	IgnoreError bool `toml:"ignore-error" json:"ignore-error"`
 }
 
+// FakeTiKV is the config for faketikv storage.
+type FakeTiKV struct {
+	NumCompactors  int   `toml:"num-compactors" json:"num-compactors"`
+	ValueThreshold int   `toml:"value-threshold" json:"value-threshold"`
+	MemTableSize   int64 `toml:"mem-table-size" json:"mem-table-size"`
+	IdxDBs         int   `toml:"idx-dbs" json:"idx-dbs"`
+	RowDBs         int   `toml:"row-dbs" json:"row-dbs"`
+	SyncWrites     bool  `toml:"sync-writes" json:"sync-writes"`
+}
+
 var defaultConf = Config{
 	Host:             "0.0.0.0",
 	AdvertiseAddress: "",
 	Port:             4000,
+	Cors:             "",
 	Store:            "mocktikv",
 	Path:             "/tmp/tidb",
 	RunDDL:           true,
@@ -318,6 +332,14 @@ var defaultConf = Config{
 		GrpcKeepAliveTime:    10,
 		GrpcKeepAliveTimeout: 3,
 		CommitTimeout:        "41s",
+	},
+	FakeTiKV: FakeTiKV{
+		NumCompactors:  3,
+		ValueThreshold: 256,
+		MemTableSize:   64,
+		IdxDBs:         2,
+		RowDBs:         2,
+		SyncWrites:     false,
 	},
 	Binlog: Binlog{
 		WriteTimeout: "15s",

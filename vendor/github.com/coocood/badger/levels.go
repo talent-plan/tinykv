@@ -361,7 +361,7 @@ func (s *levelsController) compactBuildTables(
 				// versions which are below the minReadTs, otherwise, we might end up discarding the
 				// only valid version for a running transaction.
 				numVersions++
-				lastValidVersion := vs.Meta&bitDiscardEarlierVersions > 0
+				lastValidVersion := vs.Meta > 0
 				if isDeleted(vs.Meta) ||
 					numVersions > s.kv.opt.NumVersionsToKeep ||
 					lastValidVersion {

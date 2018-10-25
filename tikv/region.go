@@ -3,6 +3,7 @@ package tikv
 import (
 	"bytes"
 	"encoding/binary"
+	"math/bits"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -156,17 +157,19 @@ func (ri *regionCtx) releaseLatches(hashVals []uint64) {
 	wg.Done()
 }
 
+var (
+	NumIndexDBs = 2
+	NumRowDBs   = 2
+)
+
 func (ri *regionCtx) getDBIdx() int {
-	if !IsShardingEnabled() {
-		return 0
-	}
 	startKey := ri.startKey
 	if len(startKey) > 2 && startKey[0] == 't' {
 		shardByte := startKey[2]
 		if startKey[1] == 'i' {
-			return int(shardByte) % 2
+			return int(bits.Reverse8(shardByte)) % NumIndexDBs
 		} else {
-			return 2 + int(shardByte)%2
+			return 4 + int(bits.Reverse8(shardByte))%NumRowDBs
 		}
 	}
 	return 0

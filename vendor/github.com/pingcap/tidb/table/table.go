@@ -18,12 +18,12 @@
 package table
 
 import (
+	"github.com/pingcap/parser/model"
+	"github.com/pingcap/parser/mysql"
+	"github.com/pingcap/parser/terror"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta/autoid"
-	"github.com/pingcap/tidb/model"
-	"github.com/pingcap/tidb/mysql"
 	"github.com/pingcap/tidb/sessionctx"
-	"github.com/pingcap/tidb/terror"
 	"github.com/pingcap/tidb/types"
 )
 
@@ -115,9 +115,6 @@ type Table interface {
 
 	// RecordPrefix returns the record key prefix.
 	RecordPrefix() kv.Key
-
-	// IndexPrefix returns the index key prefix.
-	IndexPrefix() kv.Key
 
 	// FirstKey returns the first key.
 	FirstKey() kv.Key

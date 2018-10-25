@@ -71,9 +71,3 @@ func (txn *Txn) CommitAt(commitTs uint64) error {
 	txn.commitTs = commitTs
 	return txn.Commit()
 }
-
-// GetSequence is not supported on ManagedDB. Calling this would result
-// in a panic.
-func (db *ManagedDB) GetSequence(_ []byte, _ uint64) (*Sequence, error) {
-	panic("Cannot use GetSequence for ManagedDB.")
-}

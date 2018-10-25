@@ -917,9 +917,6 @@ func encodeVarintErrorpb(dAtA []byte, offset int, v uint64) int {
 	return offset + 1
 }
 func (m *NotLeader) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.RegionId != 0 {
@@ -936,9 +933,6 @@ func (m *NotLeader) Size() (n int) {
 }
 
 func (m *StoreNotMatch) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.XXX_unrecognized != nil {
@@ -948,9 +942,6 @@ func (m *StoreNotMatch) Size() (n int) {
 }
 
 func (m *RegionNotFound) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.RegionId != 0 {
@@ -963,9 +954,6 @@ func (m *RegionNotFound) Size() (n int) {
 }
 
 func (m *KeyNotInRegion) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	l = len(m.Key)
@@ -990,9 +978,6 @@ func (m *KeyNotInRegion) Size() (n int) {
 }
 
 func (m *StaleEpoch) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if len(m.NewRegions) > 0 {
@@ -1008,9 +993,6 @@ func (m *StaleEpoch) Size() (n int) {
 }
 
 func (m *ServerIsBusy) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	l = len(m.Reason)
@@ -1027,9 +1009,6 @@ func (m *ServerIsBusy) Size() (n int) {
 }
 
 func (m *StaleCommand) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.XXX_unrecognized != nil {
@@ -1039,9 +1018,6 @@ func (m *StaleCommand) Size() (n int) {
 }
 
 func (m *RaftEntryTooLarge) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.RegionId != 0 {
@@ -1057,9 +1033,6 @@ func (m *RaftEntryTooLarge) Size() (n int) {
 }
 
 func (m *Error) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	l = len(m.Message)

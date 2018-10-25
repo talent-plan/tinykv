@@ -1422,9 +1422,6 @@ func encodeVarintRaftServerpb(dAtA []byte, offset int, v uint64) int {
 	return offset + 1
 }
 func (m *RaftMessage) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.RegionId != 0 {
@@ -1468,9 +1465,6 @@ func (m *RaftMessage) Size() (n int) {
 }
 
 func (m *RaftTruncatedState) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Index != 0 {
@@ -1486,9 +1480,6 @@ func (m *RaftTruncatedState) Size() (n int) {
 }
 
 func (m *SnapshotCFFile) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	l = len(m.Cf)
@@ -1508,9 +1499,6 @@ func (m *SnapshotCFFile) Size() (n int) {
 }
 
 func (m *SnapshotMeta) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if len(m.CfFiles) > 0 {
@@ -1526,9 +1514,6 @@ func (m *SnapshotMeta) Size() (n int) {
 }
 
 func (m *SnapshotChunk) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Message != nil {
@@ -1546,9 +1531,6 @@ func (m *SnapshotChunk) Size() (n int) {
 }
 
 func (m *Done) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.XXX_unrecognized != nil {
@@ -1558,9 +1540,6 @@ func (m *Done) Size() (n int) {
 }
 
 func (m *KeyValue) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	l = len(m.Key)
@@ -1578,9 +1557,6 @@ func (m *KeyValue) Size() (n int) {
 }
 
 func (m *RaftSnapshotData) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Region != nil {
@@ -1610,9 +1586,6 @@ func (m *RaftSnapshotData) Size() (n int) {
 }
 
 func (m *StoreIdent) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.ClusterId != 0 {
@@ -1628,9 +1601,6 @@ func (m *StoreIdent) Size() (n int) {
 }
 
 func (m *RaftLocalState) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.HardState != nil {
@@ -1647,9 +1617,6 @@ func (m *RaftLocalState) Size() (n int) {
 }
 
 func (m *RaftApplyState) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.AppliedIndex != 0 {
@@ -1666,9 +1633,6 @@ func (m *RaftApplyState) Size() (n int) {
 }
 
 func (m *MergeState) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.MinIndex != 0 {
@@ -1688,9 +1652,6 @@ func (m *MergeState) Size() (n int) {
 }
 
 func (m *RegionLocalState) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.State != 0 {

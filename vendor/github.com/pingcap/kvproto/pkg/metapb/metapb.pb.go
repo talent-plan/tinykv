@@ -712,9 +712,6 @@ func encodeVarintMetapb(dAtA []byte, offset int, v uint64) int {
 	return offset + 1
 }
 func (m *Cluster) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Id != 0 {
@@ -730,9 +727,6 @@ func (m *Cluster) Size() (n int) {
 }
 
 func (m *StoreLabel) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	l = len(m.Key)
@@ -750,9 +744,6 @@ func (m *StoreLabel) Size() (n int) {
 }
 
 func (m *Store) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Id != 0 {
@@ -782,9 +773,6 @@ func (m *Store) Size() (n int) {
 }
 
 func (m *RegionEpoch) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.ConfVer != 0 {
@@ -800,9 +788,6 @@ func (m *RegionEpoch) Size() (n int) {
 }
 
 func (m *Region) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Id != 0 {
@@ -833,9 +818,6 @@ func (m *Region) Size() (n int) {
 }
 
 func (m *Peer) Size() (n int) {
-	if m == nil {
-		return 0
-	}
 	var l int
 	_ = l
 	if m.Id != 0 {

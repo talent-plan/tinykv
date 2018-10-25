@@ -28,8 +28,8 @@ import (
 const restartInterval = 256 // Might want to change this to be based on total size instead of numKeys.
 
 type header struct {
-	plen uint16 // Overlap with base key.
-	klen uint16 // Length of the diff.
+	baseLen uint16 // Overlap with base key.
+	diffLen uint16 // Length of the diff.
 }
 
 // Encode encodes the header.
@@ -115,8 +115,8 @@ func (b *Builder) addHelper(key []byte, v y.ValueStruct) {
 	}
 
 	h := header{
-		plen: uint16(len(key) - len(diffKey)),
-		klen: uint16(len(diffKey)),
+		baseLen: uint16(len(key) - len(diffKey)),
+		diffLen: uint16(len(diffKey)),
 	}
 	b.buf = append(b.buf, h.Encode()...)
 	b.buf = append(b.buf, diffKey...) // We only need to store the key difference.
