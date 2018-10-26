@@ -138,6 +138,19 @@ func (c *Chunk) MakeRef(srcColIdx, dstColIdx int) {
 	c.columns[dstColIdx] = c.columns[srcColIdx]
 }
 
+func (c *Chunk) ProjectColumns(offsets []int) *Chunk {
+	nc := &Chunk{
+		columns:        make([]*column, len(offsets)),
+		numVirtualRows: c.numVirtualRows,
+		capacity:       c.capacity,
+	}
+	for i, off := range offsets {
+		nc.columns[i] = c.columns[off]
+	}
+
+	return nc
+}
+
 // SwapColumn swaps column "c.columns[colIdx]" with column
 // "other.columns[otherIdx]". If there exists columns refer to the column to be
 // swapped, we need to re-build the reference.

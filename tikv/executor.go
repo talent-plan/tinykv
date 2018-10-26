@@ -589,7 +589,6 @@ type topNExec struct {
 	srcChks *chunk.List
 	rowPtrs []chunk.RowPtr
 }
-
 func (e *topNExec) SetSrcExec(src executor) {
 	e.src = src
 }
@@ -636,12 +635,12 @@ func (e *topNExec) Next(ctx context.Context) (value [][]byte, err error) {
 				break
 			}
 		}
+		sort.Sort(&e.heap.topNSorter)
 		e.executed = true
 	}
 	if e.cursor >= len(e.heap.rows) {
 		return nil, nil
 	}
-	sort.Sort(&e.heap.topNSorter)
 	row := e.heap.rows[e.cursor]
 	e.cursor++
 
