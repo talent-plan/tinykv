@@ -27,10 +27,11 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:ae192e7bbb44668a91a2bb4b21eef833f58067b1876699585539bf71ded182d3"
+  digest = "1:f2133e744cd04ceafee51083d4069e7c9bb5f7d67ad417d4b1809a541606803d"
   name = "github.com/coocood/badger"
   packages = [
     ".",
+    "fileutil",
     "options",
     "protos",
     "skl",
@@ -38,7 +39,7 @@
     "y",
   ]
   pruneopts = "NUT"
-  revision = "18ab1b5524621cc1b9d882508c59aafbb1a4f2a0"
+  revision = "250ee6037b801bffa7beb29bb45f33f4e050e899"
 
 [[projects]]
   branch = "master"
@@ -503,6 +504,14 @@
   pruneopts = "NUT"
   revision = "f21a4dfb5e38f5895301dc265a8def02365cc3d0"
   version = "v0.3.0"
+
+[[projects]]
+  branch = "master"
+  digest = "1:9fdc2b55e8e0fafe4b41884091e51e77344f7dc511c5acedcfd98200003bff90"
+  name = "golang.org/x/time"
+  packages = ["rate"]
+  pruneopts = "NUT"
+  revision = "85acf8d2951cb2a3bde7632f9ff273ef0379bcbd"
 
 [[projects]]
   branch = "master"

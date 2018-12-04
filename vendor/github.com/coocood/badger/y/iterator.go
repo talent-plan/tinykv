@@ -20,7 +20,7 @@ package y
 // Meta field.
 type ValueStruct struct {
 	Meta     byte
-	UserMeta byte
+	UserMeta []byte
 	Value    []byte
 
 	Version uint64 // This field is not serialized. Only for internal usage.
@@ -28,14 +28,18 @@ type ValueStruct struct {
 
 // EncodedSize is the size of the ValueStruct when encoded
 func (v *ValueStruct) EncodedSize() uint16 {
-	return uint16(len(v.Value) + 2) // meta, usermeta.
+	return uint16(len(v.Value) + len(v.UserMeta) + 2) // meta
 }
 
 // Decode uses the length of the slice to infer the length of the Value field.
 func (v *ValueStruct) Decode(b []byte) {
 	v.Meta = b[0]
-	v.UserMeta = b[1]
-	v.Value = b[2:]
+	v.UserMeta = nil
+	userMetaEnd := 2 + b[1]
+	if b[1] != 0 {
+		v.UserMeta = b[2:userMetaEnd]
+	}
+	v.Value = b[userMetaEnd:]
 	// Reset the Version because *ValueStruct may be reused.
 	v.Version = 0
 }
@@ -43,15 +47,17 @@ func (v *ValueStruct) Decode(b []byte) {
 // Encode expects a slice of length at least v.EncodedSize().
 func (v *ValueStruct) Encode(b []byte) {
 	b[0] = v.Meta
-	b[1] = v.UserMeta
-	copy(b[2:], v.Value)
+	b[1] = byte(len(v.UserMeta))
+	copy(b[2:], v.UserMeta)
+	copy(b[2+len(v.UserMeta):], v.Value)
 }
 
 // EncodeTo should be kept in sync with the Encode function above. The reason
 // this function exists is to avoid creating byte arrays per key-value pair in
 // table/builder.go.
 func (v *ValueStruct) EncodeTo(buf []byte) []byte {
-	buf = append(buf, v.Meta, v.UserMeta)
+	buf = append(buf, v.Meta, byte(len(v.UserMeta)))
+	buf = append(buf, v.UserMeta...)
 	buf = append(buf, v.Value...)
 	return buf
 }

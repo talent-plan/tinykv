@@ -107,6 +107,12 @@ func createDB(idx int) *badger.DB {
 	subPath := fmt.Sprintf("/%d", idx)
 	opts := badger.DefaultOptions
 	opts.ValueThreshold = *valThreshold
+	opts.TableBuilderOptions.EnableHashIndex = true
+	opts.TableBuilderOptions.BytesPerSync = 2 * 1024 * 1024
+	opts.TableBuilderOptions.BytesPerSecond = 20 * 1024 * 1024
+	opts.TableBuilderOptions.WriteBufferSize = 1 * 1024 * 1024
+	opts.ValueLogWriteOptions.BytesPerSync = 0
+	opts.ValueLogWriteOptions.WriteBufferSize = 8 * 1024 * 1024
 	opts.Dir = *dbPath + subPath
 	if *vlogPath != "" {
 		opts.ValueDir = *vlogPath + subPath

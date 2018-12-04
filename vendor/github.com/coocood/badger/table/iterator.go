@@ -69,6 +69,7 @@ func (itr *blockIterator) loadEntryEndOffsets() {
 }
 
 // Seek brings us to the first block element that is >= input key.
+// The binary search will begin at `start`, you can use it to skip some items.
 func (itr *blockIterator) seek(key []byte) {
 	foundEntryIdx := sort.Search(len(itr.entryEndOffsets), func(idx int) bool {
 		itr.setIdx(idx)
@@ -147,6 +148,10 @@ func (t *Table) NewIterator(reversed bool) *Iterator {
 	return ti
 }
 
+func (t *Table) NewIteratorNoRef(reversed bool) *Iterator {
+	return &Iterator{t: t, reversed: reversed}
+}
+
 // Close closes the iterator (and it must be called).
 func (itr *Iterator) Close() error {
 	return itr.t.DecrRef()
@@ -206,6 +211,21 @@ func (itr *Iterator) seekHelper(blockIdx int, key []byte) {
 	itr.bi.setBlock(block)
 	itr.bi.seek(key)
 	itr.err = itr.bi.Error()
+}
+
+func (itr *Iterator) seekFromOffset(blockIdx int, offset int, key []byte) {
+	itr.bpos = blockIdx
+	block, err := itr.t.block(blockIdx)
+	if err != nil {
+		itr.err = err
+		return
+	}
+	itr.bi.setBlock(block)
+	itr.bi.setIdx(offset)
+	if y.CompareKeys(itr.bi.key, key) >= 0 {
+		return
+	}
+	itr.bi.seek(key)
 }
 
 // seekFrom brings us to a key that is >= input key.

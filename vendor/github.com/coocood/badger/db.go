@@ -18,6 +18,7 @@ package badger
 
 import (
 	"expvar"
+	"golang.org/x/time/rate"
 	"math"
 	"os"
 	"path/filepath"
@@ -72,6 +73,8 @@ type DB struct {
 	memTableCh chan *skl.Skiplist
 
 	orc *oracle
+
+	limiter *rate.Limiter
 }
 
 const (
@@ -252,6 +255,11 @@ func Open(opt Options) (db *DB, err error) {
 		orc:           orc,
 	}
 
+	rateLimit := opt.TableBuilderOptions.BytesPerSecond
+	if rateLimit > 0 {
+		db.limiter = rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
+	}
+
 	go func() {
 		for {
 			db.memTableCh <- skl.NewSkiplist(arenaSize(db.opt))
@@ -265,7 +273,7 @@ func Open(opt Options) (db *DB, err error) {
 	db.mt = <-db.memTableCh
 
 	// newLevelsController potentially loads files in directory.
-	if db.lc, err = newLevelsController(db, &manifest); err != nil {
+	if db.lc, err = newLevelsController(db, &manifest, opt.TableBuilderOptions); err != nil {
 		return nil, err
 	}
 
@@ -387,7 +395,7 @@ func (db *DB) Close() (err error) {
 		nextLevel: db.lc.levels[1],
 	}
 	if db.lc.fillTablesL0(&cd) {
-		if err := db.lc.runCompactDef(0, cd); err != nil {
+		if err := db.lc.runCompactDef(0, cd, nil); err != nil {
 			log.Infof("\tLOG Compact FAILED with error: %+v: %+v", err, cd)
 		}
 	} else {
@@ -610,33 +618,17 @@ func arenaSize(opt Options) int64 {
 }
 
 // WriteLevel0Table flushes memtable. It drops deleteValues.
-func writeLevel0Table(s *skl.Skiplist, f *os.File) error {
+func (db *DB) writeLevel0Table(s *skl.Skiplist, f *os.File) error {
 	iter := s.NewIterator()
 	defer iter.Close()
-	b := table.NewTableBuilder(s.MemSize())
+	b := table.NewTableBuilder(f, db.limiter, db.opt.TableBuilderOptions)
 	defer b.Close()
 	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
 		if err := b.Add(iter.Key(), iter.Value()); err != nil {
 			return err
 		}
 	}
-	return writeToFile(f, b.Finish())
-}
-
-func writeToFile(f *os.File, buf []byte) error {
-	const step = 512 * 1024
-	up := step
-	for base := 0; base < len(buf); base += step {
-		up = base + step
-		if up >= len(buf) {
-			up = len(buf)
-		}
-		_, err := f.Write(buf[base:up])
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	return b.Finish()
 }
 
 type flushTask struct {
@@ -667,7 +659,7 @@ func (db *DB) flushMemtable(lc *y.Closer) error {
 		}
 
 		fileID := db.lc.reserveFileID()
-		fd, err := y.CreateSyncedFile(table.NewFilename(fileID, db.opt.Dir), true)
+		fd, err := y.CreateSyncedFile(table.NewFilename(fileID, db.opt.Dir), false)
 		if err != nil {
 			return y.Wrap(err)
 		}
@@ -676,7 +668,7 @@ func (db *DB) flushMemtable(lc *y.Closer) error {
 		dirSyncCh := make(chan error)
 		go func() { dirSyncCh <- syncDir(db.opt.Dir) }()
 
-		err = writeLevel0Table(ft.mt, fd)
+		err = db.writeLevel0Table(ft.mt, fd)
 		dirSyncErr := <-dirSyncCh
 
 		if err != nil {

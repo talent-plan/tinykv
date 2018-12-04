@@ -70,7 +70,7 @@ func (db *DB) Backup(w io.Writer, since uint64) (uint64, error) {
 			entry := &protos.KVPair{
 				Key:      y.Copy(item.Key()),
 				Value:    y.Copy(val),
-				UserMeta: []byte{item.UserMeta()},
+				UserMeta: item.UserMeta(),
 				Version:  item.Version(),
 			}
 
@@ -140,7 +140,7 @@ func (db *DB) Load(r io.Reader) error {
 		entries = append(entries, &Entry{
 			Key:      y.KeyWithTs(e.Key, e.Version),
 			Value:    e.Value,
-			UserMeta: e.UserMeta[0],
+			UserMeta: e.UserMeta,
 		})
 		// Update nextCommit, memtable stores this timestamp in badger head
 		// when flushed.

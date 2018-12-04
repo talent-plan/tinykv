@@ -55,6 +55,8 @@ type Table struct {
 	id                uint64 // file id, part of filename
 
 	bf bbloom.Bloom
+
+	hIdx hashIndex
 }
 
 // IncrRef increments the refcount (having to do with whether the file should be deleted)
@@ -162,6 +164,29 @@ func (t *Table) Close() error {
 	return t.fd.Close()
 }
 
+// PointGet try to lookup a key and its value by table's hash index.
+// If it find an hash collision the last return value will be false,
+// which means caller should fallback to seek search. Otherwise it value will be true.
+// If the hash index does not contain such an element the returned key will be nil.
+func (t *Table) PointGet(key []byte) ([]byte, y.ValueStruct, bool) {
+	keyNoTS := y.ParseKey(key)
+	blkIdx, offset := t.hIdx.lookup(keyNoTS)
+	if blkIdx == resultFallback {
+		return nil, y.ValueStruct{}, false
+	}
+	if blkIdx == resultNoEntry {
+		return nil, y.ValueStruct{}, true
+	}
+
+	it := t.NewIteratorNoRef(false)
+	it.seekFromOffset(int(blkIdx), int(offset), key)
+
+	if !it.Valid() || !y.SameKey(key, it.Key()) {
+		return nil, y.ValueStruct{}, true
+	}
+	return it.Key(), it.Value(), true
+}
+
 func (t *Table) read(off int, sz int) ([]byte, error) {
 	if len(t.mmap) > 0 {
 		if len(t.mmap[off:]) < sz {
@@ -186,9 +211,19 @@ func (t *Table) readNoFail(off int, sz int) []byte {
 func (t *Table) readIndex() {
 	readPos := t.tableSize
 
-	// Read bloom filter.
 	readPos -= 4
 	buf := t.readNoFail(readPos, 4)
+	numBuckets := int(bytesToU32(buf))
+	if numBuckets != 0 {
+		hashLen := numBuckets * 3
+		readPos -= hashLen
+		buckets := t.readNoFail(readPos, hashLen)
+		t.hIdx.readIndex(buckets, numBuckets)
+	}
+
+	// Read bloom filter.
+	readPos -= 4
+	buf = t.readNoFail(readPos, 4)
 	bloomLen := int(bytesToU32(buf))
 	readPos -= bloomLen
 	data := t.readNoFail(readPos, bloomLen)

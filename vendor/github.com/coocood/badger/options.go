@@ -102,6 +102,10 @@ type Options struct {
 
 	// Truncate value log to delete corrupt data, if any. Would not truncate if ReadOnly is set.
 	Truncate bool
+
+	TableBuilderOptions options.TableBuilderOptions
+
+	ValueLogWriteOptions options.ValueLogWriterOptions
 }
 
 // DefaultOptions sets a list of recommended options for good performance.
@@ -126,6 +130,17 @@ var DefaultOptions = Options{
 	ValueLogMaxEntries:      1000000,
 	ValueThreshold:          32,
 	Truncate:                false,
+	TableBuilderOptions: options.TableBuilderOptions{
+		EnableHashIndex: false,
+		HashUtilRatio:   0.75,
+		WriteBufferSize: 1 * 1024 * 1024,
+		BytesPerSync:    0,
+		BytesPerSecond:  -1,
+	},
+	ValueLogWriteOptions: options.ValueLogWriterOptions{
+		WriteBufferSize: 2 * 1024 * 1024,
+		BytesPerSync:    0,
+	},
 }
 
 // LSMOnlyOptions follows from DefaultOptions, but sets a higher ValueThreshold so values would

@@ -47,37 +47,48 @@ func (p *valuePointer) Decode(b []byte) {
 
 // header is used in value log as a header before Entry.
 type header struct {
-	klen     uint32
-	vlen     uint32
-	meta     byte
-	userMeta byte
+	klen uint32
+	vlen uint32
+	meta byte
+
+	// umlen is the length of UserMeta
+	umlen byte
 }
 
 const (
-	headerBufSize = 10
+	headerBufSize       = 10
+	metaNotEntryEncoded = 0
 )
 
 func (h header) Encode(out []byte) {
 	y.Assert(len(out) >= headerBufSize)
-	binary.BigEndian.PutUint32(out[0:4], h.klen)
-	binary.BigEndian.PutUint32(out[4:8], h.vlen)
-	out[8] = h.meta
-	out[9] = h.userMeta
+	// Because meta can never be 0xff, so 0x00 in vlog file indicates there is not an entry.
+	out[0] = ^h.meta
+	binary.BigEndian.PutUint32(out[1:5], h.klen)
+	binary.BigEndian.PutUint32(out[5:9], h.vlen)
+	out[9] = h.umlen
 }
 
 // Decodes h from buf.
 func (h *header) Decode(buf []byte) {
-	h.klen = binary.BigEndian.Uint32(buf[0:4])
-	h.vlen = binary.BigEndian.Uint32(buf[4:8])
-	h.meta = buf[8]
-	h.userMeta = buf[9]
+	h.meta = ^buf[0]
+	h.klen = binary.BigEndian.Uint32(buf[1:5])
+	h.vlen = binary.BigEndian.Uint32(buf[5:9])
+	h.umlen = buf[9]
+}
+
+func isEncodedHeader(data []byte) bool {
+	if len(data) < 1 {
+		return false
+	}
+	return data[0] != metaNotEntryEncoded
 }
 
 // Entry provides Key, Value, UserMeta. This struct can be used by the user to set data.
 type Entry struct {
 	Key      []byte
 	Value    []byte
-	UserMeta byte
+	UserMeta []byte
 	meta     byte
 
 	// Fields maintained internally.
@@ -86,18 +97,18 @@ type Entry struct {
 
 func (e *Entry) estimateSize(threshold int) int {
 	if len(e.Value) < threshold {
-		return len(e.Key) + len(e.Value) + 2 // Meta, UserMeta
+		return len(e.Key) + len(e.Value) + len(e.UserMeta) + 2 // Meta, UserMeta
 	}
-	return len(e.Key) + 12 + 2 // 12 for ValuePointer, 2 for metas.
+	return len(e.Key) + len(e.UserMeta) + 12 + 2 // 12 for ValuePointer, 2 for metas.
 }
 
 // Encodes e to buf. Returns number of bytes written.
 func encodeEntry(e *Entry, buf *bytes.Buffer) (int, error) {
 	h := header{
-		klen:     uint32(len(e.Key)),
-		vlen:     uint32(len(e.Value)),
-		meta:     e.meta,
-		userMeta: e.UserMeta,
+		klen:  uint32(len(e.Key)),
+		vlen:  uint32(len(e.Value)),
+		meta:  e.meta,
+		umlen: byte(len(e.UserMeta)),
 	}
 
 	var headerEnc [headerBufSize]byte
@@ -107,6 +118,9 @@ func encodeEntry(e *Entry, buf *bytes.Buffer) (int, error) {
 
 	buf.Write(headerEnc[:])
 	hash.Write(headerEnc[:])
+
+	buf.Write(e.UserMeta)
+	hash.Write(e.UserMeta)
 
 	buf.Write(e.Key)
 	hash.Write(e.Key)
@@ -118,10 +132,10 @@ func encodeEntry(e *Entry, buf *bytes.Buffer) (int, error) {
 	binary.BigEndian.PutUint32(crcBuf[:], hash.Sum32())
 	buf.Write(crcBuf[:])
 
-	return len(headerEnc) + len(e.Key) + len(e.Value) + len(crcBuf), nil
+	return len(headerEnc) + len(e.UserMeta) + len(e.Key) + len(e.Value) + len(crcBuf), nil
 }
 
 func (e Entry) print(prefix string) {
-	fmt.Printf("%s Key: %s Meta: %d UserMeta: %d Offset: %d len(val)=%d",
+	fmt.Printf("%s Key: %s Meta: %d UserMeta: %v Offset: %d len(val)=%d",
 		prefix, e.Key, e.meta, e.UserMeta, e.offset, len(e.Value))
 }

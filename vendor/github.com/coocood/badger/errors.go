@@ -92,6 +92,9 @@ var (
 	// ErrTruncateNeeded is returned when the value log gets corrupt, and requires truncation of
 	// corrupt data to allow Badger to run properly.
 	ErrTruncateNeeded = errors.New("Value log truncate required to run DB. This might result in data loss.")
+
+	// ErrTruncateNeeded is returned when UserMate size exceed 255.
+	ErrUserMetaTooLarge = errors.New("UserMate size exceed 255.")
 )
 
 // Key length can't be more than uint16, as determined by table::header.

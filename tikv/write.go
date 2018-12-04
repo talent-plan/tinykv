@@ -34,7 +34,7 @@ func (batch *writeDBBatch) set(key, val []byte) {
 func (batch *writeDBBatch) delete(key []byte) {
 	batch.entries = append(batch.entries, &badger.Entry{
 		Key:      key,
-		UserMeta: userMetaDelete,
+		UserMeta: []byte{userMetaDelete},
 	})
 }
 
@@ -68,21 +68,21 @@ func (batch *writeLockBatch) set(key, val []byte) {
 func (batch *writeLockBatch) rollback(key []byte) {
 	batch.entries = append(batch.entries, &badger.Entry{
 		Key:      key,
-		UserMeta: userMetaRollback,
+		UserMeta: []byte{userMetaRollback},
 	})
 }
 
 func (batch *writeLockBatch) rollbackGC(key []byte) {
 	batch.entries = append(batch.entries, &badger.Entry{
 		Key:      key,
-		UserMeta: userMetaRollbackGC,
+		UserMeta: []byte{userMetaRollbackGC},
 	})
 }
 
 func (batch *writeLockBatch) delete(key []byte) {
 	batch.entries = append(batch.entries, &badger.Entry{
 		Key:      key,
-		UserMeta: userMetaDelete,
+		UserMeta: []byte{userMetaDelete},
 	})
 }
 
@@ -195,7 +195,14 @@ func (w *writeLockWorker) run() {
 		var delCnt, insertCnt int
 		for _, batch := range batches {
 			for _, entry := range batch.entries {
-				switch entry.UserMeta {
+				if len(entry.UserMeta) == 0 {
+					insertCnt++
+					if !ls.Insert(entry.Key, entry.Value) {
+						panic("failed to insert key")
+					}
+					continue
+				}
+				switch entry.UserMeta[0] {
 				case userMetaRollback:
 					w.store.rollbackStore.Insert(entry.Key, []byte{0})
 				case userMetaDelete:

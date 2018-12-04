@@ -25,7 +25,7 @@ import (
 	"sync/atomic"
 
 	"github.com/coocood/badger/y"
-	farm "github.com/dgryski/go-farm"
+	"github.com/dgryski/go-farm"
 	"github.com/pkg/errors"
 )
 
@@ -235,6 +235,9 @@ func (txn *Txn) newPendingWritesIterator(reversed bool) *pendingWritesIterator {
 }
 
 func (txn *Txn) checkSize(e *Entry) error {
+	if len(e.UserMeta) > 255 {
+		return ErrUserMetaTooLarge
+	}
 	count := txn.count + 1
 	// Extra bytes for version in key.
 	size := txn.size + int64(e.estimateSize(txn.db.opt.ValueThreshold)) + 10
@@ -262,6 +265,11 @@ func (txn *Txn) Set(key, val []byte) error {
 // interpret the value or store other contextual bits corresponding to the
 // key-value pair.
 func (txn *Txn) SetWithMeta(key, val []byte, meta byte) error {
+	e := &Entry{Key: key, Value: val, UserMeta: []byte{meta}}
+	return txn.SetEntry(e)
+}
+
+func (txn *Txn) SetWithMetaSlice(key, val, meta []byte) error {
 	e := &Entry{Key: key, Value: val, UserMeta: meta}
 	return txn.SetEntry(e)
 }

@@ -26,7 +26,7 @@ import (
 	"github.com/coocood/badger/skl"
 	"github.com/coocood/badger/table"
 	"github.com/coocood/badger/y"
-	farm "github.com/dgryski/go-farm"
+	"github.com/dgryski/go-farm"
 )
 
 type prefetchStatus uint8
@@ -46,7 +46,7 @@ type Item struct {
 	key      []byte
 	vptr     []byte
 	meta     byte // We need to store meta to know about bitValuePointer.
-	userMeta byte
+	userMeta []byte
 	val      []byte
 	slice    *y.Slice
 	next     *Item
@@ -199,7 +199,7 @@ func (item *Item) EstimatedSize() int64 {
 
 // UserMeta returns the userMeta set by the user. Typically, this byte, optionally set by the user
 // is used to interpret the value.
-func (item *Item) UserMeta() byte {
+func (item *Item) UserMeta() []byte {
 	return item.userMeta
 }
 

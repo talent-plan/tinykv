@@ -18,6 +18,10 @@ package table
 
 import (
 	"encoding/binary"
+	"github.com/coocood/badger/fileutil"
+	"github.com/coocood/badger/options"
+	"golang.org/x/time/rate"
+	"os"
 	"reflect"
 	"unsafe"
 
@@ -50,8 +54,9 @@ const headerSize = 4
 type Builder struct {
 	counter int // Number of keys written for the current block.
 
-	// Typically tens or hundreds of meg. This is for one single file.
-	buf []byte
+	w          *fileutil.BufferedFileWriter
+	buf        []byte
+	writtenLen int
 
 	baseKeysBuf     []byte
 	baseKeysEndOffs []uint32
@@ -66,25 +71,57 @@ type Builder struct {
 	entryEndOffsets []uint32
 
 	bloomFilter bbloom.Bloom
+
+	enableHashIndex  bool
+	hashIndexBuilder hashIndexBuilder
 }
 
 // NewTableBuilder makes a new TableBuilder.
-// The initCap is used to avoid memory reallocation.
-func NewTableBuilder(initCap int64) *Builder {
+// If the limiter is nil, the write speed during table build will not be limited.
+func NewTableBuilder(f *os.File, limiter *rate.Limiter, opt options.TableBuilderOptions) *Builder {
 	assumeKeyNum := 256 * 1024
 	return &Builder{
-		buf:         make([]byte, 0, initCap),
+		w:           fileutil.NewBufferedFileWriter(f, opt.WriteBufferSize, opt.BytesPerSync, limiter),
+		buf:         make([]byte, 0, 4*1024),
 		baseKeysBuf: make([]byte, 0, assumeKeyNum/restartInterval),
 		// assume a large enough num of keys to init bloom filter.
-		bloomFilter: bbloom.New(float64(assumeKeyNum), 0.01),
+		bloomFilter:      bbloom.New(float64(assumeKeyNum), 0.01),
+		enableHashIndex:  opt.EnableHashIndex,
+		hashIndexBuilder: newHashIndexBuilder(opt.HashUtilRatio),
 	}
+}
+
+// Reset this builder with new file.
+func (b *Builder) Reset(f *os.File) {
+	b.resetBuffers()
+	b.w.Reset(f)
+}
+
+// Reset this builder with new file and rate limiter.
+func (b *Builder) ResetWithLimiter(f *os.File, limiter *rate.Limiter) {
+	b.resetBuffers()
+	b.w.ResetWithLimiter(f, limiter)
+}
+
+func (b *Builder) resetBuffers() {
+	b.counter = 0
+	b.buf = b.buf[:0]
+	b.writtenLen = 0
+	b.baseKeysBuf = b.baseKeysBuf[:0]
+	b.baseKeysEndOffs = b.baseKeysEndOffs[:0]
+	b.blockBaseKey = b.blockBaseKey[:0]
+	b.blockBaseOffset = 0
+	b.blockEndOffsets = b.blockEndOffsets[:0]
+	b.entryEndOffsets = b.entryEndOffsets[:0]
+	b.bloomFilter.Clear()
+	b.hashIndexBuilder.reset()
 }
 
 // Close closes the TableBuilder.
 func (b *Builder) Close() {}
 
 // Empty returns whether it's empty.
-func (b *Builder) Empty() bool { return len(b.buf) == 0 }
+func (b *Builder) Empty() bool { return b.writtenLen+len(b.buf) == 0 }
 
 // keyDiff returns a suffix of newKey that is different from b.blockBaseKey.
 func (b Builder) keyDiff(newKey []byte) []byte {
@@ -101,6 +138,9 @@ func (b *Builder) addHelper(key []byte, v y.ValueStruct) {
 	if len(key) > 0 {
 		keyNoTs := y.ParseKey(key)
 		b.bloomFilter.Add(keyNoTs)
+		if b.enableHashIndex {
+			b.hashIndexBuilder.addKey(keyNoTs, uint32(len(b.baseKeysEndOffs)), uint8(b.counter))
+		}
 	}
 
 	// diffKey stores the difference of key with blockBaseKey.
@@ -121,14 +161,14 @@ func (b *Builder) addHelper(key []byte, v y.ValueStruct) {
 	b.buf = append(b.buf, h.Encode()...)
 	b.buf = append(b.buf, diffKey...) // We only need to store the key difference.
 	b.buf = v.EncodeTo(b.buf)
-	b.entryEndOffsets = append(b.entryEndOffsets, uint32(len(b.buf))-b.blockBaseOffset)
+	b.entryEndOffsets = append(b.entryEndOffsets, uint32(b.writtenLen+len(b.buf))-b.blockBaseOffset)
 	b.counter++ // Increment number of keys added for this current block.
 }
 
-func (b *Builder) finishBlock() {
+func (b *Builder) finishBlock() error {
 	b.buf = append(b.buf, u32SliceToBytes(b.entryEndOffsets)...)
 	b.buf = append(b.buf, u32ToBytes(uint32(len(b.entryEndOffsets)))...)
-	b.blockEndOffsets = append(b.blockEndOffsets, uint32(len(b.buf)))
+	b.blockEndOffsets = append(b.blockEndOffsets, uint32(b.writtenLen+len(b.buf)))
 
 	// Add base key.
 	b.baseKeysBuf = append(b.baseKeysBuf, b.blockBaseKey...)
@@ -138,14 +178,22 @@ func (b *Builder) finishBlock() {
 	b.entryEndOffsets = b.entryEndOffsets[:0]
 	b.counter = 0
 	b.blockBaseKey = b.blockBaseKey[:0]
-	b.blockBaseOffset = uint32(len(b.buf))
+	b.blockBaseOffset = uint32(b.writtenLen + len(b.buf))
+	b.writtenLen += len(b.buf)
+	if err := b.w.Append(b.buf); err != nil {
+		return err
+	}
+	b.buf = b.buf[:0]
+	return nil
 }
 
 // Add adds a key-value pair to the block.
 // If doNotRestart is true, we will not restart even if b.counter >= restartInterval.
 func (b *Builder) Add(key []byte, value y.ValueStruct) error {
 	if b.counter >= restartInterval {
-		b.finishBlock()
+		if err := b.finishBlock(); err != nil {
+			return err
+		}
 	}
 	b.addHelper(key, value)
 	return nil // Currently, there is no meaningful error.
@@ -158,7 +206,7 @@ func (b *Builder) Add(key []byte, value y.ValueStruct) error {
 
 // ReachedCapacity returns true if we... roughly (?) reached capacity?
 func (b *Builder) ReachedCapacity(capacity int64) bool {
-	estimateSz := len(b.buf) +
+	estimateSz := b.writtenLen + len(b.buf) +
 		4*len(b.blockEndOffsets) +
 		len(b.baseKeysBuf) +
 		4*len(b.baseKeysEndOffs)
@@ -166,7 +214,7 @@ func (b *Builder) ReachedCapacity(capacity int64) bool {
 }
 
 // Finish finishes the table by appending the index.
-func (b *Builder) Finish() []byte {
+func (b *Builder) Finish() error {
 	b.finishBlock() // This will never start a new block.
 	b.buf = append(b.buf, u32SliceToBytes(b.blockEndOffsets)...)
 	b.buf = append(b.buf, b.baseKeysBuf...)
@@ -177,7 +225,14 @@ func (b *Builder) Finish() []byte {
 	bfData := b.bloomFilter.BinaryMarshal()
 	b.buf = append(b.buf, bfData...)
 	b.buf = append(b.buf, u32ToBytes(uint32(len(bfData)))...)
-	return b.buf
+
+	if b.enableHashIndex {
+		b.buf = b.hashIndexBuilder.finish(b.buf)
+	} else {
+		b.buf = append(b.buf, u32ToBytes(0)...)
+	}
+
+	return b.w.FlushWithData(b.buf, true)
 }
 
 func u32ToBytes(v uint32) []byte {

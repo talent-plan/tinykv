@@ -18,6 +18,8 @@ package badger
 
 import (
 	"fmt"
+	"github.com/coocood/badger/options"
+	"golang.org/x/time/rate"
 	"math"
 	"math/rand"
 	"os"
@@ -39,6 +41,8 @@ type levelsController struct {
 	kv     *DB
 
 	cstatus compactStatus
+
+	opt options.TableBuilderOptions
 }
 
 var (
@@ -71,11 +75,12 @@ func revertToManifest(kv *DB, mf *Manifest, idMap map[uint64]struct{}) error {
 	return nil
 }
 
-func newLevelsController(kv *DB, mf *Manifest) (*levelsController, error) {
+func newLevelsController(kv *DB, mf *Manifest, opt options.TableBuilderOptions) (*levelsController, error) {
 	y.Assert(kv.opt.NumLevelZeroTablesStall > kv.opt.NumLevelZeroTables)
 	s := &levelsController{
 		kv:     kv,
 		levels: make([]*levelHandler, kv.opt.MaxLevels),
+		opt:    opt,
 	}
 	s.cstatus.levels = make([]*levelCompactStatus, kv.opt.MaxLevels)
 
@@ -285,14 +290,8 @@ func (ds *DiscardStats) collect(vs y.ValueStruct) {
 	ds.numSkips++
 }
 
-type newTableResult struct {
-	table *table.Table
-	err   error
-}
-
 // compactBuildTables merge topTables and botTables to form a list of new tables.
-func (s *levelsController) compactBuildTables(
-	level int, cd compactDef) ([]*table.Table, func() error, error) {
+func (s *levelsController) compactBuildTables(level int, cd compactDef, limiter *rate.Limiter) ([]*table.Table, func() error, error) {
 	topTables := cd.top
 	botTables := cd.bot
 
@@ -324,13 +323,26 @@ func (s *levelsController) compactBuildTables(
 	// would affect the snapshot view guarantee provided by transactions.
 	minReadTs := s.kv.orc.readMark.MinReadTs()
 
-	// Start generating new tables.
-	resultCh := make(chan newTableResult)
-	var numBuilds, numVersions int
+	var numVersions int
 	var lastKey, skipKey []byte
+	var newTables []*table.Table
+	var firstErr error
+	var builder *table.Builder
+
 	for it.Valid() {
 		timeStart := time.Now()
-		builder := table.NewTableBuilder(s.kv.opt.MaxTableSize)
+		fileID := s.reserveFileID()
+		fd, err := y.CreateSyncedFile(table.NewFilename(fileID, s.kv.opt.Dir), false)
+		if err != nil {
+			firstErr = err
+			break
+		}
+		if builder == nil {
+			builder = table.NewTableBuilder(fd, limiter, s.opt)
+		} else {
+			builder.ResetWithLimiter(fd, limiter)
+		}
+
 		var numKeys uint64
 		for ; it.Valid(); it.Next() {
 			// See if we need to skip this key.
@@ -390,39 +402,16 @@ func (s *levelsController) compactBuildTables(
 		// called Add() at least once, and builder is not Empty().
 		log.Infof("Added %d keys. Skipped %d keys.", numKeys, discardStats.numSkips)
 		log.Infof("LOG Compact. Iteration took: %v\n", time.Since(timeStart))
-		if !builder.Empty() {
-			numBuilds++
-			fileID := s.reserveFileID()
-			go func(builder *table.Builder) {
-				defer builder.Close()
-
-				fd, err := y.CreateSyncedFile(table.NewFilename(fileID, s.kv.opt.Dir), true)
-				if err != nil {
-					resultCh <- newTableResult{nil, errors.Wrapf(err, "While opening new table: %d", fileID)}
-					return
-				}
-
-				if err := writeToFile(fd, builder.Finish()); err != nil {
-					resultCh <- newTableResult{nil, errors.Wrapf(err, "Unable to write to file: %d", fileID)}
-					return
-				}
-
-				tbl, err := table.OpenTable(fd, s.kv.opt.TableLoadingMode)
-				// decrRef is added below.
-				resultCh <- newTableResult{tbl, errors.Wrapf(err, "Unable to open table: %q", fd.Name())}
-			}(builder)
+		if err := builder.Finish(); err != nil {
+			firstErr = err
+			break
 		}
-	}
-
-	newTables := make([]*table.Table, 0, numBuilds)
-	// Wait for all table builders to finish.
-	var firstErr error
-	for x := 0; x < numBuilds; x++ {
-		res := <-resultCh
-		newTables = append(newTables, res.table)
-		if firstErr == nil {
-			firstErr = res.err
+		tbl, err := table.OpenTable(fd, s.kv.opt.TableLoadingMode)
+		if err != nil {
+			firstErr = err
+			break
 		}
+		newTables = append(newTables, tbl)
 	}
 
 	if firstErr == nil {
@@ -435,10 +424,8 @@ func (s *levelsController) compactBuildTables(
 	if firstErr != nil {
 		// An error happened.  Delete all the newly created table files (by calling DecrRef
 		// -- we're the only holders of a ref).
-		for j := 0; j < numBuilds; j++ {
-			if newTables[j] != nil {
-				newTables[j].DecrRef()
-			}
+		for _, tbl := range newTables {
+			tbl.DecrRef()
 		}
 		errorReturn := errors.Wrapf(firstErr, "While running compaction for: %+v", cd)
 		return nil, nil, errorReturn
@@ -573,7 +560,7 @@ func (s *levelsController) fillTables(cd *compactDef) bool {
 	return false
 }
 
-func (s *levelsController) runCompactDef(l int, cd compactDef) (err error) {
+func (s *levelsController) runCompactDef(l int, cd compactDef, limiter *rate.Limiter) (err error) {
 	timeStart := time.Now()
 
 	thisLevel := cd.thisLevel
@@ -582,7 +569,7 @@ func (s *levelsController) runCompactDef(l int, cd compactDef) (err error) {
 	// Table should never be moved directly between levels, always be rewritten to allow discarding
 	// invalid versions.
 
-	newTables, decr, err := s.compactBuildTables(l, cd)
+	newTables, decr, err := s.compactBuildTables(l, cd, limiter)
 	if err != nil {
 		return err
 	}
@@ -645,7 +632,7 @@ func (s *levelsController) doCompact(p compactionPriority) (bool, error) {
 	defer s.cstatus.delete(cd) // Remove the ranges from compaction status.
 
 	log.Infof("Running for level: %d\n", cd.thisLevel.level)
-	if err := s.runCompactDef(l, cd); err != nil {
+	if err := s.runCompactDef(l, cd, s.kv.limiter); err != nil {
 		// This compaction couldn't be done successfully.
 		log.Infof("\tLOG Compact FAILED with error: %+v: %+v", err, cd)
 		return false, err
