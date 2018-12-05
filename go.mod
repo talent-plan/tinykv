@@ -1,0 +1,50 @@
+module github.com/ngaut/unistore
+
+require (
+	github.com/BurntSushi/toml v0.3.1
+	github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973
+	github.com/codahale/hdrhistogram v0.0.0-20161010025455-3a0bb77429bd
+	github.com/coocood/badger v1.5.1-0.20181115111105-250ee6037b80
+	github.com/coocood/bbloom v0.0.0-20180518162752-7774d68761e5
+	github.com/coreos/etcd v3.3.10+incompatible
+	github.com/cznic/mathutil v0.0.0-20181021201202-eba54fb065b7
+	github.com/cznic/sortutil v0.0.0-20150617083342-4c7342852e65
+	github.com/davecgh/go-spew v1.1.1
+	github.com/dgryski/go-farm v0.0.0-20180109070241-2de33835d102
+	github.com/gogo/protobuf v1.1.1
+	github.com/golang/protobuf v1.2.0
+	github.com/golang/snappy v0.0.0-20180518054509-2e65f85255db
+	github.com/juju/errors v0.0.0-20181118221551-089d3ea4e4d5
+	github.com/klauspost/cpuid v0.0.0-20170728055534-ae7887de9fa5
+	github.com/matttproud/golang_protobuf_extensions v1.0.1
+	github.com/ngaut/log v0.0.0-20180314031856-b8e36e7ba5ac
+	github.com/opentracing/opentracing-go v1.0.2
+	github.com/pingcap/check v0.0.0-20171206051426-1c287c953996
+	github.com/pingcap/errors v0.11.0
+	github.com/pingcap/goleveldb v0.0.0-20171020122428-b9ff6c35079e
+	github.com/pingcap/kvproto v0.0.0-20181105061835-1b5d69cd1d26
+	github.com/pingcap/parser v0.0.0-20181204031237-721bcaad1aeb
+	github.com/pingcap/tidb v0.0.0-20181204115345-b3eb577cf597
+	github.com/pingcap/tipb v0.0.0-20181012112600-11e33c750323
+	github.com/pmezard/go-difflib v1.0.0
+	github.com/prometheus/client_golang v0.9.0
+	github.com/prometheus/client_model v0.0.0-20180712105110-5c3871d89910
+	github.com/prometheus/common v0.0.0-20181020173914-7e9e6cabbd39
+	github.com/prometheus/procfs v0.0.0-20181005140218-185b4288413d
+	github.com/remyoudompheng/bigfft v0.0.0-20170806203942-52369c62f446
+	github.com/sirupsen/logrus v1.2.0
+	github.com/spaolacci/murmur3 v0.0.0-20180118202830-f09979ecbc72
+	github.com/stretchr/testify v1.2.2
+	github.com/twinj/uuid v1.0.0
+	github.com/uber/jaeger-client-go v2.15.0+incompatible
+	github.com/uber/jaeger-lib v1.5.0
+	golang.org/x/net v0.0.0-20181029044818-c44066c5c816
+	golang.org/x/sys v0.0.0-20181025063200-d989b31c8746
+	golang.org/x/text v0.3.0
+	golang.org/x/time v0.0.0-20181108054448-85acf8d2951c
+	google.golang.org/genproto v0.0.0-20181016170114-94acd270e44e
+	google.golang.org/grpc v1.16.0
+	gopkg.in/natefinch/lumberjack.v2 v2.0.0
+)
+
+replace github.com/pingcap/tidb v0.0.0-20181204115345-b3eb577cf597 => github.com/bobotu/tidb v0.0.0-20181204115345-b3eb577cf597

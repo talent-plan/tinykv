@@ -5,7 +5,7 @@ ifeq "$(GOPATH)" ""
   $(error Please set the environment variable GOPATH before running `make`)
 endif
 
-GO      := go
+GO      := GO111MODULE=on go
 GOBUILD := $(GO) build $(BUILD_FLAG)
 
 default:
