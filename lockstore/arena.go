@@ -108,6 +108,7 @@ func (a *arena) grow() *arena {
 	availIdx := len(newLoc.blocks)
 	newLoc.blocks = append(newLoc.blocks, newArenaBlock(a.blockSize))
 	newLoc.writableQueue = append(newLoc.writableQueue, availIdx)
+	newLoc.pendingBlocks = a.pendingBlocks
 	return newLoc
 }
 
