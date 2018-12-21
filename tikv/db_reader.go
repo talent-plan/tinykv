@@ -42,12 +42,8 @@ func (r *DBReader) Get(key []byte, startTS uint64) ([]byte, error) {
 	if err == badger.ErrKeyNotFound {
 		return nil, nil
 	}
-	mvVal, err := decodeValue(item)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	if mvVal.commitTS <= startTS {
-		return mvVal.value, nil
+	if dbUserMeta(item.UserMeta()).CommitTS() <= startTS {
+		return item.Value()
 	}
 	oldKey := encodeOldKey(key, startTS)
 	iter := r.getIter()
@@ -55,12 +51,7 @@ func (r *DBReader) Get(key []byte, startTS uint64) ([]byte, error) {
 	if !iter.ValidForPrefix(oldKey[:len(oldKey)-8]) {
 		return nil, nil
 	}
-	item = iter.Item()
-	mvVal, err = decodeValue(item)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	return mvVal.value, nil
+	return iter.Item().Value()
 }
 
 func (r *DBReader) getIter() *badger.Iterator {
@@ -115,27 +106,29 @@ func (r *DBReader) Scan(startKey, endKey []byte, limit int, startTS uint64, f Sc
 
 	iter := r.getIter()
 	var cnt int
-	var mvVal mvccValue
 	for iter.Seek(startKey); iter.Valid(); iter.Next() {
 		item := iter.Item()
 		key := item.Key()
 		if exceedEndKey(key, endKey) {
 			break
 		}
-		err := decodeValueTo(item, &mvVal)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		if mvVal.commitTS > startTS {
-			err = r.getOldValue(encodeOldKey(key, startTS), &mvVal)
+		var val []byte
+		var err error
+		if dbUserMeta(item.UserMeta()).CommitTS() > startTS {
+			val, err = r.getOldValue(encodeOldKey(key, startTS))
 			if err == badger.ErrKeyNotFound {
 				continue
 			}
+		} else {
+			val, err = item.Value()
 		}
-		if len(mvVal.value) == 0 {
+		if err != nil {
+			return errors.Trace(err)
+		}
+		if len(val) == 0 {
 			continue
 		}
-		err = f(key, mvVal.value)
+		err = f(key, val)
 		if err != nil {
 			if err == ScanBreak {
 				break
@@ -150,40 +143,42 @@ func (r *DBReader) Scan(startKey, endKey []byte, limit int, startTS uint64, f Sc
 	return nil
 }
 
-func (r *DBReader) getOldValue(oldKey []byte, mvVal *mvccValue) error {
+func (r *DBReader) getOldValue(oldKey []byte) ([]byte, error) {
 	oldIter := r.getOldIter()
 	oldIter.Seek(oldKey)
 	if !oldIter.ValidForPrefix(oldKey[:len(oldKey)-8]) {
-		return badger.ErrKeyNotFound
+		return nil, badger.ErrKeyNotFound
 	}
-	return decodeValueTo(oldIter.Item(), mvVal)
+	return oldIter.Item().Value()
 }
 
 // ReverseScan implements the MVCCStore interface. The search range is [startKey, endKey).
 func (r *DBReader) ReverseScan(startKey, endKey []byte, limit int, startTS uint64, f ScanFunc) error {
 	iter := r.getReverseIter()
 	var cnt int
-	var mvVal mvccValue
 	for iter.Seek(endKey); iter.Valid(); iter.Next() {
 		item := iter.Item()
 		key := item.Key()
 		if bytes.Compare(key, startKey) < 0 {
 			break
 		}
-		err := decodeValueTo(item, &mvVal)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		if mvVal.commitTS > startTS {
-			err = r.getOldValue(encodeOldKey(key, startTS), &mvVal)
+		var val []byte
+		var err error
+		if dbUserMeta(item.UserMeta()).CommitTS() > startTS {
+			val, err = r.getOldValue(encodeOldKey(key, startTS))
 			if err == badger.ErrKeyNotFound {
 				continue
 			}
+		} else {
+			val, err = item.Value()
 		}
-		if len(mvVal.value) == 0 {
+		if err != nil {
+			return errors.Trace(err)
+		}
+		if len(val) == 0 {
 			continue
 		}
-		err = f(key, mvVal.value)
+		err = f(key, val)
 		if err != nil {
 			if err == ScanBreak {
 				break

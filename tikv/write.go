@@ -24,24 +24,26 @@ func newWriteDBBatch(reqCtx *requestCtx) *writeDBBatch {
 	return &writeDBBatch{reqCtx: reqCtx}
 }
 
-func (batch *writeDBBatch) set(key, val []byte) {
+func (batch *writeDBBatch) set(key, val []byte, userMeta dbUserMeta) {
 	batch.entries = append(batch.entries, &badger.Entry{
-		Key:   key,
-		Value: val,
+		Key:      key,
+		Value:    val,
+		UserMeta: userMeta,
 	})
 }
 
+// delete is a badger level operation, only used in DeleteRange, so we don't need to set UserMeta.
+// Then we can tell the entry is delete if UserMeta is nil.
 func (batch *writeDBBatch) delete(key []byte) {
 	batch.entries = append(batch.entries, &badger.Entry{
-		Key:      key,
-		UserMeta: []byte{userMetaDelete},
+		Key: key,
 	})
 }
 
 func (batch *writeDBBatch) size() int64 {
 	var s int
 	for _, entry := range batch.entries {
-		s += len(entry.Key) + len(entry.Value)
+		s += len(entry.Key) + len(entry.Value) + len(entry.UserMeta)
 	}
 	return int64(s)
 }
@@ -60,29 +62,30 @@ func newWriteLockBatch(reqCtx *requestCtx) *writeLockBatch {
 
 func (batch *writeLockBatch) set(key, val []byte) {
 	batch.entries = append(batch.entries, &badger.Entry{
-		Key:   key,
-		Value: val,
+		Key:      key,
+		Value:    val,
+		UserMeta: lockUserMetaNone,
 	})
 }
 
 func (batch *writeLockBatch) rollback(key []byte) {
 	batch.entries = append(batch.entries, &badger.Entry{
 		Key:      key,
-		UserMeta: []byte{userMetaRollback},
+		UserMeta: lockUserMetaRollback,
 	})
 }
 
 func (batch *writeLockBatch) rollbackGC(key []byte) {
 	batch.entries = append(batch.entries, &badger.Entry{
 		Key:      key,
-		UserMeta: []byte{userMetaRollbackGC},
+		UserMeta: lockUserMetaRollbackGC,
 	})
 }
 
 func (batch *writeLockBatch) delete(key []byte) {
 	batch.entries = append(batch.entries, &badger.Entry{
 		Key:      key,
-		UserMeta: []byte{userMetaDelete},
+		UserMeta: lockUserMetaDelete,
 	})
 }
 
@@ -153,7 +156,12 @@ func (w *writeDBWorker) updateBatchGroup(batchGroup []*writeDBBatch) {
 	e := w.store.dbs[w.idx].Update(func(txn *badger.Txn) error {
 		for _, batch := range batchGroup {
 			for _, entry := range batch.entries {
-				err := txn.SetEntry(entry)
+				var err error
+				if len(entry.UserMeta) == 0 {
+					err = txn.Delete(entry.Key)
+				} else {
+					err = txn.SetEntry(entry)
+				}
 				if err != nil {
 					return err
 				}
@@ -195,22 +203,15 @@ func (w *writeLockWorker) run() {
 		var delCnt, insertCnt int
 		for _, batch := range batches {
 			for _, entry := range batch.entries {
-				if len(entry.UserMeta) == 0 {
-					insertCnt++
-					if !ls.Insert(entry.Key, entry.Value) {
-						panic("failed to insert key")
-					}
-					continue
-				}
 				switch entry.UserMeta[0] {
-				case userMetaRollback:
+				case lockUserMetaRollbackByte:
 					w.store.rollbackStore.Insert(entry.Key, []byte{0})
-				case userMetaDelete:
+				case lockUserMetaDeleteByte:
 					delCnt++
 					if !ls.Delete(entry.Key) {
 						panic("failed to delete key")
 					}
-				case userMetaRollbackGC:
+				case lockUserMetaRollbackGCByte:
 					rollbackStore.Delete(entry.Key)
 				default:
 					insertCnt++

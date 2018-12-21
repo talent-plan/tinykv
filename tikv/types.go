@@ -4,53 +4,8 @@ import (
 	"encoding/binary"
 	"unsafe"
 
-	"github.com/coocood/badger"
-	"github.com/juju/errors"
 	"github.com/pingcap/tidb/util/codec"
 )
-
-type mvccValueHdr struct {
-	startTS  uint64
-	commitTS uint64
-}
-
-const mvccValueHdrSize = int(unsafe.Sizeof(mvccValueHdr{}))
-
-type mvccValue struct {
-	mvccValueHdr
-	value []byte
-}
-
-// MarshalBinary implements encoding.BinaryMarshaler interface.
-func (v mvccValue) MarshalBinary() []byte {
-	buf := make([]byte, mvccValueHdrSize+len(v.value))
-	hdr := (*mvccValueHdr)(unsafe.Pointer(&buf[0]))
-	*hdr = v.mvccValueHdr
-	copy(buf[mvccValueHdrSize:], v.value)
-	return buf
-}
-
-func decodeValue(item *badger.Item) (v mvccValue, err error) {
-	val, err := item.Value()
-	if err != nil {
-		return v, errors.Trace(err)
-	}
-	v.mvccValueHdr = *(*mvccValueHdr)(unsafe.Pointer(&val[0]))
-	if len(val) > mvccValueHdrSize {
-		v.value = append(v.value[:0], val[mvccValueHdrSize:]...)
-	}
-	return v, nil
-}
-
-func decodeValueTo(item *badger.Item, v *mvccValue) error {
-	val, err := item.Value()
-	if err != nil {
-		return errors.Trace(err)
-	}
-	v.mvccValueHdr = *(*mvccValueHdr)(unsafe.Pointer(&val[0]))
-	v.value = val[mvccValueHdrSize:]
-	return nil
-}
 
 // decodeLock decodes data to lock, the primary and value is copied.
 func decodeLock(data []byte) (l mvccLock) {
@@ -68,18 +23,10 @@ func decodeLock(data []byte) (l mvccLock) {
 	l.value = lockBuf[l.primaryLen:]
 	if l.hasOldVer {
 		oldBuf := buf[oldOff:]
-		l.oldVal.mvccValueHdr = *(*mvccValueHdr)(unsafe.Pointer(&oldBuf[0]))
-		l.oldVal.value = oldBuf[mvccValueHdrSize:]
+		l.oldMeta = oldBuf[:dbUserMetaLen]
+		l.oldVal = oldBuf[dbUserMetaLen:]
 	}
 	return
-}
-
-// UnmarshalBinary implements encoding.BinaryUnmarshaler interface.
-func (v *mvccValue) UnmarshalBinary(data []byte) {
-	v.mvccValueHdr = *(*mvccValueHdr)(unsafe.Pointer(&data[0]))
-	if len(data) > mvccValueHdrSize {
-		v.value = append(v.value[:0], data[mvccValueHdrSize:]...)
-	}
 }
 
 type mvccLockHdr struct {
@@ -96,22 +43,23 @@ type mvccLock struct {
 	mvccLockHdr
 	primary []byte
 	value   []byte
-	oldVal  mvccValue
+	oldMeta dbUserMeta
+	oldVal  []byte
 }
 
 // MarshalBinary implements encoding.BinaryMarshaler interface.
 func (l *mvccLock) MarshalBinary() []byte {
 	lockLen := mvccLockHdrSize + len(l.primary) + len(l.value)
 	length := lockLen
-	if l.oldVal.commitTS > 0 {
-		length += 4 + mvccValueHdrSize + len(l.oldVal.value)
+	if l.hasOldVer {
+		length += 4 + dbUserMetaLen + len(l.oldVal)
 	}
 	buf := make([]byte, length)
 	hdr := (*mvccLockHdr)(unsafe.Pointer(&buf[0]))
 	*hdr = l.mvccLockHdr
 	cursor := mvccLockHdrSize
 	if l.hasOldVer {
-		binary.LittleEndian.PutUint32(buf[cursor:], uint32(mvccValueHdrSize+len(l.oldVal.value)))
+		binary.LittleEndian.PutUint32(buf[cursor:], uint32(dbUserMetaLen+len(l.oldVal)))
 		cursor += 4
 	}
 	copy(buf[cursor:], l.primary)
@@ -119,26 +67,25 @@ func (l *mvccLock) MarshalBinary() []byte {
 	copy(buf[cursor:], l.value)
 	cursor += len(l.value)
 	if l.hasOldVer {
-		oldValHdr := (*mvccValueHdr)(unsafe.Pointer(&buf[cursor]))
-		*oldValHdr = l.oldVal.mvccValueHdr
-		cursor += mvccValueHdrSize
-		copy(buf[cursor:], l.oldVal.value)
+		copy(buf[cursor:], l.oldMeta)
+		cursor += dbUserMetaLen
+		copy(buf[cursor:], l.oldVal)
 	}
 	return buf
 }
 
-func lockToValue(lock mvccLock, commitTS uint64) (mvVal mvccValue) {
-	mvVal.startTS = lock.startTS
-	mvVal.commitTS = commitTS
-	mvVal.value = lock.value
-	return
-}
-
 const (
-	userMetaNone       byte = 0
-	userMetaRollback   byte = 1
-	userMetaDelete     byte = 2
-	userMetaRollbackGC byte = 3
+	lockUserMetaNoneByte       = 0
+	lockUserMetaRollbackByte   = 1
+	lockUserMetaDeleteByte     = 2
+	lockUserMetaRollbackGCByte = 3
+)
+
+var (
+	lockUserMetaNone       = []byte{lockUserMetaNoneByte}
+	lockUserMetaRollback   = []byte{lockUserMetaRollbackByte}
+	lockUserMetaDelete     = []byte{lockUserMetaDeleteByte}
+	lockUserMetaRollbackGC = []byte{lockUserMetaRollbackGCByte}
 )
 
 func encodeOldKey(key []byte, ts uint64) []byte {
@@ -161,4 +108,23 @@ func decodeRollbackTS(buf []byte) uint64 {
 		panic(err)
 	}
 	return ts
+}
+
+type dbUserMeta []byte
+
+const dbUserMetaLen = 16
+
+func newDBUserMeta(startTS, commitTS uint64) dbUserMeta {
+	m := make(dbUserMeta, 16)
+	binary.LittleEndian.PutUint64(m, startTS)
+	binary.LittleEndian.PutUint64(m[8:], commitTS)
+	return m
+}
+
+func (m dbUserMeta) CommitTS() uint64 {
+	return binary.LittleEndian.Uint64(m[8:])
+}
+
+func (m dbUserMeta) StartTS() uint64 {
+	return binary.LittleEndian.Uint64(m[:8])
 }

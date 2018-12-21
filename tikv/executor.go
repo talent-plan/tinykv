@@ -589,6 +589,7 @@ type topNExec struct {
 	srcChks *chunk.List
 	rowPtrs []chunk.RowPtr
 }
+
 func (e *topNExec) SetSrcExec(src executor) {
 	e.src = src
 }
