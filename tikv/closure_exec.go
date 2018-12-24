@@ -12,7 +12,6 @@ import (
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/sessionctx"
-	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/codec"
@@ -315,7 +314,7 @@ func (e *closureExecutor) countFinish() error {
 
 func (e *closureExecutor) countColumnProcess(key, value []byte) error {
 	if e.idxScanCtx != nil {
-		values, _, err := tablecodec.CutIndexKeyNew(key, e.idxScanCtx.columnLen)
+		values, _, err := cutIndexKeyNew(key, e.idxScanCtx.columnLen)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -350,7 +349,7 @@ func (e *closureExecutor) tableScanProcess(key, value []byte) error {
 }
 
 func (e *closureExecutor) tableScanProcessCore(key, value []byte) error {
-	handle, err := tablecodec.DecodeRowKey(key)
+	handle, err := decodeRowKey(key)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -381,7 +380,7 @@ func (e *closureExecutor) indexScanProcessCore(key, value []byte) error {
 	colLen := e.idxScanCtx.columnLen
 	pkStatus := e.idxScanCtx.pkStatus
 	chk := e.scanCtx.chk
-	values, b, err := tablecodec.CutIndexKeyNew(key, colLen)
+	values, b, err := cutIndexKeyNew(key, colLen)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -473,7 +472,7 @@ func (e *closureExecutor) topNFinish() error {
 	sort.Sort(&ctx.heap.topNSorter)
 
 	for _, row := range ctx.heap.rows {
-		h, err := tablecodec.DecodeRowKey(row.data[0])
+		h, err := decodeRowKey(row.data[0])
 		if err != nil {
 			return errors.Trace(err)
 		}

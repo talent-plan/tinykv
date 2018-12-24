@@ -15,7 +15,6 @@ import (
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
-	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/codec"
@@ -196,7 +195,7 @@ func (e *tableScanExec) fillRowsFromPoint(ran kv.KeyRange) error {
 	if len(val) == 0 {
 		return nil
 	}
-	handle, err := tablecodec.DecodeRowKey(ran.StartKey)
+	handle, err := decodeRowKey(ran.StartKey)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -221,7 +220,7 @@ func (e *tableScanExec) fillRowsFromRange(ran kv.KeyRange) error {
 	var lastKey []byte
 	scanFunc := func(key, value []byte) error {
 		lastKey = key
-		handle, err := tablecodec.DecodeRowKey(key)
+		handle, err := decodeRowKey(key)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -414,7 +413,8 @@ func (e *indexScanExec) fillRowsFromPoint(ran kv.KeyRange) error {
 }
 
 func (e *indexScanExec) decodeIndexKV(key, value []byte) ([][]byte, error) {
-	values, b, err := tablecodec.CutIndexKeyNew(key, e.colsLen)
+	var values [][]byte
+	values, b, err := cutIndexKeyNew(key, e.colsLen)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -731,7 +731,7 @@ func getRowData(columns []*tipb.ColumnInfo, colIDs map[int64]int, handle int64, 
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	values, err := tablecodec.CutRowNew(oldRow, colIDs)
+	values, err := cutRowNew(oldRow, colIDs)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

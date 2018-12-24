@@ -19,7 +19,6 @@ import (
 	"github.com/pingcap/tidb/expression/aggregation"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
-	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/codec"
 	mockpkg "github.com/pingcap/tidb/util/mock"
@@ -419,7 +418,7 @@ func (e *evalContext) newRowDecoderForOffsets(colOffsets []int) (*rowcodec.Decod
 func (e *evalContext) decodeRelatedColumnVals(relatedColOffsets []int, value [][]byte, row []types.Datum) error {
 	var err error
 	for _, offset := range relatedColOffsets {
-		row[offset], err = tablecodec.DecodeColumnValue(value[offset], e.fieldTps[offset], e.sc.TimeZone)
+		row[offset], err = decodeColumnValue(value[offset], e.fieldTps[offset], e.sc.TimeZone)
 		if err != nil {
 			return errors.Trace(err)
 		}

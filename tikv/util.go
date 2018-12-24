@@ -2,11 +2,14 @@ package tikv
 
 import (
 	"bytes"
-	"github.com/ngaut/unistore/rowcodec"
-	"time"
-
 	"github.com/dgryski/go-farm"
+	"github.com/ngaut/unistore/rowcodec"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
+	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/tablecodec"
+	otablecodec "github.com/pingcap/tidb/tablecodec/origin"
+	"github.com/pingcap/tidb/types"
+	"time"
 )
 
 func exceedEndKey(current, endKey []byte) bool {
@@ -49,4 +52,32 @@ func isRowKey(key []byte) bool {
 		return rowcodec.IsRowKeyWithShardByte(key)
 	}
 	return rowcodec.IsRowKey(key)
+}
+
+func cutIndexKeyNew(key kv.Key, length int) (values [][]byte, b []byte, err error) {
+	if IsShardingEnabled() {
+		return tablecodec.CutIndexKeyNew(key, length)
+	}
+	return otablecodec.CutIndexKeyNew(key, length)
+}
+
+func decodeRowKey(key kv.Key) (int64, error) {
+	if IsShardingEnabled() {
+		return tablecodec.DecodeRowKey(key)
+	}
+	return otablecodec.DecodeRowKey(key)
+}
+
+func cutRowNew(data []byte, colIDs map[int64]int) ([][]byte, error) {
+	if IsShardingEnabled() {
+		return tablecodec.CutRowNew(data, colIDs)
+	}
+	return otablecodec.CutRowNew(data, colIDs)
+}
+
+func decodeColumnValue(data []byte, ft *types.FieldType, loc *time.Location) (types.Datum, error) {
+	if IsShardingEnabled() {
+		return tablecodec.DecodeColumnValue(data, ft, loc)
+	}
+	return otablecodec.DecodeColumnValue(data, ft, loc)
 }

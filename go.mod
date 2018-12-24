@@ -19,12 +19,12 @@ require (
 	github.com/matttproud/golang_protobuf_extensions v1.0.1
 	github.com/ngaut/log v0.0.0-20180314031856-b8e36e7ba5ac
 	github.com/opentracing/opentracing-go v1.0.2
-	github.com/pingcap/check v0.0.0-20171206051426-1c287c953996
+	github.com/pingcap/check v0.0.0-20181213055612-5c2b07721bdb
 	github.com/pingcap/errors v0.11.0
 	github.com/pingcap/goleveldb v0.0.0-20171020122428-b9ff6c35079e
 	github.com/pingcap/kvproto v0.0.0-20181105061835-1b5d69cd1d26
-	github.com/pingcap/parser v0.0.0-20181204031237-721bcaad1aeb
-	github.com/pingcap/tidb v0.0.0-20181204115345-b3eb577cf597
+	github.com/pingcap/parser v0.0.0-20181218071912-deacf026787e
+	github.com/pingcap/tidb v0.0.0-20181130082510-08f0168a6cae
 	github.com/pingcap/tipb v0.0.0-20181012112600-11e33c750323
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/prometheus/client_golang v0.9.0
@@ -47,4 +47,4 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 )
 
-replace github.com/pingcap/tidb v0.0.0-20181204115345-b3eb577cf597 => github.com/bobotu/tidb v0.0.0-20181204115345-b3eb577cf597
+replace github.com/pingcap/tidb v0.0.0-20181130082510-08f0168a6cae => github.com/bobotu/tidb v0.0.0-20181221085922-487bfe4bf561
