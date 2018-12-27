@@ -25,6 +25,7 @@ var (
 	InternalKeyPrefix        = []byte(`i`)
 	InternalRegionMetaPrefix = append(InternalKeyPrefix, "region"...)
 	InternalStoreMetaKey     = append(InternalKeyPrefix, "store"...)
+	InternalSafePointKey     = append(InternalKeyPrefix, "safepoint"...)
 )
 
 func InternalRegionMetaKey(regionId uint64) []byte {
@@ -167,9 +168,17 @@ func (ri *regionCtx) getDBIdx() int {
 	if len(startKey) > 2 && startKey[0] == 't' {
 		shardByte := startKey[2]
 		if startKey[1] == 'i' {
-			return int(bits.Reverse8(shardByte)) % NumIndexDBs
+			if isShardingEnabled {
+				return int(bits.Reverse8(shardByte)) % NumIndexDBs
+			} else {
+				return 0
+			}
 		} else {
-			return 4 + int(bits.Reverse8(shardByte))%NumRowDBs
+			if isShardingEnabled {
+				return 4 + int(bits.Reverse8(shardByte))%NumRowDBs
+			} else {
+				return 1
+			}
 		}
 	}
 	return 0

@@ -3,6 +3,7 @@ package tikv
 import (
 	"bytes"
 	"math"
+	"sync/atomic"
 
 	"github.com/coocood/badger"
 	"github.com/coocood/badger/y"
@@ -11,8 +12,9 @@ import (
 
 func (store *MVCCStore) NewDBReader(reqCtx *requestCtx) *DBReader {
 	return &DBReader{
-		reqCtx: reqCtx,
-		txn:    store.dbs[reqCtx.dbIdx].NewTransaction(false),
+		reqCtx:    reqCtx,
+		txn:       store.dbs[reqCtx.dbIdx].NewTransaction(false),
+		safePoint: atomic.LoadUint64(&store.safePoint.timestamp),
 	}
 }
 
@@ -27,11 +29,12 @@ func newIterator(txn *badger.Txn, reverse bool, startKey, endKey []byte) *badger
 
 // DBReader reads data from DB, for read-only requests, the locks must already be checked before DBReader is created.
 type DBReader struct {
-	reqCtx  *requestCtx
-	txn     *badger.Txn
-	iter    *badger.Iterator
-	revIter *badger.Iterator
-	oldIter *badger.Iterator
+	reqCtx    *requestCtx
+	txn       *badger.Txn
+	iter      *badger.Iterator
+	revIter   *badger.Iterator
+	oldIter   *badger.Iterator
+	safePoint uint64
 }
 
 func (r *DBReader) Get(key []byte, startTS uint64) ([]byte, error) {
@@ -49,6 +52,12 @@ func (r *DBReader) Get(key []byte, startTS uint64) ([]byte, error) {
 	iter := r.getIter()
 	iter.Seek(oldKey)
 	if !iter.ValidForPrefix(oldKey[:len(oldKey)-8]) {
+		return nil, nil
+	}
+	if oldUserMeta(item.UserMeta()).NextCommitTS() < r.safePoint {
+		// This entry is eligible for GC. Normally we will not see this version.
+		// But when the latest version is DELETE and it is GCed first,
+		// we may end up here, so we should ignore the obsolete version.
 		return nil, nil
 	}
 	return iter.Item().Value()
@@ -147,6 +156,10 @@ func (r *DBReader) getOldValue(oldKey []byte) ([]byte, error) {
 	oldIter := r.getOldIter()
 	oldIter.Seek(oldKey)
 	if !oldIter.ValidForPrefix(oldKey[:len(oldKey)-8]) {
+		return nil, badger.ErrKeyNotFound
+	}
+	if oldUserMeta(oldIter.Item().UserMeta()).NextCommitTS() < r.safePoint {
+		// Ignore the obsolete version.
 		return nil, badger.ErrKeyNotFound
 	}
 	return oldIter.Item().Value()

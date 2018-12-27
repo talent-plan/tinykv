@@ -114,17 +114,38 @@ type dbUserMeta []byte
 
 const dbUserMetaLen = 16
 
+var defaultEndian = binary.LittleEndian
+
 func newDBUserMeta(startTS, commitTS uint64) dbUserMeta {
 	m := make(dbUserMeta, 16)
-	binary.LittleEndian.PutUint64(m, startTS)
-	binary.LittleEndian.PutUint64(m[8:], commitTS)
+	defaultEndian.PutUint64(m, startTS)
+	defaultEndian.PutUint64(m[8:], commitTS)
 	return m
 }
 
 func (m dbUserMeta) CommitTS() uint64 {
-	return binary.LittleEndian.Uint64(m[8:])
+	return defaultEndian.Uint64(m[8:])
 }
 
 func (m dbUserMeta) StartTS() uint64 {
-	return binary.LittleEndian.Uint64(m[:8])
+	return defaultEndian.Uint64(m[:8])
+}
+
+// ToOldUserMeta converts a dbUserMeta to oldUserMeta.
+// The old key has commitTS appended, we don't need to store it again in userMeta.
+// We store the next commitTS which overwrite the old entry, it will be used in GCCompactionFilter.
+func (m dbUserMeta) ToOldUserMeta(nextCommitTS uint64) oldUserMeta {
+	o := oldUserMeta(m)
+	defaultEndian.PutUint64(o[8:], nextCommitTS)
+	return o
+}
+
+type oldUserMeta []byte
+
+func (m oldUserMeta) StartTS() uint64 {
+	return defaultEndian.Uint64(m[:8])
+}
+
+func (m oldUserMeta) NextCommitTS() uint64 {
+	return defaultEndian.Uint64(m[8:])
 }

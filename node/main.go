@@ -49,14 +49,15 @@ func main() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 	go http.ListenAndServe(*httpAddr, nil)
 
-	numDB := 1
+	numDB := 2
 	if *shardKey {
 		numDB = 8
 		tikv.EnableSharding()
 	}
+	safePoint := &tikv.SafePoint{}
 	dbs := make([]*badger.DB, numDB)
 	for i := 0; i < numDB; i++ {
-		dbs[i] = createDB(i)
+		dbs[i] = createDB(i, safePoint)
 	}
 
 	regionOpts := tikv.RegionOptions{
@@ -65,7 +66,7 @@ func main() {
 		RegionSize: *regionSize,
 	}
 	rm := tikv.NewRegionManager(dbs, regionOpts)
-	store := tikv.NewMVCCStore(dbs, *dbPath)
+	store := tikv.NewMVCCStore(dbs, *dbPath, safePoint)
 	tikvServer := tikv.NewServer(rm, store)
 
 	grpcServer := grpc.NewServer()
@@ -103,7 +104,7 @@ func main() {
 	}
 }
 
-func createDB(idx int) *badger.DB {
+func createDB(idx int, safePoint *tikv.SafePoint) *badger.DB {
 	subPath := fmt.Sprintf("/%d", idx)
 	opts := badger.DefaultOptions
 	opts.ValueThreshold = *valThreshold
@@ -128,6 +129,7 @@ func createDB(idx int) *badger.DB {
 	opts.NumLevelZeroTables = *numL0Table
 	opts.NumLevelZeroTablesStall = opts.NumLevelZeroTables + 5
 	opts.SyncWrites = *syncWrites
+	opts.CompactionFilterFactory = safePoint.CreateCompactionFilter
 	db, err := badger.Open(opts)
 	if err != nil {
 		log.Fatal(err)

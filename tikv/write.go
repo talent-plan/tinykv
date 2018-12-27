@@ -24,7 +24,7 @@ func newWriteDBBatch(reqCtx *requestCtx) *writeDBBatch {
 	return &writeDBBatch{reqCtx: reqCtx}
 }
 
-func (batch *writeDBBatch) set(key, val []byte, userMeta dbUserMeta) {
+func (batch *writeDBBatch) set(key, val []byte, userMeta []byte) {
 	batch.entries = append(batch.entries, &badger.Entry{
 		Key:      key,
 		Value:    val,

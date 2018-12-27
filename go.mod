@@ -4,7 +4,7 @@ require (
 	github.com/BurntSushi/toml v0.3.1
 	github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973
 	github.com/codahale/hdrhistogram v0.0.0-20161010025455-3a0bb77429bd
-	github.com/coocood/badger v1.5.1-0.20181115111105-250ee6037b80
+	github.com/coocood/badger v1.5.1-0.20181225090322-ba54756e7992
 	github.com/coocood/bbloom v0.0.0-20180518162752-7774d68761e5
 	github.com/coreos/etcd v3.3.10+incompatible
 	github.com/cznic/mathutil v0.0.0-20181021201202-eba54fb065b7
