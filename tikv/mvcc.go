@@ -679,10 +679,10 @@ type GCCompactionFilter struct {
 
 // (old key first byte) = (latest key first byte) + 1
 const (
-	metaPrefix     byte = 'm'
+	metaPrefix byte = 'm'
 	// 'm' + 1 = 'n'
-	metaOldPrefix  byte = 'n'
-	tablePrefix    byte = 't'
+	metaOldPrefix byte = 'n'
+	tablePrefix   byte = 't'
 	// 't' + 1 = 'u
 	tableOldPrefix byte = 'u'
 )

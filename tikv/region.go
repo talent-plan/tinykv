@@ -184,6 +184,19 @@ func (ri *regionCtx) getDBIdx() int {
 	return 0
 }
 
+func (ri *regionCtx) waitParent() {
+	ptr := unsafe.Pointer(ri.parent)
+	parent := (*regionCtx)(atomic.LoadPointer(&ptr))
+	if parent != nil {
+		// Wait for the parent region reference decrease to zero, so the latches would be clean.
+		parent.refCount.Wait()
+		// TODO: the txnKeysMap in parent is discarded, if a large transaction failed
+		// and the client is down, leaves many locks, we can only resolve a single key at a time.
+		// Need to find a way to address this later.
+		atomic.StorePointer(&ptr, nil)
+	}
+}
+
 type RegionOptions struct {
 	StoreAddr  string
 	PDAddr     string
@@ -417,16 +430,7 @@ func (rm *RegionManager) getRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *er
 			},
 		}
 	}
-	ptr := unsafe.Pointer(ri.parent)
-	parent := (*regionCtx)(atomic.LoadPointer(&ptr))
-	if parent != nil {
-		// Wait for the parent region reference decrease to zero, so the latches would be clean.
-		parent.refCount.Wait()
-		// TODO: the txnKeysMap in parent is discarded, if a large transaction failed
-		// and the client is down, leaves many locks, we can only resolve a single key at a time.
-		// Need to find a way to address this later.
-		atomic.StorePointer(&ptr, nil)
-	}
+	ri.waitParent()
 	return ri, nil
 }
 
@@ -577,6 +581,7 @@ func (rm *RegionManager) splitCheckRegion(region *regionCtx) error {
 }
 
 func (rm *RegionManager) splitRegion(oldRegionCtx *regionCtx, splitKey []byte, oldSize, leftSize int64) error {
+	oldRegionCtx.waitParent()
 	oldRegion := oldRegionCtx.meta
 	rightMeta := &metapb.Region{
 		Id:       oldRegion.Id,
