@@ -164,21 +164,16 @@ var (
 )
 
 func (ri *regionCtx) getDBIdx() int {
+	if !isShardingEnabled {
+		return 0
+	}
 	startKey := ri.startKey
 	if len(startKey) > 2 && startKey[0] == 't' {
 		shardByte := startKey[2]
 		if startKey[1] == 'i' {
-			if isShardingEnabled {
-				return int(bits.Reverse8(shardByte)) % NumIndexDBs
-			} else {
-				return 0
-			}
+			return int(bits.Reverse8(shardByte)) % NumIndexDBs
 		} else {
-			if isShardingEnabled {
-				return 4 + int(bits.Reverse8(shardByte))%NumRowDBs
-			} else {
-				return 1
-			}
+			return 4 + int(bits.Reverse8(shardByte))%NumRowDBs
 		}
 	}
 	return 0
