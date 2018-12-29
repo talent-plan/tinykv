@@ -704,7 +704,7 @@ func (f *GCCompactionFilter) Filter(key, value, userMeta []byte) badger.Decision
 	case metaPrefix, tablePrefix:
 		// For latest version, we can only remove `delete` key, which has value len 0.
 		if dbUserMeta(userMeta).CommitTS() < f.safePoint && len(value) == 0 {
-			return badger.DecisionDelete
+			return badger.DecisionMarkTombstone
 		}
 	case metaOldPrefix, tableOldPrefix:
 		// The key is old version key.

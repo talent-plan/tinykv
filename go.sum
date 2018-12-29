@@ -22,6 +22,8 @@ github.com/coocood/badger v1.5.1-0.20181115111105-250ee6037b80 h1:dJk40GVwhrc5ZH
 github.com/coocood/badger v1.5.1-0.20181115111105-250ee6037b80/go.mod h1:5kK93cEvzGGDQSPoYhF9ZyTU0+ABUnMWh6vyBPadbYo=
 github.com/coocood/badger v1.5.1-0.20181225090322-ba54756e7992 h1:87MbGJV1tuNCn07QhCnKzEh5typumjSH6n/dEYSkZK8=
 github.com/coocood/badger v1.5.1-0.20181225090322-ba54756e7992/go.mod h1:5kK93cEvzGGDQSPoYhF9ZyTU0+ABUnMWh6vyBPadbYo=
+github.com/coocood/badger v1.5.1-0.20181229021924-c02c9aba9c41 h1:2h6YwDfd9jiFehXZZ7xi7Fzzibh+AILyEZTY2gQVupc=
+github.com/coocood/badger v1.5.1-0.20181229021924-c02c9aba9c41/go.mod h1:5kK93cEvzGGDQSPoYhF9ZyTU0+ABUnMWh6vyBPadbYo=
 github.com/coocood/bbloom v0.0.0-20180518162752-7774d68761e5 h1:A9dUQP3gNU5GjLMe8by8QM3mn+sHLRAlwquACitTHb0=
 github.com/coocood/bbloom v0.0.0-20180518162752-7774d68761e5/go.mod h1:aXF5GNK2jkah+VKjINjpMxB29d5XlAKk4Yo1oX0q9wk=
 github.com/coreos/bbolt v1.3.0/go.mod h1:iRUV2dpdMOn7Bo10OQBFzIJO9kkE559Wcmn+qkEiiKk=
