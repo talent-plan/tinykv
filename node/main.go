@@ -110,8 +110,8 @@ func createDB(idx int, safePoint *tikv.SafePoint) *badger.DB {
 	opts.ValueThreshold = *valThreshold
 	opts.TableBuilderOptions.EnableHashIndex = false
 	opts.TableBuilderOptions.BytesPerSync = 4 * 1024 * 1024
-	opts.TableBuilderOptions.BytesPerSecond = 100 * 1024 * 1024
-	opts.TableBuilderOptions.WriteBufferSize = 1 * 1024 * 1024
+	opts.TableBuilderOptions.BytesPerSecond = 200 * 1024 * 1024
+	opts.TableBuilderOptions.WriteBufferSize = 8 * 1024 * 1024
 	opts.ValueLogWriteOptions.BytesPerSync = 0
 	opts.ValueLogWriteOptions.WriteBufferSize = 8 * 1024 * 1024
 	opts.Dir = *dbPath + subPath
