@@ -2,6 +2,7 @@ module github.com/ngaut/unistore
 
 require (
 	github.com/BurntSushi/toml v0.3.1
+	github.com/DataDog/zstd v1.3.5
 	github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973
 	github.com/codahale/hdrhistogram v0.0.0-20161010025455-3a0bb77429bd
 	github.com/coocood/badger v1.5.1-0.20181229021924-c02c9aba9c41
@@ -19,6 +20,7 @@ require (
 	github.com/matttproud/golang_protobuf_extensions v1.0.1
 	github.com/ngaut/log v0.0.0-20180314031856-b8e36e7ba5ac
 	github.com/opentracing/opentracing-go v1.0.2
+	github.com/pierrec/lz4 v2.0.5+incompatible
 	github.com/pingcap/check v0.0.0-20181213055612-5c2b07721bdb
 	github.com/pingcap/errors v0.11.0
 	github.com/pingcap/goleveldb v0.0.0-20171020122428-b9ff6c35079e
@@ -26,6 +28,7 @@ require (
 	github.com/pingcap/parser v0.0.0-20181218071912-deacf026787e
 	github.com/pingcap/tidb v0.0.0-20181130082510-08f0168a6cae
 	github.com/pingcap/tipb v0.0.0-20181012112600-11e33c750323
+	github.com/pkg/errors v0.8.0
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/prometheus/client_golang v0.9.0
 	github.com/prometheus/client_model v0.0.0-20180712105110-5c3871d89910
