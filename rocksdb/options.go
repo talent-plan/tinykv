@@ -77,7 +77,7 @@ func NewDefaultBlockBasedTableOptions(cmp Comparator) *BlockBasedTableOptions {
 		BlockRestartInterval:      16,
 		IndexBlockRestartInterval: 1,
 		BlockAlign:                false,
-		CompressionType:           CompressionSnappy,
+		CompressionType:           CompressionNone,
 		ChecksumType:              ChecksumCRC32,
 		EnableIndexCompression:    true,
 		CreationTime:              0,

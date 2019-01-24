@@ -68,9 +68,39 @@ func encodeVarint32(buf []byte, v uint32) []byte {
 	}
 }
 
+func decodeVarint32(buf []byte) (uint32, int) {
+	result := buf[0]
+	if (result & 128) == 0 {
+		return uint32(result), 1
+	}
+	return decodeVarint32Slow(buf)
+}
+
+func decodeVarint32Slow(buf []byte) (uint32, int) {
+	var result, shift uint32
+	var i int
+	for shift <= 28 && i < len(buf) {
+		b := buf[i]
+		i += 1
+		if b&128 != 0 {
+			result |= uint32(b&127) << shift
+		} else {
+			result |= uint32(b) << shift
+			return result, i
+		}
+
+		shift += 7
+	}
+	return 0, 0
+}
+
 func encodeVarint64(buf []byte, v uint64) []byte {
 	n := binary.PutUvarint(buf, v)
 	return buf[:n]
+}
+
+func decodeVarint64(buf []byte) (uint64, int) {
+	return binary.Uvarint(buf)
 }
 
 func appendVarint32(buf []byte, v uint32) []byte {

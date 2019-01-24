@@ -85,38 +85,38 @@ func (h blockHandle) EncodeTo(buf []byte) int {
 }
 
 func (h *blockHandle) Decode(buf []byte) int {
-	off, n1 := binary.Uvarint(buf)
-	sz, n2 := binary.Uvarint(buf[n1:])
+	off, n1 := decodeVarint64(buf)
+	sz, n2 := decodeVarint64(buf[n1:])
 	h.Offset = off
 	h.Size = sz
 	return n1 + n2
 }
 
-type internalKey struct {
+type InternalKey struct {
 	UserKey        []byte
 	SequenceNumber uint64
 	ValueType      ValueType
 }
 
-func (ikey *internalKey) Encode() []byte {
+func (ikey *InternalKey) Encode() []byte {
 	buf := make([]byte, len(ikey.UserKey)+8)
 	copy(buf, ikey.UserKey)
 	rocksEndian.PutUint64(buf[len(ikey.UserKey):], ikey.packSeqAndType())
 	return buf
 }
 
-func (ikey *internalKey) Decode(encoded []byte) {
+func (ikey *InternalKey) Decode(encoded []byte) {
 	ikey.UserKey = ikey.UserKey[:0]
 	userKeyLen := len(encoded) - 8
 	ikey.UserKey = append(ikey.UserKey, encoded[0:userKeyLen]...)
 	ikey.unpackSeqAndType(rocksEndian.Uint64(encoded[userKeyLen:]))
 }
 
-func (ikey *internalKey) packSeqAndType() uint64 {
+func (ikey *InternalKey) packSeqAndType() uint64 {
 	return ikey.SequenceNumber<<8 | uint64(ikey.ValueType)
 }
 
-func (ikey *internalKey) unpackSeqAndType(pack uint64) {
+func (ikey *InternalKey) unpackSeqAndType(pack uint64) {
 	ikey.ValueType = ValueType(pack & 0xff)
 	ikey.SequenceNumber = pack >> 8
 }

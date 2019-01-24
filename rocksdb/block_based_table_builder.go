@@ -31,6 +31,8 @@ type BlockBasedTableBuilder struct {
 	indexBlockBuilder *indexBlockBuilder
 	filterBuilder     *fullFilterBlockBuilder
 
+	compressBuf []byte
+
 	offset        uint64
 	pendingHandle blockHandle
 	lastKey       []byte
@@ -62,11 +64,14 @@ func NewBlockBasedTableBuilder(f *os.File, opts *BlockBasedTableOptions) *BlockB
 }
 
 func (b *BlockBasedTableBuilder) Add(key, value []byte) error {
-	var ikey internalKey
+	var ikey InternalKey
 	ikey.Decode(key)
 
 	// We don't support other record types.
 	y.Assert(ikey.ValueType.IsValue())
+	if len(b.lastKey) != 0 {
+		y.Assert(b.comparator.CompareInternalKey(b.lastKey, key) <= 0)
+	}
 
 	if b.shouldFlush(key, value) {
 		if err := b.flush(); err != nil {
@@ -231,20 +236,15 @@ func (b *BlockBasedTableBuilder) setupProperties() {
 	p.PrefixExtractorName = b.opts.PrefixExtractorName
 }
 
-// Some compression libraries fail when the raw size is bigger than int. If
-// uncompressed size is bigger than kCompressionSizeLimit, don't compress it
-const compressionSizeLimit = math.MaxInt64
-
 func (b *BlockBasedTableBuilder) writeBlock(blockContents []byte, handle *blockHandle, isDataBlock bool) error {
-	var compressed bool
 	tp := b.opts.CompressionType
-	if len(blockContents) < compressionSizeLimit {
-		blockContents, compressed = CompressBlock(blockContents, b.opts.CompressionType)
-		if !compressed {
-			tp = CompressionNone
-		}
+	compressedBlock, compressed := CompressBlock(tp, blockContents, b.compressBuf)
+	if !compressed {
+		return b.writeRawBlock(blockContents, CompressionNone, handle, isDataBlock)
 	}
-	return b.writeRawBlock(blockContents, tp, handle, isDataBlock)
+	b.compressBuf = compressedBlock
+
+	return b.writeRawBlock(compressedBlock, tp, handle, isDataBlock)
 }
 
 func (b *BlockBasedTableBuilder) writeRawBlock(contents []byte, tp CompressionType, handle *blockHandle, isDataBlock bool) error {
