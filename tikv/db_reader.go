@@ -8,6 +8,7 @@ import (
 	"github.com/coocood/badger"
 	"github.com/coocood/badger/y"
 	"github.com/juju/errors"
+	"github.com/ngaut/unistore/tikv/mvcc"
 )
 
 func (store *MVCCStore) NewDBReader(reqCtx *requestCtx) *DBReader {
@@ -45,16 +46,16 @@ func (r *DBReader) Get(key []byte, startTS uint64) ([]byte, error) {
 	if err == badger.ErrKeyNotFound {
 		return nil, nil
 	}
-	if dbUserMeta(item.UserMeta()).CommitTS() <= startTS {
+	if mvcc.DBUserMeta(item.UserMeta()).CommitTS() <= startTS {
 		return item.Value()
 	}
-	oldKey := encodeOldKey(key, startTS)
+	oldKey := mvcc.EncodeOldKey(key, startTS)
 	iter := r.getIter()
 	iter.Seek(oldKey)
 	if !iter.ValidForPrefix(oldKey[:len(oldKey)-8]) {
 		return nil, nil
 	}
-	if oldUserMeta(item.UserMeta()).NextCommitTS() < r.safePoint {
+	if mvcc.OldUserMeta(item.UserMeta()).NextCommitTS() < r.safePoint {
 		// This entry is eligible for GC. Normally we will not see this version.
 		// But when the latest version is DELETE and it is GCed first,
 		// we may end up here, so we should ignore the obsolete version.
@@ -123,8 +124,8 @@ func (r *DBReader) Scan(startKey, endKey []byte, limit int, startTS uint64, f Sc
 		}
 		var val []byte
 		var err error
-		if dbUserMeta(item.UserMeta()).CommitTS() > startTS {
-			val, err = r.getOldValue(encodeOldKey(key, startTS))
+		if mvcc.DBUserMeta(item.UserMeta()).CommitTS() > startTS {
+			val, err = r.getOldValue(mvcc.EncodeOldKey(key, startTS))
 			if err == badger.ErrKeyNotFound {
 				continue
 			}
@@ -158,7 +159,7 @@ func (r *DBReader) getOldValue(oldKey []byte) ([]byte, error) {
 	if !oldIter.ValidForPrefix(oldKey[:len(oldKey)-8]) {
 		return nil, badger.ErrKeyNotFound
 	}
-	if oldUserMeta(oldIter.Item().UserMeta()).NextCommitTS() < r.safePoint {
+	if mvcc.OldUserMeta(oldIter.Item().UserMeta()).NextCommitTS() < r.safePoint {
 		// Ignore the obsolete version.
 		return nil, badger.ErrKeyNotFound
 	}
@@ -177,8 +178,8 @@ func (r *DBReader) ReverseScan(startKey, endKey []byte, limit int, startTS uint6
 		}
 		var val []byte
 		var err error
-		if dbUserMeta(item.UserMeta()).CommitTS() > startTS {
-			val, err = r.getOldValue(encodeOldKey(key, startTS))
+		if mvcc.DBUserMeta(item.UserMeta()).CommitTS() > startTS {
+			val, err = r.getOldValue(mvcc.EncodeOldKey(key, startTS))
 			if err == badger.ErrKeyNotFound {
 				continue
 			}

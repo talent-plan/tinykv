@@ -10,6 +10,7 @@ import (
 
 	"github.com/coocood/badger"
 	"github.com/juju/errors"
+	"github.com/ngaut/unistore/tikv/mvcc"
 )
 
 type writeDBBatch struct {
@@ -64,28 +65,28 @@ func (batch *writeLockBatch) set(key, val []byte) {
 	batch.entries = append(batch.entries, &badger.Entry{
 		Key:      key,
 		Value:    val,
-		UserMeta: lockUserMetaNone,
+		UserMeta: mvcc.LockUserMetaNone,
 	})
 }
 
 func (batch *writeLockBatch) rollback(key []byte) {
 	batch.entries = append(batch.entries, &badger.Entry{
 		Key:      key,
-		UserMeta: lockUserMetaRollback,
+		UserMeta: mvcc.LockUserMetaRollback,
 	})
 }
 
 func (batch *writeLockBatch) rollbackGC(key []byte) {
 	batch.entries = append(batch.entries, &badger.Entry{
 		Key:      key,
-		UserMeta: lockUserMetaRollbackGC,
+		UserMeta: mvcc.LockUserMetaRollbackGC,
 	})
 }
 
 func (batch *writeLockBatch) delete(key []byte) {
 	batch.entries = append(batch.entries, &badger.Entry{
 		Key:      key,
-		UserMeta: lockUserMetaDelete,
+		UserMeta: mvcc.LockUserMetaDelete,
 	})
 }
 
@@ -204,14 +205,14 @@ func (w *writeLockWorker) run() {
 		for _, batch := range batches {
 			for _, entry := range batch.entries {
 				switch entry.UserMeta[0] {
-				case lockUserMetaRollbackByte:
+				case mvcc.LockUserMetaRollbackByte:
 					w.store.rollbackStore.Insert(entry.Key, []byte{0})
-				case lockUserMetaDeleteByte:
+				case mvcc.LockUserMetaDeleteByte:
 					delCnt++
 					if !ls.Delete(entry.Key) {
 						panic("failed to delete key")
 					}
-				case lockUserMetaRollbackGCByte:
+				case mvcc.LockUserMetaRollbackGCByte:
 					rollbackStore.Delete(entry.Key)
 				default:
 					insertCnt++
@@ -244,7 +245,7 @@ func (w *rollbackGCWorker) run() {
 		it := store.rollbackStore.NewIterator()
 		latestTS := store.getLatestTS()
 		for it.SeekToFirst(); it.Valid(); it.Next() {
-			ts := decodeRollbackTS(it.Key())
+			ts := mvcc.DecodeRollbackTS(it.Key())
 			if tsSub(latestTS, ts) > time.Minute {
 				lockBatch.rollbackGC(safeCopy(it.Key()))
 			}
