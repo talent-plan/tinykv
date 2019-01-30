@@ -47,7 +47,13 @@ func main() {
 	log.Info("gitHash:", gitHash)
 	log.SetLevelByString(*logLevel)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
-	go http.ListenAndServe(*httpAddr, nil)
+	go func() {
+		log.Infof("listening on %v", *httpAddr)
+		err := http.ListenAndServe(*httpAddr, nil)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
 
 	numDB := 2
 	if *shardKey {
@@ -78,29 +84,29 @@ func main() {
 	handleSignal(grpcServer)
 	err = grpcServer.Serve(l)
 	if err != nil {
-		log.Error(err)
+		log.Fatal(err)
 	}
 	tikvServer.Stop()
 	log.Info("Server stopped.")
+
 	err = store.Close()
 	if err != nil {
-		log.Error(err)
-	} else {
-		log.Info("Store closed.")
+		log.Fatal(err)
 	}
+	log.Info("Store closed.")
+
 	err = rm.Close()
 	if err != nil {
-		log.Error(err)
-	} else {
-		log.Info("RegionManager closed.")
+		log.Fatal(err)
 	}
+	log.Info("RegionManager closed.")
+
 	for i, db := range dbs {
 		err = db.Close()
 		if err != nil {
-			log.Error(err)
-		} else {
-			log.Infof("DB%d closed.", i)
+			log.Fatal(err)
 		}
+		log.Infof("DB%d closed.", i)
 	}
 }
 
