@@ -3,8 +3,15 @@ package raftstore
 import (
 	"github.com/coocood/badger"
 	"github.com/golang/protobuf/proto"
+	"github.com/ngaut/unistore/lockstore"
 	"github.com/pingcap/errors"
 )
+
+type DBBundle struct {
+	db            *badger.DB
+	lockStore     *lockstore.MemStore
+	rollbackStore *lockstore.MemStore
+}
 
 type Engines struct {
 	kv       *badger.DB
@@ -14,11 +21,11 @@ type Engines struct {
 }
 
 func (en *Engines) WriteKV(wb *WriteBatch) error {
-	return en.write(en.kv, wb)
+	return wb.WriteToDB(en.kv)
 }
 
 func (en *Engines) WriteRaft(wb *WriteBatch) error {
-	return en.write(en.raft, wb)
+	return wb.WriteToDB(en.raft)
 }
 
 func (en *Engines) SyncKVWAL() error {
@@ -31,7 +38,48 @@ func (en *Engines) SyncRaftWAL() error {
 	return nil
 }
 
-func (en *Engines) write(db *badger.DB, wb *WriteBatch) error {
+type WriteBatch struct {
+	entries []*badger.Entry
+	size    int
+}
+
+func (wb *WriteBatch) Set(key, val []byte) {
+	wb.entries = append(wb.entries, &badger.Entry{
+		Key:   key,
+		Value: val,
+	})
+	wb.size += len(key) + len(val)
+}
+
+func (wb *WriteBatch) SetWithUserMeta(key, val, useMeta []byte) {
+	wb.entries = append(wb.entries, &badger.Entry{
+		Key:      key,
+		Value:    val,
+		UserMeta: useMeta,
+	})
+	wb.size += len(key) + len(val) + len(useMeta)
+}
+
+func (wb *WriteBatch) Delete(key []byte) {
+	wb.entries = append(wb.entries, &badger.Entry{
+		Key: key,
+	})
+	wb.size += len(key)
+}
+
+func (wb *WriteBatch) SetMsg(key []byte, msg proto.Message) error {
+	val, err := proto.Marshal(msg)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+	wb.Set(key, val)
+	return nil
+}
+
+func (wb *WriteBatch) WriteToDB(db *badger.DB) error {
+	if len(wb.entries) == 0 {
+		return nil
+	}
 	err := db.Update(func(txn *badger.Txn) error {
 		var err1 error
 		for _, entry := range wb.entries {
@@ -49,31 +97,5 @@ func (en *Engines) write(db *badger.DB, wb *WriteBatch) error {
 	if err != nil {
 		return errors.WithStack(err)
 	}
-	return nil
-}
-
-type WriteBatch struct {
-	entries []*badger.Entry
-}
-
-func (wb *WriteBatch) Set(key, val []byte) {
-	wb.entries = append(wb.entries, &badger.Entry{
-		Key:   key,
-		Value: val,
-	})
-}
-
-func (wb *WriteBatch) Delete(key []byte) {
-	wb.entries = append(wb.entries, &badger.Entry{
-		Key: key,
-	})
-}
-
-func (wb *WriteBatch) SetMsg(key []byte, msg proto.Message) error {
-	val, err := proto.Marshal(msg)
-	if err != nil {
-		return errors.WithStack(err)
-	}
-	wb.Set(key, val)
 	return nil
 }

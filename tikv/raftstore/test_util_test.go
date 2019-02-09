@@ -7,6 +7,7 @@ import (
 
 	"github.com/coocood/badger"
 	"github.com/coreos/etcd/raft/raftpb"
+	"github.com/pingcap/tidb/util/codec"
 	"github.com/stretchr/testify/require"
 )
 
@@ -103,4 +104,11 @@ func entriesToPointers(entries []raftpb.Entry) []*raftpb.Entry {
 		pointers[i] = &entries[i]
 	}
 	return pointers
+}
+
+func encodeOldKey(key []byte, ts uint64) []byte {
+	b := append([]byte{}, key...)
+	ret := codec.EncodeUintDesc(b, ts)
+	ret[0]++
+	return ret
 }

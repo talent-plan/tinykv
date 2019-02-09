@@ -27,6 +27,7 @@ const (
 )
 
 type SstFileWriter struct {
+	file       *os.File
 	builder    *BlockBasedTableBuilder
 	lastKey    []byte
 	comparator Comparator
@@ -38,6 +39,7 @@ func NewSstFileWriter(f *os.File, opts *BlockBasedTableOptions) *SstFileWriter {
 		builder.AddUint64(propExternalSstFileVersion, 2)
 		builder.AddUint64(propGlobalSeqNo, 0)
 	})
+	w.file = f
 	w.builder = NewBlockBasedTableBuilder(f, opts)
 	w.comparator = opts.Comparator
 	return w
@@ -81,4 +83,8 @@ func (w *SstFileWriter) add(key, value []byte, tp ValueType) error {
 	w.lastKey = y.SafeCopy(w.lastKey, key)
 
 	return nil
+}
+
+func (w *SstFileWriter) Close() error {
+	return w.file.Close()
 }

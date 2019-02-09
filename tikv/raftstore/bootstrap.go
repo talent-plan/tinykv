@@ -2,8 +2,6 @@ package raftstore
 
 import (
 	"bytes"
-	"fmt"
-
 	"github.com/coocood/badger"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/eraftpb"
@@ -54,7 +52,6 @@ func BootstrapStore(engines *Engines, clussterID, storeID uint64) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("raft empyt", empty)
 	if !empty {
 		return errors.New("raft store is not empty and has already had data.")
 	}
