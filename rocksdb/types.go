@@ -120,3 +120,11 @@ func (ikey *InternalKey) unpackSeqAndType(pack uint64) {
 	ikey.ValueType = ValueType(pack & 0xff)
 	ikey.SequenceNumber = pack >> 8
 }
+
+type CompactedEvent struct {
+	OutputLevel      int
+	TotalInputBytes  int
+	TotalOutputBytes int
+	StartKey         []byte
+	EndKey           []byte
+}
