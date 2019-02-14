@@ -63,23 +63,23 @@ type SnapKey struct {
 	Index    uint64
 }
 
-func (k *SnapKey) String() string {
+func (k SnapKey) String() string {
 	return fmt.Sprintf("%d_%d_%d", k.RegionID, k.Term, k.Index)
 }
 
-func SnapKeyFromRegionSnap(regionID uint64, snap *raftpb.Snapshot) *SnapKey {
-	return &SnapKey{
+func SnapKeyFromRegionSnap(regionID uint64, snap *raftpb.Snapshot) SnapKey {
+	return SnapKey{
 		RegionID: regionID,
 		Term:     snap.Metadata.Term,
 		Index:    snap.Metadata.Index,
 	}
 }
 
-func SnapKeyFromSnap(snap *raftpb.Snapshot) (*SnapKey, error) {
+func SnapKeyFromSnap(snap *raftpb.Snapshot) (SnapKey, error) {
 	data := new(rspb.RaftSnapshotData)
 	err := data.Unmarshal(snap.Data)
 	if err != nil {
-		return nil, err
+		return SnapKey{}, err
 	}
 	return SnapKeyFromRegionSnap(data.Region.Id, snap), nil
 }
@@ -135,10 +135,10 @@ func copySnapshot(to, from Snapshot) error {
 // to avoid race case for concurrent read/write.
 type SnapshotDeleter interface {
 	// DeleteSnapshot returns true if it successfully delete the specified snapshot.
-	DeleteSnapshot(key *SnapKey, snapshot Snapshot, checkEntry bool) bool
+	DeleteSnapshot(key SnapKey, snapshot Snapshot, checkEntry bool) bool
 }
 
-func retryDeleteSnapshot(deleter SnapshotDeleter, key *SnapKey, snap Snapshot) bool {
+func retryDeleteSnapshot(deleter SnapshotDeleter, key SnapKey, snap Snapshot) bool {
 	for i := 0; i < deleteRetryMaxTime; i++ {
 		if deleter.DeleteSnapshot(key, snap, true) {
 			return true
@@ -230,7 +230,7 @@ type MetaFile struct {
 var _ Snapshot = new(Snap)
 
 type Snap struct {
-	key         *SnapKey
+	key         SnapKey
 	displayPath string
 	CFFiles     []*CFFile
 	cfIndex     int
@@ -241,7 +241,7 @@ type Snap struct {
 	holdTmpFiles bool
 }
 
-func NewSnap(dir string, key *SnapKey, sizeTrack *int64, isSending, toBuild bool,
+func NewSnap(dir string, key SnapKey, sizeTrack *int64, isSending, toBuild bool,
 	deleter SnapshotDeleter, limiter *IOLimiter) (*Snap, error) {
 	if !util.DirExists(dir) {
 		err := os.MkdirAll(dir, 0700)
@@ -304,7 +304,7 @@ func NewSnap(dir string, key *SnapKey, sizeTrack *int64, isSending, toBuild bool
 	return s, nil
 }
 
-func NewSnapForBuilding(dir string, key *SnapKey, sizeTrack *int64, deleter SnapshotDeleter, limiter *IOLimiter) (*Snap, error) {
+func NewSnapForBuilding(dir string, key SnapKey, sizeTrack *int64, deleter SnapshotDeleter, limiter *IOLimiter) (*Snap, error) {
 	s, err := NewSnap(dir, key, sizeTrack, true, true, deleter, limiter)
 	if err != nil {
 		return nil, err
@@ -316,7 +316,7 @@ func NewSnapForBuilding(dir string, key *SnapKey, sizeTrack *int64, deleter Snap
 	return s, nil
 }
 
-func NewSnapForSending(dir string, key *SnapKey, sizeTrack *int64, deleter SnapshotDeleter) (*Snap, error) {
+func NewSnapForSending(dir string, key SnapKey, sizeTrack *int64, deleter SnapshotDeleter) (*Snap, error) {
 	s, err := NewSnap(dir, key, sizeTrack, true, false, deleter, nil)
 	if err != nil {
 		return nil, err
@@ -337,7 +337,7 @@ func NewSnapForSending(dir string, key *SnapKey, sizeTrack *int64, deleter Snaps
 	return s, nil
 }
 
-func NewSnapForReceiving(dir string, key *SnapKey, snapshotMeta *rspb.SnapshotMeta,
+func NewSnapForReceiving(dir string, key SnapKey, snapshotMeta *rspb.SnapshotMeta,
 	sizeTrack *int64, deleter SnapshotDeleter, limiter *IOLimiter) (*Snap, error) {
 	s, err := NewSnap(dir, key, sizeTrack, false, false, deleter, limiter)
 	if err != nil {
@@ -371,7 +371,7 @@ func NewSnapForReceiving(dir string, key *SnapKey, snapshotMeta *rspb.SnapshotMe
 	return s, nil
 }
 
-func NewSnapForApplying(dir string, key *SnapKey, sizeTrack *int64, deleter SnapshotDeleter) (*Snap, error) {
+func NewSnapForApplying(dir string, key SnapKey, sizeTrack *int64, deleter SnapshotDeleter) (*Snap, error) {
 	return NewSnap(dir, key, sizeTrack, false, false, deleter, nil)
 }
 

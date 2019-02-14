@@ -13,6 +13,7 @@ import (
 
 	"github.com/coocood/badger"
 	"github.com/coreos/etcd/pkg/fileutil"
+	"github.com/cznic/mathutil"
 	"github.com/ngaut/unistore/lockstore"
 	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/errors"
@@ -39,9 +40,30 @@ const (
 
 type dummyDeleter struct{}
 
-func (d *dummyDeleter) DeleteSnapshot(key *SnapKey, snapshot Snapshot, checkEntry bool) bool {
+func (d *dummyDeleter) DeleteSnapshot(key SnapKey, snapshot Snapshot, checkEntry bool) bool {
 	snapshot.Delete()
 	return true
+}
+
+func getTestDBForRegions(t *testing.T, path string, regions []uint64) *DBBundle {
+	kv := openDBBundle(t, path)
+	fillDBBundleData(t, kv)
+	for _, regionID := range regions {
+		// Put apply state into kv engine.
+		applyState := new(rspb.RaftApplyState)
+		applyState.AppliedIndex = 10
+		applyState.TruncatedState = &rspb.RaftTruncatedState{
+			Index: 10,
+		}
+		require.Nil(t, putMsg(kv.db, ApplyStateKey(regionID), applyState))
+
+		// Put region ifno into kv engine.
+		region := genTestRegion(regionID, 1, 1)
+		regionState := new(rspb.RegionLocalState)
+		regionState.Region = region
+		require.Nil(t, putMsg(kv.db, RegionStateKey(regionID), regionState))
+	}
+	return kv
 }
 
 func getKVCount(t *testing.T, db *DBBundle) int {
@@ -202,7 +224,7 @@ func doTestSnapFile(t *testing.T, dbHasData bool) {
 	snapDir, err := ioutil.TempDir("", "snapshot")
 	require.Nil(t, err)
 	defer os.RemoveAll(snapDir)
-	key := &SnapKey{RegionID: regionID, Term: 1, Index: 1}
+	key := SnapKey{RegionID: regionID, Term: 1, Index: 1}
 	sizeTrack := new(int64)
 	deleter := &dummyDeleter{}
 	s1, err := NewSnapForBuilding(snapDir, key, sizeTrack, deleter, nil)
@@ -311,7 +333,7 @@ func doTestSnapValidation(t *testing.T, dbHasData bool) {
 	snapDir, err := ioutil.TempDir("", "snapshot")
 	require.Nil(t, err)
 	defer os.RemoveAll(snapDir)
-	key := &SnapKey{RegionID: regionID, Term: 1, Index: 1}
+	key := SnapKey{RegionID: regionID, Term: 1, Index: 1}
 	sizeTrack := new(int64)
 	deleter := &dummyDeleter{}
 	s1, err := NewSnapForBuilding(snapDir, key, sizeTrack, deleter, nil)
@@ -343,7 +365,7 @@ func TestSnapshotCorruptionSizeOrChecksum(t *testing.T) {
 	snapDir, err := ioutil.TempDir("", "snapshot")
 	require.Nil(t, err)
 	defer os.RemoveAll(snapDir)
-	key := &SnapKey{RegionID: regionID, Term: 1, Index: 1}
+	key := SnapKey{RegionID: regionID, Term: 1, Index: 1}
 	sizeTrack := new(int64)
 	deleter := &dummyDeleter{}
 	s1, err := NewSnapForBuilding(snapDir, key, sizeTrack, deleter, nil)
@@ -411,7 +433,7 @@ func corruptSnapSizeIn(t *testing.T, dir string) {
 	}
 }
 
-func copySnapshotForTest(t *testing.T, fromDir, toDir string, key *SnapKey, sizeTrack *int64,
+func copySnapshotForTest(t *testing.T, fromDir, toDir string, key SnapKey, sizeTrack *int64,
 	snapMeta *rspb.SnapshotMeta, deleter SnapshotDeleter) {
 	fromSnap, err := NewSnapForSending(fromDir, key, sizeTrack, deleter)
 	require.Nil(t, err)
@@ -486,7 +508,7 @@ func TestSnapshotCorruptionOnMetaFile(t *testing.T) {
 	snapDir, err := ioutil.TempDir("", "snapshot")
 	require.Nil(t, err)
 	defer os.RemoveAll(snapDir)
-	key := &SnapKey{RegionID: regionID, Term: 1, Index: 1}
+	key := SnapKey{RegionID: regionID, Term: 1, Index: 1}
 	sizeTrack := new(int64)
 	deleter := &dummyDeleter{}
 	s1, err := NewSnapForBuilding(snapDir, key, sizeTrack, deleter, nil)
@@ -517,4 +539,234 @@ func TestSnapshotCorruptionOnMetaFile(t *testing.T) {
 	require.NotNil(t, err)
 	_, err = NewSnapForReceiving(dstDir, key, snapData.Meta, sizeTrack, deleter, nil)
 	require.NotNil(t, err)
+}
+
+func TestSnapMgrCreateDir(t *testing.T) {
+	// Ensure `mgr` creates the specified directory when it does not exist.
+	tempDir, err := ioutil.TempDir("", "snapshot")
+	require.Nil(t, err)
+	defer os.RemoveAll(tempDir)
+	tempPath := filepath.Join(tempDir, "snap1")
+	_, err = os.Stat(tempPath)
+	require.True(t, os.IsNotExist(err))
+	mgr := NewSnapManager(tempPath, nil)
+	require.Nil(t, mgr.init())
+	_, err = os.Stat(tempPath)
+	require.Nil(t, err)
+
+	// Ensure `init()` will return an error if specified target is a file.
+	tempPath2 := filepath.Join(tempDir, "snap2")
+	f2, err := os.Create(tempPath2)
+	require.Nil(t, err)
+	f2.Close()
+	mgr = NewSnapManager(tempPath2, nil)
+	require.NotNil(t, mgr.init())
+}
+
+func TestSnapMgrV2(t *testing.T) {
+	tempDir, err := ioutil.TempDir("", "snapshot")
+	require.Nil(t, err)
+	defer os.RemoveAll(tempDir)
+	mgr := NewSnapManager(tempDir, nil)
+	require.Nil(t, mgr.init())
+	require.Equal(t, uint64(0), mgr.GetTotalSnapSize())
+
+	dbDir, err := ioutil.TempDir("", "snapshot")
+	require.Nil(t, err)
+	defer os.RemoveAll(dbDir)
+
+	dbBundle := openDBBundle(t, dbDir)
+	fillDBBundleData(t, dbBundle)
+
+	key1 := SnapKey{RegionID: 1, Term: 1, Index: 1}
+	sizeTrack := new(int64)
+	deleter := &dummyDeleter{}
+	s1, err := NewSnapForBuilding(tempDir, key1, sizeTrack, deleter, nil)
+	require.Nil(t, err)
+	region := genTestRegion(1, 1, 1)
+	snapData := new(rspb.RaftSnapshotData)
+	snapData.Region = region
+	stat := new(SnapStatistics)
+	require.Nil(t, s1.Build(dbBundle, region, snapData, stat, deleter))
+
+	s, err := NewSnapForSending(tempDir, key1, sizeTrack, deleter)
+	require.Nil(t, err)
+	expectedSize := s.TotalSize()
+	s2, err := NewSnapForReceiving(tempDir, key1, snapData.Meta, sizeTrack, deleter, nil)
+	require.Nil(t, err)
+	n, err := io.Copy(s2, s)
+	require.Nil(t, err)
+	require.Equal(t, n, int64(expectedSize))
+	require.Nil(t, s2.Save())
+
+	key2 := SnapKey{RegionID: 2, Term: 1, Index: 1}
+	region.Id = 2
+	snapData.Region = region
+
+	s3, err := NewSnapForBuilding(tempDir, key2, sizeTrack, deleter, nil)
+	require.Nil(t, err)
+	s4, err := NewSnapForReceiving(tempDir, key2, snapData.Meta, sizeTrack, deleter, nil)
+	require.Nil(t, err)
+
+	require.True(t, s1.Exists())
+	require.True(t, s2.Exists())
+	require.False(t, s3.Exists())
+	require.False(t, s4.Exists())
+
+	mgr = NewSnapManager(tempDir, nil)
+	err = mgr.init()
+	require.Nil(t, err, errors.ErrorStack(err))
+	require.Equal(t, expectedSize*2, mgr.GetTotalSnapSize())
+
+	require.True(t, s1.Exists())
+	require.True(t, s2.Exists())
+	require.False(t, s3.Exists())
+	require.False(t, s4.Exists())
+
+	snap, err := mgr.GetSnapshotForSending(key1)
+	require.Nil(t, err)
+	snap.Delete()
+	assert.Equal(t, expectedSize, mgr.GetTotalSnapSize())
+	snap, err = mgr.GetSnapshotForApplying(key1)
+	require.Nil(t, err)
+	snap.Delete()
+	assert.Equal(t, uint64(0), mgr.GetTotalSnapSize())
+}
+
+func checkRegistryAroundDeregister(t *testing.T, mgr *SnapManager, key SnapKey, entry SnapEntry) {
+	snapKeys, err := mgr.ListIdleSnap()
+	require.Nil(t, err)
+	require.Len(t, snapKeys, 0)
+	require.True(t, mgr.HasRegistered(key))
+	mgr.Deregister(key, entry)
+	snapKeys, err = mgr.ListIdleSnap()
+	assert.Len(t, snapKeys, 1)
+	assert.Equal(t, key, snapKeys[0].SnapKey)
+	assert.False(t, mgr.HasRegistered(key))
+}
+
+func TestSnapDeletionOnRegistry(t *testing.T) {
+	srcTmpDir, err := ioutil.TempDir("", "snapshot")
+	require.Nil(t, err)
+	defer os.RemoveAll(srcTmpDir)
+	srcMgr := NewSnapManager(srcTmpDir, nil)
+	require.Nil(t, srcMgr.init())
+
+	srcDBDir, err := ioutil.TempDir("", "snapshot")
+	require.Nil(t, err)
+	defer os.RemoveAll(srcDBDir)
+	dbBundle := openDBBundle(t, srcDBDir)
+	fillDBBundleData(t, dbBundle)
+
+	key := SnapKey{RegionID: 1, Term: 1, Index: 1}
+	region := genTestRegion(1, 1, 1)
+
+	// Ensure the snapshot being built will not be deleted on GC.
+	srcMgr.Register(key, SnapEntryGenerating)
+	s1, err := srcMgr.GetSnapshotForBuilding(key, dbBundle)
+	require.Nil(t, err)
+	snapData := new(rspb.RaftSnapshotData)
+	snapData.Region = region
+	stat := new(SnapStatistics)
+	require.Nil(t, s1.Build(dbBundle, region, snapData, stat, srcMgr))
+
+	snapBin, err := snapData.Marshal()
+	require.Nil(t, err)
+
+	checkRegistryAroundDeregister(t, srcMgr, key, SnapEntryGenerating)
+
+	// Ensure the snapshot being sent will not be deleted on GC.
+	srcMgr.Register(key, SnapEntrySending)
+	s2, err := srcMgr.GetSnapshotForSending(key)
+	require.Nil(t, err)
+	expectedSize := s2.TotalSize()
+
+	dstTmpDir, err := ioutil.TempDir("", "snapshot")
+	require.Nil(t, err)
+	defer os.RemoveAll(dstTmpDir)
+	dstMgr := NewSnapManager(dstTmpDir, nil)
+	require.Nil(t, dstMgr.init())
+
+	// Ensure the snapshot being received will not be deleted on GC.
+	dstMgr.Register(key, SnapEntryReceiving)
+	s3, err := dstMgr.GetSnapshotForReceiving(key, snapBin)
+	require.Nil(t, err)
+	n, err := io.Copy(s3, s2)
+	require.Nil(t, err)
+	assert.Equal(t, expectedSize, uint64(n))
+	require.Nil(t, s3.Save())
+
+	checkRegistryAroundDeregister(t, srcMgr, key, SnapEntrySending)
+	checkRegistryAroundDeregister(t, dstMgr, key, SnapEntryReceiving)
+
+	// Ensure the snapshot to be applied will not be deleted on GC.
+	snapKeys, err := dstMgr.ListIdleSnap()
+	require.Nil(t, err)
+	require.Len(t, snapKeys, 1)
+	snapKey := snapKeys[0].SnapKey
+	require.Equal(t, key, snapKey)
+	assert.False(t, dstMgr.HasRegistered(snapKey))
+	dstMgr.Register(snapKey, SnapEntryApplying)
+	s4, err := dstMgr.GetSnapshotForApplying(snapKey)
+	require.Nil(t, err)
+	s5, err := dstMgr.GetSnapshotForApplying(snapKey)
+	require.Nil(t, err)
+	dstMgr.DeleteSnapshot(snapKey, s4, false)
+	assert.True(t, s5.Exists())
+}
+
+func TestSnapMaxTotalSize(t *testing.T) {
+	regions := make([]uint64, 20)
+	for i := 0; i < 20; i++ {
+		regions[i] = uint64(i)
+	}
+	kvPath, err := ioutil.TempDir("", "snapshot")
+	require.Nil(t, err)
+	defer os.RemoveAll(kvPath)
+	dbBundle := getTestDBForRegions(t, kvPath, regions)
+
+	snapFilePath, err := ioutil.TempDir("", "snapshot")
+	require.Nil(t, err)
+	defer os.RemoveAll(snapFilePath)
+
+	maxTotalSize := uint64(10240)
+	snapMgr := new(SnapManagerBuilder).MaxTotalSize(maxTotalSize).Build(snapFilePath, nil)
+
+	// Add an oldest snapshot for receiving.
+	recvKey := SnapKey{RegionID: 100, Term: 100, Index: 100}
+	stat := new(SnapStatistics)
+	snapData := new(rspb.RaftSnapshotData)
+	s, err := snapMgr.GetSnapshotForBuilding(recvKey, dbBundle)
+	require.Nil(t, err)
+	require.Nil(t, s.Build(dbBundle, genTestRegion(100, 1, 1), snapData, stat, snapMgr))
+	recvHead, err := snapData.Marshal()
+	require.Nil(t, err)
+	s, err = snapMgr.GetSnapshotForSending(recvKey)
+	require.Nil(t, err)
+	recvRemain, err := ioutil.ReadAll(s)
+	require.Nil(t, err)
+	assert.True(t, snapMgr.DeleteSnapshot(recvKey, s, true))
+
+	s, err = snapMgr.GetSnapshotForReceiving(recvKey, recvHead)
+	require.Nil(t, err)
+	_, err = s.Write(recvRemain)
+	require.Nil(t, err)
+	require.Nil(t, s.Save())
+
+	for i, regionID := range regions {
+		key := SnapKey{RegionID: regionID, Term: 1, Index: 1}
+		region := genTestRegion(regionID, 1, 1)
+		s, err = snapMgr.GetSnapshotForBuilding(key, dbBundle)
+		require.Nil(t, err)
+		stat = new(SnapStatistics)
+		snapData = new(rspb.RaftSnapshotData)
+		require.Nil(t, s.Build(dbBundle, region, snapData, stat, snapMgr))
+
+		// TODO: this size may change in different RocksDB version.
+		snapSize := uint64(1617)
+		maxSnapCount := (maxTotalSize + snapSize - 1) / snapSize
+		// The first snap_size is for region 100.
+		// That snapshot won't be deleted because it's not for generating.
+		assert.Equal(t, snapMgr.GetTotalSnapSize(), snapSize*mathutil.MinUint64(maxSnapCount, uint64(i+2)))
+	}
 }
