@@ -41,6 +41,9 @@ const (
 	MsgTypeStoreCompactedEvent         MsgType = 105
 	MsgTypeStoreTick                   MsgType = 106
 	MsgTypeStoreStart                  MsgType = 107
+
+	MsgTypeFsmNormal  MsgType = 201
+	MsgTypeFsmControl MsgType = 202
 )
 
 type Callback func(resp *raft_cmdpb.RaftCmdResponse)
@@ -105,6 +108,9 @@ type Msg struct {
 	StoreCompactedEvent         *rocksdb.CompactedEvent
 	StoreTick                   StoreTick
 	StoreStartStore             *metapb.Store
+
+	// fsm Message.
+	Fsm fsm
 }
 
 type MsgRaftCmd struct {

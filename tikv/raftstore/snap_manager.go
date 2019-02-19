@@ -332,7 +332,7 @@ func (sm *SnapManager) DeleteSnapshot(key SnapKey, snapshot Snapshot, checkEntry
 }
 
 type SnapManagerBuilder struct {
-	maxTotalSize        uint64
+	maxTotalSize uint64
 }
 
 func (smb *SnapManagerBuilder) MaxTotalSize(v uint64) *SnapManagerBuilder {
