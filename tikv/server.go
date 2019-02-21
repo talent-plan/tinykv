@@ -469,6 +469,16 @@ func (svr *Server) UnsafeDestroyRange(context.Context, *kvrpcpb.UnsafeDestroyRan
 	return &kvrpcpb.UnsafeDestroyRangeResponse{}, nil
 }
 
+func (svr *Server) BatchCommands(tikvpb.Tikv_BatchCommandsServer) error {
+	// TODO
+	return nil
+}
+
+func (svr *Server) BatchRaft(tikvpb.Tikv_BatchRaftServer) error {
+	// TODO
+	return nil
+}
+
 func convertToKeyError(err error) *kvrpcpb.KeyError {
 	if err == nil {
 		return nil

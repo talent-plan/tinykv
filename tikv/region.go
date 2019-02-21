@@ -420,8 +420,8 @@ func (rm *RegionManager) getRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *er
 		ri.refCount.Done()
 		return nil, &errorpb.Error{
 			Message: "stale epoch",
-			StaleEpoch: &errorpb.StaleEpoch{
-				NewRegions: []*metapb.Region{ri.meta},
+			EpochNotMatch: &errorpb.EpochNotMatch{
+				CurrentRegions: []*metapb.Region{ri.meta},
 			},
 		}
 	}

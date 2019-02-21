@@ -13,7 +13,7 @@ require (
 	github.com/pierrec/lz4 v2.0.5+incompatible
 	github.com/pingcap/check v0.0.0-20181213055612-5c2b07721bdb
 	github.com/pingcap/errors v0.11.0
-	github.com/pingcap/kvproto v0.0.0-20181105061835-1b5d69cd1d26
+	github.com/pingcap/kvproto v0.0.0-20190215154024-7f2fc73ef562
 	github.com/pingcap/parser v0.0.0-20181218071912-deacf026787e
 	github.com/pingcap/tidb v0.0.0-20181130082510-08f0168a6cae
 	github.com/pingcap/tipb v0.0.0-20181012112600-11e33c750323
