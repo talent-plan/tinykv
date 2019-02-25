@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/juju/errors"
+	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/ngaut/unistore/rowcodec"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
@@ -338,7 +339,7 @@ func (e *closureExecutor) countColumnProcess(key, value []byte) error {
 
 func (e *closureExecutor) tableScanProcess(key, value []byte) error {
 	if e.rowCount == e.limit {
-		return ScanBreak
+		return dbreader.ScanBreak
 	}
 	e.rowCount++
 	err := e.tableScanProcessCore(key, value)
@@ -366,7 +367,7 @@ func (e *closureExecutor) scanFinish() error {
 
 func (e *closureExecutor) indexScanProcess(key, value []byte) error {
 	if e.rowCount == e.limit {
-		return ScanBreak
+		return dbreader.ScanBreak
 	}
 	e.rowCount++
 	err := e.indexScanProcessCore(key, value)
@@ -429,7 +430,7 @@ func (e *closureExecutor) chunkToOldChunk(chk *chunk.Chunk) error {
 
 func (e *closureExecutor) selectionProcess(key, value []byte) error {
 	if e.rowCount == e.limit {
-		return ScanBreak
+		return dbreader.ScanBreak
 	}
 	var err error
 	if e.idxScanCtx != nil {

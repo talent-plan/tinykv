@@ -7,6 +7,7 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
+	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/ngaut/unistore/rowcodec"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
 	"github.com/pingcap/kvproto/pkg/errorpb"
@@ -71,7 +72,7 @@ type requestCtx struct {
 	regCtx    *regionCtx
 	regErr    *errorpb.Error
 	buf       []byte
-	reader    *DBReader
+	reader    *dbreader.DBReader
 	method    string
 	startTime time.Time
 	dbIdx     int
@@ -97,9 +98,12 @@ func newRequestCtx(svr *Server, ctx *kvrpcpb.Context, method string) (*requestCt
 }
 
 // For read-only requests that doesn't acquire latches, this function must be called after all locks has been checked.
-func (req *requestCtx) getDBReader() *DBReader {
+func (req *requestCtx) getDBReader() *dbreader.DBReader {
 	if req.reader == nil {
-		req.reader = req.svr.mvccStore.NewDBReader(req)
+		mvccStore := req.svr.mvccStore
+		txn := mvccStore.dbs[req.dbIdx].NewTransaction(false)
+		safePoint := atomic.LoadUint64(&mvccStore.safePoint.timestamp)
+		req.reader = dbreader.NewDBReader(req.regCtx.startKey, req.regCtx.endKey, txn, safePoint)
 	}
 	return req.reader
 }
@@ -162,7 +166,7 @@ func (svr *Server) KvScan(ctx context.Context, req *kvrpcpb.ScanRequest) (*kvrpc
 	}
 	var pairs []*kvrpcpb.KvPair
 	var buf []byte
-	var scanFunc ScanFunc = func(key, value []byte) error {
+	var scanFunc = func(key, value []byte) error {
 		if isRowKey(key) {
 			buf, err = rowcodec.RowToOldRow(value, buf)
 			if err != nil {

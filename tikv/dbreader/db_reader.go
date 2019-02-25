@@ -1,9 +1,8 @@
-package tikv
+package dbreader
 
 import (
 	"bytes"
 	"math"
-	"sync/atomic"
 
 	"github.com/coocood/badger"
 	"github.com/coocood/badger/y"
@@ -11,11 +10,12 @@ import (
 	"github.com/ngaut/unistore/tikv/mvcc"
 )
 
-func (store *MVCCStore) NewDBReader(reqCtx *requestCtx) *DBReader {
+func NewDBReader(startKey, endKey []byte, txn *badger.Txn, safePoint uint64) *DBReader {
 	return &DBReader{
-		reqCtx:    reqCtx,
-		txn:       store.dbs[reqCtx.dbIdx].NewTransaction(false),
-		safePoint: atomic.LoadUint64(&store.safePoint.timestamp),
+		startKey:  startKey,
+		endKey:    endKey,
+		txn:       txn,
+		safePoint: safePoint,
 	}
 }
 
@@ -30,7 +30,8 @@ func newIterator(txn *badger.Txn, reverse bool, startKey, endKey []byte) *badger
 
 // DBReader reads data from DB, for read-only requests, the locks must already be checked before DBReader is created.
 type DBReader struct {
-	reqCtx    *requestCtx
+	startKey  []byte
+	endKey    []byte
 	txn       *badger.Txn
 	iter      *badger.Iterator
 	revIter   *badger.Iterator
@@ -50,7 +51,7 @@ func (r *DBReader) Get(key []byte, startTS uint64) ([]byte, error) {
 		return item.Value()
 	}
 	oldKey := mvcc.EncodeOldKey(key, startTS)
-	iter := r.getIter()
+	iter := r.GetIter()
 	iter.Seek(oldKey)
 	if !iter.ValidForPrefix(oldKey[:len(oldKey)-8]) {
 		return nil, nil
@@ -64,28 +65,25 @@ func (r *DBReader) Get(key []byte, startTS uint64) ([]byte, error) {
 	return iter.Item().Value()
 }
 
-func (r *DBReader) getIter() *badger.Iterator {
+func (r *DBReader) GetIter() *badger.Iterator {
 	if r.iter == nil {
-		regCtx := r.reqCtx.regCtx
-		r.iter = newIterator(r.txn, false, regCtx.startKey, regCtx.endKey)
+		r.iter = newIterator(r.txn, false, r.startKey, r.endKey)
 	}
 	return r.iter
 }
 
 func (r *DBReader) getReverseIter() *badger.Iterator {
 	if r.revIter == nil {
-		regCtx := r.reqCtx.regCtx
-		r.revIter = newIterator(r.txn, true, regCtx.startKey, regCtx.endKey)
+		r.revIter = newIterator(r.txn, true, r.startKey, r.endKey)
 	}
 	return r.revIter
 }
 
-func (r *DBReader) getOldIter() *badger.Iterator {
+func (r *DBReader) GetOldIter() *badger.Iterator {
 	if r.oldIter == nil {
-		regCtx := r.reqCtx.regCtx
-		oldStartKey := safeCopy(regCtx.startKey)
+		oldStartKey := append([]byte{}, r.startKey...)
 		oldStartKey[0]++
-		oldEndKey := safeCopy(regCtx.endKey)
+		oldEndKey := append([]byte{}, r.endKey...)
 		oldEndKey[0]++
 		r.oldIter = newIterator(r.txn, false, oldStartKey, oldEndKey)
 	}
@@ -114,12 +112,12 @@ func (r *DBReader) Scan(startKey, endKey []byte, limit int, startTS uint64, f Sc
 		panic("invalid end key")
 	}
 
-	iter := r.getIter()
+	iter := r.GetIter()
 	var cnt int
 	for iter.Seek(startKey); iter.Valid(); iter.Next() {
 		item := iter.Item()
 		key := item.Key()
-		if exceedEndKey(key, endKey) {
+		if bytes.Compare(key, endKey) >= 0 {
 			break
 		}
 		var val []byte
@@ -154,7 +152,7 @@ func (r *DBReader) Scan(startKey, endKey []byte, limit int, startTS uint64, f Sc
 }
 
 func (r *DBReader) getOldValue(oldKey []byte) ([]byte, error) {
-	oldIter := r.getOldIter()
+	oldIter := r.GetOldIter()
 	oldIter.Seek(oldKey)
 	if !oldIter.ValidForPrefix(oldKey[:len(oldKey)-8]) {
 		return nil, badger.ErrKeyNotFound
@@ -205,6 +203,10 @@ func (r *DBReader) ReverseScan(startKey, endKey []byte, limit int, startTS uint6
 		}
 	}
 	return nil
+}
+
+func (r *DBReader) GetTxn() *badger.Txn {
+	return r.txn
 }
 
 func (r *DBReader) Close() {

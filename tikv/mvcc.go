@@ -153,7 +153,7 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 
 	lockBatch := newWriteLockBatch(reqCtx)
 	// Check the DB.
-	txn := reqCtx.getDBReader().txn
+	txn := reqCtx.getDBReader().GetTxn()
 	var buf []byte
 	var enc rowcodec.Encoder
 	for i, m := range mutations {
@@ -293,7 +293,7 @@ func (store *MVCCStore) Commit(req *requestCtx, keys [][]byte, startTS, commitTS
 }
 
 func (store *MVCCStore) handleLockNotFound(reqCtx *requestCtx, key []byte, startTS, commitTS uint64) error {
-	txn := reqCtx.getDBReader().txn
+	txn := reqCtx.getDBReader().GetTxn()
 	item, err := txn.Get(key)
 	if err != nil && err != badger.ErrKeyNotFound {
 		return errors.Trace(err)
@@ -384,7 +384,7 @@ func (store *MVCCStore) rollbackKeyReadDB(req *requestCtx, batch *writeLockBatch
 	batch.buf = mvcc.EncodeRollbackKey(batch.buf, key, startTS)
 	rollbackKey := safeCopy(batch.buf)
 	reader := req.getDBReader()
-	item, err := reader.txn.Get(key)
+	item, err := reader.GetTxn().Get(key)
 	if err != nil && err != badger.ErrKeyNotFound {
 		return errors.Trace(err)
 	}
@@ -409,7 +409,7 @@ func (store *MVCCStore) rollbackKeyReadDB(req *requestCtx, batch *writeLockBatch
 		return nil
 	}
 	// val.startTS > startTS, look for the key in the old version to check if the key is committed.
-	it := reader.getOldIter()
+	it := reader.GetOldIter()
 	oldKey := mvcc.EncodeOldKey(key, userMeta.CommitTS())
 	// find greater commit version.
 	for it.Seek(oldKey); it.ValidForPrefix(oldKey[:len(oldKey)-8]); it.Next() {
@@ -594,8 +594,8 @@ func (store *MVCCStore) DeleteRange(reqCtx *requestCtx, startKey, endKey []byte)
 	oldStartKey := mvcc.EncodeOldKey(startKey, maxSystemTS)
 	oldEndKey := mvcc.EncodeOldKey(endKey, maxSystemTS)
 	reader := reqCtx.getDBReader()
-	keys = store.collectRangeKeys(reader.getIter(), startKey, endKey, keys)
-	keys = store.collectRangeKeys(reader.getIter(), oldStartKey, oldEndKey, keys)
+	keys = store.collectRangeKeys(reader.GetIter(), startKey, endKey, keys)
+	keys = store.collectRangeKeys(reader.GetIter(), oldStartKey, oldEndKey, keys)
 	err := store.deleteKeysInBatch(reqCtx, keys, delRangeBatchSize)
 	if err != nil {
 		log.Error(err)
