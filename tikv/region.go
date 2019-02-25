@@ -34,11 +34,11 @@ func InternalRegionMetaKey(regionId uint64) []byte {
 }
 
 type regionCtx struct {
-	meta     *metapb.Region
-	startKey []byte
-	endKey   []byte
-	sizeHint int64
-	diff     int64
+	meta            *metapb.Region
+	startKey        []byte
+	endKey          []byte
+	approximateSize int64
+	diff            int64
 
 	latches   map[uint64]*sync.WaitGroup
 	latchesMu sync.RWMutex
@@ -94,7 +94,7 @@ func (ri *regionCtx) greaterThanEndKey(key []byte) bool {
 }
 
 func (ri *regionCtx) unmarshal(data []byte) error {
-	ri.sizeHint = int64(binary.LittleEndian.Uint64(data))
+	ri.approximateSize = int64(binary.LittleEndian.Uint64(data))
 	data = data[8:]
 	ri.meta = &metapb.Region{}
 	err := ri.meta.Unmarshal(data)
@@ -110,7 +110,7 @@ func (ri *regionCtx) unmarshal(data []byte) error {
 
 func (ri *regionCtx) marshal() []byte {
 	data := make([]byte, 8+ri.meta.Size())
-	binary.LittleEndian.PutUint64(data, uint64(ri.sizeHint))
+	binary.LittleEndian.PutUint64(data, uint64(ri.approximateSize))
 	_, err := ri.meta.MarshalTo(data[8:])
 	if err != nil {
 		log.Error(err)
@@ -313,7 +313,7 @@ func (rm *RegionManager) initStore(storeAddr string) error {
 		return nil
 	})
 	for _, region := range rm.regions {
-		rm.pdc.ReportRegion(region.meta, region.sizeHint)
+		rm.pdc.ReportRegion(region.meta, region.approximateSize)
 	}
 	log.Info("Initialize success")
 	return nil
@@ -501,7 +501,7 @@ func (rm *RegionManager) runSplitWorker() {
 		regionsToCheck = regionsToCheck[:0]
 		rm.mu.RLock()
 		for _, ri := range rm.regions {
-			if ri.sizeHint+atomic.LoadInt64(&ri.diff) > rm.regionSize*3/2 {
+			if ri.approximateSize+atomic.LoadInt64(&ri.diff) > rm.regionSize*3/2 {
 				regionsToCheck = append(regionsToCheck, ri)
 			}
 		}
@@ -518,7 +518,7 @@ func (rm *RegionManager) runSplitWorker() {
 			}
 		}
 		rm.mu.RUnlock()
-		rm.saveSizeHint(regionsToSave)
+		rm.saveSize(regionsToSave)
 		select {
 		case <-rm.closeCh:
 			return
@@ -527,10 +527,10 @@ func (rm *RegionManager) runSplitWorker() {
 	}
 }
 
-func (rm *RegionManager) saveSizeHint(regionsToSave []*regionCtx) {
+func (rm *RegionManager) saveSize(regionsToSave []*regionCtx) {
 	err1 := rm.dbs[0].Update(func(txn *badger.Txn) error {
 		for _, ri := range regionsToSave {
-			ri.sizeHint += atomic.LoadInt64(&ri.diff)
+			ri.approximateSize += atomic.LoadInt64(&ri.diff)
 			err := txn.Set(InternalRegionMetaKey(ri.meta.Id), ri.marshal())
 			if err != nil {
 				return err
@@ -562,7 +562,7 @@ func (rm *RegionManager) splitCheckRegion(region *regionCtx) error {
 		return errors.Trace(err)
 	}
 	// Need to update the diff to avoid split check again.
-	atomic.StoreInt64(&region.diff, s.totalSize-region.sizeHint)
+	atomic.StoreInt64(&region.diff, s.totalSize-region.approximateSize)
 	if s.totalSize < rm.regionSize {
 		return nil
 	}
@@ -590,7 +590,7 @@ func (rm *RegionManager) splitRegion(oldRegionCtx *regionCtx, splitKey []byte, o
 		Peers: oldRegion.Peers,
 	}
 	right := newRegionCtx(rightMeta, oldRegionCtx)
-	right.sizeHint = oldSize - leftSize
+	right.approximateSize = oldSize - leftSize
 	id, err := rm.pdc.AllocID(context.Background())
 	if err != nil {
 		return errors.Trace(err)
@@ -606,7 +606,7 @@ func (rm *RegionManager) splitRegion(oldRegionCtx *regionCtx, splitKey []byte, o
 		Peers: oldRegion.Peers,
 	}
 	left := newRegionCtx(leftMeta, oldRegionCtx)
-	left.sizeHint = leftSize
+	left.approximateSize = leftSize
 	err1 := rm.dbs[0].Update(func(txn *badger.Txn) error {
 		err := txn.Set(InternalRegionMetaKey(left.meta.Id), left.marshal())
 		if err != nil {
@@ -623,10 +623,10 @@ func (rm *RegionManager) splitRegion(oldRegionCtx *regionCtx, splitKey []byte, o
 	rm.regions[right.meta.Id] = right
 	rm.mu.Unlock()
 	oldRegionCtx.refCount.Done()
-	rm.pdc.ReportRegion(right.meta, right.sizeHint)
-	rm.pdc.ReportRegion(left.meta, left.sizeHint)
+	rm.pdc.ReportRegion(right.meta, right.approximateSize)
+	rm.pdc.ReportRegion(left.meta, left.approximateSize)
 	log.Infof("region %d split to left %d with size %d and right %d with size %d",
-		oldRegion.Id, left.meta.Id, left.sizeHint, right.meta.Id, right.sizeHint)
+		oldRegion.Id, left.meta.Id, left.approximateSize, right.meta.Id, right.approximateSize)
 	return nil
 }
 

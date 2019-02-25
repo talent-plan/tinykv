@@ -33,7 +33,7 @@ type Client interface {
 	AllocID(ctx context.Context) (uint64, error)
 	Bootstrap(ctx context.Context, store *metapb.Store, region *metapb.Region) error
 	PutStore(ctx context.Context, store *metapb.Store) error
-	ReportRegion(regInfo *metapb.Region, sizeHint int64)
+	ReportRegion(regInfo *metapb.Region, approximateSize int64)
 	StoreHeartbeat(ctx context.Context, stats *pdpb.StoreStats) error
 	Close()
 }
@@ -55,16 +55,16 @@ type client struct {
 	clientConn *grpc.ClientConn
 
 	receiveRegionHeartbeatCh chan *pdpb.RegionHeartbeatResponse
-	regionCh                 chan regInfoSizeHintPair
+	regionCh                 chan regInfoSizePair
 
 	wg     sync.WaitGroup
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
-type regInfoSizeHintPair struct {
-	info     *metapb.Region
-	sizeHint int64
+type regInfoSizePair struct {
+	info            *metapb.Region
+	approximateSize int64
 }
 
 // NewClient creates a PD client.
@@ -77,7 +77,7 @@ func NewClient(pdAddr string, tag string) (Client, error) {
 		ctx:                      ctx,
 		cancel:                   cancel,
 		tag:                      tag,
-		regionCh:                 make(chan regInfoSizeHintPair, 64),
+		regionCh:                 make(chan regInfoSizePair, 64),
 	}
 	cc, err := c.createConn()
 	if err != nil {
@@ -206,7 +206,7 @@ func (c *client) reportRegionHeartbeat(ctx context.Context, stream pdpb.PD_Regio
 				Header:          c.requestHeader(),
 				Region:          pair.info,
 				Leader:          pair.info.Peers[0],
-				ApproximateSize: uint64(pair.sizeHint),
+				ApproximateSize: uint64(pair.approximateSize),
 			}
 			err := stream.Send(request)
 			if err != nil {
@@ -289,8 +289,8 @@ func (c *client) StoreHeartbeat(ctx context.Context, stats *pdpb.StoreStats) err
 	return nil
 }
 
-func (c *client) ReportRegion(regInfo *metapb.Region, sizeHint int64) {
-	c.regionCh <- regInfoSizeHintPair{info: regInfo, sizeHint: sizeHint}
+func (c *client) ReportRegion(regInfo *metapb.Region, approximateSize int64) {
+	c.regionCh <- regInfoSizePair{info: regInfo, approximateSize: approximateSize}
 }
 
 func (c *client) requestHeader() *pdpb.RequestHeader {
