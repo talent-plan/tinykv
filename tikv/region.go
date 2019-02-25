@@ -13,6 +13,7 @@ import (
 	"github.com/coocood/badger"
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
+	"github.com/ngaut/unistore/pd"
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -203,7 +204,7 @@ type RegionManager struct {
 	mu         sync.RWMutex
 	regions    map[uint64]*regionCtx
 	dbs        []*badger.DB
-	pdc        Client
+	pdc        pd.Client
 	clusterID  uint64
 	regionSize int64
 	closeCh    chan struct{}
@@ -211,7 +212,7 @@ type RegionManager struct {
 }
 
 func NewRegionManager(dbs []*badger.DB, opts RegionOptions) *RegionManager {
-	pdc, err := NewClient(opts.PDAddr, "")
+	pdc, err := pd.NewClient(opts.PDAddr, "")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -312,7 +313,7 @@ func (rm *RegionManager) initStore(storeAddr string) error {
 		return nil
 	})
 	for _, region := range rm.regions {
-		rm.pdc.ReportRegion(region)
+		rm.pdc.ReportRegion(region.meta, region.sizeHint)
 	}
 	log.Info("Initialize success")
 	return nil
@@ -622,8 +623,8 @@ func (rm *RegionManager) splitRegion(oldRegionCtx *regionCtx, splitKey []byte, o
 	rm.regions[right.meta.Id] = right
 	rm.mu.Unlock()
 	oldRegionCtx.refCount.Done()
-	rm.pdc.ReportRegion(right)
-	rm.pdc.ReportRegion(left)
+	rm.pdc.ReportRegion(right.meta, right.sizeHint)
+	rm.pdc.ReportRegion(left.meta, left.sizeHint)
 	log.Infof("region %d split to left %d with size %d and right %d with size %d",
 		oldRegion.Id, left.meta.Id, left.sizeHint, right.meta.Id, right.sizeHint)
 	return nil

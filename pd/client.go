@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package tikv
+package pd
 
 import (
 	"context"
@@ -33,7 +33,7 @@ type Client interface {
 	AllocID(ctx context.Context) (uint64, error)
 	Bootstrap(ctx context.Context, store *metapb.Store, region *metapb.Region) error
 	PutStore(ctx context.Context, store *metapb.Store) error
-	ReportRegion(regInfo *regionCtx)
+	ReportRegion(regInfo *metapb.Region, sizeHint int64)
 	StoreHeartbeat(ctx context.Context, stats *pdpb.StoreStats) error
 	Close()
 }
@@ -55,11 +55,16 @@ type client struct {
 	clientConn *grpc.ClientConn
 
 	receiveRegionHeartbeatCh chan *pdpb.RegionHeartbeatResponse
-	regionCh                 chan *regionCtx
+	regionCh                 chan regInfoSizeHintPair
 
 	wg     sync.WaitGroup
 	ctx    context.Context
 	cancel context.CancelFunc
+}
+
+type regInfoSizeHintPair struct {
+	info     *metapb.Region
+	sizeHint int64
 }
 
 // NewClient creates a PD client.
@@ -72,7 +77,7 @@ func NewClient(pdAddr string, tag string) (Client, error) {
 		ctx:                      ctx,
 		cancel:                   cancel,
 		tag:                      tag,
-		regionCh:                 make(chan *regionCtx, 64),
+		regionCh:                 make(chan regInfoSizeHintPair, 64),
 	}
 	cc, err := c.createConn()
 	if err != nil {
@@ -193,15 +198,15 @@ func (c *client) reportRegionHeartbeat(ctx context.Context, stream pdpb.PD_Regio
 		select {
 		case <-ctx.Done():
 			return
-		case info, ok := <-c.regionCh:
+		case pair, ok := <-c.regionCh:
 			if !ok {
 				return
 			}
 			request := &pdpb.RegionHeartbeatRequest{
 				Header:          c.requestHeader(),
-				Region:          info.meta,
-				Leader:          info.meta.Peers[0],
-				ApproximateSize: uint64(info.sizeHint),
+				Region:          pair.info,
+				Leader:          pair.info.Peers[0],
+				ApproximateSize: uint64(pair.sizeHint),
 			}
 			err := stream.Send(request)
 			if err != nil {
@@ -284,8 +289,8 @@ func (c *client) StoreHeartbeat(ctx context.Context, stats *pdpb.StoreStats) err
 	return nil
 }
 
-func (c *client) ReportRegion(regInfo *regionCtx) {
-	c.regionCh <- regInfo
+func (c *client) ReportRegion(regInfo *metapb.Region, sizeHint int64) {
+	c.regionCh <- regInfoSizeHintPair{info: regInfo, sizeHint: sizeHint}
 }
 
 func (c *client) requestHeader() *pdpb.RequestHeader {
