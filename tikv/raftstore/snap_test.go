@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/coocood/badger"
-	"github.com/coreos/etcd/pkg/fileutil"
+	"github.com/etcd-io/etcd/pkg/fileutil"
 	"github.com/cznic/mathutil"
 	"github.com/ngaut/unistore/lockstore"
 	"github.com/ngaut/unistore/tikv/mvcc"
