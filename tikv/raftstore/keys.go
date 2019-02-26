@@ -86,6 +86,10 @@ func ApplyStateKey(regionID uint64) []byte {
 	return makeRegionPrefix(regionID, ApplyStateSuffix)
 }
 
+func SnapshotRaftStateKey(regionID uint64) []byte {
+	return makeRegionPrefix(regionID, SnapshotRaftStateSuffix)
+}
+
 func RegionMetaPrefixKey(regionID uint64) []byte {
 	key := make([]byte, 10)
 	key[0] = LocalPrefix

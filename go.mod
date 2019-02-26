@@ -28,4 +28,4 @@ require (
 
 replace github.com/pingcap/tidb v0.0.0-20181130082510-08f0168a6cae => github.com/bobotu/tidb v0.0.0-20181221085922-487bfe4bf561
 
-replace go.etcd.io/etcd => github.com/zhangjinpeng1987/etcd v0.0.0-20190225050241-2507590cb313
+replace go.etcd.io/etcd => github.com/zhangjinpeng1987/etcd v0.0.0-20190226085253-137eac022b64
