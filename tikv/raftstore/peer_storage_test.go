@@ -13,7 +13,7 @@ import (
 )
 
 func TestPeerStorageTerm(t *testing.T) {
-	ents := []*raftpb.Entry{
+	ents := []raftpb.Entry{
 		newTestEntry(3, 3), newTestEntry(4, 4), newTestEntry(5, 5),
 	}
 	tests := []struct {
@@ -38,7 +38,7 @@ func TestPeerStorageTerm(t *testing.T) {
 	}
 }
 
-func appendEnts(t *testing.T, peerStore *PeerStorage, ents []*raftpb.Entry) {
+func appendEnts(t *testing.T, peerStore *PeerStorage, ents []raftpb.Entry) {
 	ctx := NewInvokeContext(peerStore)
 	readyCtx := new(readyContext)
 	require.Nil(t, peerStore.Append(ctx, ents, readyCtx))
@@ -47,13 +47,13 @@ func appendEnts(t *testing.T, peerStore *PeerStorage, ents []*raftpb.Entry) {
 	peerStore.raftState = &ctx.RaftState
 }
 
-func validateCache(t *testing.T, peerStore *PeerStorage, expEnts []*raftpb.Entry) {
+func validateCache(t *testing.T, peerStore *PeerStorage, expEnts []raftpb.Entry) {
 	assert.Equal(t, peerStore.cache.cache, expEnts)
 	for _, e := range expEnts {
 		key := RaftLogKey(peerStore.region.Id, e.Index)
 		e2 := new(raftpb.Entry)
 		assert.Nil(t, getMsg(peerStore.Engines.raft, key, e2))
-		assert.Equal(t, e2, e)
+		assert.Equal(t, *e2, e)
 	}
 }
 
@@ -104,12 +104,12 @@ func getMetaKeyCount(t *testing.T, peerStore *PeerStorage) int {
 }
 
 func TestPeerStorageClearMeta(t *testing.T) {
-	peerStore := newTestPeerStorageFromEnts(t, []*raftpb.Entry{
+	peerStore := newTestPeerStorageFromEnts(t, []raftpb.Entry{
 		newTestEntry(3, 3),
 		newTestEntry(4, 4),
 	})
 	defer cleanUpTestData(peerStore)
-	appendEnts(t, peerStore, []*raftpb.Entry{
+	appendEnts(t, peerStore, []raftpb.Entry{
 		newTestEntry(5, 5),
 		newTestEntry(6, 6),
 	})
@@ -123,7 +123,7 @@ func TestPeerStorageClearMeta(t *testing.T) {
 }
 
 func TestPeerStorageEntries(t *testing.T) {
-	ents := []*raftpb.Entry{
+	ents := []raftpb.Entry{
 		newTestEntry(3, 3),
 		newTestEntry(4, 4),
 		newTestEntry(5, 5),
@@ -133,36 +133,36 @@ func TestPeerStorageEntries(t *testing.T) {
 		low     uint64
 		high    uint64
 		maxSize uint64
-		entries []*raftpb.Entry
+		entries []raftpb.Entry
 		err     error
 	}{
 		{2, 6, math.MaxUint64, nil, raft.ErrCompacted},
 		{3, 4, math.MaxUint64, nil, raft.ErrCompacted},
-		{4, 5, math.MaxUint64, []*raftpb.Entry{
+		{4, 5, math.MaxUint64, []raftpb.Entry{
 			newTestEntry(4, 4),
 		}, nil},
-		{4, 6, math.MaxUint64, []*raftpb.Entry{
+		{4, 6, math.MaxUint64, []raftpb.Entry{
 			newTestEntry(4, 4),
 			newTestEntry(5, 5),
 		}, nil},
 		// even if maxsize is zero, the first entry should be returned
-		{4, 7, 0, []*raftpb.Entry{
+		{4, 7, 0, []raftpb.Entry{
 			newTestEntry(4, 4),
 		}, nil},
 		// limit to 2
-		{4, 7, uint64(ents[1].Size() + ents[2].Size()), []*raftpb.Entry{
+		{4, 7, uint64(ents[1].Size() + ents[2].Size()), []raftpb.Entry{
 			newTestEntry(4, 4),
 			newTestEntry(5, 5),
 		}, nil},
-		{4, 7, uint64(ents[1].Size() + ents[2].Size() + ents[3].Size()/2), []*raftpb.Entry{
+		{4, 7, uint64(ents[1].Size() + ents[2].Size() + ents[3].Size()/2), []raftpb.Entry{
 			newTestEntry(4, 4),
 			newTestEntry(5, 5),
 		}, nil},
-		{4, 7, uint64(ents[1].Size() + ents[2].Size() + ents[3].Size() - 1), []*raftpb.Entry{
+		{4, 7, uint64(ents[1].Size() + ents[2].Size() + ents[3].Size() - 1), []raftpb.Entry{
 			newTestEntry(4, 4),
 			newTestEntry(5, 5),
 		}, nil},
-		{4, 7, uint64(ents[1].Size() + ents[2].Size() + ents[3].Size()), []*raftpb.Entry{
+		{4, 7, uint64(ents[1].Size() + ents[2].Size() + ents[3].Size()), []raftpb.Entry{
 			newTestEntry(4, 4),
 			newTestEntry(5, 5),
 			newTestEntry(6, 6),
@@ -176,13 +176,13 @@ func TestPeerStorageEntries(t *testing.T) {
 		if err != nil {
 			assert.Equal(t, tt.err, err)
 		} else {
-			assert.Equal(t, tt.entries, entriesToPointers(entries), "%d", i)
+			assert.Equal(t, tt.entries, entries, "%d", i)
 		}
 	}
 }
 
 func TestPeerStorageCompact(t *testing.T) {
-	ents := []*raftpb.Entry{
+	ents := []raftpb.Entry{
 		newTestEntry(3, 3), newTestEntry(4, 4), newTestEntry(5, 5)}
 	tests := []struct {
 		idx uint64
@@ -213,40 +213,40 @@ func TestPeerStorageCompact(t *testing.T) {
 }
 
 func TestPeerStorageAppend(t *testing.T) {
-	ents := []*raftpb.Entry{
+	ents := []raftpb.Entry{
 		newTestEntry(3, 3), newTestEntry(4, 4), newTestEntry(5, 5)}
 	tests := []struct {
-		appends []*raftpb.Entry
-		results []*raftpb.Entry
+		appends []raftpb.Entry
+		results []raftpb.Entry
 	}{
 		{
-			[]*raftpb.Entry{newTestEntry(3, 3), newTestEntry(4, 4), newTestEntry(5, 5)},
-			[]*raftpb.Entry{newTestEntry(4, 4), newTestEntry(5, 5)},
+			[]raftpb.Entry{newTestEntry(3, 3), newTestEntry(4, 4), newTestEntry(5, 5)},
+			[]raftpb.Entry{newTestEntry(4, 4), newTestEntry(5, 5)},
 		},
 		{
-			[]*raftpb.Entry{newTestEntry(3, 3), newTestEntry(4, 6), newTestEntry(5, 6)},
-			[]*raftpb.Entry{newTestEntry(4, 6), newTestEntry(5, 6)},
+			[]raftpb.Entry{newTestEntry(3, 3), newTestEntry(4, 6), newTestEntry(5, 6)},
+			[]raftpb.Entry{newTestEntry(4, 6), newTestEntry(5, 6)},
 		},
 		{
-			[]*raftpb.Entry{
+			[]raftpb.Entry{
 				newTestEntry(3, 3),
 				newTestEntry(4, 4),
 				newTestEntry(5, 5),
 				newTestEntry(6, 5),
 			},
-			[]*raftpb.Entry{newTestEntry(4, 4), newTestEntry(5, 5), newTestEntry(6, 5)},
+			[]raftpb.Entry{newTestEntry(4, 4), newTestEntry(5, 5), newTestEntry(6, 5)},
 		},
 		// truncate incoming entries, truncate the existing entries and append
 		{
-			[]*raftpb.Entry{newTestEntry(2, 3), newTestEntry(3, 3), newTestEntry(4, 5)},
-			[]*raftpb.Entry{newTestEntry(4, 5)},
+			[]raftpb.Entry{newTestEntry(2, 3), newTestEntry(3, 3), newTestEntry(4, 5)},
+			[]raftpb.Entry{newTestEntry(4, 5)},
 		},
 		// truncate the existing entries and append
-		{[]*raftpb.Entry{newTestEntry(4, 5)}, []*raftpb.Entry{newTestEntry(4, 5)}},
+		{[]raftpb.Entry{newTestEntry(4, 5)}, []raftpb.Entry{newTestEntry(4, 5)}},
 		// direct append
 		{
-			[]*raftpb.Entry{newTestEntry(6, 5)},
-			[]*raftpb.Entry{newTestEntry(4, 4), newTestEntry(5, 5), newTestEntry(6, 5)},
+			[]raftpb.Entry{newTestEntry(6, 5)},
+			[]raftpb.Entry{newTestEntry(4, 4), newTestEntry(5, 5), newTestEntry(6, 5)},
 		},
 	}
 	for _, tt := range tests {
@@ -256,12 +256,12 @@ func TestPeerStorageAppend(t *testing.T) {
 		li := peerStore.raftState.LastIndex
 		acutualEntries, err := peerStore.Entries(4, li+1, math.MaxUint64)
 		require.Nil(t, err)
-		assert.Equal(t, tt.results, entriesToPointers(acutualEntries))
+		assert.Equal(t, tt.results, acutualEntries)
 	}
 }
 
 func TestPeerStorageCacheFetch(t *testing.T) {
-	ents := []*raftpb.Entry{
+	ents := []raftpb.Entry{
 		newTestEntry(3, 3), newTestEntry(4, 4), newTestEntry(5, 5)}
 	peerStore := newTestPeerStorageFromEnts(t, ents)
 	defer cleanUpTestData(peerStore)
@@ -269,83 +269,83 @@ func TestPeerStorageCacheFetch(t *testing.T) {
 	// empty cache should fetch data from engine directly.
 	fetched, err := peerStore.Entries(4, 6, math.MaxUint64)
 	require.Nil(t, err)
-	assert.Equal(t, entriesToPointers(fetched), ents[1:])
+	assert.Equal(t, fetched, ents[1:])
 
-	entries := []*raftpb.Entry{newTestEntry(6, 5), newTestEntry(7, 5)}
+	entries := []raftpb.Entry{newTestEntry(6, 5), newTestEntry(7, 5)}
 	appendEnts(t, peerStore, entries)
 	validateCache(t, peerStore, entries)
 
 	// direct cache access
 	fetched, err = peerStore.Entries(6, 8, math.MaxUint64)
 	assert.Nil(t, err)
-	assert.Equal(t, entries, entriesToPointers(fetched))
+	assert.Equal(t, entries, fetched)
 
 	// size limit should be supported correctly.
 	fetched, err = peerStore.Entries(4, 8, 0)
 	assert.Nil(t, err)
-	assert.Equal(t, []*raftpb.Entry{newTestEntry(4, 4)}, entriesToPointers(fetched))
+	assert.Equal(t, []raftpb.Entry{newTestEntry(4, 4)}, fetched)
 	var size uint64
 	for _, e := range ents[1:] {
 		size += uint64(e.Size())
 	}
 	fetched, err = peerStore.Entries(4, 8, size)
 	assert.Nil(t, err)
-	var expRes []*raftpb.Entry
+	var expRes []raftpb.Entry
 	expRes = append(expRes, ents[1:]...)
-	assert.Equal(t, expRes, entriesToPointers(fetched))
+	assert.Equal(t, expRes, fetched)
 	for _, e := range entries {
 		size += uint64(e.Size())
 		expRes = append(expRes, e)
 		fetched, err = peerStore.Entries(4, 8, size)
 		assert.Nil(t, err)
-		assert.Equal(t, expRes, entriesToPointers(fetched))
+		assert.Equal(t, expRes, fetched)
 	}
 
 	// range limit should be supported correctly.
 	for low := uint64(4); low < 9; low++ {
 		for high := low; high < 9; high++ {
 			fetched, err = peerStore.Entries(low, high, math.MaxUint64)
-			assert.Equal(t, expRes[low-4:high-4], entriesToPointers(fetched))
+			assert.Equal(t, expRes[low-4:high-4], fetched)
 		}
 	}
 }
 
 func TestPeerStorageCacheUpdate(t *testing.T) {
-	ents := []*raftpb.Entry{
+	ents := []raftpb.Entry{
 		newTestEntry(3, 3), newTestEntry(4, 4), newTestEntry(5, 5)}
 	peerStore := newTestPeerStorageFromEnts(t, ents)
 	defer cleanUpTestData(peerStore)
 	peerStore.cache.cache = nil
 
 	// initial cache
-	entries := []*raftpb.Entry{newTestEntry(6, 5), newTestEntry(7, 5)}
+	entries := []raftpb.Entry{newTestEntry(6, 5), newTestEntry(7, 5)}
 	appendEnts(t, peerStore, entries)
 	validateCache(t, peerStore, entries)
 
 	// rewrite
-	entries = []*raftpb.Entry{newTestEntry(6, 6), newTestEntry(7, 6)}
+	entries = []raftpb.Entry{newTestEntry(6, 6), newTestEntry(7, 6)}
 	appendEnts(t, peerStore, entries)
 	validateCache(t, peerStore, entries)
 
 	// rewrite old entry
-	entries = []*raftpb.Entry{newTestEntry(5, 6), newTestEntry(6, 6)}
+	entries = []raftpb.Entry{newTestEntry(5, 6), newTestEntry(6, 6)}
 	appendEnts(t, peerStore, entries)
 	validateCache(t, peerStore, entries)
 
 	// partial rewrite
-	entries = []*raftpb.Entry{newTestEntry(6, 7), newTestEntry(7, 7)}
+	entries = []raftpb.Entry{newTestEntry(6, 7), newTestEntry(7, 7)}
 	appendEnts(t, peerStore, entries)
-	expRes := []*raftpb.Entry{newTestEntry(5, 6), newTestEntry(6, 7), newTestEntry(7, 7)}
+	expRes := []raftpb.Entry{newTestEntry(5, 6), newTestEntry(6, 7), newTestEntry(7, 7)}
 	validateCache(t, peerStore, expRes)
 
 	// direct append
-	entries = []*raftpb.Entry{newTestEntry(8, 7), newTestEntry(9, 7)}
+	entries = []raftpb.Entry{newTestEntry(8, 7), newTestEntry(9, 7)}
 	appendEnts(t, peerStore, entries)
 	expRes = append(expRes, entries...)
 	validateCache(t, peerStore, expRes)
 
 	// rewrite middle
-	entries = []*raftpb.Entry{newTestEntry(7, 8)}
+	entries = []raftpb.Entry{newTestEntry(7, 8)}
 	appendEnts(t, peerStore, entries)
 	expRes = expRes[:2]
 	expRes = append(expRes, newTestEntry(7, 8))
@@ -380,11 +380,11 @@ func TestPeerStorageCacheUpdate(t *testing.T) {
 	validateCache(t, peerStore, expRes)
 
 	// We do not use VecDeque, so no need to test shrink.
-	appendEnts(t, peerStore, []*raftpb.Entry{newTestEntry(capacity, 8)})
+	appendEnts(t, peerStore, []raftpb.Entry{newTestEntry(capacity, 8)})
 
 	// compact all
 	peerStore.CompactTo(capacity + 2)
-	validateCache(t, peerStore, []*raftpb.Entry{})
+	validateCache(t, peerStore, []raftpb.Entry{})
 	// invalid compaction should be ignored.
 	peerStore.CompactTo(capacity)
 }

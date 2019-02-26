@@ -40,8 +40,8 @@ func (pc entryCtx) IsPrepareMerge() bool {
 
 // The raftpb.Entry is the type used in etcd/raft, but tikv use eraftpb.Entry which have extra field Context.
 // We need to implement to etcd/raft interface, so we have to do the conversion.
-func convertEEntryToEntry(eEntry *eraftpb.Entry) *raftpb.Entry {
-	entry := new(raftpb.Entry)
+func convertEEntryToEntry(eEntry *eraftpb.Entry) raftpb.Entry {
+	entry := raftpb.Entry{}
 	entry.Type = raftpb.EntryType(eEntry.EntryType)
 	entry.Term = eEntry.Term
 	entry.Index = eEntry.Index
@@ -53,7 +53,7 @@ func convertEEntryToEntry(eEntry *eraftpb.Entry) *raftpb.Entry {
 	return entry
 }
 
-func convertEntryToEEntry(entry *raftpb.Entry) *eraftpb.Entry {
+func convertEntryToEEntry(entry raftpb.Entry) *eraftpb.Entry {
 	eEntry := new(eraftpb.Entry)
 	eEntry.EntryType = eraftpb.EntryType(entry.Type)
 	eEntry.Term = entry.Term

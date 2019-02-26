@@ -68,7 +68,7 @@ func newTestPeerStorage(t *testing.T) *PeerStorage {
 	return peerStore
 }
 
-func newTestPeerStorageFromEnts(t *testing.T, ents []*raftpb.Entry) *PeerStorage {
+func newTestPeerStorageFromEnts(t *testing.T, ents []raftpb.Entry) *PeerStorage {
 	peerStore := newTestPeerStorage(t)
 	kvWB := new(WriteBatch)
 	ctx := NewInvokeContext(peerStore)
@@ -90,20 +90,12 @@ func cleanUpTestData(peerStore *PeerStorage) {
 	os.RemoveAll(peerStore.Engines.raftPath)
 }
 
-func newTestEntry(index, term uint64) *raftpb.Entry {
-	return &raftpb.Entry{
+func newTestEntry(index, term uint64) raftpb.Entry {
+	return raftpb.Entry{
 		Index: index,
 		Term:  term,
 		Data:  []byte{0},
 	}
-}
-
-func entriesToPointers(entries []raftpb.Entry) []*raftpb.Entry {
-	pointers := make([]*raftpb.Entry, len(entries))
-	for i := 0; i < len(pointers); i++ {
-		pointers[i] = &entries[i]
-	}
-	return pointers
 }
 
 func encodeOldKey(key []byte, ts uint64) []byte {
