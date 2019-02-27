@@ -1,6 +1,7 @@
 package tikv
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -435,7 +436,7 @@ func (svr *Server) Coprocessor(ctx context.Context, req *coprocessor.Request) (*
 	case kv.ReqTypeAnalyze:
 		return svr.handleCopAnalyzeRequest(reqCtx, req), nil
 	}
-	return nil, errors.Errorf("unsupported request type %d", req.GetTp())
+	return &coprocessor.Response{OtherError: fmt.Sprintf("unsupported request type %d", req.GetTp())}, nil
 }
 
 func (svr *Server) CoprocessorStream(*coprocessor.Request, tikvpb.Tikv_CoprocessorStreamServer) error {
@@ -471,11 +472,6 @@ func (svr *Server) MvccGetByStartTs(context.Context, *kvrpcpb.MvccGetByStartTsRe
 func (svr *Server) UnsafeDestroyRange(context.Context, *kvrpcpb.UnsafeDestroyRangeRequest) (*kvrpcpb.UnsafeDestroyRangeResponse, error) {
 	// TODO
 	return &kvrpcpb.UnsafeDestroyRangeResponse{}, nil
-}
-
-func (svr *Server) BatchCommands(tikvpb.Tikv_BatchCommandsServer) error {
-	// TODO
-	return nil
 }
 
 func (svr *Server) BatchRaft(tikvpb.Tikv_BatchRaftServer) error {
