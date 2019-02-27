@@ -19,7 +19,7 @@ import (
 	"go.etcd.io/etcd/raft/raftpb"
 )
 
-type JobStatus int
+type JobStatus int64
 
 const (
 	JobStatus_Pending JobStatus = 0 + iota
