@@ -19,14 +19,31 @@ import (
 	"go.etcd.io/etcd/raft/raftpb"
 )
 
-type SnapState int
+type JobStatus int
 
 const (
-	SnapState_Relax SnapState = 0 + iota
+	JobStatus_Pending JobStatus = 0 + iota
+	JobStatus_Running
+	JobStatus_Cancelling
+	JobStatus_Cancelled
+	JobStatus_Finished
+	JobStatus_Failed
+)
+
+type SnapStateType int
+
+const (
+	SnapState_Relax SnapStateType = 0 + iota
 	SnapState_Generating
 	SnapState_Applying
 	SnapState_ApplyAborted
 )
+
+type SnapState struct {
+	StateType SnapStateType
+	Status    *JobStatus
+	Receiver  chan<- *eraftpb.Snapshot
+}
 
 const (
 	// When we create a region peer, we should initialize its log term/index > 0,
@@ -134,19 +151,38 @@ func (ec *EntryCache) compactTo(idx uint64) {
 	ec.cache = ec.cache[pos:]
 }
 
+type ApplySnapResult struct {
+	// PrevRegion is the region before snapshot applied
+	PrevRegion *metapb.Region
+	Region     *metapb.Region
+}
+
+type RegionTaskType int64
+
+const (
+	RegionTaskType_Gen RegionTaskType = 0 + iota
+	RegionTaskType_Apply
+	/// Destroy data between [start_key, end_key).
+	///
+	/// The deletion may and may not succeed.
+	RegionTaskType_Destroy
+)
+
+type RegionTask struct {
+	RegionId uint64
+	TaskType RegionTaskType
+	Notifier chan<- *eraftpb.Snapshot
+	Status   *JobStatus
+	StartKey []byte
+	EndKey   []byte
+}
+
 type InvokeContext struct {
 	RegionID   uint64
 	RaftState  rspb.RaftLocalState
 	ApplyState rspb.RaftApplyState
 	lastTerm   uint64
 	SnapRegion *metapb.Region
-}
-
-func CloneRaftLocalState(rs *rspb.RaftLocalState) rspb.RaftLocalState {
-	localState := *rs
-	hs := *rs.HardState
-	localState.HardState = &hs
-	return localState
 }
 
 func NewInvokeContext(store *PeerStorage) *InvokeContext {
@@ -180,7 +216,7 @@ func (ic *InvokeContext) saveSnapshotRaftStateTo(snapshotIdx uint64, wb *WriteBa
 	snapshotRaftState.HardState.Commit = snapshotIdx
 	snapshotRaftState.LastIndex = snapshotIdx
 	key := SnapshotRaftStateKey(ic.RegionID)
-	return wb.SetMsg(key, &snapshotRaftState)
+	return wb.SetMsg(key, snapshotRaftState)
 }
 
 type HandleRaftReadyContext interface {
@@ -201,7 +237,8 @@ type PeerStorage struct {
 	appliedIndexTerm uint64
 	lastTerm         uint64
 
-	snapState SnapState
+	snapState   SnapState
+	regionSched chan<- *RegionTask
 
 	cache *EntryCache
 	stats *CacheQueryStats
@@ -359,7 +396,7 @@ func (ps *PeerStorage) Region() *metapb.Region {
 }
 
 func (ps *PeerStorage) IsApplyingSnapshot() bool {
-	return ps.snapState == SnapState_Applying
+	return ps.snapState.StateType == SnapState_Applying
 }
 
 func (ps *PeerStorage) Entries(low, high, maxSize uint64) ([]raftpb.Entry, error) {
@@ -503,6 +540,29 @@ func (ps *PeerStorage) clearMeta(kvWB, raftWB *WriteBatch) error {
 type CacheQueryStats struct {
 	hit  uint64
 	miss uint64
+}
+
+// Delete all data that is not covered by `new_region`.
+func (ps *PeerStorage) clearExtraData(newRegion *metapb.Region) {
+	oldStartKey, oldEndKey := EncStartKey(ps.region), EncEndKey(ps.region)
+	newStartKey, newEndKey := EncStartKey(newRegion), EncEndKey(newRegion)
+	regionId := newRegion.Id
+	if bytes.Compare(oldStartKey, newStartKey) < 0 {
+		ps.regionSched <- &RegionTask{
+			RegionId: regionId,
+			TaskType: RegionTaskType_Destroy,
+			StartKey: oldStartKey,
+			EndKey:   newStartKey,
+		}
+	}
+	if bytes.Compare(newEndKey, oldEndKey) < 0 {
+		ps.regionSched <- &RegionTask{
+			RegionId: regionId,
+			TaskType: RegionTaskType_Destroy,
+			StartKey: newEndKey,
+			EndKey:   oldEndKey,
+		}
+	}
 }
 
 func getSyncLogFromEntry(entry raftpb.Entry) bool {
@@ -756,4 +816,74 @@ func TruncatedStateEqual(l, r *rspb.RaftTruncatedState) bool {
 
 func ApplyStateEqual(l, r *rspb.RaftApplyState) bool {
 	return l.AppliedIndex == r.AppliedIndex && TruncatedStateEqual(l.TruncatedState, r.TruncatedState)
+}
+
+func CloneRegion(region *metapb.Region) *metapb.Region {
+	cloned := new(metapb.Region)
+	cloned.Id = region.Id
+	cloned.StartKey = append([]byte{}, region.StartKey...)
+	cloned.EndKey = append([]byte{}, region.EndKey...)
+	cloned.RegionEpoch = &metapb.RegionEpoch{ConfVer: region.RegionEpoch.ConfVer, Version: region.RegionEpoch.Version}
+
+	cloned.Peers = make([]*metapb.Peer, 0, len(region.Peers))
+	for _, p := range region.Peers {
+		cloned.Peers = append(cloned.Peers, &metapb.Peer{Id: p.Id, StoreId: p.StoreId, IsLearner: p.IsLearner})
+	}
+
+	return cloned
+}
+
+func CloneRaftLocalState(state *rspb.RaftLocalState) *rspb.RaftLocalState {
+	cloned := new(rspb.RaftLocalState)
+	cloned.LastIndex = state.LastIndex
+	cloned.HardState = &eraftpb.HardState{Term: state.HardState.Term, Vote: state.HardState.Vote, Commit: state.HardState.Commit}
+	return cloned
+}
+
+func CloneRaftApplyState(state *rspb.RaftApplyState) *rspb.RaftApplyState {
+	cloned := new(rspb.RaftApplyState)
+	cloned.AppliedIndex = state.AppliedIndex
+	cloned.TruncatedState = &rspb.RaftTruncatedState{Index: state.TruncatedState.Index, Term: state.TruncatedState.Term}
+	return cloned
+}
+
+// Update the memory state after ready changes are flushed to disk successfully.
+func (ps *PeerStorage) PostReady(ctx *InvokeContext) *ApplySnapResult {
+	ps.raftState = CloneRaftLocalState(&ctx.RaftState)
+	ps.applyState = CloneRaftApplyState(&ctx.ApplyState)
+	ps.lastTerm = ctx.lastTerm
+
+	// If we apply snapshot ok, we should update some infos like applied index too.
+	if ctx.SnapRegion == nil {
+		return nil
+	}
+	// cleanup data before scheduling apply task
+	if ps.isInitialized() {
+		ps.clearExtraData(ps.region)
+	}
+
+	ps.ScheduleApplyingSnapshot()
+	prevRegion := CloneRegion(ps.region)
+	ps.region = ctx.SnapRegion
+	ctx.SnapRegion = nil
+
+	return &ApplySnapResult{
+		PrevRegion: prevRegion,
+		Region:     CloneRegion(ps.region),
+	}
+}
+
+func (ps *PeerStorage) ScheduleApplyingSnapshot() {
+	status := JobStatus_Pending
+	ps.snapState = SnapState{
+		StateType: SnapState_Applying,
+		Status:    &status,
+	}
+
+	task := &RegionTask{
+		RegionId: ps.region.Id,
+		TaskType: RegionTaskType_Apply,
+		Status:   &status,
+	}
+	ps.regionSched <- task
 }

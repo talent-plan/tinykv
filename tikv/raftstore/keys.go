@@ -5,6 +5,7 @@ import (
 	"github.com/coocood/badger/y"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/util/codec"
+	"github.com/pingcap/kvproto/pkg/metapb"
 )
 
 const (
@@ -120,6 +121,22 @@ func DataKey(key []byte) []byte {
 func OriginKey(key []byte) []byte {
 	y.AssertTruef(ValidateDataKey(key), "invalid data key %v", key)
 	return key[1:]
+}
+
+// Get the `start_key` of current region in encoded form.
+func EncStartKey(region *metapb.Region) []byte {
+	// only initialized region's start_key can be encoded, otherwise there must be bugs
+	// somewhere.
+	y.Assert(len(region.Peers) > 0)
+	return DataKey(region.StartKey)
+}
+
+// Get the `end_key` of current region in encoded form.
+func EncEndKey(region *metapb.Region) []byte {
+	// only initialized region's end_key can be encoded, otherwise there must be bugs
+	// somewhere.
+	y.Assert(len(region.Peers) > 0)
+	return DataEndKey(region.EndKey)
 }
 
 func DataEndKey(key []byte) []byte {
