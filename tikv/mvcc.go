@@ -163,7 +163,14 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 		}
 		errs[i] = err
 		if !anyError {
-			if isRowKey(m.Key) && m.Op == kvrpcpb.Op_Put {
+			op := m.Op
+			if op == kvrpcpb.Op_Insert {
+				if len(oldVal) > 0 {
+					return []error{ErrKeyAlreadyExists{}}
+				}
+				op = kvrpcpb.Op_Put
+			}
+			if isRowKey(m.Key) && op == kvrpcpb.Op_Put {
 				buf, err = enc.EncodeFromOldRow(m.Value, buf)
 				if err != nil {
 					log.Errorf("err:%v m.Value:%v m.Key:%q m.Op:%d", err, m.Value, m.Key, m.Op)
@@ -174,7 +181,7 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 			lock := mvcc.MvccLock{
 				MvccLockHdr: mvcc.MvccLockHdr{
 					StartTS:    startTS,
-					Op:         uint8(m.Op),
+					Op:         uint8(op),
 					HasOldVer:  oldMeta != nil,
 					TTL:        uint32(ttl),
 					PrimaryLen: uint16(len(primary)),

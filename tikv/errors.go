@@ -36,5 +36,11 @@ var (
 type ErrAlreadyCommitted uint64
 
 func (e ErrAlreadyCommitted) Error() string {
-	return fmt.Sprint("txn already committed")
+	return "txn already committed"
+}
+
+type ErrKeyAlreadyExists struct{}
+
+func (e ErrKeyAlreadyExists) Error() string {
+	return "key already exists"
 }
