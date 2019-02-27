@@ -47,7 +47,7 @@ func NewMVCCStore(dbs []*badger.DB, dataDir string, safePoint *SafePoint) *MVCCS
 		lockStore:     ls,
 		rollbackStore: rollbackStore,
 		writeLockWorker: &writeLockWorker{
-			wakeUp:  make(chan struct{}, 1),
+			batchCh: make(chan *writeLockBatch, batchChanSize),
 			closeCh: closeCh,
 		},
 		closeCh:   closeCh,
@@ -56,7 +56,7 @@ func NewMVCCStore(dbs []*badger.DB, dataDir string, safePoint *SafePoint) *MVCCS
 	workers := make([]*writeDBWorker, 8)
 	for i := 0; i < 8; i++ {
 		workers[i] = &writeDBWorker{
-			wakeUp:  make(chan struct{}, 1),
+			batchCh: make(chan *writeDBBatch, batchChanSize),
 			closeCh: closeCh,
 			store:   store,
 			idx:     i,

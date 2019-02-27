@@ -13,6 +13,10 @@ import (
 	"github.com/ngaut/unistore/tikv/mvcc"
 )
 
+const (
+	batchChanSize = 1024
+)
+
 type writeDBBatch struct {
 	entries []*badger.Entry
 	buf     []byte
@@ -95,14 +99,7 @@ func (store *MVCCStore) writeDB(batch *writeDBBatch, dbIdx int) error {
 		return nil
 	}
 	batch.wg.Add(1)
-	w := store.writeDBWorkers[dbIdx]
-	w.mu.Lock()
-	w.mu.batches = append(w.mu.batches, batch)
-	w.mu.Unlock()
-	select {
-	case w.wakeUp <- struct{}{}:
-	default:
-	}
+	store.writeDBWorkers[dbIdx].batchCh <- batch
 	batch.wg.Wait()
 	return batch.err
 }
@@ -112,24 +109,13 @@ func (store *MVCCStore) writeLocks(batch *writeLockBatch) error {
 		return nil
 	}
 	batch.wg.Add(1)
-	w := store.writeLockWorker
-	w.mu.Lock()
-	w.mu.batches = append(w.mu.batches, batch)
-	w.mu.Unlock()
-	select {
-	case w.wakeUp <- struct{}{}:
-	default:
-	}
+	store.writeLockWorker.batchCh <- batch
 	batch.wg.Wait()
 	return batch.err
 }
 
 type writeDBWorker struct {
-	mu struct {
-		sync.Mutex
-		batches []*writeDBBatch
-	}
-	wakeUp  chan struct{}
+	batchCh chan *writeDBBatch
 	closeCh <-chan struct{}
 	store   *MVCCStore
 	idx     int
@@ -137,16 +123,19 @@ type writeDBWorker struct {
 
 func (w *writeDBWorker) run() {
 	defer w.store.wg.Done()
+	var batches []*writeDBBatch
 	for {
+		batches = batches[:0]
 		select {
-		case <-w.store.closeCh:
+		case <-w.closeCh:
 			return
-		case <-w.wakeUp:
+		case batch := <-w.batchCh:
+			batches = append(batches, batch)
 		}
-		batches := make([]*writeDBBatch, 0, 128)
-		w.mu.Lock()
-		batches, w.mu.batches = w.mu.batches, batches
-		w.mu.Unlock()
+		chLen := len(w.batchCh)
+		for i := 0; i < chLen; i++ {
+			batches = append(batches, <-w.batchCh)
+		}
 		if len(batches) > 0 {
 			w.updateBatchGroup(batches)
 		}
@@ -177,11 +166,7 @@ func (w *writeDBWorker) updateBatchGroup(batchGroup []*writeDBBatch) {
 }
 
 type writeLockWorker struct {
-	mu struct {
-		sync.Mutex
-		batches []*writeLockBatch
-	}
-	wakeUp  chan struct{}
+	batchCh chan *writeLockBatch
 	closeCh <-chan struct{}
 	store   *MVCCStore
 }
@@ -192,15 +177,17 @@ func (w *writeLockWorker) run() {
 	ls := w.store.lockStore
 	var batches []*writeLockBatch
 	for {
+		batches = batches[:0]
 		select {
 		case <-w.store.closeCh:
 			return
-		case <-w.wakeUp:
+		case batch := <-w.batchCh:
+			batches = append(batches, batch)
 		}
-		batches = batches[:0]
-		w.mu.Lock()
-		batches, w.mu.batches = w.mu.batches, batches
-		w.mu.Unlock()
+		chLen := len(w.batchCh)
+		for i := 0; i < chLen; i++ {
+			batches = append(batches, <-w.batchCh)
+		}
 		var delCnt, insertCnt int
 		for _, batch := range batches {
 			for _, entry := range batch.entries {

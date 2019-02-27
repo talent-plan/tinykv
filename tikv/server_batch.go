@@ -3,37 +3,40 @@ package tikv
 import (
 	"context"
 	"io"
-	"sync"
 
 	"github.com/ngaut/log"
 	"github.com/pingcap/kvproto/pkg/tikvpb"
 )
 
-const responseBufferSize = 128
+type respIDPair struct {
+	resp *tikvpb.BatchCommandsResponse_Response
+	id   uint64
+}
+
+func (p respIDPair) appendTo(batchResp *tikvpb.BatchCommandsResponse) {
+	batchResp.Responses = append(batchResp.Responses, p.resp)
+	batchResp.RequestIds = append(batchResp.RequestIds, p.id)
+}
 
 type batchRequestHandler struct {
-	responseBuffer struct {
-		sync.Mutex
-		resps []*tikvpb.BatchCommandsResponse_Response
-		ids   []uint64
-	}
-	done   chan struct{}
-	wakeUp chan struct{}
+	respCh  chan respIDPair
+	closeCh chan struct{}
 
 	svr    *Server
 	stream tikvpb.Tikv_BatchCommandsServer
 }
 
+const (
+	respChanSize = 1024
+)
+
 func (svr *Server) BatchCommands(stream tikvpb.Tikv_BatchCommandsServer) error {
 	h := &batchRequestHandler{
-		done:   make(chan struct{}),
-		wakeUp: make(chan struct{}, 1),
-		svr:    svr,
-		stream: stream,
+		respCh:  make(chan respIDPair, respChanSize),
+		closeCh: make(chan struct{}),
+		svr:     svr,
+		stream:  stream,
 	}
-	h.responseBuffer.resps = make([]*tikvpb.BatchCommandsResponse_Response, 0, responseBufferSize)
-	h.responseBuffer.ids = make([]uint64, 0, responseBufferSize)
-
 	return h.start()
 }
 
@@ -43,7 +46,7 @@ func (h *batchRequestHandler) start() error {
 		if err := h.dispatchBatchRequest(ctx); err != nil {
 			log.Warn(err)
 		}
-		close(h.done)
+		close(h.closeCh)
 	}()
 
 	err := h.collectAndSendResponse()
@@ -57,14 +60,7 @@ func (h *batchRequestHandler) handleRequest(id uint64, req *tikvpb.BatchCommands
 		log.Warn(err)
 		return
 	}
-	h.responseBuffer.Lock()
-	h.responseBuffer.ids = append(h.responseBuffer.ids, id)
-	h.responseBuffer.resps = append(h.responseBuffer.resps, resp)
-	h.responseBuffer.Unlock()
-	select {
-	case h.wakeUp <- struct{}{}:
-	default:
-	}
+	h.respCh <- respIDPair{id: id, resp: resp}
 }
 
 func (h *batchRequestHandler) dispatchBatchRequest(ctx context.Context) error {
@@ -91,36 +87,27 @@ func (h *batchRequestHandler) dispatchBatchRequest(ctx context.Context) error {
 }
 
 func (h *batchRequestHandler) collectAndSendResponse() error {
-	batchResp := &tikvpb.BatchCommandsResponse{
-		Responses:  make([]*tikvpb.BatchCommandsResponse_Response, 0, responseBufferSize),
-		RequestIds: make([]uint64, 0, responseBufferSize),
-	}
-
-	var done bool
+	batchResp := &tikvpb.BatchCommandsResponse{}
 	for {
+		batchResp.Responses = batchResp.Responses[:0]
+		batchResp.RequestIds = batchResp.RequestIds[:0]
 		select {
-		case <-h.wakeUp:
-		case <-h.done:
-			done = true
+		case <-h.closeCh:
+		case resp := <-h.respCh:
+			resp.appendTo(batchResp)
 		}
-
-		h.responseBuffer.Lock()
-		if len(h.responseBuffer.ids) == 0 {
-			h.responseBuffer.Unlock()
-			if done {
-				return nil
-			}
-			continue
+		chLen := len(h.respCh)
+		for i := 0; i < chLen; i++ {
+			resp := <-h.respCh
+			resp.appendTo(batchResp)
 		}
-		h.responseBuffer.ids, batchResp.RequestIds = batchResp.RequestIds, h.responseBuffer.ids
-		h.responseBuffer.resps, batchResp.Responses = batchResp.Responses, h.responseBuffer.resps
-		h.responseBuffer.Unlock()
-
+		if len(batchResp.Responses) == 0 {
+			// closeCh must have been closed or there would be at least one resp.
+			return nil
+		}
 		if err := h.stream.Send(batchResp); err != nil {
 			return err
 		}
-		batchResp.Responses = batchResp.Responses[:0]
-		batchResp.RequestIds = batchResp.RequestIds[:0]
 	}
 }
 
