@@ -12,11 +12,12 @@ require (
 	github.com/pierrec/lz4 v2.0.5+incompatible
 	github.com/pingcap/check v0.0.0-20181213055612-5c2b07721bdb
 	github.com/pingcap/errors v0.11.0
-	github.com/pingcap/kvproto v0.0.0-20190215154024-7f2fc73ef562
+	github.com/pingcap/kvproto v0.0.0-20190227013052-e71ca0165a5f
 	github.com/pingcap/parser v0.0.0-20181218071912-deacf026787e
 	github.com/pingcap/tidb v0.0.0-20181130082510-08f0168a6cae
 	github.com/pingcap/tipb v0.0.0-20181012112600-11e33c750323
 	github.com/stretchr/testify v1.2.2
+	github.com/zhangjinpeng1987/raft v0.0.0-20190228081702-27ed295a81b4
 	go.etcd.io/etcd v3.3.12+incompatible
 	golang.org/x/net v0.0.0-20181029044818-c44066c5c816
 	golang.org/x/sys v0.0.0-20181025063200-d989b31c8746 // indirect

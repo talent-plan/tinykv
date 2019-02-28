@@ -3,7 +3,7 @@ package raftstore
 import (
 	"time"
 
-	"go.etcd.io/etcd/raft"
+	"github.com/zhangjinpeng1987/raft"
 	"github.com/ngaut/unistore/rocksdb"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"

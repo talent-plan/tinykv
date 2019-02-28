@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/coocood/badger"
-	"go.etcd.io/etcd/raft/raftpb"
+	"github.com/pingcap/kvproto/pkg/eraftpb"
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/rocksdb"
 	"github.com/ngaut/unistore/util"
@@ -67,7 +67,7 @@ func (k SnapKey) String() string {
 	return fmt.Sprintf("%d_%d_%d", k.RegionID, k.Term, k.Index)
 }
 
-func SnapKeyFromRegionSnap(regionID uint64, snap *raftpb.Snapshot) SnapKey {
+func SnapKeyFromRegionSnap(regionID uint64, snap *eraftpb.Snapshot) SnapKey {
 	return SnapKey{
 		RegionID: regionID,
 		Term:     snap.Metadata.Term,
@@ -75,7 +75,7 @@ func SnapKeyFromRegionSnap(regionID uint64, snap *raftpb.Snapshot) SnapKey {
 	}
 }
 
-func SnapKeyFromSnap(snap *raftpb.Snapshot) (SnapKey, error) {
+func SnapKeyFromSnap(snap *eraftpb.Snapshot) (SnapKey, error) {
 	data := new(rspb.RaftSnapshotData)
 	err := data.Unmarshal(snap.Data)
 	if err != nil {

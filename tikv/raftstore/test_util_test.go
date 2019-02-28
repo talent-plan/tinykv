@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/coocood/badger"
-	"go.etcd.io/etcd/raft/raftpb"
+	"github.com/pingcap/kvproto/pkg/eraftpb"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/stretchr/testify/require"
 )
@@ -68,7 +68,7 @@ func newTestPeerStorage(t *testing.T) *PeerStorage {
 	return peerStore
 }
 
-func newTestPeerStorageFromEnts(t *testing.T, ents []raftpb.Entry) *PeerStorage {
+func newTestPeerStorageFromEnts(t *testing.T, ents []eraftpb.Entry) *PeerStorage {
 	peerStore := newTestPeerStorage(t)
 	kvWB := new(WriteBatch)
 	ctx := NewInvokeContext(peerStore)
@@ -90,8 +90,8 @@ func cleanUpTestData(peerStore *PeerStorage) {
 	os.RemoveAll(peerStore.Engines.raftPath)
 }
 
-func newTestEntry(index, term uint64) raftpb.Entry {
-	return raftpb.Entry{
+func newTestEntry(index, term uint64) eraftpb.Entry {
+	return eraftpb.Entry{
 		Index: index,
 		Term:  term,
 		Data:  []byte{0},

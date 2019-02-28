@@ -15,8 +15,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/eraftpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
-	"go.etcd.io/etcd/raft"
-	"go.etcd.io/etcd/raft/raftpb"
+	"github.com/zhangjinpeng1987/raft"
 )
 
 type JobStatus int64
@@ -74,14 +73,14 @@ func CompactRaftLog(tag string, state *rspb.RaftApplyState, compactIndex, compac
 }
 
 type EntryCache struct {
-	cache []raftpb.Entry
+	cache []eraftpb.Entry
 }
 
-func (ec *EntryCache) front() raftpb.Entry {
+func (ec *EntryCache) front() eraftpb.Entry {
 	return ec.cache[0]
 }
 
-func (ec *EntryCache) back() raftpb.Entry {
+func (ec *EntryCache) back() eraftpb.Entry {
 	return ec.cache[len(ec.cache)-1]
 }
 
@@ -89,7 +88,7 @@ func (ec *EntryCache) length() int {
 	return len(ec.cache)
 }
 
-func (ec *EntryCache) fetchEntriesTo(begin, end, maxSize uint64, fetchSize *uint64, ents []raftpb.Entry) []raftpb.Entry {
+func (ec *EntryCache) fetchEntriesTo(begin, end, maxSize uint64, fetchSize *uint64, ents []eraftpb.Entry) []eraftpb.Entry {
 	if begin >= end {
 		return nil
 	}
@@ -114,7 +113,7 @@ func (ec *EntryCache) fetchEntriesTo(begin, end, maxSize uint64, fetchSize *uint
 	return ents
 }
 
-func (ec *EntryCache) append(tag string, entries []raftpb.Entry) {
+func (ec *EntryCache) append(tag string, entries []eraftpb.Entry) {
 	if len(entries) == 0 {
 		return
 	}
@@ -353,7 +352,7 @@ func initLastTerm(raftEngine *badger.DB, region *metapb.Region,
 		y.Assert(lastIdx > RaftInitLogIndex)
 	}
 	lastLogKey := RaftLogKey(region.Id, lastIdx)
-	e := new(raftpb.Entry)
+	e := new(eraftpb.Entry)
 	err := getMsg(raftEngine, lastLogKey, e)
 	if err != nil {
 		return 0, errors.Errorf("[region %s] entry at %d doesn't exist, may lost data.", region, lastIdx)
@@ -361,22 +360,22 @@ func initLastTerm(raftEngine *badger.DB, region *metapb.Region,
 	return e.Term, nil
 }
 
-func (ps *PeerStorage) InitialState() (raftpb.HardState, raftpb.ConfState, error) {
+func (ps *PeerStorage) InitialState() (eraftpb.HardState, eraftpb.ConfState, error) {
 	hardState := ps.raftState.HardState
 	if hardState.Commit == 0 && hardState.Term == 0 && hardState.Vote == 0 {
 		y.AssertTruef(!ps.isInitialized(),
 			"peer for region %s is initialized but local state %s has empty hard state",
 			ps.region, ps.raftState)
-		return raftpb.HardState{}, raftpb.ConfState{}, nil
+		return eraftpb.HardState{}, eraftpb.ConfState{}, nil
 	}
-	return raftpb.HardState{
+	return eraftpb.HardState{
 		Term:   hardState.Term,
 		Vote:   hardState.Vote,
 		Commit: hardState.Commit,
 	}, confStateFromRegion(ps.region), nil
 }
 
-func confStateFromRegion(region *metapb.Region) (confState raftpb.ConfState) {
+func confStateFromRegion(region *metapb.Region) (confState eraftpb.ConfState) {
 	for _, p := range region.Peers {
 		if p.IsLearner {
 			confState.Learners = append(confState.Learners, p.GetId())
@@ -399,12 +398,12 @@ func (ps *PeerStorage) IsApplyingSnapshot() bool {
 	return ps.snapState.StateType == SnapState_Applying
 }
 
-func (ps *PeerStorage) Entries(low, high, maxSize uint64) ([]raftpb.Entry, error) {
+func (ps *PeerStorage) Entries(low, high, maxSize uint64) ([]eraftpb.Entry, error) {
 	err := ps.checkRange(low, high)
 	if err != nil {
 		return nil, err
 	}
-	ents := make([]raftpb.Entry, 0, high-low)
+	ents := make([]eraftpb.Entry, 0, high-low)
 	if low == high {
 		return ents, nil
 	}
@@ -492,14 +491,14 @@ func firstIndex(applyState *rspb.RaftApplyState) uint64 {
 	return applyState.TruncatedState.GetIndex() + 1
 }
 
-func (ps *PeerStorage) Snapshot() (raftpb.Snapshot, error) {
-	return raftpb.Snapshot{}, raft.ErrSnapshotTemporarilyUnavailable
+func (ps *PeerStorage) Snapshot() (eraftpb.Snapshot, error) {
+	return eraftpb.Snapshot{}, raft.ErrSnapshotTemporarilyUnavailable
 }
 
 // Append the given entries to the raft log using previous last index or self.last_index.
 // Return the new last index for later update. After we commit in engine, we can set last_index
 // to the return one.
-func (ps *PeerStorage) Append(invokeCtx *InvokeContext, entries []raftpb.Entry, readyCtx HandleRaftReadyContext) error {
+func (ps *PeerStorage) Append(invokeCtx *InvokeContext, entries []eraftpb.Entry, readyCtx HandleRaftReadyContext) error {
 	log.Debugf("%s append %d entries", ps.Tag, len(entries))
 	prevLastIndex := invokeCtx.RaftState.GetLastIndex()
 	if len(entries) == 0 {
@@ -565,11 +564,11 @@ func (ps *PeerStorage) clearExtraData(newRegion *metapb.Region) {
 	}
 }
 
-func getSyncLogFromEntry(entry raftpb.Entry) bool {
+func getSyncLogFromEntry(entry eraftpb.Entry) bool {
 	return entryCtx(entry.Data[len(entry.Data)-1]).IsSyncLog()
 }
 
-func fetchEntriesTo(engine *badger.DB, regionID, low, high, maxSize uint64, buf []raftpb.Entry) ([]raftpb.Entry, uint64, error) {
+func fetchEntriesTo(engine *badger.DB, regionID, low, high, maxSize uint64, buf []eraftpb.Entry) ([]eraftpb.Entry, uint64, error) {
 	var totalSize uint64
 	nextIndex := low
 	exceededMaxSize := false
@@ -590,7 +589,7 @@ func fetchEntriesTo(engine *badger.DB, regionID, low, high, maxSize uint64, buf 
 			if err != nil {
 				return nil, 0, err
 			}
-			var entry raftpb.Entry
+			var entry eraftpb.Entry
 			err = entry.Unmarshal(val)
 			if err != nil {
 				return nil, 0, err
@@ -624,7 +623,7 @@ func fetchEntriesTo(engine *badger.DB, regionID, low, high, maxSize uint64, buf 
 		if err != nil {
 			return nil, 0, err
 		}
-		var entry raftpb.Entry
+		var entry eraftpb.Entry
 		err = entry.Unmarshal(val)
 		if err != nil {
 			return nil, 0, err
@@ -701,7 +700,7 @@ func WritePeerState(kvWB *WriteBatch, region *metapb.Region, state rspb.PeerStat
 }
 
 // Apply the peer with given snapshot.
-func (ps *PeerStorage) ApplySnapshot(ctx *InvokeContext, snap *raftpb.Snapshot, kvWB *WriteBatch, raftWB *WriteBatch) error {
+func (ps *PeerStorage) ApplySnapshot(ctx *InvokeContext, snap *eraftpb.Snapshot, kvWB *WriteBatch, raftWB *WriteBatch) error {
 	log.Infof("%v begin to apply snapshot", ps.Tag)
 
 	snapData := new(rspb.RaftSnapshotData)
@@ -750,7 +749,7 @@ func (ps *PeerStorage) ApplySnapshot(ctx *InvokeContext, snap *raftpb.Snapshot, 
 func (ps *PeerStorage) HandleRaftReady(readyCtx HandleRaftReadyContext, ready *raft.Ready) (*InvokeContext, error) {
 	ctx := NewInvokeContext(ps)
 	var snapshotIdx uint64 = 0
-	if !raft.IsEmptySnap(ready.Snapshot) {
+	if !raft.IsEmptySnap(&ready.Snapshot) {
 		if err := ps.ApplySnapshot(ctx, &ready.Snapshot, readyCtx.KVWB(), readyCtx.RaftWB()); err != nil {
 			return nil, err
 		}
