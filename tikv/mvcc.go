@@ -154,10 +154,18 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 	lockBatch := newWriteLockBatch(reqCtx)
 	// Check the DB.
 	txn := reqCtx.getDBReader().GetTxn()
+	keys := make([][]byte, len(mutations))
+	for i, m := range mutations {
+		keys[i] = m.Key
+	}
+	items, err := txn.MultiGet(keys)
+	if err != nil {
+		return []error{err}
+	}
 	var buf []byte
 	var enc rowcodec.Encoder
 	for i, m := range mutations {
-		oldMeta, oldVal, err := store.checkPrewriteInDB(reqCtx, txn, m, startTS)
+		oldMeta, oldVal, err := store.checkPrewriteInDB(reqCtx, txn, items[i], startTS)
 		if err != nil {
 			anyError = true
 		}
@@ -197,7 +205,7 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 	if anyError {
 		return errs
 	}
-	err := store.writeLocks(lockBatch)
+	err = store.writeLocks(lockBatch)
 	if err != nil {
 		return []error{err}
 	}
@@ -230,11 +238,7 @@ func (store *MVCCStore) checkPrewriteInLockStore(
 // checkPrewrietInDB checks that there is no committed version greater than startTS or return write conflict error.
 // And it returns the old version if there is one.
 func (store *MVCCStore) checkPrewriteInDB(
-	req *requestCtx, txn *badger.Txn, mutation *kvrpcpb.Mutation, startTS uint64) (userMeta mvcc.DBUserMeta, val []byte, err error) {
-	item, err := txn.Get(mutation.Key)
-	if err != nil && err != badger.ErrKeyNotFound {
-		return nil, nil, err
-	}
+	req *requestCtx, txn *badger.Txn, item *badger.Item, startTS uint64) (userMeta mvcc.DBUserMeta, val []byte, err error) {
 	if item == nil {
 		return nil, nil, nil
 	}
