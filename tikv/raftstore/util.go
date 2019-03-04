@@ -1,15 +1,39 @@
 package raftstore
 
 import (
-	"time"
+	"bytes"
+	"fmt"
+	"github.com/ngaut/log"
+	"github.com/pingcap/kvproto/pkg/eraftpb"
+	"github.com/pingcap/kvproto/pkg/metapb"
+	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
 	"sync/atomic"
+	"time"
 )
+
+const RaftInvalidIndex uint64 = 0
+
+/// `is_initial_msg` checks whether the `msg` can be used to initialize a new peer or not.
+// There could be two cases:
+// 1. Target peer already exists but has not established communication with leader yet
+// 2. Target peer is added newly due to member change or region split, but it's not
+//    created yet
+// For both cases the region start key and end key are attached in RequestVote and
+// Heartbeat message for the store of that peer to check whether to create a new peer
+// when receiving these messages, or just to wait for a pending region split to perform
+// later.
+func isInitialMsg(msg *eraftpb.Message) bool {
+	return msg.MsgType == eraftpb.MessageType_MsgRequestVote ||
+		msg.MsgType == eraftpb.MessageType_MsgRequestPreVote ||
+		// the peer has not been known to this leader, it may exist or not.
+		(msg.MsgType == eraftpb.MessageType_MsgHeartbeat && msg.Commit == RaftInvalidIndex)
+}
 
 type LeaseState int
 
 const (
 	/// The lease is suspicious, may be invalid.
-	LeaseState_Suspect LeaseState = 1
+	LeaseState_Suspect LeaseState = 1 + iota
 	/// The lease is valid.
 	LeaseState_Valid
 	/// The lease is expired.
@@ -55,20 +79,20 @@ type Lease struct {
 	// If boundSuspect is not nil, then boundValid must be nil, if boundValid is not nil, then
 	// boundSuspect must be nil
 	boundSuspect *time.Time
-	boundValid *time.Time
-	maxLease time.Duration
+	boundValid   *time.Time
+	maxLease     time.Duration
 
-	maxDrift time.Duration
+	maxDrift   time.Duration
 	lastUpdate time.Time
-	remote *RemoteLease
+	remote     *RemoteLease
 
 	// Todo: use monotonic_raw instead of time.Now() to fix time jump back issue.
 }
 
 func NewLease(maxLease time.Duration) *Lease {
 	return &Lease{
-		maxLease: maxLease,
-		maxDrift: maxLease / 3,
+		maxLease:   maxLease,
+		maxDrift:   maxLease / 3,
 		lastUpdate: time.Time{},
 	}
 }
@@ -167,14 +191,14 @@ func (l *Lease) MaybeNewRemoteLease(term uint64) *RemoteLease {
 	if l.boundValid != nil {
 		expiredTime = TimeToU64(*l.boundValid)
 	}
-	remote := &RemoteLease {
+	remote := &RemoteLease{
 		expiredTime: &expiredTime,
-		term: term,
+		term:        term,
 	}
 	// Clone the remote.
-	remoteClone := &RemoteLease {
+	remoteClone := &RemoteLease{
 		expiredTime: &expiredTime,
-		term: term,
+		term:        term,
 	}
 	l.remote = remote
 	return remoteClone
@@ -185,7 +209,7 @@ func (l *Lease) MaybeNewRemoteLease(term uint64) *RemoteLease {
 /// expire too.
 type RemoteLease struct {
 	expiredTime *uint64
-	term uint64
+	term        uint64
 }
 
 func (r *RemoteLease) Inspect(ts *time.Time) LeaseState {
@@ -215,8 +239,8 @@ func (r *RemoteLease) Term() uint64 {
 
 const (
 	NSEC_PER_MSEC uint64 = 1000000
-	SEC_SHIFT uint64 = 10
-	MSEC_MASK uint64 = (1 << SEC_SHIFT) - 1
+	SEC_SHIFT     uint64 = 10
+	MSEC_MASK     uint64 = (1 << SEC_SHIFT) - 1
 )
 
 func TimeToU64(t time.Time) uint64 {
@@ -230,4 +254,94 @@ func U64ToTime(u uint64) time.Time {
 	sec := u >> SEC_SHIFT
 	nsec := (u & MSEC_MASK) * NSEC_PER_MSEC
 	return time.Unix(int64(sec), int64(nsec))
+}
+
+/// Check if key in region range [`start_key`, `end_key`).
+func CheckKeyInRegion(key []byte, region *metapb.Region) error {
+	if bytes.Compare(key, region.StartKey) >= 0 && (len(region.EndKey) == 0 || bytes.Compare(key, region.EndKey) < 0) {
+		return nil
+	} else {
+		return &ErrKeyNotInRegion{Key: key, Region: region}
+	}
+}
+
+/// Check if key in region range (`start_key`, `end_key`).
+func CheckKeyInRegionExclusive(key []byte, region *metapb.Region) error {
+	if bytes.Compare(region.StartKey, key) < 0 && (len(region.EndKey) == 0 || bytes.Compare(key, region.EndKey) < 0) {
+		return nil
+	} else {
+		return &ErrKeyNotInRegion{Key: key, Region: region}
+	}
+}
+
+/// Check if key in region range [`start_key`, `end_key`].
+func CheckKeyInRegionInclusive(key []byte, region *metapb.Region) error {
+	if bytes.Compare(key, region.StartKey) >= 0 && (len(region.EndKey) == 0 || bytes.Compare(key, region.EndKey) <= 0) {
+		return nil
+	} else {
+		return &ErrKeyNotInRegion{Key: key, Region: region}
+	}
+}
+
+/// check whether epoch is staler than check_epoch.
+func IsEpochStale(epoch *metapb.RegionEpoch, checkEpoch *metapb.RegionEpoch) bool {
+	return epoch.Version < checkEpoch.Version || epoch.ConfVer < checkEpoch.ConfVer
+}
+
+func CheckRegionEpoch(req *raft_cmdpb.RaftCmdRequest, region *metapb.Region, includeRegion bool) error {
+	checkVer, checkConfVer := false, false
+	if req.AdminRequest == nil {
+		checkVer = true
+	} else {
+		switch req.AdminRequest.CmdType {
+		case raft_cmdpb.AdminCmdType_CompactLog, raft_cmdpb.AdminCmdType_InvalidAdmin,
+			raft_cmdpb.AdminCmdType_ComputeHash, raft_cmdpb.AdminCmdType_VerifyHash:
+		case raft_cmdpb.AdminCmdType_ChangePeer:
+			checkConfVer = true
+		case raft_cmdpb.AdminCmdType_Split, raft_cmdpb.AdminCmdType_BatchSplit,
+			raft_cmdpb.AdminCmdType_PrepareMerge, raft_cmdpb.AdminCmdType_CommitMerge,
+			raft_cmdpb.AdminCmdType_RollbackMerge, raft_cmdpb.AdminCmdType_TransferLeader:
+			checkVer = true
+			checkConfVer = true
+		}
+	}
+
+	if !checkVer && !checkConfVer {
+		return nil
+	}
+
+	if req.Header == nil {
+		return fmt.Errorf("missing header!")
+	}
+
+	if req.Header.RegionEpoch == nil {
+		return fmt.Errorf("missing epoch!")
+	}
+
+	fromEpoch := req.Header.RegionEpoch
+	currentEpoch := region.RegionEpoch
+
+	// We must check epochs strictly to avoid key not in region error.
+	//
+	// A 3 nodes TiKV cluster with merge enabled, after commit merge, TiKV A
+	// tells TiDB with a epoch not match error contains the latest target Region
+	// info, TiDB updates its region cache and sends requests to TiKV B,
+	// and TiKV B has not applied commit merge yet, since the region epoch in
+	// request is higher than TiKV B, the request must be denied due to epoch
+	// not match, so it does not read on a stale snapshot, thus avoid the
+	// KeyNotInRegion error.
+	if (checkConfVer && fromEpoch.ConfVer != currentEpoch.ConfVer) ||
+		(checkVer && fromEpoch.Version != currentEpoch.Version) {
+		log.Debugf("epoch not match, region id %v, from epoch %v, current epoch %v",
+			region.Id, fromEpoch, currentEpoch)
+
+		regions := []*metapb.Region{}
+		if includeRegion {
+			regions = []*metapb.Region{region}
+		}
+		return &ErrEpochNotMatch{Message: fmt.Sprintf("current epoch of region %v is %v, but you sent %v",
+			region.Id, currentEpoch, fromEpoch), Regions: regions}
+	}
+
+	return nil
 }
