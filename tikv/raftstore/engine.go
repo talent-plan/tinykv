@@ -5,12 +5,32 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/ngaut/unistore/lockstore"
 	"github.com/pingcap/errors"
+	"github.com/pingcap/kvproto/pkg/metapb"
 )
 
 type DBBundle struct {
 	db            *badger.DB
 	lockStore     *lockstore.MemStore
 	rollbackStore *lockstore.MemStore
+}
+
+type DBSnapshot struct {
+	Txn *badger.Txn
+	LockStore *lockstore.MemStore
+	RollbackStore *lockstore.MemStore
+}
+
+func NewDBSnapshot(db *DBBundle) *DBSnapshot {
+	return &DBSnapshot{
+		Txn: db.db.NewTransaction(false),
+		LockStore: db.lockStore,
+		RollbackStore: db.rollbackStore,
+	}
+}
+
+type RegionSnapshot struct {
+	Region *metapb.Region
+	Snapshot *DBSnapshot
 }
 
 type Engines struct {

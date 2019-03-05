@@ -46,7 +46,10 @@ const (
 	MsgTypeFsmControl MsgType = 202
 )
 
-type Callback func(resp *raft_cmdpb.RaftCmdResponse)
+type Callback func(resp *raft_cmdpb.RaftCmdResponse, snap *DBSnapshot)
+
+func EmptyCallback(resp *raft_cmdpb.RaftCmdResponse, snap *DBSnapshot) {
+}
 
 type PeerTick int
 

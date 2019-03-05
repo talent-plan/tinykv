@@ -817,6 +817,18 @@ func ApplyStateEqual(l, r *rspb.RaftApplyState) bool {
 	return l.AppliedIndex == r.AppliedIndex && TruncatedStateEqual(l.TruncatedState, r.TruncatedState)
 }
 
+func PeerEqual(l, r *metapb.Peer) bool {
+	return l.Id == r.Id && l.StoreId == r.StoreId && l.IsLearner == r.IsLearner
+}
+
+func ClonePeer(peer *metapb.Peer) *metapb.Peer {
+	return &metapb.Peer{
+		Id: peer.Id,
+		StoreId: peer.StoreId,
+		IsLearner: peer.IsLearner,
+	}
+}
+
 func CloneRegion(region *metapb.Region) *metapb.Region {
 	cloned := new(metapb.Region)
 	cloned.Id = region.Id
@@ -830,6 +842,15 @@ func CloneRegion(region *metapb.Region) *metapb.Region {
 	}
 
 	return cloned
+}
+
+func CloneMergeState(state *rspb.MergeState) *rspb.MergeState {
+	mergeState := &rspb.MergeState{
+		MinIndex: state.MinIndex,
+		Commit: state.Commit,
+	}
+	mergeState.Target = CloneRegion(state.Target)
+	return mergeState
 }
 
 func CloneRaftLocalState(state *rspb.RaftLocalState) *rspb.RaftLocalState {
@@ -885,4 +906,24 @@ func (ps *PeerStorage) ScheduleApplyingSnapshot() {
 		Status:   &status,
 	}
 	ps.regionSched <- task
+}
+
+func (ps *PeerStorage) SetRegion(region *metapb.Region) {
+	ps.region = region
+}
+
+func (ps *PeerStorage) ClearData() error {
+	// Todo: currently it is a place holder
+	return nil
+}
+
+func (p *PeerStorage) CancelApplyingSnap() bool {
+	// Todo: currently it is a place holder
+	return true
+}
+
+// Check if the storage is applying a snapshot.
+func (p *PeerStorage) CheckApplyingSnap() bool {
+	// Todo: currently it is a place holder
+	return false
 }
