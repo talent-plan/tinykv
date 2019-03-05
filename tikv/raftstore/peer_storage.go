@@ -479,8 +479,8 @@ func (ps *PeerStorage) LastIndex() (uint64, error) {
 	return ps.raftState.LastIndex, nil
 }
 
-func (ps *PeerStorage) AppliedIndex() (uint64, error) {
-	return ps.applyState.AppliedIndex, nil
+func (ps *PeerStorage) AppliedIndex() uint64 {
+	return ps.applyState.AppliedIndex
 }
 
 func (ps *PeerStorage) FirstIndex() (uint64, error) {
