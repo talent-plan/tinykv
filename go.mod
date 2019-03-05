@@ -1,10 +1,10 @@
 module github.com/ngaut/unistore
 
 require (
-	github.com/coocood/badger v1.5.1-0.20190304035940-948fe04d5be4
+	github.com/coocood/badger v1.5.1-0.20181115111105-250ee6037b80
 	github.com/cznic/mathutil v0.0.0-20181021201202-eba54fb065b7
-	github.com/dgryski/go-farm v0.0.0-20180109070241-2de33835d102
-	github.com/golang/protobuf v1.2.0
+	github.com/dgryski/go-farm v0.0.0-20190104051053-3adb47b1fb0f
+	github.com/golang/protobuf v1.3.0
 	github.com/juju/errors v0.0.0-20181118221551-089d3ea4e4d5
 	github.com/juju/loggo v0.0.0-20180524022052-584905176618 // indirect
 	github.com/juju/testing v0.0.0-20180920084828-472a3e8b2073 // indirect
@@ -16,11 +16,10 @@ require (
 	github.com/pingcap/parser v0.0.0-20181218071912-deacf026787e
 	github.com/pingcap/tidb v0.0.0-20181130082510-08f0168a6cae
 	github.com/pingcap/tipb v0.0.0-20181012112600-11e33c750323
-	github.com/stretchr/testify v1.2.2
+	github.com/stretchr/testify v1.3.0
 	github.com/zhangjinpeng1987/raft v0.0.0-20190228081702-27ed295a81b4
 	go.etcd.io/etcd v3.3.12+incompatible
 	golang.org/x/net v0.0.0-20181029044818-c44066c5c816
-	golang.org/x/sys v0.0.0-20181025063200-d989b31c8746 // indirect
 	golang.org/x/time v0.0.0-20181108054448-85acf8d2951c
 	google.golang.org/genproto v0.0.0-20181016170114-94acd270e44e // indirect
 	google.golang.org/grpc v1.16.0
@@ -30,3 +29,5 @@ require (
 replace github.com/pingcap/tidb v0.0.0-20181130082510-08f0168a6cae => github.com/bobotu/tidb v0.0.0-20181221085922-487bfe4bf561
 
 replace go.etcd.io/etcd => github.com/zhangjinpeng1987/etcd v0.0.0-20190226085253-137eac022b64
+
+replace github.com/coocood/badger => github.com/coocood/badger v0.0.0-20190305091133-b847f4303993
