@@ -44,14 +44,14 @@ type regionCtx struct {
 	latchesMu sync.RWMutex
 
 	refCount sync.WaitGroup
-	parent   *regionCtx // Parent is used to wait for all latches being released.
+	parent   unsafe.Pointer // Parent is used to wait for all latches being released.
 }
 
 func newRegionCtx(meta *metapb.Region, parent *regionCtx) *regionCtx {
 	regCtx := &regionCtx{
 		meta:    meta,
 		latches: make(map[uint64]*sync.WaitGroup),
-		parent:  parent,
+		parent:  unsafe.Pointer(parent),
 	}
 	regCtx.startKey = regCtx.rawStartKey()
 	regCtx.endKey = regCtx.rawEndKey()
@@ -181,15 +181,14 @@ func (ri *regionCtx) getDBIdx() int {
 }
 
 func (ri *regionCtx) waitParent() {
-	ptr := unsafe.Pointer(ri.parent)
-	parent := (*regionCtx)(atomic.LoadPointer(&ptr))
+	parent := (*regionCtx)(atomic.LoadPointer(&ri.parent))
 	if parent != nil {
 		// Wait for the parent region reference decrease to zero, so the latches would be clean.
 		parent.refCount.Wait()
 		// TODO: the txnKeysMap in parent is discarded, if a large transaction failed
 		// and the client is down, leaves many locks, we can only resolve a single key at a time.
 		// Need to find a way to address this later.
-		atomic.StorePointer(&ptr, nil)
+		atomic.StorePointer(&ri.parent, nil)
 	}
 }
 
