@@ -1578,8 +1578,7 @@ func (p *Peer) ProposeNormal(pollCtx *PollContext, req *raft_cmdpb.RaftCmdReques
 	}
 
 	// TODO: validate request for unexpected changes.
-	// ctx, err := p.PrePropose(pollCtx, req)
-	_, err := p.PrePropose(pollCtx, req)
+	ctx, err := p.PrePropose(pollCtx, req)
 	if err != nil {
 		log.Warnf("%v skip proposal: %v", p.Tag, err)
 		return 0, err
@@ -1595,9 +1594,7 @@ func (p *Peer) ProposeNormal(pollCtx *PollContext, req *raft_cmdpb.RaftCmdReques
 	}
 
 	proposeIndex := p.nextProposalIndex()
-	// TODO: after the raft implement propose with context, change to:
-	// err = p.RaftGroup.Propose(ctx.ToBytes(), data)
-	err = p.RaftGroup.Propose(data)
+	err = p.RaftGroup.Propose(ctx.ToBytes(), data)
 	if err != nil {
 		return 0, err
 	}
@@ -1664,9 +1661,8 @@ func (p *Peer) ProposeConfChange(ctx *PollContext, req *raft_cmdpb.RaftCmdReques
 	log.Infof("%v propose conf change %v peer %v", p.Tag, cc.ChangeType, cc.NodeId)
 
 	proposeIndex := p.nextProposalIndex()
-	// TODO: after raft lib implement propose with context, change to:
-	// var proposalCtx ProposalContext = ProposalContext_SyncLog
-	if err = p.RaftGroup.ProposeConfChange(cc); err != nil {
+	var proposalCtx ProposalContext = ProposalContext_SyncLog
+	if err = p.RaftGroup.ProposeConfChange(proposalCtx.ToBytes(), cc); err != nil {
 		return 0, err
 	}
 	if p.nextProposalIndex() == proposeIndex {
