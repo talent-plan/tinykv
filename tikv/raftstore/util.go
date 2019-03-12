@@ -121,7 +121,7 @@ func (l *Lease) Renew(sendTs time.Time) {
 		}
 	} else {
 		// Or an empty lease
-		l.boundValid = &sendTs
+		l.boundValid = &bound
 	}
 
 	// Renew remote if it's valid.
