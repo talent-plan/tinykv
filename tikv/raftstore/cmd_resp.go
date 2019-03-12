@@ -25,7 +25,7 @@ func BindRespError(resp *raft_cmdpb.RaftCmdResponse, err error) {
 }
 
 func NewRespFromError(err error) *raft_cmdpb.RaftCmdResponse {
-	resp := &raft_cmdpb.RaftCmdResponse {Header: &raft_cmdpb.RaftResponseHeader{}}
+	resp := &raft_cmdpb.RaftCmdResponse{Header: &raft_cmdpb.RaftResponseHeader{}}
 	BindRespError(resp, err)
 	return resp
 }

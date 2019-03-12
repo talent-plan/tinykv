@@ -823,8 +823,8 @@ func PeerEqual(l, r *metapb.Peer) bool {
 
 func ClonePeer(peer *metapb.Peer) *metapb.Peer {
 	return &metapb.Peer{
-		Id: peer.Id,
-		StoreId: peer.StoreId,
+		Id:        peer.Id,
+		StoreId:   peer.StoreId,
 		IsLearner: peer.IsLearner,
 	}
 }
@@ -847,7 +847,7 @@ func CloneRegion(region *metapb.Region) *metapb.Region {
 func CloneMergeState(state *rspb.MergeState) *rspb.MergeState {
 	mergeState := &rspb.MergeState{
 		MinIndex: state.MinIndex,
-		Commit: state.Commit,
+		Commit:   state.Commit,
 	}
 	mergeState.Target = CloneRegion(state.Target)
 	return mergeState

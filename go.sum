@@ -193,9 +193,7 @@ github.com/unrolled/render v0.0.0-20180914162206-b9786414de4d/go.mod h1:tu82oB5W
 github.com/urfave/cli v1.18.0/go.mod h1:70zkFmudgCuE/ngEzBv17Jvp/497gISqfk5gWijbERA=
 github.com/xiang90/probing v0.0.0-20160813154853-07dd2e8dfe18/go.mod h1:UETIi67q53MR2AWcXfiuqkDkRtnGDLqkBTpCHuJHxtU=
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2/go.mod h1:UETIi67q53MR2AWcXfiuqkDkRtnGDLqkBTpCHuJHxtU=
-github.com/zhangjinpeng1987/etcd v0.0.0-20190225050241-2507590cb313 h1:p2wZKVncqadnd55GGOFAMmOJHEDrfTbW0lujgMUJcvQ=
-github.com/zhangjinpeng1987/etcd v0.0.0-20190225050241-2507590cb313/go.mod h1:RutfZdQAP913VY0GI8/Mjwf50+IZ7Mpg2zt3SDs17/g=
-github.com/zhangjinpeng1987/etcd v0.0.0-20190226085253-137eac022b64 h1:szZaDgp51C3/4QgF2cbex4EL5/yFFyASnFYParRH6QA=
+github.com/zhangjinpeng1987/etcd v0.0.0-20190226085253-137eac022b64 h1:ulWsFvhG8PnQ6tZ50cnp4XpmcOYFzxkXsku2m/jZdM4=
 github.com/zhangjinpeng1987/etcd v0.0.0-20190226085253-137eac022b64/go.mod h1:RutfZdQAP913VY0GI8/Mjwf50+IZ7Mpg2zt3SDs17/g=
 github.com/zhangjinpeng1987/raft v0.0.0-20190228074655-af4f3152c5f3 h1:r25p4ej8yWgdPIXPjrwmYrPu4ZZr5yDr7khmnpP8khs=
 github.com/zhangjinpeng1987/raft v0.0.0-20190228074655-af4f3152c5f3/go.mod h1:1KDQ09J8MRHEtHze4at7BJZDW/doUAgkJ8w9KjEUhSo=

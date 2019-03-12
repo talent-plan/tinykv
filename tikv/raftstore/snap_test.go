@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/coocood/badger"
-	"go.etcd.io/etcd/pkg/fileutil"
 	"github.com/cznic/mathutil"
 	"github.com/ngaut/unistore/lockstore"
 	"github.com/ngaut/unistore/tikv/mvcc"
@@ -23,6 +22,7 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.etcd.io/etcd/pkg/fileutil"
 )
 
 var (

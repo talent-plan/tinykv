@@ -6,8 +6,8 @@ import (
 	"sort"
 
 	"github.com/juju/errors"
-	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/ngaut/unistore/rowcodec"
+	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/expression"

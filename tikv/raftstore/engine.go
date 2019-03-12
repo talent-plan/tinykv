@@ -15,21 +15,21 @@ type DBBundle struct {
 }
 
 type DBSnapshot struct {
-	Txn *badger.Txn
-	LockStore *lockstore.MemStore
+	Txn           *badger.Txn
+	LockStore     *lockstore.MemStore
 	RollbackStore *lockstore.MemStore
 }
 
 func NewDBSnapshot(db *DBBundle) *DBSnapshot {
 	return &DBSnapshot{
-		Txn: db.db.NewTransaction(false),
-		LockStore: db.lockStore,
+		Txn:           db.db.NewTransaction(false),
+		LockStore:     db.lockStore,
 		RollbackStore: db.rollbackStore,
 	}
 }
 
 type RegionSnapshot struct {
-	Region *metapb.Region
+	Region   *metapb.Region
 	Snapshot *DBSnapshot
 }
 

@@ -13,11 +13,11 @@ import (
 	"time"
 
 	"github.com/coocood/badger"
-	"github.com/pingcap/kvproto/pkg/eraftpb"
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/rocksdb"
 	"github.com/ngaut/unistore/util"
 	"github.com/pingcap/errors"
+	"github.com/pingcap/kvproto/pkg/eraftpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
 )

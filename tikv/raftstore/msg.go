@@ -3,13 +3,13 @@ package raftstore
 import (
 	"time"
 
-	"github.com/zhangjinpeng1987/raft"
 	"github.com/ngaut/unistore/rocksdb"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
 	"github.com/pingcap/kvproto/pkg/raft_serverpb"
+	"github.com/zhangjinpeng1987/raft"
 )
 
 type MsgType int

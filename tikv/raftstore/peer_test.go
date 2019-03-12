@@ -68,7 +68,7 @@ func TestEntryCtx(t *testing.T) {
 			ctx.insert(f)
 		}
 
-		ser := ctx.ToVec()
+		ser := ctx.ToBytes()
 		de := NewProposalContextFromBytes(ser)
 
 		for _, f := range flags {

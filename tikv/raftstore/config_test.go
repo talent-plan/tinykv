@@ -3,6 +3,7 @@ package raftstore
 import (
 	"testing"
 	"time"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -12,7 +13,7 @@ func TestConfigValidate(t *testing.T) {
 	require.Nil(t, cfg.Validate())
 
 	assert.Equal(t, cfg.RaftMinElectionTimeoutTicks, cfg.RaftElectionTimeoutTicks)
-	assert.Equal(t, cfg.RaftMaxElectionTimeoutTicks, cfg.RaftElectionTimeoutTicks * 2)
+	assert.Equal(t, cfg.RaftMaxElectionTimeoutTicks, cfg.RaftElectionTimeoutTicks*2)
 
 	cfg.RaftHeartbeatTicks = 0
 	require.NotNil(t, cfg.Validate())
@@ -23,11 +24,11 @@ func TestConfigValidate(t *testing.T) {
 	require.NotNil(t, cfg.Validate())
 
 	cfg = NewDefaultConfig()
-	cfg.RaftMinElectionTimeoutTicks = 5;
+	cfg.RaftMinElectionTimeoutTicks = 5
 	require.NotNil(t, cfg.Validate())
-	cfg.RaftMinElectionTimeoutTicks = 25;
+	cfg.RaftMinElectionTimeoutTicks = 25
 	require.NotNil(t, cfg.Validate())
-	cfg.RaftMinElectionTimeoutTicks = 10;
+	cfg.RaftMinElectionTimeoutTicks = 10
 	require.Nil(t, cfg.Validate())
 
 	cfg.RaftHeartbeatTicks = 11

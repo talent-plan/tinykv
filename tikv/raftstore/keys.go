@@ -4,8 +4,8 @@ import (
 	"encoding/binary"
 	"github.com/coocood/badger/y"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/kvproto/pkg/metapb"
+	"github.com/pingcap/tidb/util/codec"
 )
 
 const (
