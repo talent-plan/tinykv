@@ -104,7 +104,7 @@ func TestRouterBasic(t *testing.T) {
 	normarlSender, normalCount, normalFsm := newCounter(10)
 	ctrlBox := newMailbox(ctrlSender, ctrlFsm)
 
-	schedulerCh := make(chan *Msg, 1024)
+	schedulerCh := make(chan *Msg, msgDefaultChanSize)
 	scheduler := &counterScheduler{sender: schedulerCh}
 
 	router := newRouter(ctrlBox, scheduler, scheduler)
@@ -207,15 +207,15 @@ func (h *testHandler) end(normals []fsm) {
 	h.local = new(handleMetrics)
 }
 
-// use Msg.ApplyRes to store function.
+// use Msg.Any to store function.
 func funcMsg(f func()) *Msg {
 	m := new(Msg)
-	m.ApplyRes = f
+	m.Any = f
 	return m
 }
 
 func funcFromMsg(m *Msg) func() {
-	return m.ApplyRes.(func())
+	return m.Any.(func())
 }
 
 type testHandlerBuilder struct {

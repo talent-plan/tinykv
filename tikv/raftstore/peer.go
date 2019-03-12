@@ -12,6 +12,7 @@ import (
 	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
 	"github.com/zhangjinpeng1987/raft"
 	"math"
+	"sync"
 	"time"
 )
 
@@ -64,6 +65,15 @@ type PollContext struct {
 	kvWB            *WriteBatch
 	raftWB          *WriteBatch
 	syncLog         bool
+	storeMeta       struct {
+		*storeMeta
+		sync.Mutex
+	}
+	snapMgr      *SnapManager
+	pendingCount int
+	hasReady     bool
+	router       *router
+	newTickerCh  chan<- *ticker
 }
 
 func (pc *PollContext) KVWB() *WriteBatch {
@@ -236,7 +246,14 @@ type ApplyMetrics struct {
 }
 
 type ApplyTaskRes struct {
-	// Todo: it is a place holder currently
+	regionID         uint64
+	applyState       rspb.RaftApplyState
+	appliedIndexTerm uint64
+	execResults      []execResult
+	metrics          *ApplyMetrics
+	merged           bool
+
+	destroyPeerID uint64
 }
 
 /// A struct that stores the state to wait for `PrepareMerge` apply result.
@@ -244,12 +261,12 @@ type ApplyTaskRes struct {
 /// When handling the apply result of a `CommitMerge`, the source peer may have
 /// not handle the apply result of the `PrepareMerge`, so the target peer has
 /// to abort current handle process and wait for it asynchronously.
-type WaitApplyResultStat struct {
+type WaitApplyResultState struct {
 	/// The following apply results waiting to be handled, including the `CommitMerge`.
 	/// These will be handled once `ReadyToMerge` is true.
 	results []*ApplyTaskRes
 	/// It is used by target peer to check whether the apply result of `PrepareMerge` is handled.
-	readyToMerge *bool
+	readyToMerge *uint32
 }
 
 type Proposal struct {
@@ -368,17 +385,18 @@ type Peer struct {
 
 	// If a snapshot is being applied asynchronously, messages should not be sent.
 	pendingMessages         []eraftpb.Message
-	PendingMergeApplyResult *WaitApplyResultStat
+	PendingMergeApplyResult *WaitApplyResultState
 	PeerStat                *PeerStat
 }
 
-func NewPeer(storeId uint64, cfg *Config, engines *Engines, region *metapb.Region, peer *metapb.Peer) (*Peer, error) {
+func NewPeer(storeId uint64, cfg *Config, engines *Engines, region *metapb.Region, regionSched chan<- *RegionTask,
+	peer *metapb.Peer) (*Peer, error) {
 	if peer.GetId() == InvalidID {
 		return nil, fmt.Errorf("invalid peer id")
 	}
 	tag := fmt.Sprintf("[region %v] %v", region.GetId(), peer.GetId())
 
-	ps, err := NewPeerStorage(engines, region, tag)
+	ps, err := NewPeerStorage(engines, region, regionSched, tag)
 	if err != nil {
 		return nil, err
 	}
@@ -859,13 +877,13 @@ func (p *Peer) HandleRaftReadyAppend(ctx *PollContext) {
 	ctx.ReadyRes = append(ctx.ReadyRes, ReadyICPair{Ready: ready, IC: invokeCtx})
 }
 
-func (p *Peer) PostRaftReadyAppend(ctx *PollContext, ready *raft.Ready, invokeCtx InvokeContext) *ApplySnapResult {
+func (p *Peer) PostRaftReadyAppend(ctx *PollContext, ready *raft.Ready, invokeCtx *InvokeContext) *ApplySnapResult {
 	if invokeCtx.hasSnapshot() {
 		// When apply snapshot, there is no log applied and not compacted yet.
 		p.RaftLogSizeHint = 0
 	}
 
-	applySnapResult := p.Store().PostReady(&invokeCtx)
+	applySnapResult := p.Store().PostReady(invokeCtx)
 	if applySnapResult != nil && p.Peer.GetIsLearner() {
 		// The peer may change from learner to voter after snapshot applied.
 		var pr *metapb.Peer

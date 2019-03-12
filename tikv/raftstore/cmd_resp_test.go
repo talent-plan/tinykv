@@ -31,4 +31,8 @@ func TestCmdResp(t *testing.T) {
 	require.NotNil(t, resp.Header.Error.NotLeader)
 	assert.Equal(t, resp.Header.CurrentTerm, term)
 	assert.Equal(t, resp.Header.Error.NotLeader.RegionId, regionId)
+
+	resp = ErrRespRegionNotFound(regionId)
+	require.NotNil(t, resp.Header.Error.RegionNotFound)
+	assert.Equal(t, resp.Header.Error.RegionNotFound.RegionId, regionId)
 }

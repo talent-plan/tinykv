@@ -346,3 +346,17 @@ func CheckRegionEpoch(req *raft_cmdpb.RaftCmdRequest, region *metapb.Region, inc
 
 	return nil
 }
+
+func findPeer(region *metapb.Region, storeID uint64) *metapb.Peer {
+	for _, peer := range region.Peers {
+		if peer.StoreId == storeID {
+			return peer
+		}
+	}
+	return nil
+}
+
+func isVoteMessage(msg *eraftpb.Message) bool {
+	tp := msg.GetMsgType()
+	return tp == eraftpb.MessageType_MsgRequestVote || tp == eraftpb.MessageType_MsgRequestPreVote
+}

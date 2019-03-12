@@ -44,6 +44,8 @@ const (
 
 	MsgTypeFsmNormal  MsgType = 201
 	MsgTypeFsmControl MsgType = 202
+
+	msgDefaultChanSize = 1024
 )
 
 type Callback func(resp *raft_cmdpb.RaftCmdResponse, snap *DBSnapshot)
@@ -54,12 +56,12 @@ func EmptyCallback(resp *raft_cmdpb.RaftCmdResponse, snap *DBSnapshot) {
 type PeerTick int
 
 const (
-	PeerTickRaft             PeerTick = 1
-	PeerTickRaftLogGC        PeerTick = 2
-	PeerTickSplitRegionCheck PeerTick = 3
-	PeerTickPdHeartbeat      PeerTick = 4
-	PeerTickCheckMerge       PeerTick = 5
-	PeerTickPeerStaleState   PeerTick = 6
+	PeerTickRaft             PeerTick = 0
+	PeerTickRaftLogGC        PeerTick = 1
+	PeerTickSplitRegionCheck PeerTick = 2
+	PeerTickPdHeartbeat      PeerTick = 3
+	PeerTickCheckMerge       PeerTick = 4
+	PeerTickPeerStaleState   PeerTick = 5
 )
 
 type StoreTick int
@@ -102,7 +104,8 @@ type Msg struct {
 	GCSnap                *MsgGCSnap
 	Tick                  PeerTick
 	Significant           *MsgSignificant
-	ApplyRes              interface{} // TODO: change to real apply result later
+	ApplyRes              *ApplyTaskRes
+	Any                   interface{}
 
 	// Store Messages.
 	StoreRaftMsg                *raft_serverpb.RaftMessage

@@ -245,7 +245,7 @@ type PeerStorage struct {
 	Tag string
 }
 
-func NewPeerStorage(engines *Engines, region *metapb.Region, tag string) (*PeerStorage, error) {
+func NewPeerStorage(engines *Engines, region *metapb.Region, regionSched chan<- *RegionTask, tag string) (*PeerStorage, error) {
 	log.Debugf("%s creating storage for %s", tag, region.String())
 	raftState, err := initRaftState(engines.raft, region)
 	if err != nil {
@@ -264,14 +264,15 @@ func NewPeerStorage(engines *Engines, region *metapb.Region, tag string) (*PeerS
 		return nil, err
 	}
 	return &PeerStorage{
-		Engines:    engines,
-		region:     region,
-		Tag:        tag,
-		raftState:  raftState,
-		applyState: applyState,
-		lastTerm:   lastTerm,
-		cache:      &EntryCache{},
-		stats:      &CacheQueryStats{},
+		Engines:     engines,
+		region:      region,
+		Tag:         tag,
+		raftState:   raftState,
+		applyState:  applyState,
+		lastTerm:    lastTerm,
+		regionSched: regionSched,
+		cache:       &EntryCache{},
+		stats:       &CacheQueryStats{},
 	}, nil
 }
 

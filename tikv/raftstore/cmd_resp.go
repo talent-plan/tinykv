@@ -1,6 +1,7 @@
 package raftstore
 
 import (
+	"github.com/pingcap/kvproto/pkg/errorpb"
 	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
 )
 
@@ -34,4 +35,17 @@ func ErrResp(err error, term uint64) *raft_cmdpb.RaftCmdResponse {
 	resp := NewRespFromError(err)
 	BindRespTerm(resp, term)
 	return resp
+}
+
+func ErrRespRegionNotFound(regionID uint64) *raft_cmdpb.RaftCmdResponse {
+	return &raft_cmdpb.RaftCmdResponse{
+		Header: &raft_cmdpb.RaftResponseHeader{
+			Error: &errorpb.Error{
+				Message: "region is not found",
+				RegionNotFound: &errorpb.RegionNotFound{
+					RegionId: regionID,
+				},
+			},
+		},
+	}
 }

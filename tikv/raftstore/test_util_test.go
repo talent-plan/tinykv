@@ -63,7 +63,7 @@ func newTestPeerStorage(t *testing.T) *PeerStorage {
 	require.Nil(t, err)
 	region, err := PrepareBootstrap(engines, 1, 1, 1)
 	require.Nil(t, err)
-	peerStore, err := NewPeerStorage(engines, region, "")
+	peerStore, err := NewPeerStorage(engines, region, nil, "")
 	require.Nil(t, err)
 	return peerStore
 }
