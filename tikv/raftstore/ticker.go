@@ -50,8 +50,8 @@ func (t *ticker) isOnTick(tp PeerTick) bool {
 
 type tickDriver struct {
 	baseTickInterval time.Duration
-	newTickerCh      chan *ticker
-	tickers          map[uint64]*ticker
+	newRegionCh      chan uint64
+	regions          map[uint64]struct{}
 	router           *router
 }
 
@@ -60,17 +60,17 @@ func (r *tickDriver) run() {
 	for {
 		select {
 		case <-timer:
-			for _, ticker := range r.tickers {
-				mb := r.router.mailbox(ticker.regionID)
+			for regionID, _ := range r.regions {
+				mb := r.router.mailbox(regionID)
 				if mb == nil {
-					log.Errorf("failed to get for %v", ticker.regionID)
-					delete(r.tickers, ticker.regionID)
+					log.Errorf("failed to get for %v", regionID)
+					delete(r.regions, regionID)
 				} else {
-					mb.send(&Msg{Type: MsgTypeTick}, r.router.normalScheduler)
+					mb.send(Msg{Type: MsgTypeTick}, r.router.normalScheduler)
 				}
 			}
-		case ticker := <-r.newTickerCh:
-			r.tickers[ticker.regionID] = ticker
+		case regionID := <-r.newRegionCh:
+			r.regions[regionID] = struct{}{}
 		}
 	}
 }

@@ -3,18 +3,17 @@ package raftstore
 import (
 	"time"
 
-	"github.com/ngaut/unistore/rocksdb"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
-	"github.com/pingcap/kvproto/pkg/raft_serverpb"
 	"github.com/zhangjinpeng1987/raft"
 )
 
-type MsgType int
+type MsgType int64
 
 const (
+	MsgTypeNull                   MsgType = 0
 	MsgTypeRaftMessage            MsgType = 1
 	MsgTypeRaftCmd                MsgType = 2
 	MsgTypeSplitRegion            MsgType = 3
@@ -45,8 +44,21 @@ const (
 	MsgTypeFsmNormal  MsgType = 201
 	MsgTypeFsmControl MsgType = 202
 
+	MsgTypeApplyTask         MsgType = 301
+	MsgTypeApplyRegistration MsgType = 302
+	MsgTypeApplyProposal     MsgType = 303
+	MsgTypeApplyCatchUpLogs  MsgType = 304
+	MsgTypeApplyLogsUpToDate MsgType = 305
+	MsgTypeApplyDestroy      MsgType = 306
+
 	msgDefaultChanSize = 1024
 )
+
+type Msg struct {
+	Type     MsgType
+	RegionID uint64
+	Data     interface{}
+}
 
 type Callback func(resp *raft_cmdpb.RaftCmdResponse, snap *DBSnapshot)
 
@@ -86,37 +98,6 @@ type MsgSignificant struct {
 	Type           MsgSignificantType
 	ToPeerID       uint64
 	SnapshotStatus raft.SnapshotStatus
-}
-
-type Msg struct {
-	Type MsgType
-	// Region Messages.
-	RegionID              uint64
-	RaftMsg               *raft_serverpb.RaftMessage
-	RaftCMD               *MsgRaftCmd
-	SplitRegion           *MsgSplitRegion
-	ComputeHashResult     *MsgComputeHashResult
-	RegionApproximateSize uint64
-	RegionApproximateKeys uint64
-	ComputeDeclinedBytes  uint64
-	HalfSplitRegion       *MsgHalfSplitRegion
-	MergeResult           *MsgMergeResult
-	GCSnap                *MsgGCSnap
-	Tick                  PeerTick
-	Significant           *MsgSignificant
-	ApplyRes              *ApplyTaskRes
-	Any                   interface{}
-
-	// Store Messages.
-	StoreRaftMsg                *raft_serverpb.RaftMessage
-	StoreValidateSSTResult      *MsgStoreValidateSSTResult
-	StoreClearRegionSizeInRange *MsgStoreClearRegionSizeInRange
-	StoreCompactedEvent         *rocksdb.CompactedEvent
-	StoreTick                   StoreTick
-	StoreStartStore             *metapb.Store
-
-	// fsm Message.
-	Fsm fsm
 }
 
 type MsgRaftCmd struct {

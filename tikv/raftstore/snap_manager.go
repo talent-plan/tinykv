@@ -44,9 +44,9 @@ type SnapStats struct {
 	SendingCount   int
 }
 
-func notifyStats(ch chan<- *Msg) {
+func notifyStats(ch chan<- Msg) {
 	if ch != nil {
-		ch <- &Msg{Type: MsgTypeStoreSnapshotStats}
+		ch <- Msg{Type: MsgTypeStoreSnapshotStats}
 	}
 }
 
@@ -55,12 +55,12 @@ type SnapManager struct {
 	snapSize     *int64
 	registryLock sync.RWMutex
 	registry     map[SnapKey][]SnapEntry
-	ch           chan<- *Msg
+	ch           chan<- Msg
 	limiter      *IOLimiter
 	MaxTotalSize uint64
 }
 
-func NewSnapManager(path string, ch chan<- *Msg) *SnapManager {
+func NewSnapManager(path string, ch chan<- Msg) *SnapManager {
 	return new(SnapManagerBuilder).Build(path, ch)
 }
 
@@ -340,7 +340,7 @@ func (smb *SnapManagerBuilder) MaxTotalSize(v uint64) *SnapManagerBuilder {
 	return smb
 }
 
-func (smb *SnapManagerBuilder) Build(path string, ch chan<- *Msg) *SnapManager {
+func (smb *SnapManagerBuilder) Build(path string, ch chan<- Msg) *SnapManager {
 	var maxTotalSize uint64 = math.MaxUint64
 	if smb.maxTotalSize > 0 {
 		maxTotalSize = smb.maxTotalSize

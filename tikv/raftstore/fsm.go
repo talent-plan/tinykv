@@ -33,13 +33,13 @@ type fsmScheduler interface {
 var _ fsmScheduler = new(normalScheduler)
 
 type normalScheduler struct {
-	sender chan<- *Msg
+	sender chan<- Msg
 }
 
 func (s *normalScheduler) schedule(fsm fsm) {
-	s.sender <- &Msg{
+	s.sender <- Msg{
 		Type: MsgTypeFsmNormal,
-		Fsm:  fsm,
+		Data: fsm,
 	}
 }
 
@@ -50,13 +50,13 @@ func (s *normalScheduler) shutdown() {
 var _ fsmScheduler = new(controlScheduler)
 
 type controlScheduler struct {
-	sender chan<- *Msg
+	sender chan<- Msg
 }
 
 func (s *controlScheduler) schedule(fsm fsm) {
-	s.sender <- &Msg{
+	s.sender <- Msg{
 		Type: MsgTypeFsmControl,
-		Fsm:  fsm,
+		Data: fsm,
 	}
 }
 
@@ -82,11 +82,11 @@ type fsmState struct {
 /// idle. An idle owner will be scheduled via `fsmScheduler` immediately, which
 /// will drive the fsm to poll for messages.
 type mailbox struct {
-	sender chan<- *Msg
+	sender chan<- Msg
 	state  fsmState
 }
 
-func newMailbox(sender chan<- *Msg, fsm fsm) *mailbox {
+func newMailbox(sender chan<- Msg, fsm fsm) *mailbox {
 	mb := &mailbox{sender: sender}
 	mb.state.status = notifyStateIdle
 	mb.state.data = unsafe.Pointer(&fsm)
@@ -143,7 +143,7 @@ func (mb *mailbox) notify(scheduler fsmScheduler) {
 	}
 }
 
-func (mb *mailbox) send(msg *Msg, scheduler fsmScheduler) {
+func (mb *mailbox) send(msg Msg, scheduler fsmScheduler) {
 	mb.sender <- msg
 	mb.notify(scheduler)
 }
@@ -236,7 +236,7 @@ func (r *router) mailbox(addr uint64) *mailbox {
 	return mb
 }
 
-func (r *router) send(addr uint64, msg *Msg) error {
+func (r *router) send(addr uint64, msg Msg) error {
 	mb := r.mailbox(addr)
 	if mb == nil {
 		return errors.Errorf("mailbox is nil for addr %d", addr)
@@ -245,7 +245,7 @@ func (r *router) send(addr uint64, msg *Msg) error {
 	return nil
 }
 
-func (r *router) sendControl(msg *Msg) {
+func (r *router) sendControl(msg Msg) {
 	r.controlBox.send(msg, r.controlScheduler)
 }
 
@@ -292,13 +292,13 @@ func newBatchWithCapacity(cap int) *batch {
 	}
 }
 
-func (b *batch) push(msg *Msg) {
+func (b *batch) push(msg Msg) {
 	switch msg.Type {
 	case MsgTypeFsmNormal:
-		b.normals = append(b.normals, msg.Fsm)
+		b.normals = append(b.normals, msg.Data.(fsm))
 	case MsgTypeFsmControl:
 		y.Assert(b.control == nil)
-		b.control = msg.Fsm
+		b.control = msg.Data.(fsm)
 	default:
 		panic(fmt.Sprintf("unexpected msg type %d", msg.Type))
 	}
@@ -436,7 +436,7 @@ type pollHandler interface {
 
 type poller struct {
 	router       *router
-	fsmReceiver  <-chan *Msg
+	fsmReceiver  <-chan Msg
 	handler      pollHandler
 	maxBatchSize int
 }
@@ -514,7 +514,7 @@ type pollHandlerBuilder interface {
 type batchSystem struct {
 	namePrefix   string
 	router       *router
-	receiver     <-chan *Msg
+	receiver     <-chan Msg
 	poolSize     int
 	maxBatchSize int
 	wg           sync.WaitGroup
@@ -548,15 +548,15 @@ func (bs *batchSystem) shutdown() {
 	log.Infof("batch system %s is stopped", bs.namePrefix)
 }
 
-func createBatchSystem(poolSize, maxBatchSize int, sender chan<- *Msg, controller fsm) (*router, *batchSystem) {
+func createBatchSystem(poolSize, maxBatchSize int, sender chan<- Msg, controller fsm) (*router, *batchSystem) {
 	controlBox := newMailbox(sender, controller)
-	ch := make(chan *Msg, 4096)
-	normalScheduler := &normalScheduler{sender: (chan<- *Msg)(ch)}
-	controlScheduler := &controlScheduler{sender: (chan<- *Msg)(ch)}
+	ch := make(chan Msg, 4096)
+	normalScheduler := &normalScheduler{sender: (chan<- Msg)(ch)}
+	controlScheduler := &controlScheduler{sender: (chan<- Msg)(ch)}
 	router := newRouter(controlBox, controlScheduler, normalScheduler)
 	return router, &batchSystem{
 		router:       router.clone(),
-		receiver:     (<-chan *Msg)(ch),
+		receiver:     (<-chan Msg)(ch),
 		poolSize:     poolSize,
 		maxBatchSize: maxBatchSize,
 	}

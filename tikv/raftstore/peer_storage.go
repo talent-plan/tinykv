@@ -822,6 +822,13 @@ func PeerEqual(l, r *metapb.Peer) bool {
 	return l.Id == r.Id && l.StoreId == r.StoreId && l.IsLearner == r.IsLearner
 }
 
+func RegionEqual(l, r *metapb.Region) bool {
+	if l == nil || r == nil {
+		return false
+	}
+	return l.Id == r.Id && l.RegionEpoch.Version == r.RegionEpoch.Version && l.RegionEpoch.ConfVer == r.RegionEpoch.ConfVer
+}
+
 func ClonePeer(peer *metapb.Peer) *metapb.Peer {
 	return &metapb.Peer{
 		Id:        peer.Id,
@@ -835,7 +842,7 @@ func CloneRegion(region *metapb.Region) *metapb.Region {
 	cloned.Id = region.Id
 	cloned.StartKey = append([]byte{}, region.StartKey...)
 	cloned.EndKey = append([]byte{}, region.EndKey...)
-	cloned.RegionEpoch = &metapb.RegionEpoch{ConfVer: region.RegionEpoch.ConfVer, Version: region.RegionEpoch.Version}
+	cloned.RegionEpoch = CloneRegionEpoch(region.RegionEpoch)
 
 	cloned.Peers = make([]*metapb.Peer, 0, len(region.Peers))
 	for _, p := range region.Peers {
@@ -843,6 +850,10 @@ func CloneRegion(region *metapb.Region) *metapb.Region {
 	}
 
 	return cloned
+}
+
+func CloneRegionEpoch(epoch *metapb.RegionEpoch) *metapb.RegionEpoch {
+	return &metapb.RegionEpoch{ConfVer: epoch.ConfVer, Version: epoch.Version}
 }
 
 func CloneMergeState(state *rspb.MergeState) *rspb.MergeState {

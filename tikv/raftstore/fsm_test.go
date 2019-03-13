@@ -10,7 +10,7 @@ import (
 
 type counter struct {
 	count *uint64
-	recv  <-chan *Msg
+	recv  <-chan Msg
 	mb    *mailbox
 }
 
@@ -29,13 +29,13 @@ func (c *counter) takeMailbox() *mailbox {
 }
 
 type counterScheduler struct {
-	sender chan<- *Msg
+	sender chan<- Msg
 }
 
 func (cs *counterScheduler) schedule(fsm fsm) {
-	cs.sender <- &Msg{
+	cs.sender <- Msg{
 		Type: MsgTypeFsmNormal,
-		Fsm:  fsm,
+		Data: fsm,
 	}
 }
 
@@ -43,9 +43,9 @@ func (sc *counterScheduler) shutdown() {
 	close(sc.sender)
 }
 
-func pollFsm(fsmReceiver <-chan *Msg, block bool) bool {
+func pollFsm(fsmReceiver <-chan Msg, block bool) bool {
 	for {
-		var msg *Msg
+		var msg Msg
 		if block {
 			msg = <-fsmReceiver
 		} else {
@@ -55,10 +55,10 @@ func pollFsm(fsmReceiver <-chan *Msg, block bool) bool {
 				return false
 			}
 		}
-		if msg == nil {
+		if msg.Type == MsgTypeNull {
 			return true
 		}
-		counter := msg.Fsm.(*counter)
+		counter := msg.Data.(*counter)
 		processCounter(counter)
 		mb := counter.takeMailbox()
 		mb.release(counter)
@@ -78,9 +78,9 @@ func processCounter(counter *counter) {
 	}
 }
 
-func newCounter(cap int) (sender chan<- *Msg, count *uint64, cntr *counter) {
+func newCounter(cap int) (sender chan<- Msg, count *uint64, cntr *counter) {
 	count = new(uint64)
-	ch := make(chan *Msg, cap)
+	ch := make(chan Msg, cap)
 	cntr = &counter{
 		count: count,
 		recv:  ch,
@@ -89,14 +89,14 @@ func newCounter(cap int) (sender chan<- *Msg, count *uint64, cntr *counter) {
 }
 
 // Use ComputeDeclinedBytes as int value.
-func countMsg(v uint64) *Msg {
-	return &Msg{
-		ComputeDeclinedBytes: v,
+func countMsg(v uint64) Msg {
+	return Msg{
+		Data: v,
 	}
 }
 
-func countFromMsg(msg *Msg) uint64 {
-	return msg.ComputeDeclinedBytes
+func countFromMsg(msg Msg) uint64 {
+	return msg.Data.(uint64)
 }
 
 func TestRouterBasic(t *testing.T) {
@@ -104,7 +104,7 @@ func TestRouterBasic(t *testing.T) {
 	normarlSender, normalCount, normalFsm := newCounter(10)
 	ctrlBox := newMailbox(ctrlSender, ctrlFsm)
 
-	schedulerCh := make(chan *Msg, msgDefaultChanSize)
+	schedulerCh := make(chan Msg, msgDefaultChanSize)
 	scheduler := &counterScheduler{sender: schedulerCh}
 
 	router := newRouter(ctrlBox, scheduler, scheduler)
@@ -132,7 +132,7 @@ func TestRouterBasic(t *testing.T) {
 
 type runner struct {
 	stopped bool
-	recv    <-chan *Msg
+	recv    <-chan Msg
 	mailbox *mailbox
 }
 
@@ -150,8 +150,8 @@ func (r *runner) takeMailbox() *mailbox {
 	return mb
 }
 
-func newRunner(cap int) (sender chan<- *Msg, r fsm) {
-	ch := make(chan *Msg, cap)
+func newRunner(cap int) (sender chan<- Msg, r fsm) {
+	ch := make(chan Msg, cap)
 	r = &runner{
 		recv: ch,
 	}
@@ -207,15 +207,12 @@ func (h *testHandler) end(normals []fsm) {
 	h.local = new(handleMetrics)
 }
 
-// use Msg.Any to store function.
-func funcMsg(f func()) *Msg {
-	m := new(Msg)
-	m.Any = f
-	return m
+func funcMsg(f func()) Msg {
+	return Msg{Data: f}
 }
 
-func funcFromMsg(m *Msg) func() {
-	return m.Any.(func())
+func funcFromMsg(m Msg) func() {
+	return m.Data.(func())
 }
 
 type testHandlerBuilder struct {

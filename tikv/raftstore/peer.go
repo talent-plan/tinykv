@@ -12,7 +12,6 @@ import (
 	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
 	"github.com/zhangjinpeng1987/raft"
 	"math"
-	"sync"
 	"time"
 )
 
@@ -40,56 +39,9 @@ func (c *CoprocessorHost) OnRoleChanged(region *metapb.Region, role raft.StateTy
 	// Todo: currently it is a place holder
 }
 
-type ApplyRouter struct {
-	// Todo: currently it is a place holder
-}
-
-func (a *ApplyRouter) ScheduleTask(regionId uint64, task *ApplyTask) {
-	// Todo: currently it is a place holder
-}
-
 type ReadyICPair struct {
 	Ready raft.Ready
 	IC    *InvokeContext
-}
-
-type PollContext struct {
-	Cfg             *Config
-	CoprocessorHost *CoprocessorHost
-	engine          *Engines
-	dbBundle        *DBBundle
-	applyRouter     *ApplyRouter
-	needFlushTrans  bool
-	trans           chan<- *rspb.RaftMessage
-	ReadyRes        []ReadyICPair
-	kvWB            *WriteBatch
-	raftWB          *WriteBatch
-	syncLog         bool
-	storeMeta       struct {
-		*storeMeta
-		sync.Mutex
-	}
-	snapMgr      *SnapManager
-	pendingCount int
-	hasReady     bool
-	router       *router
-	newTickerCh  chan<- *ticker
-}
-
-func (pc *PollContext) KVWB() *WriteBatch {
-	return pc.kvWB
-}
-
-func (pc *PollContext) RaftWB() *WriteBatch {
-	return pc.raftWB
-}
-
-func (pc *PollContext) SyncLog() bool {
-	return pc.syncLog
-}
-
-func (pc *PollContext) SetSyncLog(sync bool) {
-	pc.syncLog = sync
 }
 
 type StaleState int
@@ -229,31 +181,6 @@ func (c *ProposalContext) insert(flag ProposalContext) {
 type PeerStat struct {
 	WrittenBytes uint64
 	WrittenKeys  uint64
-}
-
-type ApplyTask struct {
-	RegionId uint64
-	Term     uint64
-	Entries  []eraftpb.Entry
-}
-
-type ApplyMetrics struct {
-	SizeDiffHint       uint64
-	DeleteKeysHint     uint64
-	WrittenBytes       uint64
-	WrittenKeys        uint64
-	LockCfWrittenBytes uint64
-}
-
-type ApplyTaskRes struct {
-	regionID         uint64
-	applyState       rspb.RaftApplyState
-	appliedIndexTerm uint64
-	execResults      []execResult
-	metrics          *ApplyMetrics
-	merged           bool
-
-	destroyPeerID uint64
 }
 
 /// A struct that stores the state to wait for `PrepareMerge` apply result.
@@ -606,7 +533,7 @@ func (p *Peer) HasPendingSnapshot() bool {
 	return p.RaftGroup.GetSnap() != nil
 }
 
-func (p *Peer) Send(trans chan<- *rspb.RaftMessage, msgs []eraftpb.Message) error {
+func (p *Peer) Send(trans Transport, msgs []eraftpb.Message) error {
 	for _, msg := range msgs {
 		msgType := msg.MsgType
 		err := p.sendRaftMessage(msg, trans)
@@ -1008,7 +935,7 @@ func (p *Peer) HeartbeatPd(ctx *PollContext) {
 	// Todo: currently it is a place holder
 }
 
-func (p *Peer) sendRaftMessage(msg eraftpb.Message, trans chan<- *rspb.RaftMessage) error {
+func (p *Peer) sendRaftMessage(msg eraftpb.Message, trans Transport) error {
 	sendMsg := new(rspb.RaftMessage)
 	sendMsg.RegionId = p.regionId
 	// set current epoch
@@ -1040,9 +967,7 @@ func (p *Peer) sendRaftMessage(msg eraftpb.Message, trans chan<- *rspb.RaftMessa
 		sendMsg.EndKey = append([]byte{}, p.Region().EndKey...)
 	}
 	sendMsg.Message = &msg
-
-	trans <- sendMsg
-	return nil
+	return trans.Send(sendMsg)
 }
 
 func (p *Peer) HandleRaftReadyApply(ctx *PollContext, ready *raft.Ready) {
