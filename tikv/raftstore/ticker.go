@@ -66,7 +66,7 @@ func (r *tickDriver) run() {
 					log.Errorf("failed to get for %v", regionID)
 					delete(r.regions, regionID)
 				} else {
-					mb.send(Msg{Type: MsgTypeTick}, r.router.normalScheduler)
+					mb.send(NewPeerMsg(MsgTypeTick, regionID, nil), r.router.normalScheduler)
 				}
 			}
 		case regionID := <-r.newRegionCh:

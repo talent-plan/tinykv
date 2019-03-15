@@ -20,6 +20,7 @@ type RegionChangeEvent int
 const (
 	RegionChangeEvent_Create RegionChangeEvent = 0 + iota
 	RegionChangeEvent_Update
+	RegionChangeEvent_Destroy
 )
 
 type CoprocessorHost struct {
@@ -313,7 +314,7 @@ type Peer struct {
 	// If a snapshot is being applied asynchronously, messages should not be sent.
 	pendingMessages         []eraftpb.Message
 	PendingMergeApplyResult *WaitApplyResultState
-	PeerStat                *PeerStat
+	PeerStat                PeerStat
 }
 
 func NewPeer(storeId uint64, cfg *Config, engines *Engines, region *metapb.Region, regionSched chan<- *RegionTask,
@@ -367,7 +368,6 @@ func NewPeer(storeId uint64, cfg *Config, engines *Engines, region *metapb.Regio
 		LastApplyingIdx:       appliedIndex,
 		lastUrgentProposalIdx: math.MaxInt64,
 		leaderLease:           NewLease(cfg.RaftStoreMaxLeaderLease),
-		PeerStat:              new(PeerStat),
 	}
 
 	// If this region has only one peer and I am the one, campaign directly.
@@ -384,7 +384,7 @@ func NewPeer(storeId uint64, cfg *Config, engines *Engines, region *metapb.Regio
 /// Register self to applyRouter so that the peer is then usable.
 /// Also trigger `RegionChangeEvent::Create` here.
 func (p *Peer) Activate(ctx *PollContext) {
-	ctx.applyRouter.ScheduleTask(p.regionId, &ApplyTask{ /*todo: register self*/ })
+	ctx.applyRouter.ScheduleTask(p.regionId, NewMsg(MsgTypeApplyTask, &ApplyTask{ /*todo: register self*/ }))
 	ctx.CoprocessorHost.OnRegionChanged(p.Region(), RegionChangeEvent_Create, p.GetRole())
 }
 
@@ -1043,7 +1043,7 @@ func (p *Peer) HandleRaftReadyApply(ctx *PollContext, ready *raft.Ready) {
 				Term:     p.Term(),
 				Entries:  committedEntries,
 			}
-			ctx.applyRouter.ScheduleTask(p.regionId, apply)
+			ctx.applyRouter.ScheduleTask(p.regionId, NewMsg(MsgTypeApplyTask, apply))
 		}
 	}
 

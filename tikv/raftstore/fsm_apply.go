@@ -2,8 +2,15 @@ package raftstore
 
 import (
 	"github.com/pingcap/kvproto/pkg/eraftpb"
+	"github.com/pingcap/kvproto/pkg/metapb"
 	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
 )
+
+type changePeer struct {
+	confChange *eraftpb.ConfChange
+	peer       *metapb.Peer
+	region     *metapb.Region
+}
 
 type ApplyTask struct {
 	RegionId uint64
@@ -38,6 +45,6 @@ type ApplyRouter struct {
 	// Todo: currently it is a place holder
 }
 
-func (a *ApplyRouter) ScheduleTask(regionId uint64, task *ApplyTask) {
+func (a *ApplyRouter) ScheduleTask(regionId uint64, msg Msg) {
 	// Todo: currently it is a place holder
 }

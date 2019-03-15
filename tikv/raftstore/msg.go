@@ -60,6 +60,14 @@ type Msg struct {
 	Data     interface{}
 }
 
+func NewPeerMsg(tp MsgType, regionID uint64, data interface{}) Msg {
+	return Msg{Type: tp, RegionID: regionID, Data: data}
+}
+
+func NewMsg(tp MsgType, data interface{}) Msg {
+	return Msg{Type: tp, Data: data}
+}
+
 type Callback func(resp *raft_cmdpb.RaftCmdResponse, snap *DBSnapshot)
 
 func EmptyCallback(resp *raft_cmdpb.RaftCmdResponse, snap *DBSnapshot) {

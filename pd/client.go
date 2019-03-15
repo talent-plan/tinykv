@@ -15,6 +15,7 @@ package pd
 
 import (
 	"context"
+	"github.com/coocood/badger"
 	"github.com/ngaut/log"
 	"strings"
 	"sync"
@@ -25,6 +26,79 @@ import (
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"google.golang.org/grpc"
 )
+
+type TaskType int64
+
+const (
+	TaskAskSplit         TaskType = 1
+	TaskAskBatchSplit    TaskType = 2
+	TaskHeartbeat        TaskType = 3
+	TaskStoreHeartbeat   TaskType = 4
+	TaskReportBatchSplit TaskType = 5
+	TaskValidatePeer     TaskType = 6
+	TaskReadStats        TaskType = 7
+	TaskDestroyPeer      TaskType = 8
+)
+
+type Callback func(err error)
+
+type AskSplit struct {
+	Region   *metapb.Region
+	SplitKey []byte
+	Peer     *metapb.Peer
+	// If true, right Region derives origin region_id.
+	RightDerive bool
+	Callback    Callback
+}
+
+type AskBatchSplit struct {
+	Region    *metapb.Region
+	SplitKeys [][]byte
+	Peer      *metapb.Peer
+	// If true, right Region derives origin region_id.
+	RightDerive bool
+	Callback    Callback
+}
+
+type RegionHeartbeat struct {
+	Region          *metapb.Region
+	Peer            *metapb.Peer
+	DownPeers       []*pdpb.PeerStats
+	PendingPeers    []*metapb.Peer
+	WrittenBytes    uint64
+	WrittenKeys     uint64
+	approximateSize *uint64
+	approximateKeys *uint64
+}
+
+type StoreHeartbeat struct {
+	Stats    *pdpb.StoreStats
+	Engine   *badger.DB
+	Path     string
+	Capacity uint64
+}
+
+type ReportBatchSplit struct {
+	Regions []*metapb.Region
+}
+
+type ValidatePeer struct {
+	Region      *metapb.Region
+	Peer        *metapb.Peer
+	MergeSource *uint64
+}
+
+type ReadStats map[uint64]FlowStats
+
+type FlowStats struct {
+	ReadBytes uint64
+	ReadKeys  uint64
+}
+
+type Task struct {
+	Type TaskType
+	Data interface{}
+}
 
 // Client is a PD (Placement Driver) client.
 // It should not be used after calling Close().

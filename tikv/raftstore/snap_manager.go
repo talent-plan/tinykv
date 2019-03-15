@@ -46,7 +46,7 @@ type SnapStats struct {
 
 func notifyStats(ch chan<- Msg) {
 	if ch != nil {
-		ch <- Msg{Type: MsgTypeStoreSnapshotStats}
+		ch <- NewMsg(MsgTypeStoreSnapshotStats, nil)
 	}
 }
 

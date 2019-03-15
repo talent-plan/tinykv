@@ -37,10 +37,7 @@ type normalScheduler struct {
 }
 
 func (s *normalScheduler) schedule(fsm fsm) {
-	s.sender <- Msg{
-		Type: MsgTypeFsmNormal,
-		Data: fsm,
-	}
+	s.sender <- NewMsg(MsgTypeFsmNormal, fsm)
 }
 
 func (s *normalScheduler) shutdown() {
@@ -54,10 +51,7 @@ type controlScheduler struct {
 }
 
 func (s *controlScheduler) schedule(fsm fsm) {
-	s.sender <- Msg{
-		Type: MsgTypeFsmControl,
-		Data: fsm,
-	}
+	s.sender <- NewMsg(MsgTypeFsmControl, fsm)
 }
 
 func (s *controlScheduler) shutdown() {

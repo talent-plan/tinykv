@@ -33,10 +33,7 @@ type counterScheduler struct {
 }
 
 func (cs *counterScheduler) schedule(fsm fsm) {
-	cs.sender <- Msg{
-		Type: MsgTypeFsmNormal,
-		Data: fsm,
-	}
+	cs.sender <- NewMsg(MsgTypeFsmNormal, fsm)
 }
 
 func (sc *counterScheduler) shutdown() {
