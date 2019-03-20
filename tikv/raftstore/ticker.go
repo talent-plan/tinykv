@@ -31,6 +31,20 @@ func newTicker(regionID uint64, cfg *Config) *ticker {
 	return t
 }
 
+func newStoreTicker(cfg *Config) *ticker {
+	baseInterval := cfg.RaftBaseTickInterval
+	t := &ticker{
+		schedules: make([]tickSchedule, 6),
+	}
+	t.schedules[int(StoreTickCompactCheck)].interval = int64(cfg.RegionCompactCheckInterval / baseInterval)
+	t.schedules[int(StoreTickPdStoreHeartbeat)].interval = int64(cfg.PdStoreHeartbeatTickInterval / baseInterval)
+	t.schedules[int(StoreTickSnapGC)].interval = int64(cfg.SnapMgrGcTickInterval / baseInterval)
+	t.schedules[int(StoreTickCompactLockCF)].interval = int64(cfg.LockCfCompactInterval / baseInterval)
+	t.schedules[int(StoreTickConsistencyCheck)].interval = int64(cfg.ConsistencyCheckInterval / baseInterval)
+	t.schedules[int(StoreTickCleanupImportSSI)].interval = int64(cfg.CleanupImportSstInterval / baseInterval)
+	return t
+}
+
 // tickClock should be called when peerFsmDelegate received tick message.
 func (t *ticker) tickClock() {
 	t.tick++
@@ -46,6 +60,16 @@ func (t *ticker) schedule(tp PeerTick) {
 func (t *ticker) isOnTick(tp PeerTick) bool {
 	sched := &t.schedules[int(tp)]
 	return sched.runAt == t.tick
+}
+
+func (t *ticker) isOnStoreTick(tp StoreTick) bool {
+	sched := &t.schedules[int(tp)]
+	return sched.runAt == t.tick
+}
+
+func (t *ticker) scheduleStore(tp StoreTick) {
+	sched := &t.schedules[int(tp)]
+	sched.runAt = t.tick + sched.interval
 }
 
 type tickDriver struct {

@@ -15,7 +15,6 @@ package pd
 
 import (
 	"context"
-	"github.com/coocood/badger"
 	"github.com/ngaut/log"
 	"strings"
 	"sync"

@@ -156,26 +156,6 @@ type ApplySnapResult struct {
 	Region     *metapb.Region
 }
 
-type RegionTaskType int64
-
-const (
-	RegionTaskType_Gen RegionTaskType = 0 + iota
-	RegionTaskType_Apply
-	/// Destroy data between [start_key, end_key).
-	///
-	/// The deletion may and may not succeed.
-	RegionTaskType_Destroy
-)
-
-type RegionTask struct {
-	RegionId uint64
-	TaskType RegionTaskType
-	Notifier chan<- *eraftpb.Snapshot
-	Status   *JobStatus
-	StartKey []byte
-	EndKey   []byte
-}
-
 type InvokeContext struct {
 	RegionID   uint64
 	RaftState  rspb.RaftLocalState
@@ -237,7 +217,7 @@ type PeerStorage struct {
 	lastTerm         uint64
 
 	snapState   SnapState
-	regionSched chan<- *RegionTask
+	regionSched chan<- task
 
 	cache *EntryCache
 	stats *CacheQueryStats
@@ -245,7 +225,7 @@ type PeerStorage struct {
 	Tag string
 }
 
-func NewPeerStorage(engines *Engines, region *metapb.Region, regionSched chan<- *RegionTask, tag string) (*PeerStorage, error) {
+func NewPeerStorage(engines *Engines, region *metapb.Region, regionSched chan<- task, tag string) (*PeerStorage, error) {
 	log.Debugf("%s creating storage for %s", tag, region.String())
 	raftState, err := initRaftState(engines.raft, region)
 	if err != nil {
@@ -566,19 +546,23 @@ func (ps *PeerStorage) clearExtraData(newRegion *metapb.Region) {
 	newStartKey, newEndKey := EncStartKey(newRegion), EncEndKey(newRegion)
 	regionId := newRegion.Id
 	if bytes.Compare(oldStartKey, newStartKey) < 0 {
-		ps.regionSched <- &RegionTask{
-			RegionId: regionId,
-			TaskType: RegionTaskType_Destroy,
-			StartKey: oldStartKey,
-			EndKey:   newStartKey,
+		ps.regionSched <- task{
+			tp: taskTypeRegionDestroy,
+			data: &regionTask{
+				regionId: regionId,
+				startKey: oldStartKey,
+				endKey:   newStartKey,
+			},
 		}
 	}
 	if bytes.Compare(newEndKey, oldEndKey) < 0 {
-		ps.regionSched <- &RegionTask{
-			RegionId: regionId,
-			TaskType: RegionTaskType_Destroy,
-			StartKey: newEndKey,
-			EndKey:   oldEndKey,
+		ps.regionSched <- task{
+			tp: taskTypeRegionDestroy,
+			data: &regionTask{
+				regionId: regionId,
+				startKey: newEndKey,
+				endKey:   oldEndKey,
+			},
 		}
 	}
 }
@@ -929,13 +913,13 @@ func (ps *PeerStorage) ScheduleApplyingSnapshot() {
 		StateType: SnapState_Applying,
 		Status:    &status,
 	}
-
-	task := &RegionTask{
-		RegionId: ps.region.Id,
-		TaskType: RegionTaskType_Apply,
-		Status:   &status,
+	ps.regionSched <- task{
+		tp: taskTypeRegionApply,
+		data: &regionTask{
+			regionId: ps.region.Id,
+			status:   &status,
+		},
 	}
-	ps.regionSched <- task
 }
 
 func (ps *PeerStorage) SetRegion(region *metapb.Region) {

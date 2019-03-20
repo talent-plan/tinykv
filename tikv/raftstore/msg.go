@@ -87,12 +87,12 @@ const (
 type StoreTick int
 
 const (
-	StoreTickCompactCheck     StoreTick = 1
-	StoreTickPdStoreHeartbeat StoreTick = 2
-	StoreTickSnapGC           StoreTick = 3
-	StoreTickCompactLockCF    StoreTick = 4
-	StoreTickConsistencyCheck StoreTick = 5
-	StoreTickCleanupImportSSI StoreTick = 6
+	StoreTickCompactCheck     StoreTick = 0
+	StoreTickPdStoreHeartbeat StoreTick = 1
+	StoreTickSnapGC           StoreTick = 2
+	StoreTickCompactLockCF    StoreTick = 3
+	StoreTickConsistencyCheck StoreTick = 4
+	StoreTickCleanupImportSSI StoreTick = 5
 )
 
 type MsgSignificantType int

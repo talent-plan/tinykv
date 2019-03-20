@@ -317,7 +317,7 @@ type Peer struct {
 	PeerStat                PeerStat
 }
 
-func NewPeer(storeId uint64, cfg *Config, engines *Engines, region *metapb.Region, regionSched chan<- *RegionTask,
+func NewPeer(storeId uint64, cfg *Config, engines *Engines, region *metapb.Region, regionSched chan<- task,
 	peer *metapb.Peer) (*Peer, error) {
 	if peer.GetId() == InvalidID {
 		return nil, fmt.Errorf("invalid peer id")

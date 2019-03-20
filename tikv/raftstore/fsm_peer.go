@@ -27,7 +27,7 @@ type peerFsm struct {
 // If we create the peer actively, like bootstrap/split/merge region, we should
 // use this function to create the peer. The region must contain the peer info
 // for this store.
-func createPeerFsm(storeID uint64, cfg *Config, sched chan<- *RegionTask,
+func createPeerFsm(storeID uint64, cfg *Config, sched chan<- task,
 	engines *Engines, region *metapb.Region) (chan<- Msg, *peerFsm, error) {
 	metaPeer := findPeer(region, storeID)
 	if metaPeer == nil {
@@ -49,7 +49,7 @@ func createPeerFsm(storeID uint64, cfg *Config, sched chan<- *RegionTask,
 // The peer can be created from another node with raft membership changes, and we only
 // know the region_id and peer_id when creating this replicated peer, the region info
 // will be retrieved later after applying snapshot.
-func replicatePeerFsm(storeID uint64, cfg *Config, sched chan<- *RegionTask,
+func replicatePeerFsm(storeID uint64, cfg *Config, sched chan<- task,
 	engines *Engines, regionID uint64, metaPeer *metapb.Peer) (chan<- Msg, *peerFsm, error) {
 	// We will remove tombstone key when apply snapshot
 	log.Infof("[region %v] replicates peer with ID %d", regionID, metaPeer.GetId())
@@ -182,7 +182,7 @@ func (d *peerFsmDelegate) handleMsgs(msgs []Msg) {
 		case MsgTypeRegionApproximateSize:
 			d.onApproximateRegionSize(msg.Data.(uint64))
 		case MsgTypeRegionApproximateKeys:
-			d.onApprocximateRegionKeys(msg.Data.(uint64))
+			d.onApproximateRegionKeys(msg.Data.(uint64))
 		case MsgTypeCompactionDeclineBytes:
 			d.onCompactionDeclinedBytes(msg.Data.(uint64))
 		case MsgTypeHalfSplitRegion:
@@ -687,8 +687,10 @@ func (d *peerFsmDelegate) destroyPeer(mergeByTarget bool) {
 	d.ctx.applyRouter.ScheduleTask(regionID, NewPeerMsg(MsgTypeApplyDestroy, regionID, nil))
 	// Trigger region change observer
 	d.ctx.CoprocessorHost.OnRegionChanged(d.region(), RegionChangeEvent_Destroy, d.peer.GetRole())
-	task := pdTask{tp: pdTaskDestroyPeer, data: regionID}
-	d.ctx.pdScheduler <- task
+	d.ctx.pdScheduler <- task{
+		tp:   tasktypePDDestroyPeer,
+		data: regionID,
+	}
 	isInitialized := d.peer.isInitialized()
 	if err := d.peer.Destroy(d.ctx, mergeByTarget); err != nil {
 		// If not panic here, the peer will be recreated in the next restart,
@@ -771,15 +773,18 @@ func (d *peerFsmDelegate) onReadyCompactLog(firstIndex uint64, state *rspb.RaftT
 	// the size of current CompactLog command can be ignored.
 	remainCnt := d.peer.LastApplyingIdx - state.Index - 1
 	d.peer.RaftLogSizeHint *= remainCnt / totalCnt
-	task := raftLogGCTask{
+	raftLogGCTask := &raftLogGCTask{
 		raftEngine: d.ctx.engine.raft,
 		regionID:   d.regionID(),
 		startIdx:   d.peer.LastCompactedIdx,
 		endIdx:     state.Index + 1,
 	}
-	d.peer.LastCompactedIdx = task.endIdx
-	d.peer.Store().CompactTo(task.endIdx)
-	d.ctx.raftLogGCScheduler <- task
+	d.peer.LastCompactedIdx = raftLogGCTask.endIdx
+	d.peer.Store().CompactTo(raftLogGCTask.endIdx)
+	d.ctx.raftLogGCScheduler <- task{
+		tp:   taskTypeRaftLogGC,
+		data: raftLogGCTask,
+	}
 }
 
 func (d *peerFsmDelegate) onReadySplitRegion(derived *metapb.Region, regions []*metapb.Region) {
@@ -796,11 +801,10 @@ func (d *peerFsmDelegate) onReadySplitRegion(derived *metapb.Region, regions []*
 		log.Infof("%s notify pd with split count %d", d.tag(), len(regions))
 		// Now pd only uses ReportBatchSplit for history operation show,
 		// so we send it independently here.
-		task := pdTask{
-			tp:   pdTaskReportBatchSplit,
-			data: &pdReportBatchSplit{regions: regions},
+		d.ctx.pdScheduler <- task{
+			tp:   taskTypePDReportBatchSplit,
+			data: &pdReportBatchSplitTask{regions: regions},
 		}
-		d.ctx.pdScheduler <- task
 	}
 
 	lastRegion := regions[len(regions)-1]
@@ -1190,12 +1194,14 @@ func (d *peerFsmDelegate) onSplitRegionCheckTick() {
 		d.peer.SizeDiffHint < d.ctx.Cfg.RegionSplitCheckDiff {
 		return
 	}
-	task := splitCheckTask{
-		region:    CloneRegion(d.region()),
-		autoSplit: true,
-		policy:    pdpb.CheckPolicy_SCAN,
+	d.ctx.splitCheckScheduler <- task{
+		tp: taskTypeSplitCheck,
+		data: &splitCheckTask{
+			region:    CloneRegion(d.region()),
+			autoSplit: true,
+			policy:    pdpb.CheckPolicy_SCAN,
+		},
 	}
-	d.ctx.splitCheckScheduler <- task
 	d.peer.SizeDiffHint = 0
 	d.peer.CompactionDeclinedBytes = 0
 }
@@ -1206,14 +1212,16 @@ func (d *peerFsmDelegate) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, 
 		return
 	}
 	region := d.region()
-	task := &pdAskBatchSplit{
-		region:      CloneRegion(region),
-		splitKeys:   splitKeys,
-		peer:        ClonePeer(d.peer.Peer),
-		rightDerive: d.ctx.Cfg.RightDeriveWhenSplit,
-		callback:    cb,
+	d.ctx.pdScheduler <- task{
+		tp: taskTypePDAskBatchSplit,
+		data: &pdAskBatchSplitTask{
+			region:      CloneRegion(region),
+			splitKeys:   splitKeys,
+			peer:        ClonePeer(d.peer.Peer),
+			rightDerive: d.ctx.Cfg.RightDeriveWhenSplit,
+			callback:    cb,
+		},
 	}
-	d.ctx.pdScheduler <- pdTask{tp: pdTaskAskBatchSplit, data: task}
 }
 
 func (d *peerFsmDelegate) validateSplitRegion(epoch *metapb.RegionEpoch, splitKeys [][]byte) error {
@@ -1259,7 +1267,7 @@ func (d *peerFsmDelegate) onApproximateRegionSize(size uint64) {
 	d.peer.ApproximateSize = &size
 }
 
-func (d *peerFsmDelegate) onApprocximateRegionKeys(keys uint64) {
+func (d *peerFsmDelegate) onApproximateRegionKeys(keys uint64) {
 	d.peer.ApproximateKeys = &keys
 }
 
@@ -1277,11 +1285,13 @@ func (d *peerFsmDelegate) onScheduleHalfSplitRegion(regionEpoch *metapb.RegionEp
 		log.Warnf("%s receive a stale halfsplit message", d.tag())
 		return
 	}
-	task := splitCheckTask{
-		region: CloneRegion(region),
-		policy: policy,
+	d.ctx.splitCheckScheduler <- task{
+		tp: taskTypeSplitCheck,
+		data: &splitCheckTask{
+			region: CloneRegion(region),
+			policy: policy,
+		},
 	}
-	d.ctx.splitCheckScheduler <- task
 }
 
 func (d *peerFsmDelegate) onPDHeartbeatTick() {
@@ -1329,23 +1339,27 @@ func (d *peerFsmDelegate) onCheckPeerStaleStateTick() {
 		// for peer B in case 1 above
 		log.Warnf("%s leader missing longer than max_leader_missing_duration %v. To check with pd whether it's still valid",
 			d.tag(), d.ctx.Cfg.AbnormalLeaderMissingDuration)
-		task := pdValidatePeer{
-			region: CloneRegion(d.region()),
-			peer:   ClonePeer(d.peer.Peer),
+		d.ctx.pdScheduler <- task{
+			tp: taskTypePDValidatePeer,
+			data: &pdValidatePeerTask{
+				region: CloneRegion(d.region()),
+				peer:   ClonePeer(d.peer.Peer),
+			},
 		}
-		d.ctx.pdScheduler <- pdTask{tp: pdTaskValidatePeer, data: task}
 	}
 }
 
 func (d *peerFsmDelegate) onReadyComputeHash(region *metapb.Region, index uint64, snap *DBSnapshot) {
 	d.peer.ConsistencyState.LastCheckTime = time.Now()
-	task := computeHashTask{
-		region: region,
-		index:  index,
-		snap:   snap,
-	}
 	log.Infof("%s schedule compute hash task", d.tag())
-	d.ctx.computeHashScheduler <- task
+	d.ctx.computeHashScheduler <- task{
+		tp: taskTypeComputeHash,
+		data: &computeHashTask{
+			region: region,
+			index:  index,
+			snap:   snap,
+		},
+	}
 }
 
 func (d *peerFsmDelegate) onReadyVerifyHash(expectedIndex uint64, expectedHash []byte) {
@@ -1364,9 +1378,11 @@ func (d *peerFsmDelegate) onIngestSSTResult(ssts []*import_sstpb.SSTMeta) {
 	for _, sst := range ssts {
 		d.peer.SizeDiffHint += sst.Length
 	}
-	d.ctx.cleanUpSSTScheculer <- cleanUpSSTTask{
-		tp:   cleanUpSSTTaskDelete,
-		ssts: ssts,
+	d.ctx.cleanUpSSTScheduler <- task{
+		tp: taskTypeCleanUpSSTDelete,
+		data: &cleanUpSSTTask{
+			ssts: ssts,
+		},
 	}
 }
 
