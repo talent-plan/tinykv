@@ -2,8 +2,10 @@ package raftstore
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"github.com/ngaut/log"
+	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/eraftpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
@@ -359,4 +361,90 @@ func findPeer(region *metapb.Region, storeID uint64) *metapb.Peer {
 func isVoteMessage(msg *eraftpb.Message) bool {
 	tp := msg.GetMsgType()
 	return tp == eraftpb.MessageType_MsgRequestVote || tp == eraftpb.MessageType_MsgRequestPreVote
+}
+
+func regionIDToBytes(id uint64) []byte {
+	b := make([]byte, 8)
+	binary.LittleEndian.PutUint64(b, id)
+	return b
+}
+
+func regionIDFromBytes(b []byte) uint64 {
+	return binary.LittleEndian.Uint64(b)
+}
+
+func checkRegionEpoch(req *raft_cmdpb.RaftCmdRequest, region *metapb.Region, includeRegion bool) error {
+	var checkVer, checkConfVer bool
+	if req.AdminRequest == nil {
+		// for get/set/delete, we don't care conf_version.
+		checkVer = true
+	} else {
+		switch req.AdminRequest.CmdType {
+		case raft_cmdpb.AdminCmdType_CompactLog, raft_cmdpb.AdminCmdType_InvalidAdmin,
+			raft_cmdpb.AdminCmdType_ComputeHash, raft_cmdpb.AdminCmdType_VerifyHash:
+		case raft_cmdpb.AdminCmdType_ChangePeer:
+			checkConfVer = true
+		case raft_cmdpb.AdminCmdType_Split, raft_cmdpb.AdminCmdType_BatchSplit,
+			raft_cmdpb.AdminCmdType_PrepareMerge, raft_cmdpb.AdminCmdType_CommitMerge,
+			raft_cmdpb.AdminCmdType_RollbackMerge, raft_cmdpb.AdminCmdType_TransferLeader:
+			checkVer = true
+			checkConfVer = true
+		}
+	}
+	if !checkVer && !checkConfVer {
+		return nil
+	}
+	if req.Header.RegionEpoch == nil {
+		return errors.Errorf("missing epoch")
+	}
+
+	fromEpoch := req.Header.RegionEpoch
+	currentEpoch := region.RegionEpoch
+
+	// We must check epochs strictly to avoid key not in region error.
+	//
+	// A 3 nodes TiKV cluster with merge enabled, after commit merge, TiKV A
+	// tells TiDB with a epoch not match error contains the latest target Region
+	// info, TiDB updates its region cache and sends requests to TiKV B,
+	// and TiKV B has not applied commit merge yet, since the region epoch in
+	// request is higher than TiKV B, the request must be denied due to epoch
+	// not match, so it does not read on a stale snapshot, thus avoid the
+	// KeyNotInRegion error.
+	if (checkConfVer && fromEpoch.ConfVer != currentEpoch.ConfVer) ||
+		(checkVer && fromEpoch.Version != currentEpoch.Version) {
+		err := &ErrEpochNotMatch{}
+		if includeRegion {
+			err.Regions = []*metapb.Region{CloneRegion(region)}
+		}
+		err.Message = fmt.Sprintf("current epoch of region %d is %s, but you sent %s",
+			region.Id, currentEpoch, fromEpoch)
+		return err
+	}
+	return nil
+}
+
+func checkStoreID(req *raft_cmdpb.RaftCmdRequest, storeID uint64) error {
+	peer := req.Header.Peer
+	if peer.StoreId == storeID {
+		return nil
+	}
+	return errors.Errorf("store not match %d %d", peer.StoreId, storeID)
+}
+
+func checkTerm(req *raft_cmdpb.RaftCmdRequest, term uint64) error {
+	header := req.Header
+	if header.Term == 0 || term <= header.Term+1 {
+		return nil
+	}
+	// If header's term is 2 verions behind current term,
+	// leadership may have been changed away.
+	return &ErrStaleCommand{}
+}
+
+func checkPeerID(req *raft_cmdpb.RaftCmdRequest, peerID uint64) error {
+	peer := req.Header.Peer
+	if peer.Id == peerID {
+		return nil
+	}
+	return errors.Errorf("mismatch peer id %d != %d", peer.Id, peerID)
 }

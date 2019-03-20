@@ -3,7 +3,6 @@ package raftstore
 import (
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/lockstore"
-	"github.com/ngaut/unistore/pd"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
 	"sync"
@@ -41,29 +40,32 @@ type mergeLock struct {
 }
 
 type PollContext struct {
-	Cfg                *Config
-	CoprocessorHost    *CoprocessorHost
-	engine             *Engines
-	dbBundle           *DBBundle
-	applyRouter        *ApplyRouter
-	needFlushTrans     bool
-	ReadyRes           []ReadyICPair
-	kvWB               *WriteBatch
-	raftWB             *WriteBatch
-	syncLog            bool
-	storeMeta          *storeMeta
-	storeMetaLock      sync.Mutex
-	snapMgr            *SnapManager
-	pendingCount       int
-	hasReady           bool
-	router             *router
-	tickDriverCh       chan<- uint64
-	trans              Transport
-	queuedSnaps        map[uint64]struct{}
-	pdScheduler        chan<- pd.Task
-	raftLogGCScheduler chan<- raftLogGCTask
-	store              *metapb.Store
-	regionScheduler    chan<- *RegionTask
+	Cfg                  *Config
+	CoprocessorHost      *CoprocessorHost
+	engine               *Engines
+	dbBundle             *DBBundle
+	applyRouter          *ApplyRouter
+	needFlushTrans       bool
+	ReadyRes             []ReadyICPair
+	kvWB                 *WriteBatch
+	raftWB               *WriteBatch
+	syncLog              bool
+	storeMeta            *storeMeta
+	storeMetaLock        sync.Mutex
+	snapMgr              *SnapManager
+	pendingCount         int
+	hasReady             bool
+	router               *router
+	tickDriverCh         chan<- uint64
+	trans                Transport
+	queuedSnaps          map[uint64]struct{}
+	pdScheduler          chan<- pdTask
+	raftLogGCScheduler   chan<- raftLogGCTask
+	store                *metapb.Store
+	regionScheduler      chan<- *RegionTask
+	splitCheckScheduler  chan<- splitCheckTask
+	computeHashScheduler chan<- computeHashTask
+	cleanUpSSTScheculer  chan<- cleanUpSSTTask
 }
 
 type Transport interface {

@@ -533,6 +533,24 @@ func (ps *PeerStorage) CompactTo(idx uint64) {
 	ps.cache.compactTo(idx)
 }
 
+func (ps *PeerStorage) MaybeGCCache(replicatedIdx, appliedIdx uint64) {
+	if replicatedIdx == appliedIdx {
+		// The region is inactive, clear the cache immediately.
+		ps.cache.compactTo(appliedIdx + 1)
+	} else {
+		if ps.cache.length() == 0 {
+			return
+		}
+		cacheFirstIdx := ps.cache.front().Index
+		if cacheFirstIdx > replicatedIdx+1 {
+			// Catching up log requires accessing fs already, let's optimize for
+			// the common case.
+			// Maybe gc to second least replicated_idx is better.
+			ps.cache.compactTo(appliedIdx + 1)
+		}
+	}
+}
+
 func (ps *PeerStorage) clearMeta(kvWB, raftWB *WriteBatch) error {
 	return ClearMeta(ps.Engines, kvWB, raftWB, ps.region.Id, ps.raftState)
 }

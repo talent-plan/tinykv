@@ -31,8 +31,8 @@ func newTicker(regionID uint64, cfg *Config) *ticker {
 	return t
 }
 
-// step should be called when peerFsmDelegate received tick message.
-func (t *ticker) step() {
+// tickClock should be called when peerFsmDelegate received tick message.
+func (t *ticker) tickClock() {
 	t.tick++
 }
 
