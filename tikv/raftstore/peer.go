@@ -15,31 +15,6 @@ import (
 	"time"
 )
 
-type RegionChangeEvent int
-
-const (
-	RegionChangeEvent_Create RegionChangeEvent = 0 + iota
-	RegionChangeEvent_Update
-	RegionChangeEvent_Destroy
-)
-
-type CoprocessorHost struct {
-	// Todo: currently it is a place holder
-}
-
-func (c *CoprocessorHost) PrePropose(region *metapb.Region, req *raft_cmdpb.RaftCmdRequest) error {
-	// Todo: currently it is a place holder
-	return nil
-}
-
-func (c *CoprocessorHost) OnRegionChanged(region *metapb.Region, event RegionChangeEvent, role raft.StateType) {
-	// Todo: currently it is a place holder
-}
-
-func (c *CoprocessorHost) OnRoleChanged(region *metapb.Region, role raft.StateType) {
-	// Todo: currently it is a place holder
-}
-
 type ReadyICPair struct {
 	Ready raft.Ready
 	IC    *InvokeContext
@@ -197,27 +172,6 @@ type WaitApplyResultState struct {
 	readyToMerge *uint32
 }
 
-type Proposal struct {
-	isConfChange bool
-	index        uint64
-	term         uint64
-	Cb           Callback
-}
-
-type RegionProposal struct {
-	Id       uint64
-	RegionId uint64
-	Props    []*Proposal
-}
-
-func NewRegionProposal(id uint64, regionId uint64, props []*Proposal) *RegionProposal {
-	return &RegionProposal{
-		Id:       id,
-		RegionId: regionId,
-		Props:    props,
-	}
-}
-
 type RecentAddedPeer struct {
 	RejectDurationAsSecs uint64
 	Id                   uint64
@@ -268,7 +222,7 @@ type Peer struct {
 	RaftGroup      *raft.RawNode
 	peerStorage    *PeerStorage
 	proposals      *ProposalQueue
-	applyProposals []*Proposal
+	applyProposals []*proposal
 	pendingReads   *ReadIndexQueue
 
 	// Record the last instant of each peer's heartbeat response.
@@ -384,8 +338,8 @@ func NewPeer(storeId uint64, cfg *Config, engines *Engines, region *metapb.Regio
 /// Register self to applyRouter so that the peer is then usable.
 /// Also trigger `RegionChangeEvent::Create` here.
 func (p *Peer) Activate(ctx *PollContext) {
-	ctx.applyRouter.ScheduleTask(p.regionId, NewMsg(MsgTypeApplyTask, &ApplyTask{ /*todo: register self*/ }))
-	ctx.CoprocessorHost.OnRegionChanged(p.Region(), RegionChangeEvent_Create, p.GetRole())
+	ctx.applyRouter.scheduleTask(p.regionId, NewMsg(MsgTypeApplyTask, &ApplyTask{ /*todo: register self*/ }))
+	ctx.coprocessorHost.OnRegionChanged(p.Region(), RegionChangeEvent_Create, p.GetRole())
 }
 
 func (p *Peer) nextProposalIndex() uint64 {
@@ -687,13 +641,13 @@ func (p *Peer) CheckStaleState(ctx *PollContext) StaleState {
 		return StaleStateValid
 	} else {
 		elapsed := time.Since(*p.leaderMissingTime)
-		if elapsed >= ctx.Cfg.MaxLeaderMissingDuration {
+		if elapsed >= ctx.cfg.MaxLeaderMissingDuration {
 			// Resets the `leader_missing_time` to avoid sending the same tasks to
 			// PD worker continuously during the leader missing timeout.
 			now := time.Now()
 			p.leaderMissingTime = &now
 			return StaleStateToValidate
-		} else if elapsed >= ctx.Cfg.AbnormalLeaderMissingDuration && !naivePeer {
+		} else if elapsed >= ctx.cfg.AbnormalLeaderMissingDuration && !naivePeer {
 			// A peer is considered as in the leader missing state
 			// if it's initialized but is isolated from its leader or
 			// something bad happens that the raft group can not elect a leader.
@@ -709,7 +663,7 @@ func (p *Peer) OnRoleChanged(ctx *PollContext, ready *raft.Ready) {
 		if ss.RaftState == raft.StateLeader {
 			p.HeartbeatPd(ctx)
 		}
-		ctx.CoprocessorHost.OnRoleChanged(p.Region(), ss.RaftState)
+		ctx.coprocessorHost.OnRoleChanged(p.Region(), ss.RaftState)
 	}
 }
 
@@ -743,13 +697,13 @@ func (p *Peer) isMerging() bool {
 	return p.lastCommittedPrepareMergeIdx > p.Store().AppliedIndex() || p.PendingMergeState != nil
 }
 
-func (p *Peer) TakeApplyProposals() *RegionProposal {
+func (p *Peer) TakeApplyProposals() *regionProposal {
 	if len(p.applyProposals) == 0 {
 		return nil
 	}
 	props := p.applyProposals
 	p.applyProposals = nil
-	return NewRegionProposal(p.PeerId(), p.regionId, props)
+	return newRegionProposal(p.PeerId(), p.regionId, props)
 }
 
 func (p *Peer) HandleRaftReadyAppend(ctx *PollContext) {
@@ -1043,7 +997,7 @@ func (p *Peer) HandleRaftReadyApply(ctx *PollContext, ready *raft.Ready) {
 				Term:     p.Term(),
 				Entries:  committedEntries,
 			}
-			ctx.applyRouter.ScheduleTask(p.regionId, NewMsg(MsgTypeApplyTask, apply))
+			ctx.applyRouter.scheduleTask(p.regionId, NewMsg(MsgTypeApplyTask, apply))
 		}
 	}
 
@@ -1210,7 +1164,7 @@ func (p *Peer) PostPropose(meta *ProposalMeta, isConfChange bool, cb Callback) {
 	// Try to renew leader lease on every consistent read/write request.
 	t := time.Now()
 	meta.RenewLeaseTime = &t
-	proposal := &Proposal{
+	proposal := &proposal{
 		isConfChange: isConfChange,
 		index:        meta.Index,
 		term:         meta.Term,
@@ -1260,7 +1214,7 @@ func (p *Peer) checkConfChange(ctx *PollContext, cmd *raft_cmdpb.RaftCmdRequest)
 		return fmt.Errorf("invalid conf change request")
 	}
 
-	if changeType == eraftpb.ConfChangeType_RemoveNode && !ctx.Cfg.AllowRemoveLeader && peer.Id == p.PeerId() {
+	if changeType == eraftpb.ConfChangeType_RemoveNode && !ctx.cfg.AllowRemoveLeader && peer.Id == p.PeerId() {
 		log.Warnf("%s rejects remove leader request %v", p.Tag, changePeer)
 		return fmt.Errorf("ignore remove leader")
 	}
@@ -1339,7 +1293,7 @@ func (p *Peer) readyToTransferLeader(ctx *PollContext, peer *metapb.Peer) bool {
 
 	lastIndex, _ := p.Store().LastIndex()
 
-	return lastIndex <= status.Progress[peerId].Match+ctx.Cfg.LeaderTransferMaxLogLag
+	return lastIndex <= status.Progress[peerId].Match+ctx.cfg.LeaderTransferMaxLogLag
 }
 
 func (p *Peer) readLocal(ctx *PollContext, req *raft_cmdpb.RaftCmdRequest, cb Callback) {
@@ -1376,7 +1330,7 @@ func (p *Peer) readIndex(pollCtx *PollContext, req *raft_cmdpb.RaftCmdRequest, e
 	readsLen := len(p.pendingReads.reads)
 	if readsLen > 0 {
 		read := p.pendingReads.reads[readsLen-1]
-		if read.renewLeaseTime.Add(pollCtx.Cfg.RaftStoreMaxLeaderLease).After(*renewLeaseTime) {
+		if read.renewLeaseTime.Add(pollCtx.cfg.RaftStoreMaxLeaderLease).After(*renewLeaseTime) {
 			read.cmds = append(read.cmds, &ReqCbPair{Req: req, Cb: cb})
 			return false
 		}
@@ -1438,7 +1392,7 @@ func (p *Peer) preProposePrepareMerge(ctx *PollContext, req *raft_cmdpb.RaftCmdR
 	lastIndex := p.RaftGroup.Raft.RaftLog.LastIndex()
 	minProgress := p.GetMinProgress()
 	minIndex := minProgress + 1
-	if minProgress == 0 || lastIndex-minProgress > ctx.Cfg.MergeMaxLogGap {
+	if minProgress == 0 || lastIndex-minProgress > ctx.cfg.MergeMaxLogGap {
 		return fmt.Errorf("log gap (%v, %v] is too large, skip merge", minProgress, lastIndex)
 	}
 
@@ -1476,7 +1430,7 @@ func (p *Peer) preProposePrepareMerge(ctx *PollContext, req *raft_cmdpb.RaftCmdR
 		return fmt.Errorf("log gap contains admin request %v, skip merging.", cmdType)
 	}
 
-	if float64(entrySize) > float64(ctx.Cfg.RaftEntryMaxSize)*0.9 {
+	if float64(entrySize) > float64(ctx.cfg.RaftEntryMaxSize)*0.9 {
 		return fmt.Errorf("log gap size exceed entry size limit, skip merging.")
 	}
 
@@ -1485,7 +1439,7 @@ func (p *Peer) preProposePrepareMerge(ctx *PollContext, req *raft_cmdpb.RaftCmdR
 }
 
 func (p *Peer) PrePropose(pollCtx *PollContext, req *raft_cmdpb.RaftCmdRequest) (*ProposalContext, error) {
-	if err := pollCtx.CoprocessorHost.PrePropose(p.Region(), req); err != nil {
+	if err := pollCtx.coprocessorHost.PrePropose(p.Region(), req); err != nil {
 		return nil, err
 	}
 	ctx := new(ProposalContext)
@@ -1531,7 +1485,7 @@ func (p *Peer) ProposeNormal(pollCtx *PollContext, req *raft_cmdpb.RaftCmdReques
 		return 0, err
 	}
 
-	if uint64(len(data)) > pollCtx.Cfg.RaftEntryMaxSize {
+	if uint64(len(data)) > pollCtx.cfg.RaftEntryMaxSize {
 		log.Errorf("entry is too large, entry size %v", len(data))
 		return 0, &ErrRaftEntryTooLarge{RegionId: p.regionId, EntrySize: uint64(len(data))}
 	}

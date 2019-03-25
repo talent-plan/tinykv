@@ -2,15 +2,20 @@ package raftstore
 
 import (
 	"github.com/coocood/badger"
+	"github.com/ngaut/unistore/lockstore"
+	"github.com/ngaut/unistore/pd"
 	"github.com/pingcap/kvproto/pkg/eraftpb"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
+	"sync"
+	"time"
 )
 
 type taskType int64
 
 const (
+	taskTypeStop        taskType = 0
 	taskTypeRaftLogGC   taskType = 1
 	taskTypeSplitCheck  taskType = 2
 	taskTypeComputeHash taskType = 3
@@ -138,5 +143,122 @@ type checkAndCompactTask struct {
 }
 
 type worker struct {
+	name      string
 	scheduler chan<- task
+	receiver  <-chan task
+	closeCh   chan struct{}
+	wg        *sync.WaitGroup
+}
+
+type taskRunner interface {
+	run(t task)
+}
+
+func (w *worker) start(runner taskRunner) {
+	w.wg.Add(1)
+	go func() {
+		defer w.wg.Done()
+		for {
+			task := <-w.receiver
+			if task.tp == taskTypeStop {
+				return
+			}
+			runner.run(task)
+		}
+	}()
+}
+
+const defaultWorkerCapacity = 128
+
+func newWorker(name string, wg *sync.WaitGroup) *worker {
+	ch := make(chan task, defaultWorkerCapacity)
+	return &worker{
+		scheduler: (chan<- task)(ch),
+		receiver:  (<-chan task)(ch),
+		name:      name,
+		wg:        wg,
+	}
+}
+
+type splitCheckRunner struct {
+	engine          *badger.DB
+	router          *router
+	coprocessorHost *CoprocessorHost
+}
+
+func (r *splitCheckRunner) run(t task) {
+	// TODO: stub
+}
+
+type pendingDeleteRanges struct {
+	ranges *lockstore.MemStore
+}
+
+type snapContext struct {
+	engiens             *Engines
+	batchSize           int
+	mgr                 *SnapManager
+	cleanStalePeerDelay time.Duration
+	pendingDeleteRanges *pendingDeleteRanges
+}
+
+type regionRunner struct {
+	ctx *snapContext
+	// we may delay some apply tasks if level 0 files to write stall threshold,
+	// pending_applies records all delayed apply task, and will check again later
+	pendingApplies []task
+}
+
+func newRegionRunner(engines *Engines, mgr *SnapManager, batchSize uint64, cleanStalePeerDelay time.Duration) *regionRunner {
+	return nil // TODO: stub
+}
+
+func (r *regionRunner) run(t task) {
+	// TODO: stub
+}
+
+type raftLogGCRunner struct {
+}
+
+func (r *raftLogGCRunner) run(t task) {
+	// TODO: stub
+}
+
+type compactRunner struct {
+	engine *badger.DB
+}
+
+func (r *compactRunner) run(t task) {
+	// TODO: stub
+}
+
+type pdRunner struct {
+	storeID   uint64
+	pdClient  pd.Client
+	router    *router
+	db        *badger.DB
+	scheduler chan<- task
+}
+
+func newPDRunner(storeID uint64, pdClient pd.Client, router *router, db *badger.DB, scheduler chan<- task) *pdRunner {
+	return nil // TODO: stub
+}
+
+func (r *pdRunner) run(t task) {
+	// TODO: stub
+}
+
+type computeHashRunner struct {
+	router *router
+}
+
+func (r *computeHashRunner) run(t task) {
+	// TODO: stub
+}
+
+type cleanupSSTRunner struct {
+}
+
+func (r *cleanupSSTRunner) run(t task) {
+	// TODO: stub
 }

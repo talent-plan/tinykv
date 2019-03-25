@@ -232,7 +232,7 @@ func (d *peerFsmDelegate) start() {
 	if d.peer.PendingMergeState != nil {
 		d.notifyPrepareMerge()
 	}
-	d.ticker = newTicker(d.regionID(), d.ctx.Cfg)
+	d.ticker = newTicker(d.regionID(), d.ctx.cfg)
 	d.ctx.tickDriverCh <- d.regionID()
 	d.ticker.schedule(PeerTickRaft)
 	d.ticker.schedule(PeerTickRaftLogGC)
@@ -268,7 +268,7 @@ func (d *peerFsmDelegate) onGCSnap(snaps []SnapKeyWithSending) {
 				d.ctx.snapMgr.DeleteSnapshot(key, snap, false)
 			} else if fi, err1 := snap.Meta(); err1 == nil {
 				modTime := fi.ModTime()
-				if time.Since(modTime) > d.ctx.Cfg.SnapGcTimeout {
+				if time.Since(modTime) > d.ctx.cfg.SnapGcTimeout {
 					log.Infof("%s snap file %s has been expired, delete", d.tag(), key)
 					d.ctx.snapMgr.DeleteSnapshot(key, snap, false)
 				}
@@ -312,7 +312,7 @@ func (d *peerFsmDelegate) reportSnapshotStatus(toPeerID uint64, status raft.Snap
 	d.peer.RaftGroup.ReportSnapshot(toPeerID, status)
 }
 
-func (d *peerFsmDelegate) collectReady(proposals []*RegionProposal) []*RegionProposal {
+func (d *peerFsmDelegate) collectReady(proposals []*regionProposal) []*regionProposal {
 	hasReady := d.hasReady
 	d.hasReady = false
 	if !hasReady || d.stopped {
@@ -652,7 +652,7 @@ func (d *peerFsmDelegate) findOverlapRegions(storeMeta *storeMeta, snapRegion *m
 
 func (d *peerFsmDelegate) handleDestroyPeer(job *DestroyPeerJob) bool {
 	if job.Initialized {
-		d.ctx.applyRouter.ScheduleTask(job.RegionId, NewPeerMsg(MsgTypeApplyDestroy, job.RegionId, nil))
+		d.ctx.applyRouter.scheduleTask(job.RegionId, NewPeerMsg(MsgTypeApplyDestroy, job.RegionId, nil))
 	}
 	if job.AsyncRemove {
 		log.Infof("[region %d] %d is destroyed asynchronously", job.RegionId, job.Peer.Id)
@@ -684,9 +684,9 @@ func (d *peerFsmDelegate) destroyPeer(mergeByTarget bool) {
 	}
 	delete(meta.mergeLocks, regionID)
 
-	d.ctx.applyRouter.ScheduleTask(regionID, NewPeerMsg(MsgTypeApplyDestroy, regionID, nil))
+	d.ctx.applyRouter.scheduleTask(regionID, NewPeerMsg(MsgTypeApplyDestroy, regionID, nil))
 	// Trigger region change observer
-	d.ctx.CoprocessorHost.OnRegionChanged(d.region(), RegionChangeEvent_Destroy, d.peer.GetRole())
+	d.ctx.coprocessorHost.OnRegionChanged(d.region(), RegionChangeEvent_Destroy, d.peer.GetRole())
 	d.ctx.pdScheduler <- task{
 		tp:   tasktypePDDestroyPeer,
 		data: regionID,
@@ -718,7 +718,7 @@ func (d *peerFsmDelegate) onReadyChangePeer(cp changePeer) {
 		return
 	}
 	d.ctx.storeMetaLock.Lock()
-	d.ctx.storeMeta.setRegion(d.ctx.CoprocessorHost, cp.region, d.peer)
+	d.ctx.storeMeta.setRegion(d.ctx.coprocessorHost, cp.region, d.peer)
 	d.ctx.storeMetaLock.Unlock()
 	peerID := cp.peer.Id
 	switch changeType {
@@ -792,7 +792,7 @@ func (d *peerFsmDelegate) onReadySplitRegion(derived *metapb.Region, regions []*
 	defer d.ctx.storeMetaLock.Unlock()
 	meta := d.ctx.storeMeta
 	regionID := derived.Id
-	meta.setRegion(d.ctx.CoprocessorHost, derived, d.getPeer())
+	meta.setRegion(d.ctx.coprocessorHost, derived, d.getPeer())
 	d.peer.PostSplit()
 	isLeader := d.peer.IsLeader()
 	if isLeader {
@@ -838,7 +838,7 @@ func (d *peerFsmDelegate) onReadySplitRegion(derived *metapb.Region, regions []*
 			d.ctx.router.close(newRegionID)
 		}
 
-		sender, newPeer, err := createPeerFsm(d.ctx.store.Id, d.ctx.Cfg, d.ctx.regionScheduler, d.ctx.engine, newRegion)
+		sender, newPeer, err := createPeerFsm(d.ctx.store.Id, d.ctx.cfg, d.ctx.regionScheduler, d.ctx.engine, newRegion)
 		if err != nil {
 			// peer information is already written into db, can't recover.
 			// there is probably a bug.
@@ -867,7 +867,7 @@ func (d *peerFsmDelegate) onReadySplitRegion(derived *metapb.Region, regions []*
 		if lastRegionID == newRegionID {
 			// To prevent from big region, the right region needs run split
 			// check again after split.
-			newPeer.peer.SizeDiffHint = d.ctx.Cfg.RegionSplitCheckDiff
+			newPeer.peer.SizeDiffHint = d.ctx.cfg.RegionSplitCheckDiff
 		}
 		mb := newMailbox(sender, newPeer)
 		d.ctx.router.register(newRegionID, mb)
@@ -1061,7 +1061,7 @@ func (d *peerFsmDelegate) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb 
 func (d *peerFsmDelegate) findSiblingRegion() *metapb.Region {
 	var start []byte
 	var skipFirst bool
-	if d.ctx.Cfg.RightDeriveWhenSplit {
+	if d.ctx.cfg.RightDeriveWhenSplit {
 		start = d.region().StartKey
 	} else {
 		start = d.region().EndKey
@@ -1090,8 +1090,8 @@ func (d *peerFsmDelegate) onRaftGCLogTick() {
 	// As leader, we would not keep caches for the peers that didn't response heartbeat in the
 	// last few seconds. That happens probably because another TiKV is down. In this case if we
 	// do not clean up the cache, it may keep growing.
-	dropCacheDuration := time.Duration(d.ctx.Cfg.RaftHeartbeatTicks)*d.ctx.Cfg.RaftBaseTickInterval +
-		d.ctx.Cfg.RaftEntryCacheLifeTime
+	dropCacheDuration := time.Duration(d.ctx.cfg.RaftHeartbeatTicks)*d.ctx.cfg.RaftBaseTickInterval +
+		d.ctx.cfg.RaftEntryCacheLifeTime
 	cacheAliveLimit := time.Now().Add(-dropCacheDuration)
 
 	totalGCLogs := uint64(0)
@@ -1139,11 +1139,11 @@ func (d *peerFsmDelegate) onRaftGCLogTick() {
 	firstIdx, _ := d.peer.Store().FirstIndex()
 	var compactIdx uint64
 	if appliedIdx > firstIdx &&
-		appliedIdx-firstIdx >= d.ctx.Cfg.RaftLogGcCountLimit {
+		appliedIdx-firstIdx >= d.ctx.cfg.RaftLogGcCountLimit {
 		compactIdx = appliedIdx
-	} else if d.peer.RaftLogSizeHint >= d.ctx.Cfg.RaftLogGcSizeLimit {
+	} else if d.peer.RaftLogSizeHint >= d.ctx.cfg.RaftLogGcSizeLimit {
 		compactIdx = appliedIdx
-	} else if replicatedIdx < firstIdx || replicatedIdx-firstIdx <= d.ctx.Cfg.RaftLogGcThreshold {
+	} else if replicatedIdx < firstIdx || replicatedIdx-firstIdx <= d.ctx.cfg.RaftLogGcThreshold {
 		return
 	} else {
 		compactIdx = replicatedIdx
@@ -1190,8 +1190,8 @@ func (d *peerFsmDelegate) onSplitRegionCheckTick() {
 	// If peer says should update approximate size, update region
 	// size and check whether the region should split.
 	if d.peer.ApproximateSize != nil &&
-		d.peer.CompactionDeclinedBytes < d.ctx.Cfg.RegionSplitCheckDiff &&
-		d.peer.SizeDiffHint < d.ctx.Cfg.RegionSplitCheckDiff {
+		d.peer.CompactionDeclinedBytes < d.ctx.cfg.RegionSplitCheckDiff &&
+		d.peer.SizeDiffHint < d.ctx.cfg.RegionSplitCheckDiff {
 		return
 	}
 	d.ctx.splitCheckScheduler <- task{
@@ -1218,7 +1218,7 @@ func (d *peerFsmDelegate) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, 
 			region:      CloneRegion(region),
 			splitKeys:   splitKeys,
 			peer:        ClonePeer(d.peer.Peer),
-			rightDerive: d.ctx.Cfg.RightDeriveWhenSplit,
+			rightDerive: d.ctx.cfg.RightDeriveWhenSplit,
 			callback:    cb,
 		},
 	}
@@ -1334,11 +1334,11 @@ func (d *peerFsmDelegate) onCheckPeerStaleStateTick() {
 	case StaleStateValid:
 	case StaleStateLeaderMissing:
 		log.Warnf("%s leader missing longer than abnormal_leader_missing_duration %v",
-			d.tag(), d.ctx.Cfg.AbnormalLeaderMissingDuration)
+			d.tag(), d.ctx.cfg.AbnormalLeaderMissingDuration)
 	case StaleStateToValidate:
 		// for peer B in case 1 above
 		log.Warnf("%s leader missing longer than max_leader_missing_duration %v. To check with pd whether it's still valid",
-			d.tag(), d.ctx.Cfg.AbnormalLeaderMissingDuration)
+			d.tag(), d.ctx.cfg.AbnormalLeaderMissingDuration)
 		d.ctx.pdScheduler <- task{
 			tp: taskTypePDValidatePeer,
 			data: &pdValidatePeerTask{

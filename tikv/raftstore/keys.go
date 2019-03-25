@@ -1,6 +1,7 @@
 package raftstore
 
 import (
+	"bytes"
 	"encoding/binary"
 	"github.com/coocood/badger/y"
 	"github.com/pingcap/errors"
@@ -89,6 +90,17 @@ func ApplyStateKey(regionID uint64) []byte {
 
 func SnapshotRaftStateKey(regionID uint64) []byte {
 	return makeRegionPrefix(regionID, SnapshotRaftStateSuffix)
+}
+
+func decodeRegionMetaKey(key []byte) (uint64, byte, error) {
+	if len(RegionMetaMinKey)+8+1 != len(key) {
+		return 0, 0, errors.Errorf("invalid region meta key length for key %v", key)
+	}
+	if !bytes.HasPrefix(key, RegionMetaMinKey) {
+		return 0, 0, errors.Errorf("invalid region meta key prefix for key %v", key)
+	}
+	regionID := binary.BigEndian.Uint64(key[len(RegionMetaMinKey):])
+	return regionID, key[len(key)-1], nil
 }
 
 func RegionMetaPrefixKey(regionID uint64) []byte {

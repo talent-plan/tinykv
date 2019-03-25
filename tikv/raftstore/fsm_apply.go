@@ -95,10 +95,61 @@ type execResult struct {
 	data interface{}
 }
 
-type ApplyRouter struct {
-	// Todo: currently it is a place holder
+type proposal struct {
+	isConfChange bool
+	index        uint64
+	term         uint64
+	Cb           Callback
 }
 
-func (a *ApplyRouter) ScheduleTask(regionId uint64, msg Msg) {
-	// Todo: currently it is a place holder
+type regionProposal struct {
+	Id       uint64
+	RegionId uint64
+	Props    []*proposal
+}
+
+func newRegionProposal(id uint64, regionId uint64, props []*proposal) *regionProposal {
+	return &regionProposal{
+		Id:       id,
+		RegionId: regionId,
+		Props:    props,
+	}
+}
+
+type registration struct {
+	id               uint64
+	term             uint64
+	applyState       *rspb.RaftApplyState
+	appliedIndexTerm uint64
+	region           *metapb.Region
+}
+
+type applyRouter struct {
+	router
+}
+
+func (r *applyRouter) scheduleTask(regionId uint64, msg Msg) {
+	// TODO: stub
+}
+
+type notifier struct {
+	router *router
+}
+
+type applyPollerBuilder struct {
+}
+
+func newApplyPollerBuilder(raftPollerBuilder *raftPollerBuilder, sender notifier, router *applyRouter) *applyPollerBuilder {
+	return nil // TODO: stub
+}
+
+func (b *applyPollerBuilder) build() pollHandler {
+	return nil // TODO: stub
+}
+
+type applyFsm struct {
+}
+
+func newApplyFsmFromPeer(peer *peerFsm) (chan<- Msg, fsm) {
+	return nil, nil // TODO: stub
 }

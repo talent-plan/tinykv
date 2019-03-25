@@ -198,6 +198,36 @@ func (ic *InvokeContext) saveSnapshotRaftStateTo(snapshotIdx uint64, wb *WriteBa
 	return wb.SetMsg(key, snapshotRaftState)
 }
 
+func recoverFromApplyingState(engines *Engines, raftWB *WriteBatch, regionID uint64) error {
+	snapRaftStateKey := SnapshotRaftStateKey(regionID)
+	snapRaftState := new(rspb.RaftLocalState)
+	err := getMsg(engines.kv, snapRaftStateKey, snapRaftState)
+	if err != nil {
+		return errors.Errorf("region %d failed to get raftstate from kv engine when recover from applying state", regionID)
+	}
+
+	raftStateKey := RaftStateKey(regionID)
+	raftState := new(rspb.RaftLocalState)
+	err = getMsg(engines.kv, raftStateKey, raftState)
+	if err != nil && err != badger.ErrKeyNotFound {
+		return errors.WithStack(err)
+	}
+
+	// if we recv append log when applying snapshot, last_index in raft_local_state will
+	// larger than snapshot_index. since raft_local_state is written to raft engine, and
+	// raft write_batch is written after kv write_batch, raft_local_state may wrong if
+	// restart happen between the two write. so we copy raft_local_state to kv engine
+	// (snapshot_raft_state), and set snapshot_raft_state.last_index = snapshot_index.
+	// after restart, we need check last_index.
+	if snapRaftState.LastIndex > raftState.LastIndex {
+		err = raftWB.SetMsg(raftStateKey, snapRaftState)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type HandleRaftReadyContext interface {
 	KVWB() *WriteBatch
 	RaftWB() *WriteBatch

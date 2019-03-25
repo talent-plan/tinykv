@@ -119,3 +119,15 @@ func (wb *WriteBatch) WriteToDB(db *badger.DB) error {
 	}
 	return nil
 }
+
+func (wb *WriteBatch) MustWriteToDB(db *badger.DB) {
+	err := wb.WriteToDB(db)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func (wb *WriteBatch) Reset() {
+	wb.entries = wb.entries[:0]
+	wb.size = 0
+}
