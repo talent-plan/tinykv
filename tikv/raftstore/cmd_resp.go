@@ -25,14 +25,14 @@ func BindRespError(resp *raft_cmdpb.RaftCmdResponse, err error) {
 	resp.Header.Error = RaftstoreErrToPbError(err)
 }
 
-func NewRespFromError(err error) *raft_cmdpb.RaftCmdResponse {
+func ErrResp(err error) *raft_cmdpb.RaftCmdResponse {
 	resp := &raft_cmdpb.RaftCmdResponse{Header: &raft_cmdpb.RaftResponseHeader{}}
 	BindRespError(resp, err)
 	return resp
 }
 
-func ErrResp(err error, term uint64) *raft_cmdpb.RaftCmdResponse {
-	resp := NewRespFromError(err)
+func ErrRespWithTerm(err error, term uint64) *raft_cmdpb.RaftCmdResponse {
+	resp := ErrResp(err)
 	BindRespTerm(resp, term)
 	return resp
 }

@@ -69,8 +69,6 @@ type Config struct {
 	PdStoreHeartbeatTickInterval   time.Duration
 	SnapMgrGcTickInterval          time.Duration
 	SnapGcTimeout                  time.Duration
-	LockCfCompactInterval          time.Duration
-	LockCfCompactBytesThreshold    uint64
 
 	NotifyCapacity  uint64
 	MessagesPerTick uint64
@@ -113,17 +111,11 @@ type Config struct {
 
 	UseDeleteRange bool
 
-	CleanupImportSstInterval time.Duration
-
-	/// Maximum size of every local read task batch.
-	LocalReadBatchSize uint64
-
 	ApplyMaxBatchSize uint64
 	ApplyPoolSize     uint64
 
 	StoreMaxBatchSize uint64
 	StorePoolSize     uint64
-	FuturePoolSize    uint64
 }
 
 func NewDefaultConfig() *Config {
@@ -167,8 +159,6 @@ func NewDefaultConfig() *Config {
 		PeerStaleStateCheckInterval:      5 * time.Minute,
 		LeaderTransferMaxLogLag:          10,
 		SnapApplyBatchSize:               10 * MB,
-		LockCfCompactInterval:            10 * time.Minute,
-		LockCfCompactBytesThreshold:      256 * MB,
 		// Disable consistency check by default as it will hurt performance.
 		// We should turn on this only in our tests.
 		ConsistencyCheckInterval: 0,
@@ -179,13 +169,10 @@ func NewDefaultConfig() *Config {
 		MergeMaxLogGap:           10,
 		MergeCheckTickInterval:   10 * time.Second,
 		UseDeleteRange:           false,
-		CleanupImportSstInterval: 10 * time.Minute,
-		LocalReadBatchSize:       1024,
 		ApplyMaxBatchSize:        1024,
 		ApplyPoolSize:            2,
 		StoreMaxBatchSize:        1024,
 		StorePoolSize:            2,
-		FuturePoolSize:           1,
 	}
 }
 
@@ -262,10 +249,6 @@ func (c *Config) Validate() error {
 			c.RegionCompactTombstonesPencent)
 	}
 
-	if c.LocalReadBatchSize == 0 {
-		return fmt.Errorf("local-read-batch-size must be greater than 0")
-	}
-
 	if c.ApplyPoolSize == 0 {
 		return fmt.Errorf("apply-pool-size should be greater than 0")
 	}
@@ -278,9 +261,5 @@ func (c *Config) Validate() error {
 	if c.StoreMaxBatchSize == 0 {
 		return fmt.Errorf("store-max-batch-size should be greater than 0")
 	}
-	if c.FuturePoolSize == 0 {
-		return fmt.Errorf("future-poll-size should be greater than 0")
-	}
-
 	return nil
 }

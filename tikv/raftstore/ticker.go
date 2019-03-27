@@ -34,13 +34,12 @@ func newTicker(regionID uint64, cfg *Config) *ticker {
 func newStoreTicker(cfg *Config) *ticker {
 	baseInterval := cfg.RaftBaseTickInterval
 	t := &ticker{
-		schedules: make([]tickSchedule, 5),
+		schedules: make([]tickSchedule, 4),
 	}
 	t.schedules[int(StoreTickCompactCheck)].interval = int64(cfg.RegionCompactCheckInterval / baseInterval)
 	t.schedules[int(StoreTickPdStoreHeartbeat)].interval = int64(cfg.PdStoreHeartbeatTickInterval / baseInterval)
 	t.schedules[int(StoreTickSnapGC)].interval = int64(cfg.SnapMgrGcTickInterval / baseInterval)
 	t.schedules[int(StoreTickConsistencyCheck)].interval = int64(cfg.ConsistencyCheckInterval / baseInterval)
-	t.schedules[int(StoreTickCleanupImportSST)].interval = int64(cfg.CleanupImportSstInterval / baseInterval)
 	return t
 }
 

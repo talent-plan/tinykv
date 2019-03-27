@@ -2,7 +2,6 @@ package raftstore
 
 import (
 	"github.com/pingcap/kvproto/pkg/eraftpb"
-	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
 )
@@ -85,10 +84,6 @@ type execResultVerifyHash struct {
 
 type execResultDeleteRange struct {
 	ranges []keyRange
-}
-
-type execResultIngestSST struct {
-	ssts []*import_sstpb.SSTMeta
 }
 
 type execResult struct {

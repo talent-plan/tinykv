@@ -414,7 +414,7 @@ func checkRegionEpoch(req *raft_cmdpb.RaftCmdRequest, region *metapb.Region, inc
 		(checkVer && fromEpoch.Version != currentEpoch.Version) {
 		err := &ErrEpochNotMatch{}
 		if includeRegion {
-			err.Regions = []*metapb.Region{CloneRegion(region)}
+			err.Regions = []*metapb.Region{region}
 		}
 		err.Message = fmt.Sprintf("current epoch of region %d is %s, but you sent %s",
 			region.Id, currentEpoch, fromEpoch)

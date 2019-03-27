@@ -69,13 +69,13 @@ func (q *ReadIndexQueue) PopFront() *ReadIndexRequest {
 }
 
 func NotifyStaleReq(term uint64, cb Callback) {
-	resp := ErrResp(&ErrStaleCommand{}, term)
+	resp := ErrRespWithTerm(&ErrStaleCommand{}, term)
 	cb(resp, nil)
 }
 
 func NotifyReqRegionRemoved(regionId uint64, cb Callback) {
 	regionNotFound := &ErrRegionNotFound{RegionId: regionId}
-	resp := NewRespFromError(regionNotFound)
+	resp := ErrResp(regionNotFound)
 	cb(resp, nil)
 }
 
@@ -216,7 +216,6 @@ type DestroyPeerJob struct {
 }
 
 type Peer struct {
-	peerCache      map[uint64]*metapb.Peer
 	Peer           *metapb.Peer
 	regionId       uint64
 	RaftGroup      *raft.RawNode
@@ -309,7 +308,6 @@ func NewPeer(storeId uint64, cfg *Config, engines *Engines, region *metapb.Regio
 		peerStorage:           ps,
 		proposals:             new(ProposalQueue),
 		pendingReads:          new(ReadIndexQueue),
-		peerCache:             make(map[uint64]*metapb.Peer),
 		PeerHeartbeats:        make(map[uint64]time.Time),
 		PeersStartPendingTime: make(map[uint64]time.Time),
 		RecentAddedPeer:       NewRecentAddedPeer(uint64(cfg.RaftRejectTransferLeaderDuration.Seconds())),
@@ -370,7 +368,7 @@ func (p *Peer) MaybeDestroy() *DestroyPeerJob {
 		AsyncRemove: asyncRemove,
 		Initialized: initialized,
 		RegionId:    p.regionId,
-		Peer:        ClonePeer(p.Peer),
+		Peer:        p.Peer,
 	}
 }
 
@@ -380,7 +378,7 @@ func (p *Peer) MaybeDestroy() *DestroyPeerJob {
 /// 3. Notify all pending requests.
 func (p *Peer) Destroy(ctx *PollContext, keepData bool) error {
 	start := time.Now()
-	region := CloneRegion(p.Region())
+	region := p.Region()
 	log.Infof("%v begin to destroy", p.Tag)
 
 	// Set Tombstone state explicitly
@@ -391,7 +389,7 @@ func (p *Peer) Destroy(ctx *PollContext, keepData bool) error {
 	}
 	var mergeState *rspb.MergeState
 	if p.PendingMergeState != nil {
-		mergeState = CloneMergeState(p.PendingMergeState)
+		mergeState = p.PendingMergeState
 	}
 	if err := WritePeerState(kvWB, region, rspb.PeerState_Tombstone, mergeState); err != nil {
 		return err
@@ -447,7 +445,7 @@ func (p *Peer) SetRegion(host *CoprocessorHost, region *metapb.Region) {
 		// Epoch version changed, disable read on the localreader for this region.
 		p.leaderLease.ExpireRemoteLease()
 	}
-	p.Store().SetRegion(CloneRegion(region))
+	p.Store().SetRegion(region)
 
 	if !p.PendingRemove {
 		host.OnRegionChanged(p.Region(), RegionChangeEvent_Update, p.GetRole())
@@ -576,7 +574,7 @@ func (p *Peer) CollectPendingPeers() []*metapb.Peer {
 			continue
 		}
 		if progress.Match < truncatedIdx {
-			if peer := p.GetPeerFromCache(id); peer != nil {
+			if peer := p.GetPeer(id); peer != nil {
 				pendingPeers = append(pendingPeers, peer)
 				if _, ok := p.PeersStartPendingTime[id]; !ok {
 					now := time.Now()
@@ -850,36 +848,10 @@ func (p *Peer) Stop() {
 	p.Store().CancelApplyingSnap()
 }
 
-func (p *Peer) InsertPeerCache(peer *metapb.Peer) {
-	p.peerCache[peer.Id] = peer
-}
-
-func (p *Peer) RemovePeerFromCache(peerId uint64) {
-	delete(p.peerCache, peerId)
-}
-
-func (p *Peer) GetPeerFromCache(peerId uint64) *metapb.Peer {
-	if peer, ok := p.peerCache[peerId]; ok {
-		return &metapb.Peer{
-			Id:        peer.Id,
-			StoreId:   peer.StoreId,
-			IsLearner: peer.IsLearner,
-		}
-	}
-
-	// Try to find in region, if found, set in cache.
+func (p *Peer) GetPeer(peerId uint64) *metapb.Peer {
 	for _, peer := range p.Region().Peers {
 		if peer.Id == peerId {
-			p.peerCache[peerId] = &metapb.Peer{
-				Id:        peer.Id,
-				StoreId:   peer.StoreId,
-				IsLearner: peer.IsLearner,
-			}
-			return &metapb.Peer{
-				Id:        peer.Id,
-				StoreId:   peer.StoreId,
-				IsLearner: peer.IsLearner,
-			}
+			return peer
 		}
 	}
 	return nil
@@ -899,7 +871,7 @@ func (p *Peer) sendRaftMessage(msg eraftpb.Message, trans Transport) error {
 	}
 
 	fromPeer := *p.Peer
-	toPeer := p.GetPeerFromCache(msg.To)
+	toPeer := p.GetPeer(msg.To)
 	if toPeer == nil {
 		return fmt.Errorf("failed to lookup recipient peer %v in region %v", msg.To, p.regionId)
 	}
@@ -1743,7 +1715,7 @@ func (r *ReadExecutor) Execute(msg *raft_cmdpb.RaftCmdRequest, region *metapb.Re
 	if r.checkEpoch {
 		if err := CheckRegionEpoch(msg, region, true); err != nil {
 			log.Debugf("[region %v] epoch not match, err: %v", region.Id, err)
-			return NewRespFromError(err), nil
+			return ErrResp(err), nil
 		}
 	}
 
@@ -1757,7 +1729,7 @@ func (r *ReadExecutor) Execute(msg *raft_cmdpb.RaftCmdRequest, region *metapb.Re
 		case raft_cmdpb.CmdType_Get:
 			if resp, err = r.DoGet(req, region); err != nil {
 				log.Errorf("[region %v] execute raft command err %v", region.Id, err)
-				return NewRespFromError(err), nil
+				return ErrResp(err), nil
 			}
 		case raft_cmdpb.CmdType_Snap:
 			needSnapshot = true

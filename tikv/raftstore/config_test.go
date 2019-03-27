@@ -70,18 +70,10 @@ func TestConfigValidate(t *testing.T) {
 	require.NotNil(t, cfg.Validate())
 
 	cfg = NewDefaultConfig()
-	cfg.LocalReadBatchSize = 0
-	require.NotNil(t, cfg.Validate())
-
-	cfg = NewDefaultConfig()
 	cfg.ApplyMaxBatchSize = 0
 	require.NotNil(t, cfg.Validate())
 
 	cfg = NewDefaultConfig()
 	cfg.ApplyPoolSize = 0
-	require.NotNil(t, cfg.Validate())
-
-	cfg = NewDefaultConfig()
-	cfg.FuturePoolSize = 0
 	require.NotNil(t, cfg.Validate())
 }

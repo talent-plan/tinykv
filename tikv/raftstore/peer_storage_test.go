@@ -44,7 +44,7 @@ func appendEnts(t *testing.T, peerStore *PeerStorage, ents []eraftpb.Entry) {
 	require.Nil(t, peerStore.Append(ctx, ents, readyCtx))
 	require.Nil(t, ctx.saveRaftStateTo(readyCtx.RaftWB()))
 	require.Nil(t, peerStore.Engines.WriteRaft(readyCtx.RaftWB()))
-	peerStore.raftState = &ctx.RaftState
+	peerStore.raftState = ctx.RaftState
 }
 
 func validateCache(t *testing.T, peerStore *PeerStorage, expEnts []eraftpb.Entry) {
@@ -199,7 +199,7 @@ func TestPeerStorageCompact(t *testing.T) {
 		ctx := NewInvokeContext(peerStore)
 		term, err := peerStore.Term(tt.idx)
 		if err == nil {
-			err = CompactRaftLog(peerStore.Tag, &ctx.ApplyState, tt.idx, term)
+			err = CompactRaftLog(peerStore.Tag, ctx.ApplyState, tt.idx, term)
 		}
 		if tt.err == nil {
 			assert.Nil(t, err)

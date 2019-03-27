@@ -80,8 +80,8 @@ func newTestPeerStorageFromEnts(t *testing.T, ents []eraftpb.Entry) *PeerStorage
 	ctx.saveApplyStateTo(kvWB)
 	require.Nil(t, peerStore.Engines.WriteRaft(readyCtx.RaftWB()))
 	peerStore.Engines.WriteKV(kvWB)
-	peerStore.raftState = &ctx.RaftState
-	peerStore.applyState = &ctx.ApplyState
+	peerStore.raftState = ctx.RaftState
+	peerStore.applyState = ctx.ApplyState
 	return peerStore
 }
 

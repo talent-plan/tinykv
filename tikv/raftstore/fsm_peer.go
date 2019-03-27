@@ -7,7 +7,6 @@ import (
 	"github.com/ngaut/log"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/eraftpb"
-	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
@@ -33,7 +32,6 @@ func createPeerFsm(storeID uint64, cfg *Config, sched chan<- task,
 	if metaPeer == nil {
 		return nil, nil, errors.Errorf("find no peer for store %d in region %v", storeID, region)
 	}
-	metaPeer = ClonePeer(metaPeer)
 	log.Infof("region %v create peer with ID %d", region, metaPeer.Id)
 	ch := make(chan Msg, msgDefaultChanSize)
 	peer, err := NewPeer(storeID, cfg, engines, region, sched, metaPeer)
@@ -302,7 +300,7 @@ func (d *peerFsmDelegate) onSignificantMsg(msg *MsgSignificant) {
 }
 
 func (d *peerFsmDelegate) reportSnapshotStatus(toPeerID uint64, status raft.SnapshotStatus) {
-	toPeer := d.peer.GetPeerFromCache(toPeerID)
+	toPeer := d.peer.GetPeer(toPeerID)
 	if toPeer == nil {
 		// If to_peer is gone, ignore this snapshot status
 		log.Warnf("%s peer %d not found, ignore snapshot status %v", d.tag(), toPeerID, status)
@@ -441,7 +439,6 @@ func (d *peerFsmDelegate) onRaftMsg(msg *rspb.RaftMessage) error {
 		d.ctx.snapMgr.DeleteSnapshot(*key, s, false)
 		return nil
 	}
-	d.peer.InsertPeerCache(msg.FromPeer)
 	err = d.peer.Step(msg.GetMessage())
 	if err != nil {
 		return err
@@ -621,7 +618,7 @@ func (d *peerFsmDelegate) checkSnapshot(msg *rspb.RaftMessage) (*SnapKey, error)
 	d.ctx.queuedSnaps[regionID] = struct{}{}
 	for _, regionID := range regionsToDestroy {
 		err := d.ctx.router.send(regionID, NewPeerMsg(MsgTypeMergeResult, regionID, &MsgMergeResult{
-			TargetPeer: ClonePeer(d.getPeer().Peer),
+			TargetPeer: d.getPeer().Peer,
 			Stale:      true,
 		}))
 		if err != nil {
@@ -723,9 +720,8 @@ func (d *peerFsmDelegate) onReadyChangePeer(cp changePeer) {
 	peerID := cp.peer.Id
 	switch changeType {
 	case eraftpb.ConfChangeType_AddNode, eraftpb.ConfChangeType_AddLearnerNode:
-		peer := ClonePeer(cp.peer)
 		if d.peerID() == peerID && d.peer.Peer.IsLearner {
-			d.peer.Peer = ClonePeer(peer)
+			d.peer.Peer = cp.peer
 		}
 
 		// Add this peer to cache and heartbeats.
@@ -735,14 +731,12 @@ func (d *peerFsmDelegate) onReadyChangePeer(cp changePeer) {
 			d.peer.PeersStartPendingTime[peerID] = now
 		}
 		d.peer.RecentAddedPeer.Update(peerID, now)
-		d.peer.InsertPeerCache(peer)
 	case eraftpb.ConfChangeType_RemoveNode:
 		// Remove this peer from cache.
 		delete(d.peer.PeerHeartbeats, peerID)
 		if d.peer.IsLeader() {
 			delete(d.peer.PeersStartPendingTime, peerID)
 		}
-		d.peer.RemovePeerFromCache(peerID)
 	}
 
 	// In pattern matching above, if the peer is the leader,
@@ -756,14 +750,13 @@ func (d *peerFsmDelegate) onReadyChangePeer(cp changePeer) {
 		d.peer.HeartbeatPd(d.ctx)
 	}
 	myPeerID := d.peerID()
-	peer := cp.peer
 
 	// We only care remove itself now.
-	if changeType == eraftpb.ConfChangeType_RemoveNode && peer.StoreId == d.storeID() {
+	if changeType == eraftpb.ConfChangeType_RemoveNode && cp.peer.StoreId == d.storeID() {
 		if myPeerID == peerID {
 			d.destroyPeer(false)
 		} else {
-			panic(fmt.Sprintf("%s trying to remove unknown peer %s", d.tag(), peer))
+			panic(fmt.Sprintf("%s trying to remove unknown peer %s", d.tag(), cp.peer))
 		}
 	}
 }
@@ -844,11 +837,7 @@ func (d *peerFsmDelegate) onReadySplitRegion(derived *metapb.Region, regions []*
 			// there is probably a bug.
 			panic(fmt.Sprintf("create new split region %s error %v", newRegion, err))
 		}
-		metaPeer := ClonePeer(newPeer.peer.Peer)
-		for _, p := range newRegion.Peers {
-			// Add this peer to cache.
-			newPeer.peer.InsertPeerCache(ClonePeer(p))
-		}
+		metaPeer := newPeer.peer.Peer
 
 		// New peer derive write flow from parent region,
 		// this will be used by balance write flow.
@@ -959,7 +948,7 @@ func (d *peerFsmDelegate) onReadyResult(merged bool, execResults []execResult) (
 		case *execResultPrepareMerge:
 			d.onReadyPrepareMerge(x.region, x.state, merged)
 		case *execResultCommitMerge:
-			if readyToMerge := d.onReadyCommitMerge(CloneRegion(x.region), CloneRegion(x.source)); readyToMerge != nil {
+			if readyToMerge := d.onReadyCommitMerge(x.region, x.source); readyToMerge != nil {
 				return readyToMerge, execResults[i:]
 			}
 		case *execResultRollbackMerge:
@@ -970,8 +959,6 @@ func (d *peerFsmDelegate) onReadyResult(merged bool, execResults []execResult) (
 			d.onReadyVerifyHash(x.index, x.hash)
 		case *execResultDeleteRange:
 			// TODO: clean user properties?
-		case *execResultIngestSST:
-			d.onIngestSSTResult(x.ssts)
 		}
 	}
 	return nil, nil
@@ -995,7 +982,7 @@ func (d *peerFsmDelegate) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) 
 	regionID := d.regionID()
 	leaderID := d.peer.LeaderId()
 	if !d.peer.IsLeader() {
-		leader := d.peer.GetPeerFromCache(leaderID)
+		leader := d.peer.GetPeer(leaderID)
 		return nil, &ErrNotLeader{regionID, leader}
 	}
 	// peer_id must be the same as peer's.
@@ -1024,7 +1011,7 @@ func (d *peerFsmDelegate) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) 
 func (d *peerFsmDelegate) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb Callback) {
 	resp, err := d.preProposeRaftCommand(msg)
 	if err != nil {
-		cb(NewRespFromError(err), nil)
+		cb(ErrResp(err), nil)
 		return
 	}
 	if resp != nil {
@@ -1039,7 +1026,7 @@ func (d *peerFsmDelegate) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb 
 
 	if err := d.checkMergeProposal(msg); err != nil {
 		log.Warnf("%s failed to process merge, message %s, err %v", d.tag(), msg, err)
-		cb(NewRespFromError(err), nil)
+		cb(ErrResp(err), nil)
 		return
 	}
 
@@ -1081,7 +1068,7 @@ func (d *peerFsmDelegate) findSiblingRegion() *metapb.Region {
 		return nil
 	}
 	regionID := regionIDFromBytes(it.Value())
-	return CloneRegion(meta.regions[regionID])
+	return meta.regions[regionID]
 }
 
 func (d *peerFsmDelegate) onRaftGCLogTick() {
@@ -1166,7 +1153,7 @@ func (d *peerFsmDelegate) onRaftGCLogTick() {
 
 	// Create a compact log request and notify directly.
 	regionID := d.regionID()
-	request := newCompactLogRequest(regionID, ClonePeer(d.peer.Peer), compactIdx, term)
+	request := newCompactLogRequest(regionID, d.peer.Peer, compactIdx, term)
 	d.proposeRaftCommand(request, nil)
 }
 
@@ -1197,7 +1184,7 @@ func (d *peerFsmDelegate) onSplitRegionCheckTick() {
 	d.ctx.splitCheckScheduler <- task{
 		tp: taskTypeSplitCheck,
 		data: &splitCheckTask{
-			region:    CloneRegion(d.region()),
+			region:    d.region(),
 			autoSplit: true,
 			policy:    pdpb.CheckPolicy_SCAN,
 		},
@@ -1208,16 +1195,16 @@ func (d *peerFsmDelegate) onSplitRegionCheckTick() {
 
 func (d *peerFsmDelegate) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, splitKeys [][]byte, cb Callback) {
 	if err := d.validateSplitRegion(regionEpoch, splitKeys); err != nil {
-		cb(NewRespFromError(err), nil)
+		cb(ErrResp(err), nil)
 		return
 	}
 	region := d.region()
 	d.ctx.pdScheduler <- task{
 		tp: taskTypePDAskBatchSplit,
 		data: &pdAskBatchSplitTask{
-			region:      CloneRegion(region),
+			region:      region,
 			splitKeys:   splitKeys,
-			peer:        ClonePeer(d.peer.Peer),
+			peer:        d.peer.Peer,
 			rightDerive: d.ctx.cfg.RightDeriveWhenSplit,
 			callback:    cb,
 		},
@@ -1242,7 +1229,7 @@ func (d *peerFsmDelegate) validateSplitRegion(epoch *metapb.RegionEpoch, splitKe
 		log.Infof("%s not leader, skip", d.tag())
 		return &ErrNotLeader{
 			RegionId: d.regionID(),
-			Leader:   d.peer.GetPeerFromCache(d.peer.LeaderId()),
+			Leader:   d.peer.GetPeer(d.peer.LeaderId()),
 		}
 	}
 
@@ -1257,7 +1244,7 @@ func (d *peerFsmDelegate) validateSplitRegion(epoch *metapb.RegionEpoch, splitKe
 			d.tag(), latestEpoch, epoch)
 		return &ErrEpochNotMatch{
 			Message: fmt.Sprintf("%s epoch changed %s != %s, retry later", d.tag(), latestEpoch, epoch),
-			Regions: []*metapb.Region{CloneRegion(region)},
+			Regions: []*metapb.Region{region},
 		}
 	}
 	return nil
@@ -1288,7 +1275,7 @@ func (d *peerFsmDelegate) onScheduleHalfSplitRegion(regionEpoch *metapb.RegionEp
 	d.ctx.splitCheckScheduler <- task{
 		tp: taskTypeSplitCheck,
 		data: &splitCheckTask{
-			region: CloneRegion(region),
+			region: region,
 			policy: policy,
 		},
 	}
@@ -1342,8 +1329,8 @@ func (d *peerFsmDelegate) onCheckPeerStaleStateTick() {
 		d.ctx.pdScheduler <- task{
 			tp: taskTypePDValidatePeer,
 			data: &pdValidatePeerTask{
-				region: CloneRegion(d.region()),
-				peer:   ClonePeer(d.peer.Peer),
+				region: d.region(),
+				peer:   d.peer.Peer,
 			},
 		}
 	}
@@ -1370,20 +1357,8 @@ func (d *peerFsmDelegate) onHashComputed(index uint64, hash []byte) {
 	if !d.verifyAndStoreHash(index, hash) {
 		return
 	}
-	req := newVerifyHashRequest(d.regionID(), ClonePeer(d.peer.Peer), d.peer.ConsistencyState)
+	req := newVerifyHashRequest(d.regionID(), d.peer.Peer, d.peer.ConsistencyState)
 	d.proposeRaftCommand(req, nil)
-}
-
-func (d *peerFsmDelegate) onIngestSSTResult(ssts []*import_sstpb.SSTMeta) {
-	for _, sst := range ssts {
-		d.peer.SizeDiffHint += sst.Length
-	}
-	d.ctx.cleanUpSSTScheduler <- task{
-		tp: taskTypeCleanUpSSTDelete,
-		data: &cleanUpSSTTask{
-			ssts: ssts,
-		},
-	}
 }
 
 /// Verify and store the hash to state. return true means the hash has been stored successfully.
@@ -1500,7 +1475,7 @@ func (d *peerFsmDelegate) executeStatusCommand(request *raft_cmdpb.RaftCmdReques
 
 func (d *peerFsmDelegate) executeRegionLeader() *raft_cmdpb.StatusResponse {
 	resp := &raft_cmdpb.StatusResponse{}
-	if leader := d.peer.GetPeerFromCache(d.peer.LeaderId()); leader != nil {
+	if leader := d.peer.GetPeer(d.peer.LeaderId()); leader != nil {
 		resp.RegionLeader = &raft_cmdpb.RegionLeaderResponse{
 			Leader: leader,
 		}
@@ -1515,10 +1490,10 @@ func (d *peerFsmDelegate) executeRegionDetail(request *raft_cmdpb.RaftCmdRequest
 	}
 	resp := &raft_cmdpb.StatusResponse{
 		RegionDetail: &raft_cmdpb.RegionDetailResponse{
-			Region: CloneRegion(d.region()),
+			Region: d.region(),
 		},
 	}
-	if leader := d.peer.GetPeerFromCache(d.peer.LeaderId()); leader != nil {
+	if leader := d.peer.GetPeer(d.peer.LeaderId()); leader != nil {
 		resp.RegionDetail = &raft_cmdpb.RegionDetailResponse{
 			Leader: leader,
 		}

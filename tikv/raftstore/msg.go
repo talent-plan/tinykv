@@ -3,7 +3,6 @@ package raftstore
 import (
 	"time"
 
-	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
@@ -31,9 +30,8 @@ const (
 	MsgTypeApplyRes               MsgType = 15
 	MsgTypeNoop                   MsgType = 16
 
-	MsgTypeStoreRaftMessage       MsgType = 101
-	MsgTypeStoreSnapshotStats     MsgType = 102
-	MsgTypeStoreValidateSSTResult MsgType = 103
+	MsgTypeStoreRaftMessage   MsgType = 101
+	MsgTypeStoreSnapshotStats MsgType = 102
 	// Clear region size and keys for all regions in the range, so we can force them to re-calculate
 	// their size later.
 	MsgTypeStoreClearRegionSizeInRange MsgType = 104
@@ -91,7 +89,6 @@ const (
 	StoreTickPdStoreHeartbeat StoreTick = 1
 	StoreTickSnapGC           StoreTick = 2
 	StoreTickConsistencyCheck StoreTick = 3
-	StoreTickCleanupImportSST StoreTick = 4
 )
 
 type MsgSignificantType int
@@ -143,10 +140,6 @@ type SnapKeyWithSending struct {
 
 type MsgGCSnap struct {
 	Snaps []SnapKeyWithSending
-}
-
-type MsgStoreValidateSSTResult struct {
-	InvalidSSTs []*import_sstpb.SSTMeta
 }
 
 type MsgStoreClearRegionSizeInRange struct {

@@ -158,8 +158,8 @@ type ApplySnapResult struct {
 
 type InvokeContext struct {
 	RegionID   uint64
-	RaftState  rspb.RaftLocalState
-	ApplyState rspb.RaftApplyState
+	RaftState  *rspb.RaftLocalState
+	ApplyState *rspb.RaftApplyState
 	lastTerm   uint64
 	SnapRegion *metapb.Region
 }
@@ -167,12 +167,10 @@ type InvokeContext struct {
 func NewInvokeContext(store *PeerStorage) *InvokeContext {
 	ctx := &InvokeContext{
 		RegionID:   store.region.GetId(),
-		RaftState:  *store.raftState,
-		ApplyState: *store.applyState,
+		RaftState:  store.raftState,
+		ApplyState: store.applyState,
 		lastTerm:   store.lastTerm,
 	}
-	*ctx.RaftState.HardState = *store.raftState.HardState
-	*ctx.ApplyState.TruncatedState = *store.applyState.TruncatedState
 	return ctx
 }
 
@@ -182,16 +180,16 @@ func (ic *InvokeContext) hasSnapshot() bool {
 
 func (ic *InvokeContext) saveRaftStateTo(wb *WriteBatch) error {
 	key := RaftStateKey(ic.RegionID)
-	return wb.SetMsg(key, &ic.RaftState)
+	return wb.SetMsg(key, ic.RaftState)
 }
 
 func (ic *InvokeContext) saveApplyStateTo(wb *WriteBatch) error {
 	key := ApplyStateKey(ic.RegionID)
-	return wb.SetMsg(key, &ic.ApplyState)
+	return wb.SetMsg(key, ic.ApplyState)
 }
 
 func (ic *InvokeContext) saveSnapshotRaftStateTo(snapshotIdx uint64, wb *WriteBatch) error {
-	snapshotRaftState := CloneRaftLocalState(&ic.RaftState)
+	snapshotRaftState := CloneRaftLocalState(ic.RaftState)
 	snapshotRaftState.HardState.Commit = snapshotIdx
 	snapshotRaftState.LastIndex = snapshotIdx
 	key := SnapshotRaftStateKey(ic.RegionID)
@@ -598,7 +596,13 @@ func (ps *PeerStorage) clearExtraData(newRegion *metapb.Region) {
 }
 
 func getSyncLogFromEntry(entry eraftpb.Entry) bool {
-	return entryCtx(entry.Data[len(entry.Data)-1]).IsSyncLog()
+	if entry.SyncLog {
+		return true
+	}
+	if len(entry.Context) > 0 {
+		return entryCtx(entry.Context[0]).IsSyncLog()
+	}
+	return false
 }
 
 func fetchEntriesTo(engine *badger.DB, regionID, low, high, maxSize uint64, buf []eraftpb.Entry) ([]eraftpb.Entry, uint64, error) {
@@ -809,7 +813,7 @@ func (ps *PeerStorage) HandleRaftReady(readyCtx HandleRaftReadyContext, ready *r
 		}
 	}
 
-	if !RaftStateEqual(&ctx.RaftState, ps.raftState) {
+	if !RaftStateEqual(ctx.RaftState, ps.raftState) {
 		if err := ctx.saveRaftStateTo(readyCtx.RaftWB()); err != nil {
 			return nil, err
 		}
@@ -825,7 +829,7 @@ func (ps *PeerStorage) HandleRaftReady(readyCtx HandleRaftReadyContext, ready *r
 	}
 
 	// only when apply snapshot
-	if !ApplyStateEqual(&ctx.ApplyState, ps.applyState) {
+	if !ApplyStateEqual(ctx.ApplyState, ps.applyState) {
 		if err := ctx.saveApplyStateTo(readyCtx.KVWB()); err != nil {
 			return nil, err
 		}
@@ -861,42 +865,6 @@ func RegionEqual(l, r *metapb.Region) bool {
 	return l.Id == r.Id && l.RegionEpoch.Version == r.RegionEpoch.Version && l.RegionEpoch.ConfVer == r.RegionEpoch.ConfVer
 }
 
-func ClonePeer(peer *metapb.Peer) *metapb.Peer {
-	return &metapb.Peer{
-		Id:        peer.Id,
-		StoreId:   peer.StoreId,
-		IsLearner: peer.IsLearner,
-	}
-}
-
-func CloneRegion(region *metapb.Region) *metapb.Region {
-	cloned := new(metapb.Region)
-	cloned.Id = region.Id
-	cloned.StartKey = append([]byte{}, region.StartKey...)
-	cloned.EndKey = append([]byte{}, region.EndKey...)
-	cloned.RegionEpoch = CloneRegionEpoch(region.RegionEpoch)
-
-	cloned.Peers = make([]*metapb.Peer, 0, len(region.Peers))
-	for _, p := range region.Peers {
-		cloned.Peers = append(cloned.Peers, &metapb.Peer{Id: p.Id, StoreId: p.StoreId, IsLearner: p.IsLearner})
-	}
-
-	return cloned
-}
-
-func CloneRegionEpoch(epoch *metapb.RegionEpoch) *metapb.RegionEpoch {
-	return &metapb.RegionEpoch{ConfVer: epoch.ConfVer, Version: epoch.Version}
-}
-
-func CloneMergeState(state *rspb.MergeState) *rspb.MergeState {
-	mergeState := &rspb.MergeState{
-		MinIndex: state.MinIndex,
-		Commit:   state.Commit,
-	}
-	mergeState.Target = CloneRegion(state.Target)
-	return mergeState
-}
-
 func CloneRaftLocalState(state *rspb.RaftLocalState) *rspb.RaftLocalState {
 	cloned := new(rspb.RaftLocalState)
 	cloned.LastIndex = state.LastIndex
@@ -913,8 +881,8 @@ func CloneRaftApplyState(state *rspb.RaftApplyState) *rspb.RaftApplyState {
 
 // Update the memory state after ready changes are flushed to disk successfully.
 func (ps *PeerStorage) PostReady(ctx *InvokeContext) *ApplySnapResult {
-	ps.raftState = CloneRaftLocalState(&ctx.RaftState)
-	ps.applyState = CloneRaftApplyState(&ctx.ApplyState)
+	ps.raftState = ctx.RaftState
+	ps.applyState = ctx.ApplyState
 	ps.lastTerm = ctx.lastTerm
 
 	// If we apply snapshot ok, we should update some infos like applied index too.
@@ -927,13 +895,13 @@ func (ps *PeerStorage) PostReady(ctx *InvokeContext) *ApplySnapResult {
 	}
 
 	ps.ScheduleApplyingSnapshot()
-	prevRegion := CloneRegion(ps.region)
+	prevRegion := ps.region
 	ps.region = ctx.SnapRegion
 	ctx.SnapRegion = nil
 
 	return &ApplySnapResult{
 		PrevRegion: prevRegion,
-		Region:     CloneRegion(ps.region),
+		Region:     ps.region,
 	}
 }
 

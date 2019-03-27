@@ -10,7 +10,6 @@ import (
 	"github.com/ngaut/unistore/pd"
 	"github.com/ngaut/unistore/rocksdb"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
 	"github.com/zhangjinpeng1987/raft"
@@ -52,7 +51,7 @@ func newStoreMeta() *storeMeta {
 }
 
 func (m *storeMeta) setRegion(host *CoprocessorHost, region *metapb.Region, peer *Peer) {
-	m.regions[region.Id] = CloneRegion(region)
+	m.regions[region.Id] = region
 	peer.SetRegion(host, region)
 }
 
@@ -140,9 +139,9 @@ func (pc *PollContext) handleStaleMsg(msg *rspb.RaftMessage, curEpoch *metapb.Re
 	}
 	gcMsg := &rspb.RaftMessage{
 		RegionId:    regionID,
-		FromPeer:    ClonePeer(fromPeer),
-		ToPeer:      ClonePeer(toPeer),
-		RegionEpoch: CloneRegionEpoch(curEpoch),
+		FromPeer:    fromPeer,
+		ToPeer:      toPeer,
+		RegionEpoch: curEpoch,
 	}
 	if targetRegion != nil {
 		gcMsg.MergeTarget = targetRegion
@@ -203,8 +202,6 @@ func (d *storeFsmDelegate) onTick(tick StoreTick) {
 		d.onSnapMgrGC()
 	case StoreTickConsistencyCheck:
 		d.onComputeHashTick()
-	case StoreTickCleanupImportSST:
-		d.onCleanUpImportSSTTick()
 	}
 }
 
@@ -217,9 +214,6 @@ func (d *storeFsmDelegate) handleMessages(msgs []Msg) {
 			}
 		case MsgTypeStoreSnapshotStats:
 			d.storeHeartbeatPD()
-		case MsgTypeStoreValidateSSTResult:
-			data := msg.Data.(*MsgStoreValidateSSTResult)
-			d.onValidateSSTResult(data.InvalidSSTs)
 		case MsgTypeStoreClearRegionSizeInRange:
 			data := msg.Data.(*MsgStoreClearRegionSizeInRange)
 			d.clearRegionSizeInRange(data.StartKey, data.EndKey)
@@ -240,7 +234,6 @@ func (d *storeFsmDelegate) start(store *metapb.Store) {
 	d.id = store.Id
 	now := time.Now()
 	d.startTime = &now
-	d.ticker.scheduleStore(StoreTickCleanupImportSST)
 	d.ticker.scheduleStore(StoreTickCompactCheck)
 	d.ticker.scheduleStore(StoreTickPdStoreHeartbeat)
 	d.ticker.scheduleStore(StoreTickSnapGC)
@@ -452,7 +445,7 @@ func (b *raftPollerBuilder) init() ([]senderPeerFsmPair, error) {
 				// in case of restart happen when we just write region state to Applying,
 				// but not write raft_local_state to raft rocksdb in time.
 				applyingCount++
-				applyingRegions = append(applyingRegions, CloneRegion(region))
+				applyingRegions = append(applyingRegions, region)
 				continue
 			}
 
@@ -463,10 +456,10 @@ func (b *raftPollerBuilder) init() ([]senderPeerFsmPair, error) {
 			if localState.State == rspb.PeerState_Merging {
 				log.Infof("region %d is merging", regionID)
 				mergingCount++
-				peer.setPendingMergeState(CloneMergeState(localState.MergeState))
+				peer.setPendingMergeState(localState.MergeState)
 			}
 			meta.regionRanges.Insert(region.EndKey, regionIDToBytes(regionID))
-			meta.regions[regionID] = CloneRegion(region)
+			meta.regions[regionID] = region
 			// No need to check duplicated here, because we use region id as the key
 			// in DB.
 			regionPeers = append(regionPeers, senderPeerFsmPair{sender: sender, fsm: peer})
@@ -493,7 +486,7 @@ func (b *raftPollerBuilder) init() ([]senderPeerFsmPair, error) {
 		}
 		peer.scheduleApplyingSnapshot()
 		meta.regionRanges.Insert(region.EndKey, regionIDToBytes(region.Id))
-		meta.regions[region.Id] = CloneRegion(region)
+		meta.regions[region.Id] = region
 		regionPeers = append(regionPeers, senderPeerFsmPair{sender: sender, fsm: peer})
 	}
 	log.Infof("start store %d, region_count %d, tombstone_count %d, applying_count %d, merge_count %d, takes %v",
@@ -751,20 +744,8 @@ func (d *storeFsmDelegate) onSnapMgrGC() {
 	// TODO: stub
 }
 
-func (d *storeFsmDelegate) onValidateSSTResult(ssts []*import_sstpb.SSTMeta) {
-	// TODO: importer
-}
-
-func (d *storeFsmDelegate) onCleanupImportSST() error {
-	return nil // TODO: importer
-}
-
 func (d *storeFsmDelegate) onComputeHashTick() {
 	// TODO: stub
-}
-
-func (d *storeFsmDelegate) onCleanUpImportSSTTick() {
-	// TODO: importer
 }
 
 func (d *storeFsmDelegate) clearRegionSizeInRange(startKey, endKey []byte) {
