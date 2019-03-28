@@ -17,6 +17,7 @@ require (
 	github.com/pingcap/tidb v0.0.0-20181130082510-08f0168a6cae
 	github.com/pingcap/tipb v0.0.0-20181012112600-11e33c750323
 	github.com/stretchr/testify v1.3.0
+	github.com/uber-go/atomic v1.3.2
 	github.com/zhangjinpeng1987/raft v0.0.0-20190310021757-193cec114d0c
 	go.etcd.io/etcd v3.3.12+incompatible
 	golang.org/x/net v0.0.0-20181029044818-c44066c5c816

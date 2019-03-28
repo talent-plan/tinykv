@@ -3,8 +3,22 @@ package raftstore
 import (
 	"github.com/pingcap/kvproto/pkg/eraftpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
+	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
+	"github.com/uber-go/atomic"
+	"time"
 )
+
+type pendingCmd struct {
+	index uint64
+	term  uint64
+	cb    Callback
+}
+
+type pendingCmdQueue struct {
+	normals    []pendingCmd
+	confChange *pendingCmd
+}
 
 type changePeer struct {
 	confChange *eraftpb.ConfChange
@@ -90,6 +104,35 @@ type execResult struct {
 	data interface{}
 }
 
+type applyResultType int
+
+const (
+	applyResultTypeNone applyResultType = iota
+	applyResultTypeExecResult
+	applyResultTypeWaitMergeResource
+)
+
+type applyResult struct {
+	tp   applyResultType
+	data interface{}
+}
+
+type applyExecContext struct {
+	index      uint64
+	term       uint64
+	applyState *rspb.RaftApplyState
+}
+
+type applyCallback struct {
+	region *metapb.Region
+	cbs    []*callBackResponseHolder
+}
+
+type callBackResponseHolder struct {
+	callBack        Callback
+	raftCmdResponse *raft_cmdpb.RaftCmdResponse
+}
+
 type proposal struct {
 	isConfChange bool
 	index        uint64
@@ -131,7 +174,69 @@ type notifier struct {
 	router *router
 }
 
+type applyContext struct {
+	tag              string
+	timer            time.Time
+	host             *CoprocessorHost
+	router           *applyRouter
+	notifier         notifier
+	engines          *Engines
+	cbs              []applyCallback
+	applyTaskResList []ApplyTaskRes
+	execCtx          *applyExecContext
+	wb               *WriteBatch
+	wbLastBytes      uint64
+	wbLastKeys       uint64
+	lastAppliedIndex uint64
+	committedCount   uint64
+
+	enableSyncLog  bool
+	syncLogHint    bool
+	useDeleteRange bool
+}
+
+type waitSourceMergeState struct {
+	pendingEntries []*eraftpb.Entry
+	pendingMsgs    []Msg
+	readyToMerge   *atomic.Uint64
+	catchUpLogs    *catchUpLogs
+}
+
+type applyDelegate struct {
+	id                uint64
+	term              uint64
+	region            *metapb.Region
+	tag               string
+	stopped           bool
+	pendingRemove     bool
+	pendingCmds       pendingCmdQueue
+	merged            bool
+	isMerging         bool
+	lastMergeVersion  uint64
+	waitMergeState    *waitSourceMergeState
+	readySourceRegion uint64
+	applyState        *rspb.RaftApplyState
+	appliedIndexTerm  uint64
+	metrics           ApplyMetrics
+}
+
+type applyDestroy struct {
+	regionId uint64
+}
+
+type catchUpLogs struct {
+	targetMailBox *mailbox
+	merge         *raft_cmdpb.CommitMergeRequest
+	readyToMerge  *atomic.Uint64
+}
+
 type applyPollerBuilder struct {
+	tag             string
+	cfg             *Config
+	coprocessorHost *CoprocessorHost
+	engines         *Engines
+	sender          notifier
+	router          *applyRouter
 }
 
 func newApplyPollerBuilder(raftPollerBuilder *raftPollerBuilder, sender notifier, router *applyRouter) *applyPollerBuilder {
