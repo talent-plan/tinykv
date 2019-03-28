@@ -230,10 +230,12 @@ func (r *router) mailbox(addr uint64) *mailbox {
 	return mb
 }
 
+var errMailboxNotFound = errors.New("mailbox not found")
+
 func (r *router) send(addr uint64, msg Msg) error {
 	mb := r.mailbox(addr)
 	if mb == nil {
-		return errors.Errorf("mailbox is nil for addr %d", addr)
+		return errMailboxNotFound
 	}
 	mb.send(msg, r.normalScheduler)
 	return nil

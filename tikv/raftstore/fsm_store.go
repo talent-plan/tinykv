@@ -11,9 +11,12 @@ import (
 	"github.com/ngaut/unistore/rocksdb"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/metapb"
+	"github.com/pingcap/kvproto/pkg/pdpb"
+	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
 	"github.com/zhangjinpeng1987/raft"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -70,7 +73,7 @@ type PollContext struct {
 	raftWB               *WriteBatch
 	syncLog              bool
 	storeMeta            *storeMeta
-	storeMetaLock        *sync.Mutex
+	storeMetaLock        *sync.RWMutex
 	snapMgr              *SnapManager
 	pendingCount         int
 	hasReady             bool
@@ -89,6 +92,14 @@ type PollContext struct {
 	applyingSnapCount    *uint64
 	isBusy               bool
 	pdClient             pd.Client
+	globalStats          *storeStats
+	localStats           *storeStats
+}
+
+type storeStats struct {
+	engineTotalBytesWritten uint64
+	engineTotalKeysWritten  uint64
+	isBusy                  uint64
 }
 
 type Transport interface {
@@ -96,17 +107,29 @@ type Transport interface {
 }
 
 func (r *router) sendRaftMessage(msg *rspb.RaftMessage) {
-	mb := r.mailbox(msg.RegionId)
-	if mb != nil {
-		mb.send(Msg{Type: MsgTypeRaftMessage, Data: msg}, r.normalScheduler)
-	} else {
-		mb.send(Msg{Type: MsgTypeStoreRaftMessage, Data: msg}, r.controlScheduler)
+	if r.send(msg.RegionId, Msg{Type: MsgTypeRaftMessage, Data: msg}) != nil {
+		r.sendControl(Msg{Type: MsgTypeStoreRaftMessage, Data: msg})
 	}
 }
 
 func (r *router) sendRaftCommand(cmd *MsgRaftCmd) error {
 	regionID := cmd.Request.Header.RegionId
 	return r.send(regionID, Msg{Type: MsgTypeRaftCmd, Data: cmd})
+}
+
+func (pc *PollContext) flushLocalStats() {
+	if pc.localStats.engineTotalBytesWritten > 0 {
+		atomic.AddUint64(&pc.globalStats.engineTotalBytesWritten, pc.localStats.engineTotalBytesWritten)
+		pc.localStats.engineTotalBytesWritten = 0
+	}
+	if pc.localStats.engineTotalKeysWritten > 0 {
+		atomic.AddUint64(&pc.globalStats.engineTotalKeysWritten, pc.localStats.engineTotalKeysWritten)
+		pc.localStats.engineTotalKeysWritten = 0
+	}
+	if pc.localStats.isBusy > 0 {
+		atomic.StoreUint64(&pc.globalStats.isBusy, pc.localStats.isBusy)
+		pc.localStats.isBusy = 0
+	}
 }
 
 func (pc *PollContext) KVWB() *WriteBatch {
@@ -371,7 +394,7 @@ type raftPollerBuilder struct {
 	applyRouter          *applyRouter
 	router               *router
 	compactScheduler     chan<- task
-	storeMetaMu          *sync.Mutex
+	storeMetaLock        *sync.RWMutex
 	storeMeta            *storeMeta
 	snapMgr              *SnapManager
 	coprocessorHost      *CoprocessorHost
@@ -404,8 +427,8 @@ func (b *raftPollerBuilder) init() ([]senderPeerFsmPair, error) {
 	raftWB := new(WriteBatch)
 	var applyingRegions []*metapb.Region
 	var mergingCount int
-	b.storeMetaMu.Lock()
-	defer b.storeMetaMu.Unlock()
+	b.storeMetaLock.Lock()
+	defer b.storeMetaLock.Unlock()
 	meta := b.storeMeta
 	err := kvEngine.View(func(txn *badger.Txn) error {
 		opt := badger.DefaultIteratorOptions
@@ -526,7 +549,7 @@ func (b *raftPollerBuilder) build() pollHandler {
 		router:               b.router,
 		compactScheduler:     b.compactScheduler,
 		storeMeta:            b.storeMeta,
-		storeMetaLock:        b.storeMetaMu,
+		storeMetaLock:        b.storeMetaLock,
 		snapMgr:              b.snapMgr,
 		applyingSnapCount:    b.applyingSnapCount,
 		coprocessorHost:      b.coprocessorHost,
@@ -535,6 +558,8 @@ func (b *raftPollerBuilder) build() pollHandler {
 		engine:               b.engines,
 		kvWB:                 new(WriteBatch),
 		raftWB:               new(WriteBatch),
+		globalStats:          new(storeStats),
+		localStats:           new(storeStats),
 	}
 	return &raftPoller{
 		tag:             fmt.Sprintf("[store %d]", ctx.store.Id),
@@ -605,7 +630,7 @@ func (bs *raftBatchSystem) start(
 		pdClient:             pdClinet,
 		coprocessorHost:      coprocessorHost,
 		snapMgr:              snapMgr,
-		storeMetaMu:          new(sync.Mutex),
+		storeMetaLock:        new(sync.RWMutex),
 		storeMeta:            newStoreMeta(),
 		applyingSnapCount:    new(uint64),
 	}
@@ -698,18 +723,114 @@ func (bs *raftBatchSystem) shutDown() {
 }
 
 func createRaftBatchSystem(cfg *Config) (*router, *raftBatchSystem) {
-	return nil, nil // TODO: stub
+	storeSender, storeFsm := newStoreFsm(cfg)
+	applyRouter, applySystem := createApplyBatchSystem(cfg)
+	router, system := createBatchSystem(int(cfg.StorePoolSize), int(cfg.StoreMaxBatchSize), storeSender, storeFsm)
+	raftBatchSystem := &raftBatchSystem{
+		system:      system,
+		applyRouter: applyRouter,
+		applySystem: applySystem,
+		router:      router,
+	}
+	return router, raftBatchSystem
 }
 
 /// Checks if the message is targeting a stale peer.
 ///
 /// Returns true means the message can be dropped silently.
 func (d *storeFsmDelegate) checkMsg(msg *rspb.RaftMessage) (bool, error) {
-	return false, nil // TODO: stub
+	regionID := msg.GetRegionId()
+	fromEpoch := msg.GetRegionEpoch()
+	msgType := msg.Message.MsgType
+	isVoteMsg := isVoteMessage(msg.Message)
+	fromStoreID := msg.FromPeer.StoreId
+
+	// Check if the target is tombstone,
+	stateKey := RegionStateKey(regionID)
+	localState := new(rspb.RegionLocalState)
+	err := getMsg(d.ctx.engine.kv, stateKey, localState)
+	if err != nil {
+		if err == badger.ErrKeyNotFound {
+			return false, nil
+		}
+		return false, err
+	}
+	if localState.State != rspb.PeerState_Tombstone {
+		// Maybe split, but not registered yet.
+		if isFirstVoteMessage(msg.Message) {
+			d.ctx.storeMetaLock.Lock()
+			defer d.ctx.storeMetaLock.Unlock()
+			meta := d.ctx.storeMeta
+			// Last check on whether target peer is created, otherwise, the
+			// vote message will never be comsumed.
+			if _, ok := meta.regions[regionID]; ok {
+				return false, nil
+			}
+			meta.pendingVotes = append(meta.pendingVotes, msg)
+			log.Infof("region %d doesn't exist yet, wait for it to be split.", regionID)
+			return true, nil
+		}
+		return false, errors.Errorf("region %d not exists but not tombstone: %s", regionID, localState)
+	}
+	log.Debugf("region %d in tombstone state: %s", regionID, localState)
+	region := localState.Region
+	regionEpoch := region.RegionEpoch
+	if localState.MergeState != nil {
+		// TODO: Merge
+		return true, nil
+	}
+	// The region in this peer is already destroyed
+	if IsEpochStale(fromEpoch, regionEpoch) {
+		log.Infof("tombstone peer receives a stale message. region_id:%d, from_region_epoch:%s, current_region_epoch:%s, msg_type:%s",
+			regionID, fromEpoch, regionEpoch, msgType)
+		notExist := findPeer(region, fromStoreID) == nil
+		d.ctx.handleStaleMsg(msg, regionEpoch, isVoteMsg && notExist, nil)
+		return true, nil
+	}
+	if fromEpoch.Version == regionEpoch.Version {
+		return false, errors.Errorf("tombstone peer [epoch: %s] received an invalid message %s, ignore it",
+			regionEpoch, msgType)
+	}
+	return false, nil
 }
 
 func (d *storeFsmDelegate) onRaftMessage(msg *rspb.RaftMessage) error {
-	return nil // TODO: stub
+	regionID := msg.RegionId
+	if err := d.ctx.router.send(regionID, Msg{Type: MsgTypeRaftMessage, Data: msg}); err == nil {
+		return nil
+	}
+	log.Debugf("handle raft message. from_peer:%d, to_peer:%d, store:%d, region:%d, msg_type:%s",
+		msg.FromPeer.Id, msg.ToPeer.Id, d.storeFsm.id, regionID, msg.Message.MsgType)
+	if msg.ToPeer.StoreId != d.ctx.store.Id {
+		log.Warnf("store not match, ignore it. store_id:%d, to_store_id:%d, region_id:%d",
+			d.ctx.store.Id, msg.ToPeer.StoreId, regionID)
+		return nil
+	}
+
+	if msg.RegionEpoch == nil {
+		log.Errorf("missing region epoch in raft message, ignore it. region_id:%d", regionID)
+		return nil
+	}
+	if msg.IsTombstone || msg.MergeTarget != nil {
+		// Target tombstone peer doesn't exist, so ignore it.
+		return nil
+	}
+	ok, err := d.checkMsg(msg)
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+	created, err := d.maybeCreatePeer(regionID, msg)
+	if err != nil {
+		return err
+	}
+	if !created {
+		return nil
+	}
+	_ = d.ctx.router.send(regionID, Msg{Type: MsgTypeRaftMessage, Data: msg})
+	return nil
 }
 
 /// If target peer doesn't exist, create it.
@@ -717,39 +838,250 @@ func (d *storeFsmDelegate) onRaftMessage(msg *rspb.RaftMessage) error {
 /// return false to indicate that target peer is in invalid state or
 /// doesn't exist and can't be created.
 func (d *storeFsmDelegate) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage) (bool, error) {
-	return false, nil // TODO: stub
+	var regionsToDestroy []uint64
+	// we may encounter a message with larger peer id, which means
+	// current peer is stale, then we should remove current peer
+	d.ctx.storeMetaLock.Lock()
+	defer func() {
+		d.ctx.storeMetaLock.Unlock()
+		// send message out of store meta lock, to avoid dead lock.
+		destroyRegions(d.ctx.router, regionsToDestroy, msg.ToPeer)
+	}()
+	meta := d.ctx.storeMeta
+	if _, ok := meta.regions[regionID]; ok {
+		return true, nil
+	}
+	if !isInitialMsg(msg.Message) {
+		log.Debugf("target peer %s doesn't exist", msg.ToPeer)
+		return false, nil
+	}
+
+	it := meta.regionRanges.NewIterator()
+	it.Seek(msg.StartKey)
+	if it.Valid() && bytes.Equal(msg.StartKey, it.Key()) {
+		it.Next()
+	}
+	for ; it.Valid(); it.Next() {
+		regionID := regionIDFromBytes(it.Value())
+		existRegion := meta.regions[regionID]
+		if bytes.Compare(existRegion.StartKey, msg.EndKey) >= 0 {
+			break
+		}
+		log.Debugf("msg %s is overlapped with exist region %s", msg, existRegion)
+		if isFirstVoteMessage(msg.Message) {
+			meta.pendingVotes = append(meta.pendingVotes, msg)
+		}
+
+		// Make sure the range of region from msg is covered by existing regions.
+		// If so, means that the region may be generated by some kinds of split
+		// and merge by catching logs. So there is no need to accept a snapshot.
+		if !isRangeCovered(meta, msg.StartKey, msg.EndKey) {
+			if maybeDestroySource(meta, regionID, existRegion.Id, msg.RegionEpoch) {
+				regionsToDestroy = append(regionsToDestroy, existRegion.Id)
+				continue
+			}
+		}
+		regionsToDestroy = nil
+		return false, nil
+	}
+
+	// New created peers should know it's learner or not.
+	sender, peer, err := replicatePeerFsm(
+		d.ctx.store.Id, d.ctx.cfg, d.ctx.regionScheduler, d.ctx.engine, regionID, msg.ToPeer)
+	if err != nil {
+		return false, err
+	}
+	// following snapshot may overlap, should insert into region_ranges after
+	// snapshot is applied.
+	meta.regions[regionID] = peer.peer.Region()
+	mb := newMailbox(sender, peer)
+	d.ctx.router.register(regionID, mb)
+	_ = d.ctx.router.send(regionID, Msg{Type: MsgTypeStart})
+	return true, nil
+}
+
+func destroyRegions(router *router, regionsToDestroy []uint64, toPeer *metapb.Peer) {
+	for _, id := range regionsToDestroy {
+		_ = router.send(id, Msg{Type: MsgTypeMergeResult, Data: &MsgMergeResult{
+			TargetPeer: toPeer,
+			Stale:      true,
+		}})
+	}
 }
 
 func (d *storeFsmDelegate) onCompactionFinished(event *rocksdb.CompactedEvent) {
-	// TODO: stub
+	// TODO: not supported.
 }
 
 func (d *storeFsmDelegate) onCompactCheckTick() {
-	// TODO: stub
+	// TODO: not supported.
 }
 
 func (d *storeFsmDelegate) storeHeartbeatPD() {
-	// TODO: stub
+	stats := new(pdpb.StoreStats)
+	stats.UsedSize = d.ctx.snapMgr.GetTotalSnapSize()
+	stats.StoreId = d.ctx.store.Id
+	d.ctx.storeMetaLock.RLock()
+	stats.RegionCount = uint32(len(d.ctx.storeMeta.regions))
+	d.ctx.storeMetaLock.RUnlock()
+	snapStats := d.ctx.snapMgr.Stats()
+	stats.SendingSnapCount = uint32(snapStats.SendingCount)
+	stats.ReceivingSnapCount = uint32(snapStats.ReceivingCount)
+	stats.ApplyingSnapCount = uint32(atomic.LoadUint64(d.ctx.applyingSnapCount))
+	stats.StartTime = uint32(d.startTime.Second())
+	globalStats := d.ctx.globalStats
+	stats.BytesWritten = atomic.SwapUint64(&globalStats.engineTotalBytesWritten, 0)
+	stats.KeysWritten = atomic.SwapUint64(&globalStats.engineTotalKeysWritten, 0)
+	stats.IsBusy = atomic.SwapUint64(&globalStats.isBusy, 0) > 0
+	storeInfo := &pdStoreHeartbeatTask{
+		stats:    stats,
+		engine:   d.ctx.engine.kv,
+		capacity: d.ctx.cfg.Capacity,
+	}
+	d.ctx.pdScheduler <- task{tp: taskTypePDStoreHeartbeat, data: storeInfo}
 }
 
 func (d *storeFsmDelegate) onPDStoreHearbeatTick() {
-	// TODO: stub
+	d.storeHeartbeatPD()
+	d.ticker.scheduleStore(StoreTickPdStoreHeartbeat)
 }
 
 func (d *storeFsmDelegate) handleSnapMgrGC() error {
-	return nil // TODO: stub
+	mgr := d.ctx.snapMgr
+	snapKeys, err := mgr.ListIdleSnap()
+	if err != nil {
+		return err
+	}
+	if len(snapKeys) == 0 {
+		return nil
+	}
+	var lastRegionID uint64
+	var keys []SnapKeyWithSending
+	for _, pair := range snapKeys {
+		key := pair.SnapKey
+		if lastRegionID == key.RegionID {
+			keys = append(keys, pair)
+			continue
+		}
+		if len(keys) > 0 {
+			err = d.scheduleGCSnap(lastRegionID, keys)
+			if err != nil {
+				return err
+			}
+			keys = keys[:0]
+		}
+		lastRegionID = key.RegionID
+		keys = append(keys, pair)
+	}
+	if len(keys) > 0 {
+		return d.scheduleGCSnap(lastRegionID, keys)
+	}
+	return nil
+}
+
+func (d *storeFsmDelegate) scheduleGCSnap(regionID uint64, keys []SnapKeyWithSending) error {
+	gcSnap := Msg{Type: MsgTypeGcSnap, Data: &MsgGCSnap{Snaps: keys}}
+	if d.ctx.router.send(regionID, gcSnap) != nil {
+		// The snapshot exists because MsgAppend has been rejected. So the
+		// peer must have been exist. But now it's disconnected, so the peer
+		// has to be destroyed instead of being created.
+		log.Infof("region %d is disconnected, remove snaps %v", regionID, keys)
+		for _, pair := range keys {
+			key := pair.SnapKey
+			isSending := pair.IsSending
+			var snap Snapshot
+			var err error
+			if isSending {
+				snap, err = d.ctx.snapMgr.GetSnapshotForSending(key)
+			} else {
+				snap, err = d.ctx.snapMgr.GetSnapshotForApplying(key)
+			}
+			if err != nil {
+				return err
+			}
+			d.ctx.snapMgr.DeleteSnapshot(key, snap, false)
+		}
+	}
+	return nil
 }
 
 func (d *storeFsmDelegate) onSnapMgrGC() {
-	// TODO: stub
+	if err := d.handleSnapMgrGC(); err != nil {
+		log.Errorf("handle snap GC failed store_id %d, err %s", d.storeFsm.id, err)
+	}
+	d.ticker.scheduleStore(StoreTickSnapGC)
 }
 
 func (d *storeFsmDelegate) onComputeHashTick() {
-	// TODO: stub
+	d.ticker.scheduleStore(StoreTickConsistencyCheck)
+	if len(d.ctx.computeHashScheduler) > 0 {
+		return
+	}
+	targetRegion := d.findTargetRegionForComputeHash()
+	if targetRegion == nil {
+		return
+	}
+	peer := findPeer(targetRegion, d.ctx.store.Id)
+	if peer == nil {
+		return
+	}
+	log.Infof("schedule consistency check for region %d, store %d", targetRegion.Id, peer.StoreId)
+	d.storeFsm.consistencyCheckTime[targetRegion.Id] = time.Now()
+	request := newAdminRequest(targetRegion.Id, peer)
+	request.AdminRequest = &raft_cmdpb.AdminRequest{
+		CmdType: raft_cmdpb.AdminCmdType_ComputeHash,
+	}
+	cmd := &MsgRaftCmd{
+		Request: request,
+	}
+	_ = d.ctx.router.send(targetRegion.Id, NewPeerMsg(MsgTypeRaftCmd, targetRegion.Id, cmd))
+}
+
+func (d *storeFsmDelegate) findTargetRegionForComputeHash() *metapb.Region {
+	oldest := time.Now()
+	var targetRegion *metapb.Region
+	d.ctx.storeMetaLock.RLock()
+	defer d.ctx.storeMetaLock.RUnlock()
+	meta := d.ctx.storeMeta
+	for regionID, region := range meta.regions {
+		if t, ok := d.storeFsm.consistencyCheckTime[regionID]; ok {
+			if t.Before(oldest) {
+				oldest = t
+				targetRegion = region
+			}
+		} else {
+			targetRegion = region
+			break
+		}
+	}
+	return targetRegion
 }
 
 func (d *storeFsmDelegate) clearRegionSizeInRange(startKey, endKey []byte) {
-	// TODO: stub
+	regions := d.findRegionsInRange(startKey, endKey)
+	for _, region := range regions {
+		_ = d.ctx.router.send(region.Id, NewPeerMsg(MsgTypeClearRegionSize, region.Id, nil))
+	}
+}
+
+func (d *storeFsmDelegate) findRegionsInRange(startKey, endKey []byte) []*metapb.Region {
+	d.ctx.storeMetaLock.RLock()
+	defer d.ctx.storeMetaLock.RUnlock()
+	meta := d.ctx.storeMeta
+	it := meta.regionRanges.NewIterator()
+	it.Seek(startKey)
+	if it.Valid() && bytes.Equal(it.Key(), startKey) {
+		it.Next()
+	}
+	var regions []*metapb.Region
+	for ; it.Valid(); it.Next() {
+		if bytes.Compare(it.Key(), endKey) > 0 {
+			break
+		}
+		regionID := regionIDFromBytes(it.Value())
+		regions = append(regions, meta.regions[regionID])
+	}
+	return regions
 }
 
 type regionIDDeclinedBytesPair struct {
@@ -759,10 +1091,29 @@ type regionIDDeclinedBytesPair struct {
 
 func calcRegionDeclinedBytes(event *rocksdb.CompactedEvent,
 	regionRanges *lockstore.MemStore, bytesThreshold uint64) []regionIDDeclinedBytesPair {
-	return nil // TODO: stub
+	return nil // TODO: not supported.
 }
 
-func isRangeCovered(regionRanges *lockstore.MemStore,
-	getRegion func(id uint64) *metapb.Region, start, end []byte) bool {
-	return false // TODO: stub
+func isRangeCovered(meta *storeMeta, start, end []byte) bool {
+	it := meta.regionRanges.NewIterator()
+	it.Seek(start)
+	if it.Valid() && bytes.Equal(it.Key(), start) {
+		it.Next()
+	}
+	for ; it.Valid(); it.Next() {
+		if bytes.Compare(it.Key(), end) > 0 {
+			break
+		}
+		regionID := regionIDFromBytes(it.Value())
+		region := meta.regions[regionID]
+		// find a missing range
+		if bytes.Compare(start, region.StartKey) < 0 {
+			return false
+		}
+		if bytes.Compare(region.EndKey, end) >= 0 {
+			return true
+		}
+		start = region.EndKey
+	}
+	return false
 }

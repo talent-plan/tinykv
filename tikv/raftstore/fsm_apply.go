@@ -253,3 +253,7 @@ type applyFsm struct {
 func newApplyFsmFromPeer(peer *peerFsm) (chan<- Msg, fsm) {
 	return nil, nil // TODO: stub
 }
+
+func createApplyBatchSystem(cfg *Config) (*applyRouter, *batchSystem) {
+	return nil, nil // TODO: stub
+}

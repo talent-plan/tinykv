@@ -564,9 +564,13 @@ func (d *peerFsmDelegate) checkSnapshot(msg *rspb.RaftMessage) (*SnapKey, error)
 		log.Infof("%s %s doesn't contains peer %d, skip", d.tag(), snapRegion, peerID)
 		return &key, nil
 	}
-
+	var regionsToDestroy []uint64
 	d.ctx.storeMetaLock.Lock()
-	defer d.ctx.storeMetaLock.Unlock()
+	defer func() {
+		d.ctx.storeMetaLock.Unlock()
+		// destroy regions out of lock to avoid dead lock.
+		destroyRegions(d.ctx.router, regionsToDestroy, d.getPeer().Peer)
+	}()
 	meta := d.ctx.storeMeta
 	if !RegionEqual(meta.regions[d.regionID()], d.region()) {
 		if !d.peer.isInitialized() {
@@ -587,7 +591,6 @@ func (d *peerFsmDelegate) checkSnapshot(msg *rspb.RaftMessage) (*SnapKey, error)
 		}
 	}
 
-	var regionsToDestroy []uint64
 	// In some extreme cases, it may cause source peer destroyed improperly so that a later
 	// CommitMerge may panic because source is already destroyed, so just drop the message:
 	// 1. A new snapshot is received whereas a snapshot is still in applying, and the snapshot
@@ -616,15 +619,6 @@ func (d *peerFsmDelegate) checkSnapshot(msg *rspb.RaftMessage) (*SnapKey, error)
 	}
 	meta.pendingSnapshotRegions = append(meta.pendingSnapshotRegions, snapRegion)
 	d.ctx.queuedSnaps[regionID] = struct{}{}
-	for _, regionID := range regionsToDestroy {
-		err := d.ctx.router.send(regionID, NewPeerMsg(MsgTypeMergeResult, regionID, &MsgMergeResult{
-			TargetPeer: d.getPeer().Peer,
-			Stale:      true,
-		}))
-		if err != nil {
-			panic(err)
-		}
-	}
 	return nil, nil
 }
 
@@ -665,7 +659,17 @@ func (d *peerFsmDelegate) destroyPeer(mergeByTarget bool) {
 	// We can't destroy a peer which is applying snapshot.
 	y.Assert(!d.peer.IsApplyingSnapshot())
 	d.ctx.storeMetaLock.Lock()
-	defer d.ctx.storeMetaLock.Unlock()
+	defer func() {
+		d.ctx.storeMetaLock.Unlock()
+		// Send messages out of store meta lock.
+		d.ctx.applyRouter.scheduleTask(regionID, NewPeerMsg(MsgTypeApplyDestroy, regionID, nil))
+		// Trigger region change observer
+		d.ctx.coprocessorHost.OnRegionChanged(d.region(), RegionChangeEvent_Destroy, d.peer.GetRole())
+		d.ctx.pdScheduler <- task{
+			tp:   tasktypePDDestroyPeer,
+			data: regionID,
+		}
+	}()
 	meta := d.ctx.storeMeta
 	delete(meta.pendingMergeTargets, regionID)
 	if targetID, ok := meta.targetsMap[regionID]; ok {
@@ -680,14 +684,6 @@ func (d *peerFsmDelegate) destroyPeer(mergeByTarget bool) {
 		}
 	}
 	delete(meta.mergeLocks, regionID)
-
-	d.ctx.applyRouter.scheduleTask(regionID, NewPeerMsg(MsgTypeApplyDestroy, regionID, nil))
-	// Trigger region change observer
-	d.ctx.coprocessorHost.OnRegionChanged(d.region(), RegionChangeEvent_Destroy, d.peer.GetRole())
-	d.ctx.pdScheduler <- task{
-		tp:   tasktypePDDestroyPeer,
-		data: regionID,
-	}
 	isInitialized := d.peer.isInitialized()
 	if err := d.peer.Destroy(d.ctx, mergeByTarget); err != nil {
 		// If not panic here, the peer will be recreated in the next restart,

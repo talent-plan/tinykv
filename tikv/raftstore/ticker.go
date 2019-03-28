@@ -1,7 +1,6 @@
 package raftstore
 
 import (
-	"github.com/ngaut/log"
 	"time"
 )
 
@@ -83,12 +82,8 @@ func (r *tickDriver) run() {
 		select {
 		case <-timer:
 			for regionID, _ := range r.regions {
-				mb := r.router.mailbox(regionID)
-				if mb == nil {
-					log.Errorf("failed to get for %v", regionID)
+				if r.router.send(regionID, NewPeerMsg(MsgTypeTick, regionID, nil)) != nil {
 					delete(r.regions, regionID)
-				} else {
-					mb.send(NewPeerMsg(MsgTypeTick, regionID, nil), r.router.normalScheduler)
 				}
 			}
 		case regionID := <-r.newRegionCh:
