@@ -96,4 +96,8 @@ func (c *CoprocessorHost) newSplitCheckerHost(region *metapb.Region, engine *bad
 	return nil
 }
 
+func (c *CoprocessorHost) poseApply(region *metapb.Region, resp *raft_cmdpb.RaftCmdResponse) {
+	// TODO: placeholder
+}
+
 func (c *CoprocessorHost) shutdown() {}

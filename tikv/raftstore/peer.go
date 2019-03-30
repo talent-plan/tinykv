@@ -167,7 +167,7 @@ type PeerStat struct {
 type WaitApplyResultState struct {
 	/// The following apply results waiting to be handled, including the `CommitMerge`.
 	/// These will be handled once `ReadyToMerge` is true.
-	results []*ApplyTaskRes
+	results []*applyTaskRes
 	/// It is used by target peer to check whether the apply result of `PrepareMerge` is handled.
 	readyToMerge *uint32
 }
@@ -336,7 +336,7 @@ func NewPeer(storeId uint64, cfg *Config, engines *Engines, region *metapb.Regio
 /// Register self to applyRouter so that the peer is then usable.
 /// Also trigger `RegionChangeEvent::Create` here.
 func (p *Peer) Activate(ctx *PollContext) {
-	ctx.applyRouter.scheduleTask(p.regionId, NewMsg(MsgTypeApplyTask, &ApplyTask{ /*todo: register self*/ }))
+	ctx.applyRouter.scheduleTask(p.regionId, NewMsg(MsgTypeApplyTask, &apply{ /*todo: register self*/ }))
 	ctx.coprocessorHost.OnRegionChanged(p.Region(), RegionChangeEvent_Create, p.GetRole())
 }
 
@@ -420,7 +420,7 @@ func (p *Peer) Destroy(ctx *PollContext, keepData bool) error {
 	p.pendingReads.reads = nil
 
 	for _, proposal := range p.applyProposals {
-		NotifyReqRegionRemoved(region.Id, proposal.Cb)
+		NotifyReqRegionRemoved(region.Id, proposal.cb)
 	}
 	p.applyProposals = nil
 
@@ -964,10 +964,10 @@ func (p *Peer) HandleRaftReadyApply(ctx *PollContext, ready *raft.Ready) {
 				p.RaftGroup.SkipBcastCommit(true)
 				p.lastUrgentProposalIdx = math.MaxUint64
 			}
-			apply := &ApplyTask{
-				RegionId: p.regionId,
-				Term:     p.Term(),
-				Entries:  committedEntries,
+			apply := &apply{
+				regionId: p.regionId,
+				term:     p.Term(),
+				entries:  committedEntries,
 			}
 			ctx.applyRouter.scheduleTask(p.regionId, NewMsg(MsgTypeApplyTask, apply))
 		}
@@ -1028,7 +1028,7 @@ func (p *Peer) ApplyReads(ctx *PollContext, ready *raft.Ready) {
 	}
 }
 
-func (p *Peer) PostApply(ctx *PollContext, applyState rspb.RaftApplyState, appliedIndexTerm uint64, merged bool, applyMetrics *ApplyMetrics) bool {
+func (p *Peer) PostApply(ctx *PollContext, applyState rspb.RaftApplyState, appliedIndexTerm uint64, merged bool, applyMetrics *applyMetrics) bool {
 	hasReady := false
 	if p.IsApplyingSnapshot() {
 		panic("should not applying snapshot")
@@ -1041,10 +1041,10 @@ func (p *Peer) PostApply(ctx *PollContext, applyState rspb.RaftApplyState, appli
 	p.Store().applyState = &applyState
 	p.Store().appliedIndexTerm = appliedIndexTerm
 
-	p.PeerStat.WrittenBytes += applyMetrics.WrittenBytes
-	p.PeerStat.WrittenKeys += applyMetrics.WrittenKeys
-	p.deleteKeysHint += applyMetrics.DeleteKeysHint
-	diff := p.SizeDiffHint + applyMetrics.SizeDiffHint
+	p.PeerStat.WrittenBytes += applyMetrics.writtenBytes
+	p.PeerStat.WrittenKeys += applyMetrics.writtenKeys
+	p.deleteKeysHint += applyMetrics.deleteKeysHint
+	diff := p.SizeDiffHint + applyMetrics.sizeDiffHint
 	if diff > 0 {
 		p.SizeDiffHint = diff
 	} else {
@@ -1140,7 +1140,7 @@ func (p *Peer) PostPropose(meta *ProposalMeta, isConfChange bool, cb Callback) {
 		isConfChange: isConfChange,
 		index:        meta.Index,
 		term:         meta.Term,
-		Cb:           cb,
+		cb:           cb,
 	}
 	p.applyProposals = append(p.applyProposals, proposal)
 	p.proposals.Push(meta)

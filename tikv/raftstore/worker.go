@@ -227,12 +227,12 @@ func (r *splitCheckRunner) run(t task) {
 	if len(keys) != 0 {
 		regionEpoch := region.GetRegionEpoch()
 		msg := Msg{
-			Type: MsgTypeSplitRegion,
+			Type:     MsgTypeSplitRegion,
 			RegionID: regionId,
 			Data: &MsgSplitRegion{
-				RegionEpoch:regionEpoch,
-				SplitKeys: keys,
-				Callback: EmptyCallback,
+				RegionEpoch: regionEpoch,
+				SplitKeys:   keys,
+				Callback:    EmptyCallback,
 			},
 		}
 		err = r.router.send(regionId, msg)

@@ -146,3 +146,15 @@ type MsgStoreClearRegionSizeInRange struct {
 	StartKey []byte
 	EndKey   []byte
 }
+
+func newApplyMsg(apply *apply) Msg {
+	return Msg{Type: MsgTypeApplyTask, Data: apply}
+}
+
+func newRegistrationMsg(peer *Peer) Msg {
+	return Msg{Type: MsgTypeApplyRegistration, Data: newRegistration(peer)}
+}
+
+func newDestroyMsg(regionID uint64) Msg {
+	return Msg{Type: MsgTypeApplyDestroy, Data: regionID}
+}

@@ -162,7 +162,7 @@ func (d *peerFsmDelegate) handleMsgs(msgs []Msg) {
 		case MsgTypeTick:
 			d.onTick()
 		case MsgTypeApplyRes:
-			res := msg.Data.(*ApplyTaskRes)
+			res := msg.Data.(*applyTaskRes)
 			if state := d.peer.PendingMergeApplyResult; state != nil {
 				state.results = append(state.results, res)
 				continue
@@ -371,7 +371,7 @@ func (d *peerFsmDelegate) onRaftBaseTick() {
 	d.ticker.schedule(PeerTickRaft)
 }
 
-func (d *peerFsmDelegate) onApplyResult(res *ApplyTaskRes) {
+func (d *peerFsmDelegate) onApplyResult(res *applyTaskRes) {
 	if res.destroyPeerID != 0 {
 		y.Assert(res.destroyPeerID == d.peerID())
 		d.destroyPeer(false)
@@ -382,7 +382,7 @@ func (d *peerFsmDelegate) onApplyResult(res *ApplyTaskRes) {
 		if readyToMerge != nil {
 			// There is a `CommitMerge` needed to wait
 			d.peer.PendingMergeApplyResult = &WaitApplyResultState{
-				results:      []*ApplyTaskRes{res},
+				results:      []*applyTaskRes{res},
 				readyToMerge: readyToMerge,
 			}
 			return
