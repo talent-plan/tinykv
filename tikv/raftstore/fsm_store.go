@@ -520,13 +520,14 @@ func (b *raftPollerBuilder) init() ([]senderPeerFsmPair, error) {
 func (b *raftPollerBuilder) clearStaleMeta(kvWB, raftWB *WriteBatch, originState *rspb.RegionLocalState) {
 	region := originState.Region
 	raftKey := RaftStateKey(region.Id)
-	raftState := new(rspb.RaftLocalState)
-	err := getMsg(b.engines.raft, raftKey, raftState)
+	raftState := raftState{}
+	val, err := getValue(b.engines.raft, raftKey)
 	if err != nil {
 		// it has been cleaned up.
 		return
 	}
-	err = ClearMeta(b.engines, kvWB, raftWB, region.Id, raftState)
+	raftState.Unmarshal(val)
+	err = ClearMeta(b.engines, kvWB, raftWB, region.Id, raftState.lastIndex)
 	if err != nil {
 		panic(err)
 	}

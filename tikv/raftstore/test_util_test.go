@@ -74,9 +74,9 @@ func newTestPeerStorageFromEnts(t *testing.T, ents []eraftpb.Entry) *PeerStorage
 	ctx := NewInvokeContext(peerStore)
 	readyCtx := new(readyContext)
 	require.Nil(t, peerStore.Append(ctx, ents[1:], readyCtx))
-	ctx.ApplyState.TruncatedState.Index = ents[0].Index
-	ctx.ApplyState.TruncatedState.Term = ents[0].Term
-	ctx.ApplyState.AppliedIndex = ents[len(ents)-1].Index
+	ctx.ApplyState.truncatedIndex = ents[0].Index
+	ctx.ApplyState.truncatedTerm = ents[0].Term
+	ctx.ApplyState.appliedIndex = ents[len(ents)-1].Index
 	ctx.saveApplyStateTo(kvWB)
 	require.Nil(t, peerStore.Engines.WriteRaft(readyCtx.RaftWB()))
 	peerStore.Engines.WriteKV(kvWB)

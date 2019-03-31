@@ -50,12 +50,11 @@ func getTestDBForRegions(t *testing.T, path string, regions []uint64) *DBBundle 
 	fillDBBundleData(t, kv)
 	for _, regionID := range regions {
 		// Put apply state into kv engine.
-		applyState := new(rspb.RaftApplyState)
-		applyState.AppliedIndex = 10
-		applyState.TruncatedState = &rspb.RaftTruncatedState{
-			Index: 10,
+		applyState := applyState{
+			appliedIndex:   10,
+			truncatedIndex: 10,
 		}
-		require.Nil(t, putMsg(kv.db, ApplyStateKey(regionID), applyState))
+		require.Nil(t, putValue(kv.db, ApplyStateKey(regionID), applyState.Marshal()))
 
 		// Put region ifno into kv engine.
 		region := genTestRegion(regionID, 1, 1)

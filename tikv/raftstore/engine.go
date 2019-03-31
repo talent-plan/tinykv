@@ -59,8 +59,10 @@ func (en *Engines) SyncRaftWAL() error {
 }
 
 type WriteBatch struct {
-	entries []*badger.Entry
-	size    int
+	entries       []*badger.Entry
+	size          int
+	safePoint     int
+	safePointSize int
 }
 
 func (wb *WriteBatch) Set(key, val []byte) {
@@ -94,6 +96,16 @@ func (wb *WriteBatch) SetMsg(key []byte, msg proto.Message) error {
 	}
 	wb.Set(key, val)
 	return nil
+}
+
+func (wb *WriteBatch) SetSafePoint() {
+	wb.safePoint = len(wb.entries)
+	wb.safePointSize = wb.size
+}
+
+func (wb *WriteBatch) RollbackToSafePoint() {
+	wb.entries = wb.entries[:wb.safePoint]
+	wb.size = wb.safePointSize
 }
 
 func (wb *WriteBatch) WriteToDB(db *badger.DB) error {
@@ -130,4 +142,6 @@ func (wb *WriteBatch) MustWriteToDB(db *badger.DB) {
 func (wb *WriteBatch) Reset() {
 	wb.entries = wb.entries[:0]
 	wb.size = 0
+	wb.safePoint = 0
+	wb.safePointSize = 0
 }

@@ -69,7 +69,7 @@ func (q *ReadIndexQueue) PopFront() *ReadIndexRequest {
 }
 
 func NotifyStaleReq(term uint64, cb Callback) {
-	resp := ErrRespWithTerm(&ErrStaleCommand{}, term)
+	resp := ErrRespStaleCommand(term)
 	cb(resp, nil)
 }
 
@@ -1028,17 +1028,17 @@ func (p *Peer) ApplyReads(ctx *PollContext, ready *raft.Ready) {
 	}
 }
 
-func (p *Peer) PostApply(ctx *PollContext, applyState rspb.RaftApplyState, appliedIndexTerm uint64, merged bool, applyMetrics *applyMetrics) bool {
+func (p *Peer) PostApply(ctx *PollContext, applyState applyState, appliedIndexTerm uint64, merged bool, applyMetrics applyMetrics) bool {
 	hasReady := false
 	if p.IsApplyingSnapshot() {
 		panic("should not applying snapshot")
 	}
 
 	if !merged {
-		p.RaftGroup.AdvanceApply(applyState.AppliedIndex)
+		p.RaftGroup.AdvanceApply(applyState.appliedIndex)
 	}
 
-	p.Store().applyState = &applyState
+	p.Store().applyState = applyState
 	p.Store().appliedIndexTerm = appliedIndexTerm
 
 	p.PeerStat.WrittenBytes += applyMetrics.writtenBytes

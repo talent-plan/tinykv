@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"github.com/coocood/badger"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/eraftpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
 )
@@ -94,11 +93,8 @@ func writePrepareBootstrap(engines *Engines, region *metapb.Region) error {
 	kvWB := new(WriteBatch)
 	kvWB.SetMsg(prepareBootstrapKey, state)
 	kvWB.SetMsg(RegionStateKey(region.Id), state)
-	err := writeInitialApplyState(kvWB, region.Id)
-	if err != nil {
-		return err
-	}
-	err = engines.WriteKV(kvWB)
+	writeInitialApplyState(kvWB, region.Id)
+	err := engines.WriteKV(kvWB)
 	if err != nil {
 		return err
 	}
@@ -107,10 +103,7 @@ func writePrepareBootstrap(engines *Engines, region *metapb.Region) error {
 		return err
 	}
 	raftWB := new(WriteBatch)
-	err = writeInitialRaftState(raftWB, region.Id)
-	if err != nil {
-		return err
-	}
+	writeInitialRaftState(raftWB, region.Id)
 	err = engines.WriteRaft(raftWB)
 	if err != nil {
 		return err
@@ -118,26 +111,22 @@ func writePrepareBootstrap(engines *Engines, region *metapb.Region) error {
 	return engines.SyncRaftWAL()
 }
 
-func writeInitialApplyState(kvWB *WriteBatch, regionID uint64) error {
-	raftState := &rspb.RaftApplyState{
-		AppliedIndex: RaftInitLogIndex,
-		TruncatedState: &rspb.RaftTruncatedState{
-			Index: RaftInitLogIndex,
-			Term:  RaftInitLogTerm,
-		},
+func writeInitialApplyState(kvWB *WriteBatch, regionID uint64) {
+	applyState := applyState{
+		appliedIndex:   RaftInitLogIndex,
+		truncatedIndex: RaftInitLogIndex,
+		truncatedTerm:  RaftInitLogTerm,
 	}
-	return kvWB.SetMsg(ApplyStateKey(regionID), raftState)
+	kvWB.Set(ApplyStateKey(regionID), applyState.Marshal())
 }
 
-func writeInitialRaftState(raftWB *WriteBatch, regionID uint64) error {
-	raftState := &rspb.RaftLocalState{
-		LastIndex: RaftInitLogIndex,
-		HardState: &eraftpb.HardState{
-			Term:   RaftInitLogTerm,
-			Commit: RaftInitLogIndex,
-		},
+func writeInitialRaftState(raftWB *WriteBatch, regionID uint64) {
+	raftState := raftState{
+		lastIndex: RaftInitLogIndex,
+		term:      RaftInitLogTerm,
+		commit:    RaftInitLogIndex,
 	}
-	return raftWB.SetMsg(RaftStateKey(regionID), raftState)
+	raftWB.Set(RaftStateKey(regionID), raftState.Marshal())
 }
 
 func ClearPrepareBootstrap(engines *Engines, regionID uint64) error {

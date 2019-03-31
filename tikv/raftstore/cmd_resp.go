@@ -37,6 +37,10 @@ func ErrRespWithTerm(err error, term uint64) *raft_cmdpb.RaftCmdResponse {
 	return resp
 }
 
+func ErrRespStaleCommand(term uint64) *raft_cmdpb.RaftCmdResponse {
+	return ErrRespWithTerm(new(ErrStaleCommand), term)
+}
+
 func ErrRespRegionNotFound(regionID uint64) *raft_cmdpb.RaftCmdResponse {
 	return &raft_cmdpb.RaftCmdResponse{
 		Header: &raft_cmdpb.RaftResponseHeader{

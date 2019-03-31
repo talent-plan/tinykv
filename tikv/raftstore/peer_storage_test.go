@@ -42,7 +42,7 @@ func appendEnts(t *testing.T, peerStore *PeerStorage, ents []eraftpb.Entry) {
 	ctx := NewInvokeContext(peerStore)
 	readyCtx := new(readyContext)
 	require.Nil(t, peerStore.Append(ctx, ents, readyCtx))
-	require.Nil(t, ctx.saveRaftStateTo(readyCtx.RaftWB()))
+	ctx.saveRaftStateTo(readyCtx.RaftWB())
 	require.Nil(t, peerStore.Engines.WriteRaft(readyCtx.RaftWB()))
 	peerStore.raftState = ctx.RaftState
 }
@@ -199,12 +199,12 @@ func TestPeerStorageCompact(t *testing.T) {
 		ctx := NewInvokeContext(peerStore)
 		term, err := peerStore.Term(tt.idx)
 		if err == nil {
-			err = CompactRaftLog(peerStore.Tag, ctx.ApplyState, tt.idx, term)
+			err = CompactRaftLog(peerStore.Tag, &ctx.ApplyState, tt.idx, term)
 		}
 		if tt.err == nil {
 			assert.Nil(t, err)
 			kvWB := new(WriteBatch)
-			require.Nil(t, ctx.saveApplyStateTo(kvWB))
+			ctx.saveApplyStateTo(kvWB)
 			require.Nil(t, peerStore.Engines.WriteKV(kvWB))
 		} else {
 			assert.NotNil(t, err)
@@ -253,7 +253,7 @@ func TestPeerStorageAppend(t *testing.T) {
 		peerStore := newTestPeerStorageFromEnts(t, ents)
 		defer cleanUpTestData(peerStore)
 		appendEnts(t, peerStore, tt.appends)
-		li := peerStore.raftState.LastIndex
+		li := peerStore.raftState.lastIndex
 		acutualEntries, err := peerStore.Entries(4, li+1, math.MaxUint64)
 		require.Nil(t, err)
 		assert.Equal(t, tt.results, acutualEntries)

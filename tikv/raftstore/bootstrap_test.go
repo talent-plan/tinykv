@@ -23,10 +23,14 @@ func TestBootstrapStore(t *testing.T) {
 	require.Nil(t, getMsg(engines.kv, prepareBootstrapKey, region))
 	regionLocalState := new(rspb.RegionLocalState)
 	require.Nil(t, getMsg(engines.kv, RegionStateKey(1), regionLocalState))
-	raftApplyState := new(rspb.RaftApplyState)
-	require.Nil(t, getMsg(engines.kv, ApplyStateKey(1), raftApplyState))
-	raftLocalState := new(rspb.RaftLocalState)
-	require.Nil(t, getMsg(engines.raft, RaftStateKey(1), raftLocalState))
+	raftApplyState := applyState{}
+	val, err := getValue(engines.kv, ApplyStateKey(1))
+	require.Nil(t, err)
+	raftApplyState.Unmarshal(val)
+	raftLocalState := raftState{}
+	val, err = getValue(engines.raft, RaftStateKey(1))
+	require.Nil(t, err)
+	raftLocalState.Unmarshal(val)
 
 	require.Nil(t, ClearPrepareBootstrapState(engines))
 	require.Nil(t, ClearPrepareBootstrap(engines, 1))

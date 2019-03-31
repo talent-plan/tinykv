@@ -757,16 +757,16 @@ func (d *peerFsmDelegate) onReadyChangePeer(cp changePeer) {
 	}
 }
 
-func (d *peerFsmDelegate) onReadyCompactLog(firstIndex uint64, state *rspb.RaftTruncatedState) {
+func (d *peerFsmDelegate) onReadyCompactLog(firstIndex uint64, truncatedIndex uint64) {
 	totalCnt := d.peer.LastApplyingIdx - firstIndex
 	// the size of current CompactLog command can be ignored.
-	remainCnt := d.peer.LastApplyingIdx - state.Index - 1
+	remainCnt := d.peer.LastApplyingIdx - truncatedIndex - 1
 	d.peer.RaftLogSizeHint *= remainCnt / totalCnt
 	raftLogGCTask := &raftLogGCTask{
 		raftEngine: d.ctx.engine.raft,
 		regionID:   d.regionID(),
 		startIdx:   d.peer.LastCompactedIdx,
-		endIdx:     state.Index + 1,
+		endIdx:     truncatedIndex + 1,
 	}
 	d.peer.LastCompactedIdx = raftLogGCTask.endIdx
 	d.peer.Store().CompactTo(raftLogGCTask.endIdx)
@@ -932,12 +932,12 @@ func (d *peerFsmDelegate) onReadyResult(merged bool, execResults []execResult) (
 
 	// handle executing committed log results
 	for i, result := range execResults {
-		switch x := result.data.(type) {
+		switch x := result.(type) {
 		case *execResultChangePeer:
 			d.onReadyChangePeer(x.cp)
 		case *execResultCompactLog:
 			if !merged {
-				d.onReadyCompactLog(x.firstIndex, x.state)
+				d.onReadyCompactLog(x.firstIndex, x.truncatedIndex)
 			}
 		case *execResultSplitRegion:
 			d.onReadySplitRegion(x.derived, x.regions)
