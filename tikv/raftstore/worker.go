@@ -1,11 +1,14 @@
 package raftstore
 
 import (
+	"bytes"
 	"encoding/hex"
 	"github.com/coocood/badger"
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/lockstore"
 	"github.com/ngaut/unistore/pd"
+	"github.com/ngaut/unistore/tikv/dbreader"
+	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/eraftpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
@@ -176,9 +179,7 @@ func newWorker(name string, wg *sync.WaitGroup) *worker {
 
 type splitCheckKeyEntry struct {
 	key       []byte
-	pos       uint64
 	valueSize uint64
-	cf        string
 }
 
 type splitCheckRunner struct {
@@ -244,11 +245,32 @@ func (r *splitCheckRunner) run(t task) {
 	}
 }
 
+func exceedEndKey(current, endKey []byte) bool {
+	return bytes.Compare(current, endKey) >= 0
+}
+
 /// scanSplitKeys gets the split keys by scanning the range.
 func (r *splitCheckRunner) scanSplitKeys(spCheckerHost *splitCheckerHost, region *metapb.Region,
 	startKey []byte, endKey []byte) ([][]byte, error) {
-	/// Todo, currently it is a place holder
-	return nil, nil
+	txn := r.engine.NewTransaction(false)
+	reader := dbreader.NewDBReader(startKey, endKey, txn, 0)
+	ite := reader.GetIter()
+	defer reader.Close()
+	for ite.Seek(startKey); ite.Valid(); ite.Next() {
+		item := ite.Item()
+		key := item.Key()
+		if exceedEndKey(key, endKey) {
+			break
+		}
+		if value, err := item.Value(); err == nil {
+			if (spCheckerHost.onKv(region, splitCheckKeyEntry{key: key, valueSize: uint64(len(value)),})) {
+				break
+			}
+		} else {
+			return nil, errors.Trace(err)
+		}
+	}
+	return spCheckerHost.splitKeys(), nil
 }
 
 type pendingDeleteRanges struct {
