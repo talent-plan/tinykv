@@ -15,12 +15,12 @@ package pd
 
 import (
 	"context"
-	"github.com/ngaut/log"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/juju/errors"
+	"github.com/ngaut/log"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"google.golang.org/grpc"
@@ -32,8 +32,18 @@ type Client interface {
 	GetClusterID(ctx context.Context) uint64
 	AllocID(ctx context.Context) (uint64, error)
 	Bootstrap(ctx context.Context, store *metapb.Store, region *metapb.Region) error
+	IsBootstrapped(ctx context.Context) (bool, error)
 	PutStore(ctx context.Context, store *metapb.Store) error
+	GetStore(ctx context.Context, storeID uint64) (*metapb.Store, error)
+	GetAllStores(ctx context.Context, excludeTombstone bool) ([]*metapb.Store, error)
+	GetClusterConfig(ctx context.Context) (*metapb.Cluster, error)
+	GetRegion(ctx context.Context, key []byte) (*metapb.Region, error)
+	GetRegionByID(ctx context.Context, regionID uint64) (*metapb.Region, error)
 	ReportRegion(regInfo *metapb.Region, approximateSize int64)
+	AskSplit(ctx context.Context, region *metapb.Region) (*pdpb.AskSplitResponse, error)
+	AskBatchSplit(ctx context.Context, region *metapb.Region, count int) (*pdpb.AskBatchSplitResponse, error)
+	ReportBatchSplit(ctx context.Context, regions []*metapb.Region) error
+	GetGCSafePoint(ctx context.Context) (uint64, error)
 	StoreHeartbeat(ctx context.Context, stats *pdpb.StoreStats) error
 	Close()
 }
@@ -123,7 +133,7 @@ func (c *client) getMembers(ctx context.Context) (*pdpb.GetMembersResponse, erro
 }
 
 func (c *client) createConn() (*grpc.ClientConn, error) {
-	cc, err := grpc.Dial(strings.TrimLeft(c.url, "http://"), grpc.WithInsecure())
+	cc, err := grpc.Dial(strings.TrimPrefix(c.url, "http://"), grpc.WithInsecure())
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -255,6 +265,19 @@ func (c *client) Bootstrap(ctx context.Context, store *metapb.Store, region *met
 	return nil
 }
 
+func (c *client) IsBootstrapped(ctx context.Context) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
+	resp, err := c.pdClient().IsBootstrapped(ctx, &pdpb.IsBootstrappedRequest{Header: c.requestHeader()})
+	cancel()
+	if err != nil {
+		return false, err
+	}
+	if herr := resp.Header.GetError(); herr != nil {
+		return false, errors.New(herr.String())
+	}
+	return resp.Bootstrapped, nil
+}
+
 func (c *client) PutStore(ctx context.Context, store *metapb.Store) error {
 	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
 	resp, err := c.pdClient().PutStore(ctx, &pdpb.PutStoreRequest{
@@ -265,11 +288,153 @@ func (c *client) PutStore(ctx context.Context, store *metapb.Store) error {
 	if err != nil {
 		return err
 	}
-	if resp.Header.GetError() != nil {
-		log.Info(resp.Header.GetError())
-		return nil
+	if herr := resp.Header.GetError(); herr != nil {
+		return errors.New(herr.String())
 	}
 	return nil
+}
+
+func (c *client) GetStore(ctx context.Context, storeID uint64) (*metapb.Store, error) {
+	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
+	resp, err := c.pdClient().GetStore(ctx, &pdpb.GetStoreRequest{
+		Header:  c.requestHeader(),
+		StoreId: storeID,
+	})
+	cancel()
+	if err != nil {
+		return nil, err
+	}
+	if herr := resp.Header.GetError(); herr != nil {
+		return nil, errors.New(herr.String())
+	}
+	return resp.Store, nil
+}
+
+func (c *client) GetAllStores(ctx context.Context, excludeTombstone bool) ([]*metapb.Store, error) {
+	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
+	resp, err := c.pdClient().GetAllStores(ctx, &pdpb.GetAllStoresRequest{
+		Header:                 c.requestHeader(),
+		ExcludeTombstoneStores: excludeTombstone,
+	})
+	cancel()
+	if err != nil {
+		return nil, err
+	}
+	if herr := resp.Header.GetError(); herr != nil {
+		return nil, errors.New(herr.String())
+	}
+	return resp.Stores, nil
+}
+
+func (c *client) GetClusterConfig(ctx context.Context) (*metapb.Cluster, error) {
+	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
+	resp, err := c.pdClient().GetClusterConfig(ctx, &pdpb.GetClusterConfigRequest{
+		Header: c.requestHeader(),
+	})
+	cancel()
+	if err != nil {
+		return nil, err
+	}
+	if herr := resp.Header.GetError(); herr != nil {
+		return nil, errors.New(herr.String())
+	}
+	return resp.Cluster, nil
+}
+
+func (c *client) GetRegion(ctx context.Context, key []byte) (*metapb.Region, error) {
+	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
+	resp, err := c.pdClient().GetRegion(ctx, &pdpb.GetRegionRequest{
+		Header:    c.requestHeader(),
+		RegionKey: key,
+	})
+	cancel()
+	if err != nil {
+		return nil, err
+	}
+	if herr := resp.Header.GetError(); herr != nil {
+		return nil, errors.New(herr.String())
+	}
+	return resp.Region, nil
+}
+
+func (c *client) GetRegionByID(ctx context.Context, regionID uint64) (*metapb.Region, error) {
+	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
+	resp, err := c.pdClient().GetRegionByID(ctx, &pdpb.GetRegionByIDRequest{
+		Header:   c.requestHeader(),
+		RegionId: regionID,
+	})
+	cancel()
+	if err != nil {
+		return nil, err
+	}
+	if herr := resp.Header.GetError(); herr != nil {
+		return nil, errors.New(herr.String())
+	}
+	return resp.Region, nil
+}
+
+func (c *client) AskSplit(ctx context.Context, region *metapb.Region) (*pdpb.AskSplitResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
+	resp, err := c.pdClient().AskSplit(ctx, &pdpb.AskSplitRequest{
+		Header: c.requestHeader(),
+		Region: region,
+	})
+	cancel()
+	if err != nil {
+		return nil, err
+	}
+	if herr := resp.Header.GetError(); herr != nil {
+		return nil, errors.New(herr.String())
+	}
+	return resp, nil
+}
+
+func (c *client) AskBatchSplit(ctx context.Context, region *metapb.Region, count int) (*pdpb.AskBatchSplitResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
+	resp, err := c.pdClient().AskBatchSplit(ctx, &pdpb.AskBatchSplitRequest{
+		Header:     c.requestHeader(),
+		Region:     region,
+		SplitCount: uint32(count),
+	})
+	cancel()
+	if err != nil {
+		return nil, err
+	}
+	if herr := resp.Header.GetError(); herr != nil {
+		return nil, errors.New(herr.String())
+	}
+	return resp, nil
+}
+
+func (c *client) ReportBatchSplit(ctx context.Context, regions []*metapb.Region) error {
+	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
+	resp, err := c.pdClient().ReportBatchSplit(ctx, &pdpb.ReportBatchSplitRequest{
+		Header:  c.requestHeader(),
+		Regions: regions,
+	})
+	cancel()
+	if err != nil {
+		return err
+	}
+	if herr := resp.Header.GetError(); herr != nil {
+		return errors.New(herr.String())
+	}
+	return nil
+}
+
+func (c *client) GetGCSafePoint(ctx context.Context) (uint64, error) {
+	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
+	resp, err := c.pdClient().GetGCSafePoint(ctx, &pdpb.GetGCSafePointRequest{
+		Header: c.requestHeader(),
+	})
+	cancel()
+	if err != nil {
+		return 0, err
+	}
+	if herr := resp.Header.GetError(); herr != nil {
+		return 0, errors.New(herr.String())
+	}
+	return resp.SafePoint, nil
 }
 
 func (c *client) StoreHeartbeat(ctx context.Context, stats *pdpb.StoreStats) error {
@@ -282,9 +447,8 @@ func (c *client) StoreHeartbeat(ctx context.Context, stats *pdpb.StoreStats) err
 	if err != nil {
 		return err
 	}
-	if resp.Header.GetError() != nil {
-		log.Info(resp.Header.GetError())
-		return nil
+	if herr := resp.Header.GetError(); herr != nil {
+		return errors.New(herr.String())
 	}
 	return nil
 }
