@@ -193,6 +193,10 @@ type splitCheckKeyEntry struct {
 	valueSize uint64
 }
 
+func (keyEntry *splitCheckKeyEntry) entrySize() uint64 {
+	return uint64(len(keyEntry.key)) + keyEntry.valueSize
+}
+
 type splitCheckRunner struct {
 	engine          *badger.DB
 	router          *router
