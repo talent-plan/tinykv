@@ -312,7 +312,12 @@ func (rm *RegionManager) initStore(storeAddr string) error {
 		return nil
 	})
 	for _, region := range rm.regions {
-		rm.pdc.ReportRegion(region.meta, region.approximateSize)
+		req := &pdpb.RegionHeartbeatRequest{
+			Region:          region.meta,
+			Leader:          region.meta.Peers[0],
+			ApproximateSize: uint64(region.approximateSize),
+		}
+		rm.pdc.ReportRegion(req)
 	}
 	log.Info("Initialize success")
 	return nil
@@ -622,8 +627,16 @@ func (rm *RegionManager) splitRegion(oldRegionCtx *regionCtx, splitKey []byte, o
 	rm.regions[right.meta.Id] = right
 	rm.mu.Unlock()
 	oldRegionCtx.refCount.Done()
-	rm.pdc.ReportRegion(right.meta, right.approximateSize)
-	rm.pdc.ReportRegion(left.meta, left.approximateSize)
+	rm.pdc.ReportRegion(&pdpb.RegionHeartbeatRequest{
+		Region:          right.meta,
+		Leader:          right.meta.Peers[0],
+		ApproximateSize: uint64(right.approximateSize),
+	})
+	rm.pdc.ReportRegion(&pdpb.RegionHeartbeatRequest{
+		Region:          left.meta,
+		Leader:          left.meta.Peers[0],
+		ApproximateSize: uint64(left.approximateSize),
+	})
 	log.Infof("region %d split to left %d with size %d and right %d with size %d",
 		oldRegion.Id, left.meta.Id, left.approximateSize, right.meta.Id, right.approximateSize)
 	return nil

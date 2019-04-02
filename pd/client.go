@@ -17,6 +17,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/juju/errors"
@@ -39,12 +40,13 @@ type Client interface {
 	GetClusterConfig(ctx context.Context) (*metapb.Cluster, error)
 	GetRegion(ctx context.Context, key []byte) (*metapb.Region, error)
 	GetRegionByID(ctx context.Context, regionID uint64) (*metapb.Region, error)
-	ReportRegion(regInfo *metapb.Region, approximateSize int64)
+	ReportRegion(*pdpb.RegionHeartbeatRequest)
 	AskSplit(ctx context.Context, region *metapb.Region) (*pdpb.AskSplitResponse, error)
 	AskBatchSplit(ctx context.Context, region *metapb.Region, count int) (*pdpb.AskBatchSplitResponse, error)
 	ReportBatchSplit(ctx context.Context, regions []*metapb.Region) error
 	GetGCSafePoint(ctx context.Context) (uint64, error)
 	StoreHeartbeat(ctx context.Context, stats *pdpb.StoreStats) error
+	SetRegionHeartbeatResponseHandler(h func(*pdpb.RegionHeartbeatResponse))
 	Close()
 }
 
@@ -65,16 +67,13 @@ type client struct {
 	clientConn *grpc.ClientConn
 
 	receiveRegionHeartbeatCh chan *pdpb.RegionHeartbeatResponse
-	regionCh                 chan regInfoSizePair
+	regionCh                 chan *pdpb.RegionHeartbeatRequest
 
 	wg     sync.WaitGroup
 	ctx    context.Context
 	cancel context.CancelFunc
-}
 
-type regInfoSizePair struct {
-	info            *metapb.Region
-	approximateSize int64
+	heartbeatHandler atomic.Value
 }
 
 // NewClient creates a PD client.
@@ -87,7 +86,7 @@ func NewClient(pdAddr string, tag string) (Client, error) {
 		ctx:                      ctx,
 		cancel:                   cancel,
 		tag:                      tag,
-		regionCh:                 make(chan regInfoSizePair, 64),
+		regionCh:                 make(chan *pdpb.RegionHeartbeatRequest, 64),
 	}
 	cc, err := c.createConn()
 	if err != nil {
@@ -194,10 +193,14 @@ func (c *client) heartbeatStreamLoop() {
 func (c *client) receiveRegionHeartbeat(ctx context.Context, stream pdpb.PD_RegionHeartbeatClient, errCh chan error, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
-		_, err := stream.Recv()
+		resp, err := stream.Recv()
 		if err != nil {
 			errCh <- err
 			return
+		}
+
+		if h := c.heartbeatHandler.Load(); h != nil {
+			h.(func(*pdpb.RegionHeartbeatResponse))(resp)
 		}
 	}
 }
@@ -208,16 +211,11 @@ func (c *client) reportRegionHeartbeat(ctx context.Context, stream pdpb.PD_Regio
 		select {
 		case <-ctx.Done():
 			return
-		case pair, ok := <-c.regionCh:
+		case request, ok := <-c.regionCh:
 			if !ok {
 				return
 			}
-			request := &pdpb.RegionHeartbeatRequest{
-				Header:          c.requestHeader(),
-				Region:          pair.info,
-				Leader:          pair.info.Peers[0],
-				ApproximateSize: uint64(pair.approximateSize),
-			}
+			request.Header = c.requestHeader()
 			err := stream.Send(request)
 			if err != nil {
 				errCh <- err
@@ -453,8 +451,15 @@ func (c *client) StoreHeartbeat(ctx context.Context, stats *pdpb.StoreStats) err
 	return nil
 }
 
-func (c *client) ReportRegion(regInfo *metapb.Region, approximateSize int64) {
-	c.regionCh <- regInfoSizePair{info: regInfo, approximateSize: approximateSize}
+func (c *client) ReportRegion(request *pdpb.RegionHeartbeatRequest) {
+	c.regionCh <- request
+}
+
+func (c *client) SetRegionHeartbeatResponseHandler(h func(*pdpb.RegionHeartbeatResponse)) {
+	if h == nil {
+		h = func(*pdpb.RegionHeartbeatResponse) {}
+	}
+	c.heartbeatHandler.Store(h)
 }
 
 func (c *client) requestHeader() *pdpb.RequestHeader {

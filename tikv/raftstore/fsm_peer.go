@@ -3,6 +3,8 @@ package raftstore
 import (
 	"bytes"
 	"fmt"
+	"time"
+
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
 	"github.com/pingcap/errors"
@@ -12,7 +14,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
 	"github.com/zhangjinpeng1987/raft"
-	"time"
 )
 
 type peerFsm struct {
@@ -666,7 +667,7 @@ func (d *peerFsmDelegate) destroyPeer(mergeByTarget bool) {
 		// Trigger region change observer
 		d.ctx.coprocessorHost.OnRegionChanged(d.region(), RegionChangeEvent_Destroy, d.peer.GetRole())
 		d.ctx.pdScheduler <- task{
-			tp:   tasktypePDDestroyPeer,
+			tp:   taskTypePDDestroyPeer,
 			data: regionID,
 		}
 	}()

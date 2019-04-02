@@ -3,17 +3,17 @@ package raftstore
 import (
 	"bytes"
 	"encoding/hex"
+	"sync"
+	"time"
+
 	"github.com/coocood/badger"
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/lockstore"
-	"github.com/ngaut/unistore/pd"
 	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/eraftpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
-	"sync"
-	"time"
 )
 
 type taskType int64
@@ -31,7 +31,7 @@ const (
 	taskTypePDReportBatchSplit taskType = 105
 	taskTypePDValidatePeer     taskType = 106
 	taskTypePDReadStats        taskType = 107
-	tasktypePDDestroyPeer      taskType = 108
+	taskTypePDDestroyPeer      taskType = 108
 
 	taskTypeCompact         taskType = 201
 	taskTypeCheckAndCompact taskType = 202
@@ -124,6 +124,10 @@ type pdValidatePeerTask struct {
 
 type readStats map[uint64]flowStats
 
+type pdDestroyPeerTask struct {
+	regionID uint64
+}
+
 type flowStats struct {
 	readBytes uint64
 	readKeys  uint64
@@ -151,10 +155,17 @@ type taskRunner interface {
 	run(t task)
 }
 
+type starter interface {
+	start()
+}
+
 func (w *worker) start(runner taskRunner) {
 	w.wg.Add(1)
 	go func() {
 		defer w.wg.Done()
+		if s, ok := runner.(starter); ok {
+			s.start()
+		}
 		for {
 			task := <-w.receiver
 			if task.tp == taskTypeStop {
@@ -263,7 +274,7 @@ func (r *splitCheckRunner) scanSplitKeys(spCheckerHost *splitCheckerHost, region
 			break
 		}
 		if value, err := item.Value(); err == nil {
-			if (spCheckerHost.onKv(region, splitCheckKeyEntry{key: key, valueSize: uint64(len(value)),})) {
+			if (spCheckerHost.onKv(region, splitCheckKeyEntry{key: key, valueSize: uint64(len(value))})) {
 				break
 			}
 		} else {
@@ -312,22 +323,6 @@ type compactRunner struct {
 }
 
 func (r *compactRunner) run(t task) {
-	// TODO: stub
-}
-
-type pdRunner struct {
-	storeID   uint64
-	pdClient  pd.Client
-	router    *router
-	db        *badger.DB
-	scheduler chan<- task
-}
-
-func newPDRunner(storeID uint64, pdClient pd.Client, router *router, db *badger.DB, scheduler chan<- task) *pdRunner {
-	return nil // TODO: stub
-}
-
-func (r *pdRunner) run(t task) {
 	// TODO: stub
 }
 
