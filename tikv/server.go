@@ -483,23 +483,31 @@ func convertToKeyError(err error) *kvrpcpb.KeyError {
 	if err == nil {
 		return nil
 	}
-	if locked, ok := errors.Cause(err).(*ErrLocked); ok {
+	causeErr := errors.Cause(err)
+	switch x := causeErr.(type) {
+	case *ErrLocked:
 		return &kvrpcpb.KeyError{
 			Locked: &kvrpcpb.LockInfo{
-				Key:         locked.Key,
-				PrimaryLock: locked.Primary,
-				LockVersion: locked.StartTS,
-				LockTtl:     locked.TTL,
+				Key:         x.Key,
+				PrimaryLock: x.Primary,
+				LockVersion: x.StartTS,
+				LockTtl:     x.TTL,
 			},
 		}
-	}
-	if retryable, ok := errors.Cause(err).(ErrRetryable); ok {
+	case ErrRetryable:
 		return &kvrpcpb.KeyError{
-			Retryable: retryable.Error(),
+			Retryable: x.Error(),
 		}
-	}
-	return &kvrpcpb.KeyError{
-		Abort: err.Error(),
+	case *ErrKeyAlreadyExists:
+		return &kvrpcpb.KeyError{
+			AlreadyExist: &kvrpcpb.AlreadyExist{
+				Key: x.Key,
+			},
+		}
+	default:
+		return &kvrpcpb.KeyError{
+			Abort: err.Error(),
+		}
 	}
 }
 

@@ -174,7 +174,7 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 			op := m.Op
 			if op == kvrpcpb.Op_Insert {
 				if len(oldVal) > 0 {
-					return []error{ErrKeyAlreadyExists{}}
+					return []error{&ErrKeyAlreadyExists{Key: m.Key}}
 				}
 				op = kvrpcpb.Op_Put
 			}

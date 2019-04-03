@@ -39,7 +39,9 @@ func (e ErrAlreadyCommitted) Error() string {
 	return "txn already committed"
 }
 
-type ErrKeyAlreadyExists struct{}
+type ErrKeyAlreadyExists struct {
+	Key []byte
+}
 
 func (e ErrKeyAlreadyExists) Error() string {
 	return "key already exists"
