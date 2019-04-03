@@ -50,19 +50,24 @@ func (r *DBReader) Get(key []byte, startTS uint64) ([]byte, error) {
 	if mvcc.DBUserMeta(item.UserMeta()).CommitTS() <= startTS {
 		return item.Value()
 	}
+	return r.getOld(key, startTS)
+}
+
+func (r *DBReader) getOld(key []byte, startTS uint64) ([]byte, error) {
 	oldKey := mvcc.EncodeOldKey(key, startTS)
 	iter := r.GetIter()
 	iter.Seek(oldKey)
 	if !iter.ValidForPrefix(oldKey[:len(oldKey)-8]) {
 		return nil, nil
 	}
+	item := iter.Item()
 	if mvcc.OldUserMeta(item.UserMeta()).NextCommitTS() < r.safePoint {
 		// This entry is eligible for GC. Normally we will not see this version.
 		// But when the latest version is DELETE and it is GCed first,
 		// we may end up here, so we should ignore the obsolete version.
 		return nil, nil
 	}
-	return iter.Item().Value()
+	return item.Value()
 }
 
 func (r *DBReader) GetIter() *badger.Iterator {
@@ -93,8 +98,23 @@ func (r *DBReader) GetOldIter() *badger.Iterator {
 type BatchGetFunc = func(key, value []byte, err error)
 
 func (r *DBReader) BatchGet(keys [][]byte, startTS uint64, f BatchGetFunc) {
-	for _, key := range keys {
-		val, err := r.Get(key, startTS)
+	items, err := r.txn.MultiGet(keys)
+	if err != nil {
+		for _, key := range keys {
+			f(key, nil, err)
+		}
+		return
+	}
+	for i, item := range items {
+		key := keys[i]
+		var val []byte
+		if item != nil {
+			if mvcc.DBUserMeta(item.UserMeta()).CommitTS() <= startTS {
+				val, err = item.Value()
+			} else {
+				val, err = r.getOld(keys[i], startTS)
+			}
+		}
 		f(key, val, err)
 	}
 	return
