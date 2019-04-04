@@ -2,6 +2,7 @@ package raftstore
 
 import (
 	"bytes"
+
 	"github.com/coocood/badger"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -40,7 +41,7 @@ func isRangeEmpty(engine *badger.DB, startKey, endKey []byte) (bool, error) {
 
 func BootstrapStore(engines *Engines, clussterID, storeID uint64) error {
 	ident := new(rspb.StoreIdent)
-	empty, err := isRangeEmpty(engines.kv, MinKey, MaxKey)
+	empty, err := isRangeEmpty(engines.kv.db, MinKey, MaxKey)
 	if err != nil {
 		return err
 	}
@@ -56,7 +57,7 @@ func BootstrapStore(engines *Engines, clussterID, storeID uint64) error {
 	}
 	ident.ClusterId = clussterID
 	ident.StoreId = storeID
-	err = putMsg(engines.kv, storeIdentKey, ident)
+	err = putMsg(engines.kv.db, storeIdentKey, ident)
 	if err != nil {
 		return err
 	}
@@ -149,7 +150,7 @@ func ClearPrepareBootstrap(engines *Engines, regionID uint64) error {
 }
 
 func ClearPrepareBootstrapState(engines *Engines) error {
-	err := engines.kv.Update(func(txn *badger.Txn) error {
+	err := engines.kv.db.Update(func(txn *badger.Txn) error {
 		return txn.Delete(prepareBootstrapKey)
 	})
 	engines.SyncKVWAL()

@@ -732,7 +732,7 @@ func (s *Snap) Apply(opts ApplyOptions) error {
 		case applySnapTypePut:
 			batch.SetWithUserMeta(item.key, item.val, item.useMeta)
 			if batch.size >= opts.BatchSize {
-				err = batch.WriteToDB(opts.DBBundle.db)
+				err = batch.WriteToKV(opts.DBBundle)
 				if err != nil {
 					return err
 				}
@@ -744,7 +744,7 @@ func (s *Snap) Apply(opts ApplyOptions) error {
 			opts.DBBundle.rollbackStore.Insert(item.key, item.val)
 		}
 	}
-	return batch.WriteToDB(opts.DBBundle.db)
+	return batch.WriteToKV(opts.DBBundle)
 }
 
 func checkAbort(status *uint64) error {

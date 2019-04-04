@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/ngaut/unistore/lockstore"
+
 	"github.com/coocood/badger"
 	"github.com/pingcap/kvproto/pkg/eraftpb"
 	"github.com/pingcap/tidb/util/codec"
@@ -37,6 +39,7 @@ func (rc *readyContext) SetSyncLog(b bool) {
 
 func newTestEngines(t *testing.T) *Engines {
 	engines := new(Engines)
+	engines.kv = new(DBBundle)
 	var err error
 	engines.kvPath, err = ioutil.TempDir("", "unistore_kv")
 	require.Nil(t, err)
@@ -44,7 +47,9 @@ func newTestEngines(t *testing.T) *Engines {
 	kvOpts.Dir = engines.kvPath
 	kvOpts.ValueDir = engines.kvPath
 	kvOpts.ValueThreshold = 256
-	engines.kv, err = badger.Open(kvOpts)
+	engines.kv.db, err = badger.Open(kvOpts)
+	engines.kv.lockStore = lockstore.NewMemStore(16 * 1024)
+	engines.kv.rollbackStore = lockstore.NewMemStore(16 * 1024)
 	require.Nil(t, err)
 	engines.raftPath, err = ioutil.TempDir("", "unistore_raft")
 	require.Nil(t, err)

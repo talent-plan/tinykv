@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
+	"github.com/ngaut/unistore/tikv/mvcc"
+	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/eraftpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
@@ -15,6 +17,11 @@ import (
 const (
 	WriteBatchMaxKeys  = 128
 	DefaultApplyWBSize = 4 * 1024
+
+	WriteTypeFlagPut      = 'P'
+	WriteTypeFlagDelete   = 'D'
+	WriteTypeFlagLock     = 'L'
+	WriteTypeFlagRollback = 'R'
 )
 
 type pendingCmd struct {
@@ -343,7 +350,7 @@ func (ac *applyContext) commitOpt(d *applyDelegate, persistent bool) {
 /// Writes all the changes into badger.
 func (ac *applyContext) writeToDB() {
 	if ac.wb.size != 0 {
-		if err := ac.wb.WriteToDB(ac.engines.kv); err != nil {
+		if err := ac.wb.WriteToKV(ac.engines.kv); err != nil {
 			panic(err)
 		}
 		ac.wb.Reset()
@@ -833,26 +840,215 @@ func (d *applyDelegate) execRaftCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdR
 
 func (d *applyDelegate) execAdminCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdRequest) (
 	resp *raft_cmdpb.RaftCmdResponse, result applyResult, err error) {
-	return // TODO: stub
+	adminReq := req.AdminRequest
+	cmdType := adminReq.CmdType
+	if cmdType != raft_cmdpb.AdminCmdType_CompactLog && cmdType != raft_cmdpb.AdminCmdType_CommitMerge {
+		log.Infof("%s execute admin command. term %d, index %d, command %s",
+			d.tag, aCtx.execCtx.term, aCtx.execCtx.index, adminReq)
+	}
+	var adminResp *raft_cmdpb.AdminResponse
+	switch cmdType {
+	case raft_cmdpb.AdminCmdType_ChangePeer:
+		adminResp, result, err = d.execChangePeer(aCtx, adminReq)
+	case raft_cmdpb.AdminCmdType_Split:
+		adminResp, result, err = d.execSplit(aCtx, adminReq)
+	case raft_cmdpb.AdminCmdType_BatchSplit:
+		adminResp, result, err = d.execBatchSplit(aCtx, adminReq)
+	case raft_cmdpb.AdminCmdType_CompactLog:
+		adminResp, result, err = d.execCompactLog(aCtx, adminReq)
+	case raft_cmdpb.AdminCmdType_TransferLeader:
+		err = errors.New("transfer leader won't execute")
+	case raft_cmdpb.AdminCmdType_ComputeHash:
+		adminResp, result, err = d.execComputeHash(aCtx, adminReq)
+	case raft_cmdpb.AdminCmdType_VerifyHash:
+		adminResp, result, err = d.execVerifyHash(aCtx, adminReq)
+	case raft_cmdpb.AdminCmdType_PrepareMerge:
+		adminResp, result, err = d.execPrepareMerge(aCtx, adminReq)
+	case raft_cmdpb.AdminCmdType_CommitMerge:
+		adminResp, result, err = d.execCommitMerge(aCtx, adminReq)
+	case raft_cmdpb.AdminCmdType_RollbackMerge:
+		adminResp, result, err = d.execRollbackMerge(aCtx, adminReq)
+	case raft_cmdpb.AdminCmdType_InvalidAdmin:
+		err = errors.New("unsupported command type")
+	}
+	if err != nil {
+		return
+	}
+	adminResp.CmdType = cmdType
+	resp = newCmdRespForReq(req)
+	resp.AdminResponse = adminResp
+	return
 }
 
 func (d *applyDelegate) execWriteCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdRequest) (
 	resp *raft_cmdpb.RaftCmdResponse, result applyResult, err error) {
+	requests := req.GetRequests()
+	writeCmdOps := d.createWriteCmdOps(requests)
+	for _, op := range writeCmdOps.prewrites {
+		d.execPrewrite(aCtx, op)
+	}
+	for _, op := range writeCmdOps.commits {
+		d.execCommit(aCtx, op)
+	}
+	for _, op := range writeCmdOps.rollbacks {
+		d.execRollback(aCtx, op)
+	}
+	for _, op := range writeCmdOps.delRanges {
+		d.execDeleteRange(aCtx, op)
+	}
+	resps := make([]raft_cmdpb.Response, len(requests))
+	respPtrs := make([]*raft_cmdpb.Response, len(requests))
+	for i := 0; i < len(resps); i++ {
+		resp := &resps[i]
+		resp.CmdType = requests[i].CmdType
+		respPtrs[i] = resp
+	}
+	resp = newCmdRespForReq(req)
+	resp.Responses = respPtrs
+	if len(writeCmdOps.delRanges) > 0 {
+		result = applyResult{
+			tp:   applyResultTypeExecResult,
+			data: &execResultDeleteRange{},
+		}
+	}
+	return
+}
+
+// every commit must followed with a delete lock.
+type commitOp struct {
+	putWrite *raft_cmdpb.PutRequest
+	delLock  *raft_cmdpb.DeleteRequest
+}
+
+// a prewrite may optionally has a put Default.
+// a put default must follows a put lock.
+type prewriteOp struct {
+	putDefault *raft_cmdpb.PutRequest // optional
+	putLock    *raft_cmdpb.PutRequest
+}
+
+// a Rollback optionally has a delete Default.
+type rollbackOp struct {
+	delDefault *raft_cmdpb.DeleteRequest
+	putWrite   *raft_cmdpb.PutRequest
+	delLock    *raft_cmdpb.DeleteRequest
+}
+
+type writeCmdOps struct {
+	prewrites []prewriteOp
+	commits   []commitOp
+	rollbacks []rollbackOp
+	delRanges []*raft_cmdpb.DeleteRangeRequest
+}
+
+// createWriteCmdOps regroups requests into operations.
+func (d *applyDelegate) createWriteCmdOps(requests []*raft_cmdpb.Request) (ops writeCmdOps) {
+	// If first request is delete write, then this is a GC command, we can ignore it.
+	if del := requests[0].Delete; del != nil {
+		if del.Cf == CFWrite {
+			return
+		}
+	}
+	for i := 0; i < len(requests); i++ {
+		req := requests[i]
+		switch req.CmdType {
+		case raft_cmdpb.CmdType_Delete:
+			del := req.Delete
+			switch del.Cf {
+			case "":
+				// Rollback large value, must followed by put write and delete lock
+				putWriteReq := requests[i+1]
+				y.Assert(putWriteReq.Put != nil && putWriteReq.Put.Cf == CFWrite)
+				delLockReq := requests[i+2]
+				y.Assert(delLockReq.Delete != nil && delLockReq.Delete.Cf == CFLock)
+				ops.rollbacks = append(ops.rollbacks, rollbackOp{
+					delDefault: req.Delete,
+					putWrite:   putWriteReq.Put,
+					delLock:    delLockReq.Delete,
+				})
+				i += 2
+			case CFWrite:
+				// This is collapse rollback, since we do local rollback GC, we can ignore it.
+			default:
+				panic("unreachable")
+			}
+		case raft_cmdpb.CmdType_Put:
+			put := req.Put
+			switch put.Cf {
+			case "":
+				// Prewrite with large value, the next req must be put lock.
+				nextPut := requests[i+1].Put
+				y.Assert(nextPut != nil && nextPut.Cf == CFLock)
+				ops.prewrites = append(ops.prewrites, prewriteOp{
+					putDefault: put,
+					putLock:    nextPut,
+				})
+				i++
+			case CFLock:
+				// Prewrite with short value.
+				ops.prewrites = append(ops.prewrites, prewriteOp{putLock: put})
+			case CFWrite:
+				writeType := put.Value[0]
+				if writeType == mvcc.WriteTypeRollback {
+					// Rollback optionally followed by a delete lock.
+					var nextDel *raft_cmdpb.DeleteRequest
+					if i+1 < len(requests) {
+						if tmpDel := requests[i+1].Delete; tmpDel != nil && tmpDel.Cf == CFLock {
+							nextDel = tmpDel
+						}
+					}
+					if nextDel != nil {
+						ops.rollbacks = append(ops.rollbacks, rollbackOp{
+							putWrite: put,
+							delLock:  nextDel,
+						})
+						i++
+					} else {
+						ops.rollbacks = append(ops.rollbacks, rollbackOp{
+							putWrite: put,
+						})
+					}
+				} else {
+					// Commit must followed by del lock
+					nextDel := requests[i+1].Delete
+					y.Assert(nextDel != nil && nextDel.Cf == CFLock)
+					ops.commits = append(ops.commits, commitOp{
+						putWrite: put,
+						delLock:  nextDel,
+					})
+					i++
+				}
+			}
+		case raft_cmdpb.CmdType_DeleteRange:
+			ops.delRanges = append(ops.delRanges, req.DeleteRange)
+		case raft_cmdpb.CmdType_IngestSST:
+			panic("ingestSST not unsupported")
+		case raft_cmdpb.CmdType_Snap, raft_cmdpb.CmdType_Get:
+			// Readonly commands are handled in raftstore directly.
+			// Don't panic here in case there are old entries need to be applied.
+			// It's also safe to skip them here, because a restart must have happened,
+			// hence there is no callback to be called.
+			log.Warnf("%s skip read-only command %s", d.tag, req)
+		default:
+			panic("unreachable")
+		}
+	}
+	return
+}
+
+func (d *applyDelegate) execPrewrite(aCtx *applyContext, op prewriteOp) {
+	return // TODO; stub
+}
+
+func (d *applyDelegate) execCommit(aCtx *applyContext, op commitOp) {
 	return // TODO: stub
 }
 
-func (d *applyDelegate) execPut(aCtx *applyContext, req *raft_cmdpb.Request) (
-	resp *raft_cmdpb.Response, err error) {
+func (d *applyDelegate) execRollback(aCtx *applyContext, op rollbackOp) {
 	return // TODO: stub
 }
 
-func (d *applyDelegate) execDelete(aCtx *applyContext, req *raft_cmdpb.Request) (
-	resp *raft_cmdpb.Response, err error) {
-	return // TODO: stub
-}
-
-func (d *applyDelegate) execDeleteRange(aCtx *applyContext, req *raft_cmdpb.Request,
-	ranges []keyRange, useDeleteRange bool) (resp *raft_cmdpb.Response, err error) {
+func (d *applyDelegate) execDeleteRange(aCtx *applyContext, req *raft_cmdpb.DeleteRangeRequest) {
 	return // TODO: stub
 }
 

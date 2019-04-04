@@ -20,11 +20,11 @@ func TestBootstrapStore(t *testing.T) {
 	_, err := PrepareBootstrap(engines, 1, 1, 1)
 	require.Nil(t, err)
 	region := new(metapb.Region)
-	require.Nil(t, getMsg(engines.kv, prepareBootstrapKey, region))
+	require.Nil(t, getMsg(engines.kv.db, prepareBootstrapKey, region))
 	regionLocalState := new(rspb.RegionLocalState)
-	require.Nil(t, getMsg(engines.kv, RegionStateKey(1), regionLocalState))
+	require.Nil(t, getMsg(engines.kv.db, RegionStateKey(1), regionLocalState))
 	raftApplyState := applyState{}
-	val, err := getValue(engines.kv, ApplyStateKey(1))
+	val, err := getValue(engines.kv.db, ApplyStateKey(1))
 	require.Nil(t, err)
 	raftApplyState.Unmarshal(val)
 	raftLocalState := raftState{}
@@ -34,11 +34,11 @@ func TestBootstrapStore(t *testing.T) {
 
 	require.Nil(t, ClearPrepareBootstrapState(engines))
 	require.Nil(t, ClearPrepareBootstrap(engines, 1))
-	empty, err := isRangeEmpty(engines.kv, RegionMetaPrefixKey(1), RegionMetaPrefixKey(2))
+	empty, err := isRangeEmpty(engines.kv.db, RegionMetaPrefixKey(1), RegionMetaPrefixKey(2))
 	require.Nil(t, err)
 	require.True(t, empty)
 
-	empty, err = isRangeEmpty(engines.kv, RegionRaftPrefixKey(1), RegionRaftPrefixKey(2))
+	empty, err = isRangeEmpty(engines.kv.db, RegionRaftPrefixKey(1), RegionRaftPrefixKey(2))
 	require.Nil(t, err)
 	require.True(t, empty)
 }

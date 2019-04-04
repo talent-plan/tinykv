@@ -3,6 +3,10 @@ package raftstore
 import (
 	"bytes"
 	"fmt"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"github.com/coocood/badger"
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
@@ -15,9 +19,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
 	"github.com/zhangjinpeng1987/raft"
-	"sync"
-	"sync/atomic"
-	"time"
 )
 
 type storeMeta struct {
@@ -282,7 +283,7 @@ func (p *raftPoller) handleRaftReady(peers []fsm) {
 	}
 	kvWB := p.pollCtx.kvWB
 	if len(kvWB.entries) > 0 {
-		err := kvWB.WriteToDB(p.pollCtx.engine.kv)
+		err := kvWB.WriteToKV(p.pollCtx.engine.kv)
 		if err != nil {
 			panic(err)
 		}
@@ -290,7 +291,7 @@ func (p *raftPoller) handleRaftReady(peers []fsm) {
 	}
 	raftWB := p.pollCtx.raftWB
 	if len(raftWB.entries) > 0 {
-		err := raftWB.WriteToDB(p.pollCtx.engine.raft)
+		err := raftWB.WriteToRaft(p.pollCtx.engine.raft)
 		if err != nil {
 			panic(err)
 		}
@@ -416,7 +417,7 @@ func (b *raftPollerBuilder) init() ([]senderPeerFsmPair, error) {
 	// Scan region meta to get saved regions.
 	startKey := RegionMetaMinKey
 	endKey := RegionMetaMaxKey
-	kvEngine := b.engines.kv
+	kvEngine := b.engines.kv.db
 	storeID := b.store.Id
 
 	var totalCount, tombStoneCount, applyingCount int
@@ -494,10 +495,10 @@ func (b *raftPollerBuilder) init() ([]senderPeerFsmPair, error) {
 		return nil, err
 	}
 	if kvWB.size > 0 {
-		kvWB.MustWriteToDB(b.engines.kv)
+		kvWB.MustWriteToKV(b.engines.kv)
 	}
 	if raftWB.size > 0 {
-		raftWB.MustWriteToDB(b.engines.raft)
+		raftWB.MustWriteToRaft(b.engines.raft)
 	}
 
 	// schedule applying snapshot after raft write batch were written.
@@ -676,15 +677,15 @@ func (bs *raftBatchSystem) startSystem(
 	bs.applySystem.start("apply", applyPollerBuilder)
 	engines := builder.engines
 	workers.splitCheckWorker.start(&splitCheckRunner{
-		engine:          engines.kv,
+		engine:          engines.kv.db,
 		router:          bs.router,
 		coprocessorHost: workers.coprocessorHost,
 	})
 	cfg := builder.cfg
 	workers.regionWorker.start(newRegionRunner(engines, snapMgr, cfg.SnapApplyBatchSize, cfg.CleanStalePeerDelay))
 	workers.raftLogGCWorker.start(&raftLogGCRunner{})
-	workers.compactWorker.start(&compactRunner{engine: engines.kv})
-	pdRunner := newPDRunner(store.Id, builder.pdClient, bs.router, engines.kv, workers.pdWorker.scheduler)
+	workers.compactWorker.start(&compactRunner{engine: engines.kv.db})
+	pdRunner := newPDRunner(store.Id, builder.pdClient, bs.router, engines.kv.db, workers.pdWorker.scheduler)
 	workers.pdWorker.start(pdRunner)
 	workers.computeHashWorker.start(&computeHashRunner{router: bs.router})
 	bs.workers = workers
@@ -749,7 +750,7 @@ func (d *storeFsmDelegate) checkMsg(msg *rspb.RaftMessage) (bool, error) {
 	// Check if the target is tombstone,
 	stateKey := RegionStateKey(regionID)
 	localState := new(rspb.RegionLocalState)
-	err := getMsg(d.ctx.engine.kv, stateKey, localState)
+	err := getMsg(d.ctx.engine.kv.db, stateKey, localState)
 	if err != nil {
 		if err == badger.ErrKeyNotFound {
 			return false, nil
@@ -936,7 +937,7 @@ func (d *storeFsmDelegate) storeHeartbeatPD() {
 	stats.IsBusy = atomic.SwapUint64(&globalStats.isBusy, 0) > 0
 	storeInfo := &pdStoreHeartbeatTask{
 		stats:    stats,
-		engine:   d.ctx.engine.kv,
+		engine:   d.ctx.engine.kv.db,
 		capacity: d.ctx.cfg.Capacity,
 	}
 	d.ctx.pdScheduler <- task{tp: taskTypePDStoreHeartbeat, data: storeInfo}
