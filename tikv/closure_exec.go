@@ -30,9 +30,9 @@ func (svr *Server) tryBuildClosureExecutor(dagCtx *dagContext, dagReq *tipb.DAGR
 	executors := dagReq.Executors
 	scanExec := executors[0]
 	if scanExec.Tp == tipb.ExecType_TypeTableScan {
-		ce.processFunc = ce.tableScanProcess
+		ce.processFunc = &tableScanProcessor{closureExecutor: ce}
 	} else {
-		ce.processFunc = ce.indexScanProcess
+		ce.processFunc = &indexScanProcessor{closureExecutor: ce}
 	}
 	ce.finishFunc = ce.scanFinish
 	if len(executors) == 1 {
@@ -56,7 +56,7 @@ func (svr *Server) tryBuildClosureExecutor(dagCtx *dagContext, dagReq *tipb.DAGR
 			}
 			ce.limit = int(executors[2].Limit.Limit)
 		}
-		ce.processFunc = ce.selectionProcess
+		ce.processFunc = &selectionProcessor{closureExecutor: ce}
 		return ce, nil
 	case tipb.ExecType_TypeTopN:
 		return svr.tryBuildTopNClosureExecutor(ce, executors)
@@ -152,9 +152,9 @@ func (svr *Server) tryBuildAggClosureExecutor(e *closureExecutor, executors []*t
 			return nil, errors.Trace(err)
 		}
 		e.aggCtx.colIdx = int(idx)
-		e.processFunc = e.countColumnProcess
+		e.processFunc = &countColumnProcessor{closureExecutor: e}
 	default:
-		e.processFunc = e.countStarProcess
+		e.processFunc = &countStarProcessor{skipVal: skipVal(true), closureExecutor: e}
 	}
 	e.finishFunc = e.countFinish
 	return e, nil
@@ -183,7 +183,7 @@ func (svr *Server) tryBuildTopNClosureExecutor(e *closureExecutor, executors []*
 	}
 
 	e.topNCtx = ctx
-	e.processFunc = e.topNProcess
+	e.processFunc = &topNProcessor{closureExecutor: e}
 	e.finishFunc = e.topNFinish
 
 	return e, nil
@@ -214,7 +214,7 @@ type closureExecutor struct {
 
 	oldChunks   []tipb.Chunk
 	oldRowBuf   []byte
-	processFunc func(key, val []byte) error
+	processFunc dbreader.ScanProcessor
 	finishFunc  func() error
 }
 
@@ -261,7 +261,7 @@ func (e *closureExecutor) execute() ([]tipb.Chunk, error) {
 			if len(val) == 0 {
 				continue
 			}
-			err = e.processFunc(ran.StartKey, val)
+			err = e.processFunc.Process(ran.StartKey, val)
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
@@ -296,8 +296,13 @@ func (e *closureExecutor) checkRangeLock() error {
 	return nil
 }
 
+type countStarProcessor struct {
+	skipVal
+	*closureExecutor
+}
+
 // countStarProcess is used for `count(*)`.
-func (e *closureExecutor) countStarProcess(key, value []byte) error {
+func (e *countStarProcessor) Process(key, value []byte) error {
 	e.rowCount++
 	return nil
 }
@@ -313,7 +318,12 @@ func (e *closureExecutor) countFinish() error {
 	return nil
 }
 
-func (e *closureExecutor) countColumnProcess(key, value []byte) error {
+type countColumnProcessor struct {
+	skipVal
+	*closureExecutor
+}
+
+func (e *countColumnProcessor) Process(key, value []byte) error {
 	if e.idxScanCtx != nil {
 		values, _, err := cutIndexKeyNew(key, e.idxScanCtx.columnLen)
 		if err != nil {
@@ -337,7 +347,18 @@ func (e *closureExecutor) countColumnProcess(key, value []byte) error {
 	return nil
 }
 
-func (e *closureExecutor) tableScanProcess(key, value []byte) error {
+type skipVal bool
+
+func (s skipVal) SkipValue() bool {
+	return bool(s)
+}
+
+type tableScanProcessor struct {
+	skipVal
+	*closureExecutor
+}
+
+func (e *tableScanProcessor) Process(key, value []byte) error {
 	if e.rowCount == e.limit {
 		return dbreader.ScanBreak
 	}
@@ -365,7 +386,12 @@ func (e *closureExecutor) scanFinish() error {
 	return e.chunkToOldChunk(e.scanCtx.chk)
 }
 
-func (e *closureExecutor) indexScanProcess(key, value []byte) error {
+type indexScanProcessor struct {
+	skipVal
+	*closureExecutor
+}
+
+func (e *indexScanProcessor) Process(key, value []byte) error {
 	if e.rowCount == e.limit {
 		return dbreader.ScanBreak
 	}
@@ -428,7 +454,12 @@ func (e *closureExecutor) chunkToOldChunk(chk *chunk.Chunk) error {
 	return nil
 }
 
-func (e *closureExecutor) selectionProcess(key, value []byte) error {
+type selectionProcessor struct {
+	skipVal
+	*closureExecutor
+}
+
+func (e *selectionProcessor) Process(key, value []byte) error {
 	if e.rowCount == e.limit {
 		return dbreader.ScanBreak
 	}
@@ -488,7 +519,12 @@ func (e *closureExecutor) topNFinish() error {
 	return e.chunkToOldChunk(ctx.chk)
 }
 
-func (e *closureExecutor) topNProcess(key, value []byte) (err error) {
+type topNProcessor struct {
+	skipVal
+	*closureExecutor
+}
+
+func (e *topNProcessor) Process(key, value []byte) (err error) {
 	if err = e.tableScanProcessCore(key, value); err != nil {
 		return err
 	}

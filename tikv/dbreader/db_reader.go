@@ -127,11 +127,20 @@ var ScanBreak = errors.New("scan break")
 // Returns ScanBreak will break the scan loop.
 type ScanFunc = func(key, value []byte) error
 
-func (r *DBReader) Scan(startKey, endKey []byte, limit int, startTS uint64, f ScanFunc) error {
+// ScanProcessor process the key/value pair.
+type ScanProcessor interface {
+	// Process accepts key and value, should not keep reference to them.
+	// Returns ScanBreak will break the scan loop.
+	Process(key, value []byte) error
+	// SkipValue returns if we can skip the value.
+	SkipValue() bool
+}
+
+func (r *DBReader) Scan(startKey, endKey []byte, limit int, startTS uint64, proc ScanProcessor) error {
 	if len(endKey) == 0 {
 		panic("invalid end key")
 	}
-
+	skipValue := proc.SkipValue()
 	iter := r.GetIter()
 	var cnt int
 	for iter.Seek(startKey); iter.Valid(); iter.Next() {
@@ -140,23 +149,24 @@ func (r *DBReader) Scan(startKey, endKey []byte, limit int, startTS uint64, f Sc
 		if bytes.Compare(key, endKey) >= 0 {
 			break
 		}
-		var val []byte
 		var err error
 		if mvcc.DBUserMeta(item.UserMeta()).CommitTS() > startTS {
-			val, err = r.getOldValue(mvcc.EncodeOldKey(key, startTS))
-			if err == badger.ErrKeyNotFound {
+			item, err = r.getOldItem(mvcc.EncodeOldKey(key, startTS))
+			if err != nil {
 				continue
 			}
-		} else {
-			val, err = item.Value()
 		}
-		if err != nil {
-			return errors.Trace(err)
-		}
-		if len(val) == 0 {
+		if item.IsEmpty() {
 			continue
 		}
-		err = f(key, val)
+		var val []byte
+		if !skipValue {
+			val, err = item.Value()
+			if err != nil {
+				return errors.Trace(err)
+			}
+		}
+		err = proc.Process(key, val)
 		if err != nil {
 			if err == ScanBreak {
 				break
@@ -171,7 +181,7 @@ func (r *DBReader) Scan(startKey, endKey []byte, limit int, startTS uint64, f Sc
 	return nil
 }
 
-func (r *DBReader) getOldValue(oldKey []byte) ([]byte, error) {
+func (r *DBReader) getOldItem(oldKey []byte) (*badger.Item, error) {
 	oldIter := r.GetOldIter()
 	oldIter.Seek(oldKey)
 	if !oldIter.ValidForPrefix(oldKey[:len(oldKey)-8]) {
@@ -181,11 +191,12 @@ func (r *DBReader) getOldValue(oldKey []byte) ([]byte, error) {
 		// Ignore the obsolete version.
 		return nil, badger.ErrKeyNotFound
 	}
-	return oldIter.Item().Value()
+	return oldIter.Item(), nil
 }
 
 // ReverseScan implements the MVCCStore interface. The search range is [startKey, endKey).
-func (r *DBReader) ReverseScan(startKey, endKey []byte, limit int, startTS uint64, f ScanFunc) error {
+func (r *DBReader) ReverseScan(startKey, endKey []byte, limit int, startTS uint64, proc ScanProcessor) error {
+	skipValue := proc.SkipValue()
 	iter := r.getReverseIter()
 	var cnt int
 	for iter.Seek(endKey); iter.Valid(); iter.Next() {
@@ -194,23 +205,24 @@ func (r *DBReader) ReverseScan(startKey, endKey []byte, limit int, startTS uint6
 		if bytes.Compare(key, startKey) < 0 {
 			break
 		}
-		var val []byte
 		var err error
 		if mvcc.DBUserMeta(item.UserMeta()).CommitTS() > startTS {
-			val, err = r.getOldValue(mvcc.EncodeOldKey(key, startTS))
-			if err == badger.ErrKeyNotFound {
+			item, err = r.getOldItem(mvcc.EncodeOldKey(key, startTS))
+			if err != nil {
 				continue
 			}
-		} else {
-			val, err = item.Value()
 		}
-		if err != nil {
-			return errors.Trace(err)
-		}
-		if len(val) == 0 {
+		if item.IsEmpty() {
 			continue
 		}
-		err = f(key, val)
+		var val []byte
+		if !skipValue {
+			val, err = item.Value()
+			if err != nil {
+				return errors.Trace(err)
+			}
+		}
+		err = proc.Process(key, val)
 		if err != nil {
 			if err == ScanBreak {
 				break

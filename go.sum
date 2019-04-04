@@ -14,6 +14,8 @@ github.com/codahale/hdrhistogram v0.0.0-20161010025455-3a0bb77429bd h1:qMd81Ts1T
 github.com/codahale/hdrhistogram v0.0.0-20161010025455-3a0bb77429bd/go.mod h1:sE/e/2PUdi/liOCUjSTXgM1o87ZssimdTWN964YiIeI=
 github.com/coocood/badger v0.0.0-20190305091133-b847f4303993 h1:r4hjyvw7h0ZMDcvEXKc2Rl47z7FgFJyXZ7kgQBDcInw=
 github.com/coocood/badger v0.0.0-20190305091133-b847f4303993/go.mod h1:0ZAjZotZ/BYlG9IKm5BKvsAGaVaIT1jrDefwJE8kB+c=
+github.com/coocood/badger v0.0.0-20190404050323-c22705509a6a h1:e9ZU+9hbebI1yKrqNRfUt8sj1xR2ttCYBvW8/7x/x0E=
+github.com/coocood/badger v0.0.0-20190404050323-c22705509a6a/go.mod h1:0ZAjZotZ/BYlG9IKm5BKvsAGaVaIT1jrDefwJE8kB+c=
 github.com/coocood/badger v1.5.0/go.mod h1:5kK93cEvzGGDQSPoYhF9ZyTU0+ABUnMWh6vyBPadbYo=
 github.com/coocood/badger v1.5.1-0.20181115111105-250ee6037b80 h1:dJk40GVwhrc5ZHj6Tg07xF/1EZ6zFmyi3Kbxu18/QRI=
 github.com/coocood/badger v1.5.1-0.20181115111105-250ee6037b80/go.mod h1:5kK93cEvzGGDQSPoYhF9ZyTU0+ABUnMWh6vyBPadbYo=

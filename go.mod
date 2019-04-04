@@ -32,4 +32,4 @@ replace github.com/pingcap/tidb v0.0.0-20181130082510-08f0168a6cae => github.com
 
 replace go.etcd.io/etcd => github.com/zhangjinpeng1987/etcd v0.0.0-20190226085253-137eac022b64
 
-replace github.com/coocood/badger => github.com/coocood/badger v0.0.0-20190305091133-b847f4303993
+replace github.com/coocood/badger => github.com/coocood/badger v0.0.0-20190404050323-c22705509a6a

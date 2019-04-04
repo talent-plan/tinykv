@@ -217,30 +217,18 @@ func (e *tableScanExec) fillRowsFromRange(ran kv.KeyRange) error {
 			e.seekKey = ran.StartKey
 		}
 	}
-	var lastKey []byte
-	scanFunc := func(key, value []byte) error {
-		lastKey = key
-		handle, err := decodeRowKey(key)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		row, err := getRowData(e.Columns, e.colIDs, handle, safeCopy(value))
-		if err != nil {
-			return errors.Trace(err)
-		}
-		e.rows = append(e.rows, row)
-		return nil
-	}
+	scanProc := &tableScanExecProcessor{tableScanExec: e}
 	reader := e.reqCtx.getDBReader()
 	var err error
 	if e.Desc {
-		err = reader.ReverseScan(ran.StartKey, e.seekKey, scanLimit, e.startTS, scanFunc)
+		err = reader.ReverseScan(ran.StartKey, e.seekKey, scanLimit, e.startTS, scanProc)
 	} else {
-		err = reader.Scan(e.seekKey, ran.EndKey, scanLimit, e.startTS, scanFunc)
+		err = reader.Scan(e.seekKey, ran.EndKey, scanLimit, e.startTS, scanProc)
 	}
 	if err != nil {
 		return errors.Trace(err)
 	}
+	lastKey := scanProc.lastKey
 	if lastKey == nil {
 		return nil
 	}
@@ -249,6 +237,26 @@ func (e *tableScanExec) fillRowsFromRange(ran kv.KeyRange) error {
 	} else {
 		e.seekKey = []byte(kv.Key(lastKey).PrefixNext())
 	}
+	return nil
+}
+
+type tableScanExecProcessor struct {
+	skipVal
+	*tableScanExec
+	lastKey []byte
+}
+
+func (e *tableScanExecProcessor) Process(key, value []byte) error {
+	e.lastKey = key
+	handle, err := decodeRowKey(key)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	row, err := getRowData(e.Columns, e.colIDs, handle, safeCopy(value))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	e.rows = append(e.rows, row)
 	return nil
 }
 
@@ -450,26 +458,18 @@ func (e *indexScanExec) fillRowsFromRange(ran kv.KeyRange) error {
 			e.seekKey = ran.StartKey
 		}
 	}
-	var lastKey []byte
-	scanFunc := func(key, value []byte) error {
-		lastKey = key
-		row, err := e.decodeIndexKV(safeCopy(key), value)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		e.rows = append(e.rows, row)
-		return nil
-	}
+	scanProc := &indexScanExecProcessor{indexScanExec: e}
 	var err error
 	reader := e.reqCtx.getDBReader()
 	if e.Desc {
-		err = reader.ReverseScan(ran.StartKey, e.seekKey, scanLimit, e.startTS, scanFunc)
+		err = reader.ReverseScan(ran.StartKey, e.seekKey, scanLimit, e.startTS, scanProc)
 	} else {
-		err = reader.Scan(e.seekKey, ran.EndKey, scanLimit, e.startTS, scanFunc)
+		err = reader.Scan(e.seekKey, ran.EndKey, scanLimit, e.startTS, scanProc)
 	}
 	if err != nil {
 		return errors.Trace(err)
 	}
+	lastKey := scanProc.lastKey
 	if lastKey == nil {
 		return nil
 	}
@@ -478,6 +478,22 @@ func (e *indexScanExec) fillRowsFromRange(ran kv.KeyRange) error {
 	} else {
 		e.seekKey = []byte(kv.Key(lastKey).PrefixNext())
 	}
+	return nil
+}
+
+type indexScanExecProcessor struct {
+	skipVal
+	*indexScanExec
+	lastKey []byte
+}
+
+func (e *indexScanExecProcessor) Process(key, value []byte) error {
+	e.lastKey = key
+	row, err := e.decodeIndexKV(safeCopy(key), value)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	e.rows = append(e.rows, row)
 	return nil
 }
 

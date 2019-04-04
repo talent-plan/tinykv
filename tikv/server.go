@@ -165,32 +165,38 @@ func (svr *Server) KvScan(ctx context.Context, req *kvrpcpb.ScanRequest) (*kvrpc
 	if err != nil {
 		return &kvrpcpb.ScanResponse{Pairs: []*kvrpcpb.KvPair{{Error: convertToKeyError(err)}}}, nil
 	}
-	var pairs []*kvrpcpb.KvPair
-	var buf []byte
-	var scanFunc = func(key, value []byte) error {
-		if isRowKey(key) {
-			buf, err = rowcodec.RowToOldRow(value, buf)
-			if err != nil {
-				return err
-			}
-			value = buf
-		}
-		pairs = append(pairs, &kvrpcpb.KvPair{
-			Key:   safeCopy(key),
-			Value: safeCopy(value),
-		})
-		return nil
-	}
+	var scanProc = &kvScanProcessor{}
 	reader := reqCtx.getDBReader()
-	err = reader.Scan(startKey, endKey, int(req.GetLimit()), req.GetVersion(), scanFunc)
+	err = reader.Scan(startKey, endKey, int(req.GetLimit()), req.GetVersion(), scanProc)
 	if err != nil {
-		pairs = append(pairs[:0], &kvrpcpb.KvPair{
+		scanProc.pairs = append(scanProc.pairs[:0], &kvrpcpb.KvPair{
 			Error: convertToKeyError(err),
 		})
 	}
 	return &kvrpcpb.ScanResponse{
-		Pairs: pairs,
+		Pairs: scanProc.pairs,
 	}, nil
+}
+
+type kvScanProcessor struct {
+	skipVal
+	buf   []byte
+	pairs []*kvrpcpb.KvPair
+}
+
+func (p *kvScanProcessor) Process(key, value []byte) (err error) {
+	if isRowKey(key) {
+		p.buf, err = rowcodec.RowToOldRow(value, p.buf)
+		if err != nil {
+			return err
+		}
+		value = p.buf
+	}
+	p.pairs = append(p.pairs, &kvrpcpb.KvPair{
+		Key:   safeCopy(key),
+		Value: safeCopy(value),
+	})
+	return nil
 }
 
 func (svr *Server) KvPrewrite(ctx context.Context, req *kvrpcpb.PrewriteRequest) (*kvrpcpb.PrewriteResponse, error) {
