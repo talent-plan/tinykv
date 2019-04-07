@@ -42,7 +42,7 @@ const (
 	MsgTypeFsmNormal  MsgType = 201
 	MsgTypeFsmControl MsgType = 202
 
-	MsgTypeApplyTask         MsgType = 301
+	MsgTypeApply             MsgType = 301
 	MsgTypeApplyRegistration MsgType = 302
 	MsgTypeApplyProposal     MsgType = 303
 	MsgTypeApplyCatchUpLogs  MsgType = 304
@@ -148,7 +148,7 @@ type MsgStoreClearRegionSizeInRange struct {
 }
 
 func newApplyMsg(apply *apply) Msg {
-	return Msg{Type: MsgTypeApplyTask, Data: apply}
+	return Msg{Type: MsgTypeApply, Data: apply}
 }
 
 func newRegistrationMsg(peer *Peer) Msg {

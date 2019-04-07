@@ -4,13 +4,15 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"sync/atomic"
+	"time"
+
+	"github.com/golang/protobuf/proto"
 	"github.com/ngaut/log"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/eraftpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
-	"sync/atomic"
-	"time"
 )
 
 const RaftInvalidIndex uint64 = 0
@@ -358,6 +360,16 @@ func findPeer(region *metapb.Region, storeID uint64) *metapb.Peer {
 	return nil
 }
 
+func removePeer(region *metapb.Region, storeID uint64) *metapb.Peer {
+	for i, peer := range region.Peers {
+		if peer.StoreId == storeID {
+			region.Peers = append(region.Peers[:i], region.Peers[i+1:]...)
+			return peer
+		}
+	}
+	return nil
+}
+
 func isVoteMessage(msg *eraftpb.Message) bool {
 	tp := msg.GetMsgType()
 	return tp == eraftpb.MessageType_MsgRequestVote || tp == eraftpb.MessageType_MsgRequestPreVote
@@ -455,4 +467,12 @@ func checkPeerID(req *raft_cmdpb.RaftCmdRequest, peerID uint64) error {
 		return nil
 	}
 	return errors.Errorf("mismatch peer id %d != %d", peer.Id, peerID)
+}
+
+func CloneMsg(origin, cloned proto.Message) error {
+	data, err := proto.Marshal(origin)
+	if err != nil {
+		return err
+	}
+	return proto.Unmarshal(data, cloned)
 }

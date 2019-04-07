@@ -1,7 +1,9 @@
 package raftstore
 
 import (
+	"bytes"
 	"fmt"
+	"github.com/coocood/badger"
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/tikv/mvcc"
@@ -10,6 +12,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
+	"github.com/pingcap/tidb/util/codec"
 	"github.com/uber-go/atomic"
 	"time"
 )
@@ -276,8 +279,9 @@ type applyContext struct {
 	timer            *time.Time
 	host             *CoprocessorHost
 	router           *applyRouter
-	notifier         *notifier
+	notifier         notifier
 	engines          *Engines
+	txn              *badger.Txn
 	cbs              []applyCallback
 	applyTaskResList []*applyTaskRes
 	execCtx          *applyExecContext
@@ -296,7 +300,7 @@ type applyContext struct {
 }
 
 func newApplyContext(tag string, host *CoprocessorHost, engines *Engines, router *applyRouter,
-	notifier *notifier, cfg *Config) *applyContext {
+	notifier notifier, cfg *Config) *applyContext {
 	return &applyContext{
 		tag:            tag,
 		host:           host,
@@ -384,12 +388,23 @@ func (ac *applyContext) deltaKeys() uint64 {
 	return uint64(len(ac.wb.entries)) - ac.wbLastKeys
 }
 
+func (ac *applyContext) getTxn() *badger.Txn {
+	if ac.txn == nil {
+		ac.txn = ac.engines.kv.db.NewTransaction(false)
+	}
+	return ac.txn
+}
+
 func (ac *applyContext) flush() {
 	// TODO: this check is too hacky, need to be more verbose and less buggy.
 	t := ac.timer
 	ac.timer = nil
 	if t == nil {
 		return
+	}
+	if ac.txn != nil {
+		ac.txn.Discard()
+		ac.txn = nil
 	}
 	// Write to engine
 	// raftsotre.sync-log = true means we need prevent data loss when power failure.
@@ -471,7 +486,7 @@ func shouldWriteToEngine(cmd *raft_cmdpb.RaftCmdRequest, wbKeys int) bool {
 type waitSourceMergeState struct {
 	/// All of the entries that need to continue to be applied after
 	/// the source peer has applied its logs.
-	pendingEntries []*eraftpb.Entry
+	pendingEntries []eraftpb.Entry
 	/// All of messages that need to continue to be handled after
 	/// the source peer has applied its logs and pending entries
 	/// are all handled.
@@ -561,7 +576,7 @@ func newApplyDelegate(reg *registration) *applyDelegate {
 }
 
 /// Handles all the committed_entries, namely, applies the committed entries.
-func (d *applyDelegate) handleRaftCommittedEntries(aCtx *applyContext, committedEntries []*eraftpb.Entry) {
+func (d *applyDelegate) handleRaftCommittedEntries(aCtx *applyContext, committedEntries []eraftpb.Entry) {
 	if len(committedEntries) == 0 {
 		return
 	}
@@ -572,7 +587,8 @@ func (d *applyDelegate) handleRaftCommittedEntries(aCtx *applyContext, committed
 	// commands again.
 	aCtx.committedCount += len(committedEntries)
 	var results []execResult
-	for i, entry := range committedEntries {
+	for i := range committedEntries {
+		entry := &committedEntries[i]
 		if d.pendingRemove {
 			// This peer is about to be destroyed, skip everything.
 			break
@@ -601,7 +617,7 @@ func (d *applyDelegate) handleRaftCommittedEntries(aCtx *applyContext, committed
 		case applyResultTypeWaitMergeResource:
 			readyToMerge := res.data.(*atomic.Uint64)
 			aCtx.committedCount -= len(committedEntries) - i
-			pendingEntries := make([]*eraftpb.Entry, 0, len(committedEntries)-i)
+			pendingEntries := make([]eraftpb.Entry, 0, len(committedEntries)-i)
 			// Note that CommitMerge is skipped when `WaitMergeSource` is returned.
 			// So we need to enqueue it again and execute it again when resuming.
 			pendingEntries = append(pendingEntries, committedEntries[i:]...)
@@ -720,7 +736,7 @@ func (d *applyDelegate) processRaftCmd(aCtx *applyContext, index, term uint64, c
 	if cmd.AdminRequest != nil {
 		aCtx.syncLogHint = true
 	}
-	isConfChange := getChangePeerCmd(cmd) != nil
+	isConfChange := GetChangePeerCmd(cmd) != nil
 	aCtx.host.preApply(d.region, cmd)
 	resp, result := d.applyRaftCmd(aCtx, index, term, cmd)
 	if result.tp == applyResultTypeWaitMergeResource {
@@ -1037,34 +1053,299 @@ func (d *applyDelegate) createWriteCmdOps(requests []*raft_cmdpb.Request) (ops w
 }
 
 func (d *applyDelegate) execPrewrite(aCtx *applyContext, op prewriteOp) {
-	return // TODO; stub
+	_, rawKey, err := codec.DecodeBytes(op.putLock.Key, nil)
+	if err != nil {
+		panic(op.putLock.Key)
+	}
+	lock, err := mvcc.ParseLockCFValue(op.putLock.Value)
+	if err != nil {
+		panic(op.putLock.Value)
+	}
+	txn := aCtx.getTxn()
+	if item, err := txn.Get(rawKey); err == nil {
+		val, err1 := item.Value()
+		if err1 != nil {
+			panic(err1)
+		}
+		lock.HasOldVer = true
+		lock.OldMeta = item.UserMeta()
+		lock.OldVal = val
+	}
+	if op.putDefault != nil {
+		lock.Value = op.putDefault.Value
+	}
+	aCtx.wb.SetLock(rawKey, lock.MarshalBinary())
+	return
 }
 
 func (d *applyDelegate) execCommit(aCtx *applyContext, op commitOp) {
-	return // TODO: stub
+	remain, rawKey, err := codec.DecodeBytes(op.putWrite.Key, nil)
+	if err != nil {
+		panic(op.putWrite.Key)
+	}
+	_, commitTS, err := codec.DecodeUintDesc(remain)
+	if err != nil {
+		panic(remain)
+	}
+	val := aCtx.engines.kv.lockStore.Get(rawKey, nil)
+	y.Assert(len(val) > 0)
+	lock := mvcc.DecodeLock(val)
+	userMeta := mvcc.NewDBUserMeta(lock.StartTS, commitTS)
+	aCtx.wb.SetWithUserMeta(rawKey, lock.Value, userMeta)
+	if lock.HasOldVer {
+		oldKey := mvcc.EncodeOldKey(rawKey, lock.OldMeta.CommitTS())
+		aCtx.wb.SetWithUserMeta(oldKey, lock.OldVal, lock.OldMeta.ToOldUserMeta(commitTS))
+	}
+	return
 }
 
 func (d *applyDelegate) execRollback(aCtx *applyContext, op rollbackOp) {
-	return // TODO: stub
+	remain, rawKey, err := codec.DecodeBytes(op.putWrite.Key, nil)
+	if err != nil {
+		panic(op.putWrite.Key)
+	}
+	aCtx.wb.Rollback(append(rawKey, remain...))
+	if op.delLock != nil {
+		aCtx.wb.DeleteLock(rawKey)
+	}
+	return
 }
 
 func (d *applyDelegate) execDeleteRange(aCtx *applyContext, req *raft_cmdpb.DeleteRangeRequest) {
-	return // TODO: stub
+	_, startKey, err := codec.DecodeBytes(req.StartKey, nil)
+	if err != nil {
+		panic(req.StartKey)
+	}
+	_, endKey, err := codec.DecodeBytes(req.EndKey, nil)
+	if err != nil {
+		panic(req.EndKey)
+	}
+	txn := aCtx.getTxn()
+	var opt badger.IteratorOptions
+	opt.PrefetchValues = false
+	opt.StartKey = startKey
+	opt.EndKey = endKey
+	it := txn.NewIterator(opt)
+	for it.Seek(startKey); it.Valid(); it.Next() {
+		item := it.Item()
+		if bytes.Compare(item.Key(), endKey) >= 0 {
+			break
+		}
+		aCtx.wb.Delete(item.KeyCopy(nil))
+	}
+	it.Close()
+	oldStartKey := mvcc.EncodeOldKey(startKey, 0)
+	oldEndKey := mvcc.EncodeOldKey(endKey, 0)
+	opt.StartKey = oldStartKey
+	opt.EndKey = oldEndKey
+	it = txn.NewIterator(opt)
+	for it.Seek(oldStartKey); it.Valid(); it.Next() {
+		item := it.Item()
+		if bytes.Compare(item.Key(), oldEndKey) >= 0 {
+			break
+		}
+		aCtx.wb.Delete(item.KeyCopy(nil))
+	}
+	lockIt := aCtx.engines.kv.lockStore.NewIterator()
+	for lockIt.Seek(startKey); lockIt.Valid(); lockIt.Next() {
+		if bytes.Compare(lockIt.Key(), endKey) >= 0 {
+			break
+		}
+		aCtx.wb.DeleteLock(safeCopy(lockIt.Key()))
+	}
+	return
 }
 
 func (d *applyDelegate) execChangePeer(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
 	resp *raft_cmdpb.AdminResponse, result applyResult, err error) {
-	return // TODO: stub
+	request := req.ChangePeer
+	peer := request.Peer
+	storeID := peer.StoreId
+	changeType := request.ChangeType
+	region := new(metapb.Region)
+	err = CloneMsg(d.region, region)
+	if err != nil {
+		return
+	}
+	log.Infof("%s exec ConfChange, peer_id %d, type %s, epoch %s",
+		d.tag, peer.Id, changeType, region.RegionEpoch)
+
+	// TODO: we should need more check, like peer validation, duplicated id, etc.
+	region.RegionEpoch.ConfVer++
+
+	switch changeType {
+	case eraftpb.ConfChangeType_AddNode:
+		var exist bool
+		if p := findPeer(region, storeID); p != nil {
+			exist = true
+			if !p.IsLearner || p.Id != peer.Id {
+				errMsg := fmt.Sprintf("%s can't add duplicated peer, peer %s, region %s",
+					d.tag, p, d.region)
+				log.Error(errMsg)
+				err = errors.New(errMsg)
+				return
+			}
+			p.IsLearner = false
+		}
+		if !exist {
+			// TODO: Do we allow adding peer in same node?
+			region.Peers = append(region.Peers, peer)
+		}
+		log.Infof("%s add peer successfully, peer %s, region %s", d.tag, peer, d.region)
+	case eraftpb.ConfChangeType_RemoveNode:
+		if p := removePeer(region, storeID); p != nil {
+			if !PeerEqual(p, peer) {
+				errMsg := fmt.Sprintf("%s ignore remove unmatched peer, expected_peer %s, got_peer %s",
+					d.tag, peer, p)
+				log.Error(errMsg)
+				err = errors.New(errMsg)
+				return
+			}
+			if d.id == peer.Id {
+				// Remove ourself, we will destroy all region data later.
+				// So we need not to apply following logs.
+				d.stopped = true
+				d.pendingRemove = true
+			}
+		} else {
+			errMsg := fmt.Sprintf("%s removing missing peers, peer %s, region %s",
+				d.tag, peer, d.region)
+			log.Error(errMsg)
+			err = errors.New(errMsg)
+			return
+		}
+		log.Infof("%s remove peer successfully, peer %s, region %s", d.tag, peer, d.region)
+	case eraftpb.ConfChangeType_AddLearnerNode:
+		if findPeer(region, storeID) != nil {
+			errMsg := fmt.Sprintf("%s can't add duplicated learner, peer %s, region %s",
+				d.tag, peer, d.region)
+			log.Error(errMsg)
+			err = errors.New(errMsg)
+			return
+		}
+		region.Peers = append(region.Peers, peer)
+		log.Infof("%s add learner successfully, peer %s, region %s", d.tag, peer, d.region)
+	}
+	state := rspb.PeerState_Normal
+	if d.pendingRemove {
+		state = rspb.PeerState_Tombstone
+	}
+	WritePeerState(aCtx.wb, region, state, nil)
+	resp = &raft_cmdpb.AdminResponse{
+		ChangePeer: &raft_cmdpb.ChangePeerResponse{
+			Region: region,
+		},
+	}
+	result = applyResult{
+		tp: applyResultTypeExecResult,
+		data: &execResultChangePeer{
+			cp: changePeer{
+				confChange: new(eraftpb.ConfChange),
+				region:     region,
+				peer:       peer,
+			},
+		},
+	}
+	return
 }
 
 func (d *applyDelegate) execSplit(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
 	resp *raft_cmdpb.AdminResponse, result applyResult, err error) {
-	return // TODO: stub
+	split := req.Split
+	adminReq := &raft_cmdpb.AdminRequest{
+		Splits: &raft_cmdpb.BatchSplitRequest{
+			Requests:    []*raft_cmdpb.SplitRequest{split},
+			RightDerive: split.RightDerive,
+		},
+	}
+	// This method is executed only when there are unapplied entries after being restarted.
+	// So there will be no callback, it's OK to return a response that does not matched
+	// with its request.
+	return d.execBatchSplit(aCtx, adminReq)
 }
 
 func (d *applyDelegate) execBatchSplit(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
 	resp *raft_cmdpb.AdminResponse, result applyResult, err error) {
-	return // TODO: stub
+	splitReqs := req.Splits
+	rightDerive := splitReqs.RightDerive
+	if len(splitReqs.Requests) == 0 {
+		err = errors.New("missing split key")
+		return
+	}
+	derived := new(metapb.Region)
+	if err := CloneMsg(d.region, derived); err != nil {
+		panic(err)
+	}
+	newRegionCnt := len(splitReqs.Requests)
+	regions := make([]*metapb.Region, 0, newRegionCnt+1)
+	keys := make([][]byte, 0, newRegionCnt+1)
+	keys = append(keys, derived.StartKey)
+	for _, request := range splitReqs.Requests {
+		splitKey := request.SplitKey
+		if len(splitKey) == 0 {
+			err = errors.New("missing split key")
+			return
+		}
+		if bytes.Compare(splitKey, keys[len(keys)-1]) <= 0 {
+			err = errors.Errorf("invalid split request:%s", splitReqs)
+			return
+		}
+		if len(request.NewPeerIds) != len(derived.Peers) {
+			err = errors.Errorf("invalid new peer id count, need %d but got %d",
+				len(derived.Peers), len(request.NewPeerIds))
+			return
+		}
+		keys = append(keys, splitKey)
+	}
+	keys = append(keys, derived.EndKey)
+	err = CheckKeyInRegion(keys[len(keys)-2], d.region)
+	if err != nil {
+		return
+	}
+	log.Infof("%s split region %s, keys %v", d.tag, d.region, keys)
+	derived.RegionEpoch.Version += uint64(newRegionCnt)
+	// Note that the split requests only contain ids for new regions, so we need
+	// to handle new regions and old region separately.
+	if !rightDerive {
+		derived.EndKey = keys[1]
+		keys = keys[1:]
+		regions = append(regions, derived)
+	}
+	for i, request := range splitReqs.Requests {
+		newRegion := &metapb.Region{
+			Id:          request.NewRegionId,
+			RegionEpoch: derived.RegionEpoch,
+			StartKey:    keys[i],
+			EndKey:      keys[i+1],
+		}
+		newRegion.Peers = make([]*metapb.Peer, len(derived.Peers))
+		for j := range newRegion.Peers {
+			newRegion.Peers[j] = &metapb.Peer{
+				Id:        request.NewPeerIds[j],
+				StoreId:   derived.Peers[j].StoreId,
+				IsLearner: derived.Peers[j].IsLearner,
+			}
+		}
+		WritePeerState(aCtx.wb, newRegion, rspb.PeerState_Normal, nil)
+		writeInitialApplyState(aCtx.wb, newRegion.Id)
+		regions = append(regions, newRegion)
+	}
+	if rightDerive {
+		derived.StartKey = keys[len(keys)-2]
+		regions = append(regions, derived)
+	}
+	WritePeerState(aCtx.wb, derived, rspb.PeerState_Normal, nil)
+
+	resp = &raft_cmdpb.AdminResponse{
+		Splits: &raft_cmdpb.BatchSplitResponse{
+			Regions: regions,
+		},
+	}
+	result = applyResult{tp: applyResultTypeExecResult, data: &execResultSplitRegion{
+		regions: regions,
+		derived: derived,
+	}}
+	return
 }
 
 func (d *applyDelegate) execPrepareMerge(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
@@ -1084,28 +1365,62 @@ func (d *applyDelegate) execRollbackMerge(aCtx *applyContext, req *raft_cmdpb.Ad
 
 func (d *applyDelegate) execCompactLog(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
 	resp *raft_cmdpb.AdminResponse, result applyResult, err error) {
-	return // TODO: stub
+	compactIndex := req.CompactLog.CompactIndex
+	resp = new(raft_cmdpb.AdminResponse)
+	applyState := aCtx.execCtx.applyState
+	firstIndex := firstIndex(applyState)
+	if compactIndex <= firstIndex {
+		log.Debugf("%s compact index <= first index, no need to compact", d.tag)
+		return
+	}
+	if d.isMerging {
+		log.Debugf("%s in merging mode, skip compact", d.tag)
+		return
+	}
+	compactTerm := req.CompactLog.CompactTerm
+	if compactTerm == 0 {
+		log.Infof("%s compact term missing, skip", d.tag)
+		// old format compact log command, safe to ignore.
+		err = errors.New("command format is outdated, please upgrade leader")
+		return
+	}
+
+	// compact failure is safe to be omitted, no need to assert.
+	err = CompactRaftLog(d.tag, &applyState, compactIndex, compactTerm)
+	if err != nil {
+		return
+	}
+	result = applyResult{tp: applyResultTypeExecResult, data: &execResultCompactLog{
+		truncatedIndex: applyState.truncatedIndex,
+		firstIndex:     firstIndex,
+	}}
+	return
 }
 
 func (d *applyDelegate) execComputeHash(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
 	resp *raft_cmdpb.AdminResponse, result applyResult, err error) {
-	return // TODO: stub
+	resp = new(raft_cmdpb.AdminResponse)
+	result = applyResult{tp: applyResultTypeExecResult, data: &execResultComputeHash{
+		region: d.region,
+		index:  aCtx.execCtx.index,
+		// This snapshot may be held for a long time, which may cause too many
+		// open files in rocksdb.
+		// TODO: figure out another way to do consistency check without snapshot
+		// or short life snapshot.
+		snap: NewDBSnapshot(aCtx.engines.kv),
+	}}
+	return
 }
 
 func (d *applyDelegate) execVerifyHash(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
 	resp *raft_cmdpb.AdminResponse, result applyResult, err error) {
-	return // TODO: stub
-}
-
-func getChangePeerCmd(msg *raft_cmdpb.RaftCmdRequest) *raft_cmdpb.ChangePeerRequest {
-	return nil // TODO: stub
-}
-
-/// Updates the `state` with given `compact_index` and `compact_term`.
-///
-/// Remember the Raft log is not deleted here.
-func compactRaftLog(tag string, state *applyState, compactIndex, compactTerm uint64) error {
-	return nil // TODO: stub
+	verifyReq := req.VerifyHash
+	resp = new(raft_cmdpb.AdminResponse)
+	result = applyResult{tp: applyResultTypeExecResult, data: &execResultVerifyHash{
+		index: verifyReq.Index,
+		hash:  verifyReq.Hash,
+	}}
+	return
 }
 
 type catchUpLogs struct {
@@ -1124,11 +1439,22 @@ type applyPollerBuilder struct {
 }
 
 func newApplyPollerBuilder(raftPollerBuilder *raftPollerBuilder, sender notifier, router *applyRouter) *applyPollerBuilder {
-	return nil // TODO: stub
+	return &applyPollerBuilder{
+		tag:             fmt.Sprintf("[store %d]", raftPollerBuilder.store.Id),
+		cfg:             raftPollerBuilder.cfg,
+		coprocessorHost: raftPollerBuilder.coprocessorHost,
+		engines:         raftPollerBuilder.engines,
+		sender:          sender,
+		router:          router,
+	}
 }
 
 func (b *applyPollerBuilder) build() pollHandler {
-	return nil // TODO: stub
+	return &applyPoller{
+		msgBuf:          make([]Msg, 0, b.cfg.MessagesPerTick),
+		aCtx:            newApplyContext(b.tag, b.coprocessorHost, b.engines, b.router, b.sender, b.cfg),
+		messagesPerTick: int(b.cfg.MessagesPerTick),
+	}
 }
 
 type applyFsm struct {
@@ -1138,35 +1464,98 @@ type applyFsm struct {
 }
 
 func newApplyFsmFromPeer(peer *peerFsm) (chan<- Msg, fsm) {
-	return nil, nil // TODO: stub
+	reg := newRegistration(peer.peer)
+	return newApplyFsmFromRegistration(reg)
 }
 
 func newApplyFsmFromRegistration(reg *registration) (chan<- Msg, fsm) {
-	return nil, nil // TODO: stub
+	ch := make(chan Msg, msgDefaultChanSize)
+	delegate := newApplyDelegate(reg)
+	aFsm := &applyFsm{
+		applyDelegate: *delegate,
+		receiver:      ch,
+	}
+	return ch, aFsm
 }
 
 /// Handles peer registration. When a peer is created, it will register an apply delegate.
 func (a *applyFsm) handleRegistration(reg *registration) {
-	// TODO: stub
+	log.Infof("%s re-register to apply delegate, term %d", a.tag, reg.term)
+	y.Assert(a.id == reg.id)
+	a.term = reg.term
+	a.clearAllCommandsAsStale()
+	a.applyDelegate = *newApplyDelegate(reg)
 }
 
 /// Handles apply tasks, and uses the apply delegate to handle the committed entries.
 func (a *applyFsm) handleApply(aCtx *applyContext, apply *apply) {
-	// TODO: stub
+	if aCtx.timer == nil {
+		now := time.Now()
+		aCtx.timer = &now
+	}
+	if len(apply.entries) == 0 || a.pendingRemove || a.stopped {
+		return
+	}
+	a.metrics = applyMetrics{}
+	a.term = apply.term
+	a.handleRaftCommittedEntries(aCtx, apply.entries)
+	if a.waitMergeState != nil {
+		return
+	}
+	if a.pendingRemove {
+		a.destroy(aCtx)
+	}
 }
 
 /// Handles proposals, and appends the commands to the apply delegate.
 func (a *applyFsm) handleProposal(regionProposal *regionProposal) {
-	// TODO: stub
+	regionID, peerID := a.region.Id, a.id
+	y.Assert(a.id == regionProposal.Id)
+	if a.stopped {
+		for _, p := range regionProposal.Props {
+			cmd := pendingCmd{index: p.index, term: p.term, cb: p.cb}
+			notifyStaleCommand(regionID, peerID, a.term, cmd)
+		}
+		return
+	}
+	for _, p := range regionProposal.Props {
+		cmd := pendingCmd{index: p.index, term: p.term, cb: p.cb}
+		if p.isConfChange {
+			if confCmd := a.pendingCmds.takeConfChange(); confCmd != nil {
+				// if it loses leadership before conf change is replicated, there may be
+				// a stale pending conf change before next conf change is applied. If it
+				// becomes leader again with the stale pending conf change, will enter
+				// this block, so we notify leadership may have been changed.
+				notifyStaleCommand(regionID, peerID, a.term, *confCmd)
+			}
+			a.pendingCmds.setConfChange(&cmd)
+		} else {
+			a.pendingCmds.appendNormal(cmd)
+		}
+	}
 }
 
 func (a *applyFsm) destroy(aCtx *applyContext) {
-	// TODO: stub
+	regionID := a.region.Id
+	for _, res := range aCtx.applyTaskResList {
+		if res.regionID == regionID {
+			// Flush before destroying to avoid reordering messages.
+			aCtx.flush()
+		}
+	}
+	log.Infof("%s remove delegate from apply delegate", a.tag)
+	a.applyDelegate.destroy(aCtx)
 }
 
 /// Handles peer destroy. When a peer is destroyed, the corresponding apply delegate should be removed too.
 func (a *applyFsm) handleDestroy(aCtx *applyContext, regionID uint64) {
-	// TODO: stub
+	if !a.stopped {
+		a.destroy(aCtx)
+		aCtx.notifier.notify(regionID, NewPeerMsg(MsgTypeApplyRes, a.region.Id, &applyTaskRes{
+			regionID:      a.region.Id,
+			destroyPeerID: a.id,
+		}))
+	}
 }
 
 func (a *applyFsm) resumePendingMerge(aCtx *applyContext) bool {
@@ -1178,7 +1567,25 @@ func (a *applyFsm) catchUpLogsForMerge(aCtx *applyContext, logs *catchUpLogs) {
 }
 
 func (a *applyFsm) handleTasks(aCtx *applyContext, msgs []Msg) {
-	// TODO: stub
+	for i, msg := range msgs {
+		switch msg.Type {
+		case MsgTypeApply:
+			a.handleApply(aCtx, msg.Data.(*apply))
+			if a.waitMergeState != nil {
+				a.waitMergeState.pendingMsgs = msgs[i+1:]
+				break
+			}
+		case MsgTypeApplyProposal:
+			a.handleProposal(msg.Data.(*regionProposal))
+		case MsgTypeApplyRegistration:
+			a.handleRegistration(msg.Data.(*registration))
+		case MsgTypeApplyDestroy:
+			a.handleDestroy(aCtx, msg.Data.(uint64))
+		case MsgTypeApplyCatchUpLogs:
+			a.catchUpLogsForMerge(aCtx, msg.Data.(*catchUpLogs))
+		case MsgTypeApplyLogsUpToDate:
+		}
+	}
 }
 
 func (a *applyFsm) isStopped() bool {
@@ -1198,7 +1605,7 @@ func (a *applyFsm) takeMailbox() *mailbox {
 type applyPoller struct {
 	msgBuf          []Msg
 	aCtx            *applyContext
-	messagesPerTick uint64
+	messagesPerTick int
 }
 
 func (p *applyPoller) begin(batchSize int) {}
@@ -1209,13 +1616,36 @@ func (p *applyPoller) handleControl(control fsm) (pause bool, chLen int) {
 }
 
 func (p *applyPoller) handleNormal(normal fsm) (pause bool, chLen int) {
-	return // TODO: stub
+	applyFsm := normal.(*applyFsm)
+	receiverLen := len(applyFsm.receiver)
+	if applyFsm.waitMergeState != nil {
+		// We need to query the length first, otherwise there is a race
+		// condition that new messages are queued after resuming and before
+		// query the length.
+		if !applyFsm.resumePendingMerge(p.aCtx) {
+			return true, receiverLen
+		}
+	}
+	numToRecv := p.messagesPerTick - len(p.msgBuf)
+	if numToRecv >= receiverLen {
+		numToRecv = receiverLen
+	}
+	for i := 0; i < numToRecv; i++ {
+		p.msgBuf = append(p.msgBuf, <-applyFsm.receiver)
+	}
+	applyFsm.handleTasks(p.aCtx, p.msgBuf)
+	if applyFsm.merged {
+		applyFsm.destroy(p.aCtx)
+	}
+	return false, 0
 }
 
 func (p *applyPoller) end(fsms []fsm) {
-	// TODO: stub
+	p.aCtx.flush()
 }
 
 func createApplyBatchSystem(cfg *Config) (*applyRouter, *batchSystem) {
-	return nil, nil // TODO: stub
+	router, system := createBatchSystem(int(cfg.ApplyPoolSize), int(cfg.ApplyMaxBatchSize), nil, nil)
+	applyRouter := &applyRouter{router: *router}
+	return applyRouter, system
 }
