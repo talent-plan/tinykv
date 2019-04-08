@@ -3,6 +3,7 @@ package tikv
 import (
 	"fmt"
 	"github.com/coocood/badger"
+	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -130,7 +131,7 @@ func createTestDB(settings settings, idx int) (db *badger.DB, err error) {
 
 func makeTestStore(settings settings) (testStore *TestStore, err error) {
 	if settings.shardKey {
-		EnableSharding()
+		mvcc.EnableSharding()
 	}
 	safePoint := &SafePoint{}
 	dbs := make([]*badger.DB, settings.numDb)

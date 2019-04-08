@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"github.com/dgryski/go-farm"
 	"github.com/ngaut/unistore/rowcodec"
+	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/tablecodec"
@@ -48,35 +49,35 @@ func safeCopy(b []byte) []byte {
 }
 
 func isRowKey(key []byte) bool {
-	if IsShardingEnabled() {
+	if mvcc.IsShardingEnabled() {
 		return rowcodec.IsRowKeyWithShardByte(key)
 	}
 	return rowcodec.IsRowKey(key)
 }
 
 func cutIndexKeyNew(key kv.Key, length int) (values [][]byte, b []byte, err error) {
-	if IsShardingEnabled() {
+	if mvcc.IsShardingEnabled() {
 		return tablecodec.CutIndexKeyNew(key, length)
 	}
 	return otablecodec.CutIndexKeyNew(key, length)
 }
 
 func decodeRowKey(key kv.Key) (int64, error) {
-	if IsShardingEnabled() {
+	if mvcc.IsShardingEnabled() {
 		return tablecodec.DecodeRowKey(key)
 	}
 	return otablecodec.DecodeRowKey(key)
 }
 
 func cutRowNew(data []byte, colIDs map[int64]int) ([][]byte, error) {
-	if IsShardingEnabled() {
+	if mvcc.IsShardingEnabled() {
 		return tablecodec.CutRowNew(data, colIDs)
 	}
 	return otablecodec.CutRowNew(data, colIDs)
 }
 
 func decodeColumnValue(data []byte, ft *types.FieldType, loc *time.Location) (types.Datum, error) {
-	if IsShardingEnabled() {
+	if mvcc.IsShardingEnabled() {
 		return tablecodec.DecodeColumnValue(data, ft, loc)
 	}
 	return otablecodec.DecodeColumnValue(data, ft, loc)

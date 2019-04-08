@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/ngaut/unistore/tikv/mvcc"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -58,7 +59,7 @@ func main() {
 	numDB := 2
 	if *shardKey {
 		numDB = 8
-		tikv.EnableSharding()
+		mvcc.EnableSharding()
 	}
 	safePoint := &tikv.SafePoint{}
 	dbs := make([]*badger.DB, numDB)

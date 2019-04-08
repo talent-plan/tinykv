@@ -3,6 +3,7 @@ package tikv
 import (
 	"bytes"
 	"encoding/binary"
+	"github.com/ngaut/unistore/tikv/mvcc"
 	"math/bits"
 	"strconv"
 	"sync"
@@ -165,7 +166,7 @@ var (
 )
 
 func (ri *regionCtx) getDBIdx() int {
-	if !isShardingEnabled {
+	if !mvcc.IsShardingEnabled() {
 		return 0
 	}
 	startKey := ri.startKey
@@ -329,7 +330,7 @@ func (rm *RegionManager) initialSplit(root *metapb.Region) {
 	root.RegionEpoch.Version = 2
 	rm.regions[root.Id] = newRegionCtx(root, nil)
 	var preSplitStartKeys [][]byte
-	if IsShardingEnabled() {
+	if mvcc.IsShardingEnabled() {
 		preSplitStartKeys = [][]byte{
 			{'m'},
 			{'n'},

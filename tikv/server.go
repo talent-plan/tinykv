@@ -18,16 +18,6 @@ import (
 	"golang.org/x/net/context"
 )
 
-var isShardingEnabled = false
-
-func IsShardingEnabled() bool {
-	return isShardingEnabled
-}
-
-func EnableSharding() {
-	isShardingEnabled = true
-}
-
 var _ tikvpb.TikvServer = new(Server)
 
 type Server struct {

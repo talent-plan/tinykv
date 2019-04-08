@@ -1,11 +1,14 @@
 package raftstore
 
 import (
+	"bytes"
 	"github.com/coocood/badger"
 	"github.com/ngaut/log"
+	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
+	otablecodec "github.com/pingcap/tidb/tablecodec/origin"
 	"github.com/zhangjinpeng1987/raft"
 )
 
@@ -97,8 +100,9 @@ func (checker *sizeSplitChecker) onKv(obCtx *observerContext, spCheckKeyEntry sp
 func (checker *sizeSplitChecker) getSplitKeys() [][]byte {
 	// Make sure not to split when less than maxSize for last part
 	if checker.currentSize+checker.splitSize < checker.maxSize {
-		if len(checker.splitKeys) != 0 {
-			checker.splitKeys = checker.splitKeys[:len(checker.splitKeys)-1]
+		splitKeyLen := len(checker.splitKeys)
+		if splitKeyLen != 0 {
+			checker.splitKeys = checker.splitKeys[:splitKeyLen-1]
 		}
 	}
 	keys := checker.splitKeys
@@ -321,27 +325,55 @@ func (observer *keysSplitCheckObserver) addChecker(obCtx *observerContext, host 
 }
 
 type tableSplitChecker struct {
-	firstEncodedTablePrefix []byte
 	splitKey                []byte
 	checkPolicy             pdpb.CheckPolicy
 }
 
-func newTableSplitChecker(firstEncodedTablePrefix, splitKey []byte, policy pdpb.CheckPolicy) *tableSplitChecker {
+func newTableSplitCheckerByPolicy(policy pdpb.CheckPolicy) *tableSplitChecker {
+	return &tableSplitChecker{checkPolicy: policy}
+}
+
+func newTableSplitChecker(splitKey []byte, policy pdpb.CheckPolicy) *tableSplitChecker {
 	return &tableSplitChecker{
-		firstEncodedTablePrefix: firstEncodedTablePrefix,
 		splitKey:                splitKey,
 		checkPolicy:             policy,
 	}
 }
 
+func isTableKey(encodedKey []byte) bool {
+	return len(encodedKey) >= otablecodec.TableSplitKeyLen
+}
+
+func isSameTable(leftKey, rightKey []byte) bool {
+	return bytes.Compare(leftKey[:otablecodec.TableSplitKeyLen], rightKey[:otablecodec.TableSplitKeyLen]) == 0
+}
+
+func extractTablePrefix(key []byte) []byte {
+	return key[:otablecodec.TableSplitKeyLen]
+}
+
+// Feed keys in order to find the split key.
 func (checker *tableSplitChecker) onKv(obCtx *observerContext, spCheckKeyEntry splitCheckKeyEntry) bool {
-	//Todo, currently it is a place holder
+	if len(checker.splitKey) != 0 {
+		return true
+	}
+	currentEncodedKey := OriginKey(spCheckKeyEntry.key)
+	var splitKey []byte
+	if isTableKey(currentEncodedKey) {
+		splitKey = currentEncodedKey
+	}
+	if len(splitKey) != 0 {
+		splitKey = extractTablePrefix(splitKey)
+		return true
+	}
 	return false
 }
 
 func (checker *tableSplitChecker) getSplitKeys() [][]byte {
-	//Todo, currently it is a place holder
-	return nil
+	if len(checker.splitKey) == 0 {
+		return nil
+	}
+	return [][]byte{checker.splitKey}
 }
 
 func (checker *tableSplitChecker) approximateSplitKeys(region *metapb.Region, db *badger.DB) ([][]byte, error) {
@@ -358,9 +390,42 @@ func (observer *tableSplitCheckObserver) start() {}
 
 func (observer *tableSplitCheckObserver) stop() {}
 
+func lastKeyOfRegion(db *badger.DB, region *metapb.Region) []byte {
+	startKey := EncStartKey(region)
+	endKey := EncEndKey(region)
+	txn := db.NewTransaction(false)
+	reader := dbreader.NewDBReader(startKey, endKey, txn, 0)
+	defer reader.Close()
+	ite := reader.GetIter()
+	if ite.Seek(endKey); ite.Valid() {
+		return ite.Item().KeyCopy(nil)
+	}
+	return nil
+}
+
 func (observer *tableSplitCheckObserver) addChecker(obCtx *observerContext, host *splitCheckerHost, db *badger.DB,
 	policy pdpb.CheckPolicy) {
-	//todo, currently it is just a placeholder
+	region := obCtx.region
+	if isSameTable(region.GetStartKey(), region.GetEndKey()) {
+		// Region is inside a table, skip for saving IO.
+		return
+	}
+	endKey := lastKeyOfRegion(db, region)
+	if len(endKey) == 0 {
+		return
+	}
+	encodedStartKey := region.GetStartKey()
+	encodedEndKey := OriginKey(endKey)
+	if isSameTable(encodedStartKey, encodedEndKey) {
+		// Same table
+		return
+	} else {
+		// Different tables.
+		// Note that table id does not grow by 1, so have to use encodedEndKey to extract a table prefix.
+		// See more: https://github.com/pingcap/tidb/issues/4727.
+		splitKey := extractTablePrefix(encodedEndKey)
+		host.addChecker(newTableSplitChecker(splitKey, policy))
+	}
 }
 
 type splitCheckerHost struct {
