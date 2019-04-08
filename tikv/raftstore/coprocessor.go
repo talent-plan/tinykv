@@ -282,13 +282,31 @@ func newKeysSplitChecker(maxKeysCount, splitThreshold, batchSplitLimit uint64,
 }
 
 func (checker *keysSplitChecker) onKv(obCtx *observerContext, spCheckKeyEntry splitCheckKeyEntry) bool {
-	//Todo, currently it is a place holder
-	return false
+	checker.currentCount += 1
+	overLimit := uint64(len(checker.splitKeys)) >= checker.batchSplitLimit
+	if checker.currentCount > checker.splitThreshold && !overLimit {
+		checker.splitKeys = append(checker.splitKeys, OriginKey(safeCopy(spCheckKeyEntry.key)))
+		// If for previous onKv(), checker.currentCount == checker.splitThreshold
+		// the split key would be pushed this time, but the entry size for this time should not be ignored.
+		checker.currentCount = 1
+		overLimit = uint64(len(checker.splitKeys)) >= checker.batchSplitLimit
+	}
+	// For a large region, scan over the range maybe cost too much time,
+	// so limit the number of produced splitKeys for one batch.
+	// Also need to scan over checker.maxSize for last part.
+	return overLimit && checker.currentCount+checker.splitThreshold >= checker.maxKeysCount
 }
 
 func (checker *keysSplitChecker) getSplitKeys() [][]byte {
-	//Todo, currently it is a place holder
-	return nil
+	// Make sure not to split when less than maxSize for last part
+	if checker.currentCount+checker.splitThreshold < checker.maxKeysCount {
+		if len(checker.splitKeys) != 0 {
+			checker.splitKeys = checker.splitKeys[:len(checker.splitKeys)-1]
+		}
+	}
+	keys := checker.splitKeys
+	checker.splitKeys = nil
+	return keys
 }
 
 func (checker *keysSplitChecker) approximateSplitKeys(region *metapb.Region, db *badger.DB) ([][]byte, error) {
@@ -320,9 +338,34 @@ func (observer *keysSplitCheckObserver) start() {}
 
 func (observer *keysSplitCheckObserver) stop() {}
 
+func getRegionApproximateKeys(db *badger.DB, region *metapb.Region) (uint64, error) {
+	// todo later, since badger doesn't support approximate memtable stats yet.
+	return 0, nil
+}
+
 func (observer *keysSplitCheckObserver) addChecker(obCtx *observerContext, host *splitCheckerHost, db *badger.DB,
 	policy pdpb.CheckPolicy) {
-	//todo, currently it is just a placeholder
+	region := obCtx.region
+	regionId := region.Id
+	regionKeys, err := getRegionApproximateKeys(db, region)
+	if err != nil {
+		log.Warnf("failed to get approximate keys. [regionId: %d, err: %v]", regionId, err)
+		host.addChecker(newKeysSplitChecker(observer.regionMaxKeys, observer.splitKeys, observer.batchSplitLimit, policy))
+		return
+	}
+	err = observer.router.send(regionId, NewPeerMsg(MsgTypeRegionApproximateKeys, regionId, regionKeys))
+	if err != nil {
+		log.Warnf("failed to send approximate region keys. [regionId: %d, err: %v]", regionId, err)
+	}
+	if regionKeys >= observer.regionMaxKeys {
+		log.Infof("approximate keys over threshold, need to do split check. [regionId: %d, keys: %d, threshold: %d",
+			regionId, regionKeys, observer.regionMaxKeys)
+		// Need to check keys.
+		host.addChecker(newKeysSplitChecker(observer.regionMaxKeys, observer.splitKeys, observer.batchSplitLimit, policy))
+	} else {
+		log.Debugf("approximate keys less than threshold, doesn't need to do split check. [regionId: %d, keys: %d, threshold: %d]",
+			regionId, regionKeys, observer.regionMaxKeys)
+	}
 }
 
 type tableSplitChecker struct {
@@ -512,8 +555,8 @@ func (c *CoprocessorHost) newSplitCheckerHost(region *metapb.Region, engine *bad
 	policy pdpb.CheckPolicy) *splitCheckerHost {
 	host := &splitCheckerHost{autoSplit: autoSplit}
 	ctx := &observerContext{region: region}
-	for _, server := range c.registry.splitCheckObservers {
-		server.addChecker(ctx, host, engine, policy)
+	for _, observer := range c.registry.splitCheckObservers {
+		observer.addChecker(ctx, host, engine, policy)
 		if ctx.bypass {
 			break
 		}

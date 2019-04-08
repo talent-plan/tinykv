@@ -227,17 +227,10 @@ func (r *splitCheckRunner) run(t task) {
 			return
 		}
 	case pdpb.CheckPolicy_APPROXIMATE:
-		if keys, err = host.approximateSplitKeys(region, r.engine); err != nil {
-			log.Errorf("failed to get approximate split key, try scan way: [regionId: %d, err : %v]",
-				regionId, err)
-			if keys, err = r.scanSplitKeys(host, region, startKey, endKey); err != nil {
-				log.Errorf("failed to scan split key: [regionId: %d, err: %v]", regionId, err)
-				return
-			}
-		} else {
-			for i, k := range keys {
-				keys[i] = OriginKey(k)
-			}
+		// todo, currently, use scan split keys as place holder.
+		if keys, err = r.scanSplitKeys(host, region, startKey, endKey); err != nil {
+			log.Errorf("failed to scan split key: [regionId: %d, err: %v]", regionId, err)
+			return
 		}
 	}
 	if len(keys) != 0 {
