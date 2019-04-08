@@ -2,13 +2,14 @@ package raftstore
 
 import (
 	"bytes"
+
 	"github.com/coocood/badger"
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
-	otablecodec "github.com/pingcap/tidb/tablecodec/origin"
+	"github.com/pingcap/tidb/tablecodec"
 	"github.com/zhangjinpeng1987/raft"
 )
 
@@ -325,8 +326,8 @@ func (observer *keysSplitCheckObserver) addChecker(obCtx *observerContext, host 
 }
 
 type tableSplitChecker struct {
-	splitKey                []byte
-	checkPolicy             pdpb.CheckPolicy
+	splitKey    []byte
+	checkPolicy pdpb.CheckPolicy
 }
 
 func newTableSplitCheckerByPolicy(policy pdpb.CheckPolicy) *tableSplitChecker {
@@ -335,21 +336,21 @@ func newTableSplitCheckerByPolicy(policy pdpb.CheckPolicy) *tableSplitChecker {
 
 func newTableSplitChecker(splitKey []byte, policy pdpb.CheckPolicy) *tableSplitChecker {
 	return &tableSplitChecker{
-		splitKey:                splitKey,
-		checkPolicy:             policy,
+		splitKey:    splitKey,
+		checkPolicy: policy,
 	}
 }
 
 func isTableKey(encodedKey []byte) bool {
-	return len(encodedKey) >= otablecodec.TableSplitKeyLen
+	return len(encodedKey) >= tablecodec.TableSplitKeyLen
 }
 
 func isSameTable(leftKey, rightKey []byte) bool {
-	return bytes.Compare(leftKey[:otablecodec.TableSplitKeyLen], rightKey[:otablecodec.TableSplitKeyLen]) == 0
+	return bytes.Compare(leftKey[:tablecodec.TableSplitKeyLen], rightKey[:tablecodec.TableSplitKeyLen]) == 0
 }
 
 func extractTablePrefix(key []byte) []byte {
-	return key[:otablecodec.TableSplitKeyLen]
+	return key[:tablecodec.TableSplitKeyLen]
 }
 
 // Feed keys in order to find the split key.

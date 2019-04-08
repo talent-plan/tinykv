@@ -21,8 +21,8 @@ import (
 // MVCCStore is a wrapper of badger.DB to provide MVCC functions.
 type MVCCStore struct {
 	dir             string
-	dbs             []*badger.DB
-	writeDBWorkers  []*writeDBWorker
+	db              *badger.DB
+	writeDBWorker   *writeDBWorker
 	lockStore       *lockstore.MemStore
 	rollbackStore   *lockstore.MemStore
 	writeLockWorker *writeLockWorker
@@ -37,33 +37,28 @@ type MVCCStore struct {
 }
 
 // NewMVCCStore creates a new MVCCStore
-func NewMVCCStore(dbs []*badger.DB, dataDir string, safePoint *SafePoint) *MVCCStore {
+func NewMVCCStore(db *badger.DB, dataDir string, safePoint *SafePoint) *MVCCStore {
 	ls := lockstore.NewMemStore(8 << 20)
 	rollbackStore := lockstore.NewMemStore(256 << 10)
 	closeCh := make(chan struct{})
 	store := &MVCCStore{
-		dbs:           dbs,
+		db:            db,
 		dir:           dataDir,
 		lockStore:     ls,
 		rollbackStore: rollbackStore,
-		writeLockWorker: &writeLockWorker{
-			batchCh: make(chan *writeLockBatch, batchChanSize),
-			closeCh: closeCh,
-		},
-		closeCh:   closeCh,
-		safePoint: safePoint,
+		closeCh:       closeCh,
+		safePoint:     safePoint,
 	}
-	workers := make([]*writeDBWorker, 8)
-	for i := 0; i < 8; i++ {
-		workers[i] = &writeDBWorker{
-			batchCh: make(chan *writeDBBatch, batchChanSize),
-			closeCh: closeCh,
-			store:   store,
-			idx:     i,
-		}
+	store.writeLockWorker = &writeLockWorker{
+		batchCh: make(chan *writeLockBatch, batchChanSize),
+		closeCh: closeCh,
+		store:   store,
 	}
-	store.writeDBWorkers = workers
-	store.writeLockWorker.store = store
+	store.writeDBWorker = &writeDBWorker{
+		batchCh: make(chan *writeDBBatch, batchChanSize),
+		closeCh: closeCh,
+		store:   store,
+	}
 	err := store.loadLocks()
 	if err != nil {
 		log.Fatal(err)
@@ -71,11 +66,8 @@ func NewMVCCStore(dbs []*badger.DB, dataDir string, safePoint *SafePoint) *MVCCS
 	store.loadSafePoint()
 
 	// mark worker count
-	store.wg.Add(len(store.writeDBWorkers) + 2)
-	// run all the workers
-	for _, worker := range store.writeDBWorkers {
-		go worker.run()
-	}
+	store.wg.Add(3)
+	go store.writeDBWorker.run()
 	go store.writeLockWorker.run()
 	go func() {
 		rbGCWorker := rollbackGCWorker{store: store}
@@ -86,7 +78,7 @@ func NewMVCCStore(dbs []*badger.DB, dataDir string, safePoint *SafePoint) *MVCCS
 }
 
 func (store *MVCCStore) loadSafePoint() {
-	err := store.dbs[0].View(func(txn *badger.Txn) error {
+	err := store.db.View(func(txn *badger.Txn) error {
 		item, err1 := txn.Get(InternalSafePointKey)
 		if err1 == badger.ErrKeyNotFound {
 			return nil
@@ -178,7 +170,7 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 				}
 				op = kvrpcpb.Op_Put
 			}
-			if isRowKey(m.Key) && op == kvrpcpb.Op_Put {
+			if rowcodec.IsRowKey(m.Key) && op == kvrpcpb.Op_Put {
 				buf, err = enc.EncodeFromOldRow(m.Value, buf)
 				if err != nil {
 					log.Errorf("err:%v m.Value:%v m.Key:%q m.Op:%d", err, m.Value, m.Key, m.Op)
@@ -290,7 +282,7 @@ func (store *MVCCStore) Commit(req *requestCtx, keys [][]byte, startTS, commitTS
 		}
 	}
 	atomic.AddInt64(&regCtx.diff, int64(tmpDiff))
-	err := store.writeDB(dbBatch, req.dbIdx)
+	err := store.writeDB(dbBatch)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -589,7 +581,7 @@ func (store *MVCCStore) ResolveLock(reqCtx *requestCtx, startTS, commitTS uint64
 	}
 	if dbBatch != nil {
 		atomic.AddInt64(&regCtx.diff, dbBatch.size())
-		err := store.writeDB(dbBatch, reqCtx.dbIdx)
+		err := store.writeDB(dbBatch)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -645,7 +637,7 @@ func (store *MVCCStore) deleteKeysInBatch(reqCtx *requestCtx, keys [][]byte, bat
 		}
 
 		regCtx.acquireLatches(hashVals)
-		err := store.writeDB(dbBatch, reqCtx.dbIdx)
+		err := store.writeDB(dbBatch)
 		regCtx.releaseLatches(hashVals)
 		if err != nil {
 			return errors.Trace(err)
@@ -660,7 +652,7 @@ func (store *MVCCStore) GC(reqCtx *requestCtx, safePoint uint64) error {
 	defer store.gcLock.Unlock()
 	oldSafePoint := atomic.LoadUint64(&store.safePoint.timestamp)
 	if oldSafePoint < safePoint {
-		err := store.dbs[0].Update(func(txn *badger.Txn) error {
+		err := store.db.Update(func(txn *badger.Txn) error {
 			safePointValue := make([]byte, 8)
 			binary.LittleEndian.PutUint64(safePointValue, safePoint)
 			return txn.Set(InternalSafePointKey, safePointValue)

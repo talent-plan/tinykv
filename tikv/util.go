@@ -2,15 +2,10 @@ package tikv
 
 import (
 	"bytes"
-	"github.com/dgryski/go-farm"
-	"github.com/ngaut/unistore/rowcodec"
-	"github.com/ngaut/unistore/tikv/mvcc"
-	"github.com/pingcap/kvproto/pkg/kvrpcpb"
-	"github.com/pingcap/tidb/kv"
-	"github.com/pingcap/tidb/tablecodec"
-	otablecodec "github.com/pingcap/tidb/tablecodec/origin"
-	"github.com/pingcap/tidb/types"
 	"time"
+
+	"github.com/dgryski/go-farm"
+	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 )
 
 func exceedEndKey(current, endKey []byte) bool {
@@ -46,39 +41,4 @@ func keysToHashVals(keys ...[]byte) []uint64 {
 
 func safeCopy(b []byte) []byte {
 	return append([]byte{}, b...)
-}
-
-func isRowKey(key []byte) bool {
-	if mvcc.IsShardingEnabled() {
-		return rowcodec.IsRowKeyWithShardByte(key)
-	}
-	return rowcodec.IsRowKey(key)
-}
-
-func cutIndexKeyNew(key kv.Key, length int) (values [][]byte, b []byte, err error) {
-	if mvcc.IsShardingEnabled() {
-		return tablecodec.CutIndexKeyNew(key, length)
-	}
-	return otablecodec.CutIndexKeyNew(key, length)
-}
-
-func decodeRowKey(key kv.Key) (int64, error) {
-	if mvcc.IsShardingEnabled() {
-		return tablecodec.DecodeRowKey(key)
-	}
-	return otablecodec.DecodeRowKey(key)
-}
-
-func cutRowNew(data []byte, colIDs map[int64]int) ([][]byte, error) {
-	if mvcc.IsShardingEnabled() {
-		return tablecodec.CutRowNew(data, colIDs)
-	}
-	return otablecodec.CutRowNew(data, colIDs)
-}
-
-func decodeColumnValue(data []byte, ft *types.FieldType, loc *time.Location) (types.Datum, error) {
-	if mvcc.IsShardingEnabled() {
-		return tablecodec.DecodeColumnValue(data, ft, loc)
-	}
-	return otablecodec.DecodeColumnValue(data, ft, loc)
 }

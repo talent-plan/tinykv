@@ -5,6 +5,8 @@ import (
 	"io"
 	"time"
 
+	"github.com/pingcap/tidb/tablecodec"
+
 	"github.com/golang/protobuf/proto"
 	"github.com/juju/errors"
 	"github.com/ngaut/unistore/rowcodec"
@@ -418,7 +420,7 @@ func (e *evalContext) newRowDecoderForOffsets(colOffsets []int) (*rowcodec.Decod
 func (e *evalContext) decodeRelatedColumnVals(relatedColOffsets []int, value [][]byte, row []types.Datum) error {
 	var err error
 	for _, offset := range relatedColOffsets {
-		row[offset], err = decodeColumnValue(value[offset], e.fieldTps[offset], e.sc.TimeZone)
+		row[offset], err = tablecodec.DecodeColumnValue(value[offset], e.fieldTps[offset], e.sc.TimeZone)
 		if err != nil {
 			return errors.Trace(err)
 		}

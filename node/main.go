@@ -2,13 +2,12 @@ package main
 
 import (
 	"flag"
-	"fmt"
-	"github.com/ngaut/unistore/tikv/mvcc"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"syscall"
 
@@ -35,7 +34,6 @@ var (
 	numL0Table       = flag.Int("num-level-zero-tables", 3, "Maximum number of Level 0 tables before we start compacting.")
 	syncWrites       = flag.Bool("sync-write", true, "Sync all writes to disk. Setting this to true would slow down data loading significantly.")
 	maxProcs         = flag.Int("max-procs", 0, "Max CPU cores to use, set 0 to use all CPU cores in the machine.")
-	shardKey         = flag.Bool("shard-key", false, "Enable shard key support. (need specified TiDB branch)")
 )
 
 var (
@@ -56,24 +54,16 @@ func main() {
 		}
 	}()
 
-	numDB := 2
-	if *shardKey {
-		numDB = 8
-		mvcc.EnableSharding()
-	}
 	safePoint := &tikv.SafePoint{}
-	dbs := make([]*badger.DB, numDB)
-	for i := 0; i < numDB; i++ {
-		dbs[i] = createDB(i, safePoint)
-	}
+	db := createDB("kv", safePoint)
 
 	regionOpts := tikv.RegionOptions{
 		StoreAddr:  *storeAddr,
 		PDAddr:     *pdAddr,
 		RegionSize: *regionSize,
 	}
-	rm := tikv.NewRegionManager(dbs, regionOpts)
-	store := tikv.NewMVCCStore(dbs, *dbPath, safePoint)
+	rm := tikv.NewRegionManager(db, regionOpts)
+	store := tikv.NewMVCCStore(db, *dbPath, safePoint)
 	tikvServer := tikv.NewServer(rm, store)
 
 	grpcServer := grpc.NewServer()
@@ -101,18 +91,14 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Info("RegionManager closed.")
-
-	for i, db := range dbs {
-		err = db.Close()
-		if err != nil {
-			log.Fatal(err)
-		}
-		log.Infof("DB%d closed.", i)
+	err = db.Close()
+	if err != nil {
+		log.Fatal(err)
 	}
+	log.Infof("DB closed.")
 }
 
-func createDB(idx int, safePoint *tikv.SafePoint) *badger.DB {
-	subPath := fmt.Sprintf("/%d", idx)
+func createDB(subPath string, safePoint *tikv.SafePoint) *badger.DB {
 	opts := badger.DefaultOptions
 	opts.ValueThreshold = *valThreshold
 	opts.TableBuilderOptions.EnableHashIndex = false
@@ -121,9 +107,9 @@ func createDB(idx int, safePoint *tikv.SafePoint) *badger.DB {
 	opts.TableBuilderOptions.WriteBufferSize = 8 * 1024 * 1024
 	opts.ValueLogWriteOptions.BytesPerSync = 0
 	opts.ValueLogWriteOptions.WriteBufferSize = 8 * 1024 * 1024
-	opts.Dir = *dbPath + subPath
+	opts.Dir = filepath.Join(*dbPath, subPath)
 	if *vlogPath != "" {
-		opts.ValueDir = *vlogPath + subPath
+		opts.ValueDir = filepath.Join(*dbPath, subPath)
 	} else {
 		opts.ValueDir = opts.Dir
 	}

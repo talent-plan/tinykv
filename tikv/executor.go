@@ -6,6 +6,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/pingcap/tidb/tablecodec"
+
 	"github.com/juju/errors"
 	"github.com/ngaut/unistore/rowcodec"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
@@ -195,7 +197,7 @@ func (e *tableScanExec) fillRowsFromPoint(ran kv.KeyRange) error {
 	if len(val) == 0 {
 		return nil
 	}
-	handle, err := decodeRowKey(ran.StartKey)
+	handle, err := tablecodec.DecodeRowKey(ran.StartKey)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -248,7 +250,7 @@ type tableScanExecProcessor struct {
 
 func (e *tableScanExecProcessor) Process(key, value []byte) error {
 	e.lastKey = key
-	handle, err := decodeRowKey(key)
+	handle, err := tablecodec.DecodeRowKey(key)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -422,7 +424,7 @@ func (e *indexScanExec) fillRowsFromPoint(ran kv.KeyRange) error {
 
 func (e *indexScanExec) decodeIndexKV(key, value []byte) ([][]byte, error) {
 	var values [][]byte
-	values, b, err := cutIndexKeyNew(key, e.colsLen)
+	values, b, err := tablecodec.CutIndexKeyNew(key, e.colsLen)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -747,7 +749,7 @@ func getRowData(columns []*tipb.ColumnInfo, colIDs map[int64]int, handle int64, 
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	values, err := cutRowNew(oldRow, colIDs)
+	values, err := tablecodec.CutRowNew(oldRow, colIDs)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

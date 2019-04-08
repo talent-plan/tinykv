@@ -66,7 +66,6 @@ type requestCtx struct {
 	reader    *dbreader.DBReader
 	method    string
 	startTime time.Time
-	dbIdx     int
 }
 
 func newRequestCtx(svr *Server, ctx *kvrpcpb.Context, method string) (*requestCtx, error) {
@@ -84,7 +83,6 @@ func newRequestCtx(svr *Server, ctx *kvrpcpb.Context, method string) (*requestCt
 	if req.regErr != nil {
 		return req, nil
 	}
-	req.dbIdx = req.regCtx.getDBIdx()
 	return req, nil
 }
 
@@ -92,7 +90,7 @@ func newRequestCtx(svr *Server, ctx *kvrpcpb.Context, method string) (*requestCt
 func (req *requestCtx) getDBReader() *dbreader.DBReader {
 	if req.reader == nil {
 		mvccStore := req.svr.mvccStore
-		txn := mvccStore.dbs[req.dbIdx].NewTransaction(false)
+		txn := mvccStore.db.NewTransaction(false)
 		safePoint := atomic.LoadUint64(&mvccStore.safePoint.timestamp)
 		req.reader = dbreader.NewDBReader(req.regCtx.startKey, req.regCtx.endKey, txn, safePoint)
 	}
@@ -129,7 +127,7 @@ func (svr *Server) KvGet(ctx context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb
 			Error: convertToKeyError(err),
 		}, nil
 	}
-	if isRowKey(req.Key) {
+	if rowcodec.IsRowKey(req.Key) {
 		val, err = rowcodec.RowToOldRow(val, nil)
 	}
 	return &kvrpcpb.GetResponse{
@@ -175,7 +173,7 @@ type kvScanProcessor struct {
 }
 
 func (p *kvScanProcessor) Process(key, value []byte) (err error) {
-	if isRowKey(key) {
+	if rowcodec.IsRowKey(key) {
 		p.buf, err = rowcodec.RowToOldRow(value, p.buf)
 		if err != nil {
 			return err
@@ -261,7 +259,7 @@ func (svr *Server) KvBatchGet(ctx context.Context, req *kvrpcpb.BatchGetRequest)
 	var buf []byte
 	batchGetFunc := func(key, value []byte, err error) {
 		if len(value) != 0 {
-			if isRowKey(key) && err == nil {
+			if rowcodec.IsRowKey(key) && err == nil {
 				buf, err = rowcodec.RowToOldRow(value, buf)
 				value = buf
 			}

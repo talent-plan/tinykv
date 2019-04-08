@@ -3,8 +3,6 @@ package tikv
 import (
 	"bytes"
 	"encoding/binary"
-	"github.com/ngaut/unistore/tikv/mvcc"
-	"math/bits"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -160,27 +158,6 @@ func (ri *regionCtx) releaseLatches(hashVals []uint64) {
 	wg.Done()
 }
 
-var (
-	NumIndexDBs = 2
-	NumRowDBs   = 2
-)
-
-func (ri *regionCtx) getDBIdx() int {
-	if !mvcc.IsShardingEnabled() {
-		return 0
-	}
-	startKey := ri.startKey
-	if len(startKey) > 2 && startKey[0] == 't' {
-		shardByte := startKey[2]
-		if startKey[1] == 'i' {
-			return int(bits.Reverse8(shardByte)) % NumIndexDBs
-		} else {
-			return 4 + int(bits.Reverse8(shardByte))%NumRowDBs
-		}
-	}
-	return 0
-}
-
 func (ri *regionCtx) waitParent() {
 	parent := (*regionCtx)(atomic.LoadPointer(&ri.parent))
 	if parent != nil {
@@ -203,7 +180,7 @@ type RegionManager struct {
 	storeMeta  metapb.Store
 	mu         sync.RWMutex
 	regions    map[uint64]*regionCtx
-	dbs        []*badger.DB
+	db         *badger.DB
 	pdc        pd.Client
 	clusterID  uint64
 	regionSize int64
@@ -211,7 +188,7 @@ type RegionManager struct {
 	wg         sync.WaitGroup
 }
 
-func NewRegionManager(dbs []*badger.DB, opts RegionOptions) *RegionManager {
+func NewRegionManager(db *badger.DB, opts RegionOptions) *RegionManager {
 	pdc, err := pd.NewClient(opts.PDAddr, "")
 	if err != nil {
 		log.Fatal(err)
@@ -219,14 +196,14 @@ func NewRegionManager(dbs []*badger.DB, opts RegionOptions) *RegionManager {
 	clusterID := pdc.GetClusterID(context.TODO())
 	log.Infof("cluster id %v", clusterID)
 	rm := &RegionManager{
-		dbs:        dbs,
+		db:         db,
 		pdc:        pdc,
 		clusterID:  clusterID,
 		regions:    make(map[uint64]*regionCtx),
 		regionSize: opts.RegionSize,
 		closeCh:    make(chan struct{}),
 	}
-	err = rm.dbs[0].View(func(txn *badger.Txn) error {
+	err = rm.db.View(func(txn *badger.Txn) error {
 		item, err1 := txn.Get(InternalStoreMetaKey)
 		if err1 != nil {
 			return err1
@@ -301,7 +278,7 @@ func (rm *RegionManager) initStore(storeAddr string) error {
 	if err != nil {
 		log.Fatal("%+v", err)
 	}
-	err = rm.dbs[0].Update(func(txn *badger.Txn) error {
+	err = rm.db.Update(func(txn *badger.Txn) error {
 		txn.Set(InternalStoreMetaKey, storeBuf)
 		for rid, region := range rm.regions {
 			regionBuf := region.marshal()
@@ -329,24 +306,7 @@ func (rm *RegionManager) initialSplit(root *metapb.Region) {
 	root.EndKey = codec.EncodeBytes(nil, []byte{'m'})
 	root.RegionEpoch.Version = 2
 	rm.regions[root.Id] = newRegionCtx(root, nil)
-	var preSplitStartKeys [][]byte
-	if mvcc.IsShardingEnabled() {
-		preSplitStartKeys = [][]byte{
-			{'m'},
-			{'n'},
-			{'t', 'i', 0},
-			{'t', 'i', 64},
-			{'t', 'i', 128},
-			{'t', 'i', 192},
-			{'t', 'r', 0},
-			{'t', 'r', 64},
-			{'t', 'r', 128},
-			{'t', 'r', 192},
-			{'u'},
-		}
-	} else {
-		preSplitStartKeys = [][]byte{{'m'}, {'n'}, {'t'}, {'u'}}
-	}
+	preSplitStartKeys := [][]byte{{'m'}, {'n'}, {'t'}, {'u'}}
 	ids, err := rm.allocIDs(len(preSplitStartKeys) * 2)
 	if err != nil {
 		log.Fatal(err)
@@ -533,7 +493,7 @@ func (rm *RegionManager) runSplitWorker() {
 }
 
 func (rm *RegionManager) saveSize(regionsToSave []*regionCtx) {
-	err1 := rm.dbs[0].Update(func(txn *badger.Txn) error {
+	err1 := rm.db.Update(func(txn *badger.Txn) error {
 		for _, ri := range regionsToSave {
 			ri.approximateSize += atomic.LoadInt64(&ri.diff)
 			err := txn.Set(InternalRegionMetaKey(ri.meta.Id), ri.marshal())
@@ -550,7 +510,7 @@ func (rm *RegionManager) saveSize(regionsToSave []*regionCtx) {
 
 func (rm *RegionManager) splitCheckRegion(region *regionCtx) error {
 	s := newSampler()
-	err := rm.dbs[region.getDBIdx()].View(func(txn *badger.Txn) error {
+	err := rm.db.View(func(txn *badger.Txn) error {
 		iter := txn.NewIterator(badger.IteratorOptions{PrefetchValues: false})
 		defer iter.Close()
 		for iter.Seek(region.startKey); iter.Valid(); iter.Next() {
@@ -612,7 +572,7 @@ func (rm *RegionManager) splitRegion(oldRegionCtx *regionCtx, splitKey []byte, o
 	}
 	left := newRegionCtx(leftMeta, oldRegionCtx)
 	left.approximateSize = leftSize
-	err1 := rm.dbs[0].Update(func(txn *badger.Txn) error {
+	err1 := rm.db.Update(func(txn *badger.Txn) error {
 		err := txn.Set(InternalRegionMetaKey(left.meta.Id), left.marshal())
 		if err != nil {
 			return errors.Trace(err)

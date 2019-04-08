@@ -94,12 +94,12 @@ func (batch *writeLockBatch) delete(key []byte) {
 	})
 }
 
-func (store *MVCCStore) writeDB(batch *writeDBBatch, dbIdx int) error {
+func (store *MVCCStore) writeDB(batch *writeDBBatch) error {
 	if len(batch.entries) == 0 {
 		return nil
 	}
 	batch.wg.Add(1)
-	store.writeDBWorkers[dbIdx].batchCh <- batch
+	store.writeDBWorker.batchCh <- batch
 	batch.wg.Wait()
 	return batch.err
 }
@@ -118,7 +118,6 @@ type writeDBWorker struct {
 	batchCh chan *writeDBBatch
 	closeCh <-chan struct{}
 	store   *MVCCStore
-	idx     int
 }
 
 func (w *writeDBWorker) run() {
@@ -143,7 +142,7 @@ func (w *writeDBWorker) run() {
 }
 
 func (w *writeDBWorker) updateBatchGroup(batchGroup []*writeDBBatch) {
-	e := w.store.dbs[w.idx].Update(func(txn *badger.Txn) error {
+	e := w.store.db.Update(func(txn *badger.Txn) error {
 		for _, batch := range batchGroup {
 			for _, entry := range batch.entries {
 				var err error

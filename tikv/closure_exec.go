@@ -5,6 +5,8 @@ import (
 	"math"
 	"sort"
 
+	"github.com/pingcap/tidb/tablecodec"
+
 	"github.com/juju/errors"
 	"github.com/ngaut/unistore/rowcodec"
 	"github.com/ngaut/unistore/tikv/dbreader"
@@ -165,7 +167,7 @@ func (svr *Server) tryBuildTopNClosureExecutor(e *closureExecutor, executors []*
 		return nil, nil
 	}
 
-	heap, relatedColOffsets, conds, err := svr.getTopNInfo(e.evalContext, executors[1].TopN)
+	heap, _, conds, err := svr.getTopNInfo(e.evalContext, executors[1].TopN)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -173,13 +175,7 @@ func (svr *Server) tryBuildTopNClosureExecutor(e *closureExecutor, executors []*
 	ctx := &topNCtx{
 		heap:         heap,
 		orderByExprs: conds,
-		chk:          e.scanCtx.chk,
 		sortRow:      e.newTopNSortRow(),
-	}
-	e.scanCtx.chk = ctx.chk.ProjectColumns(relatedColOffsets)
-	e.scanCtx.decoder, err = e.evalContext.newRowDecoderForOffsets(relatedColOffsets)
-	if err != nil {
-		return nil, errors.Trace(err)
 	}
 
 	e.topNCtx = ctx
@@ -242,7 +238,6 @@ type selectionCtx struct {
 type topNCtx struct {
 	heap         *topNHeap
 	orderByExprs []expression.Expression
-	chk          *chunk.Chunk
 	sortRow      *sortRow
 }
 
@@ -325,7 +320,7 @@ type countColumnProcessor struct {
 
 func (e *countColumnProcessor) Process(key, value []byte) error {
 	if e.idxScanCtx != nil {
-		values, _, err := cutIndexKeyNew(key, e.idxScanCtx.columnLen)
+		values, _, err := tablecodec.CutIndexKeyNew(key, e.idxScanCtx.columnLen)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -371,7 +366,7 @@ func (e *tableScanProcessor) Process(key, value []byte) error {
 }
 
 func (e *closureExecutor) tableScanProcessCore(key, value []byte) error {
-	handle, err := decodeRowKey(key)
+	handle, err := tablecodec.DecodeRowKey(key)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -407,7 +402,7 @@ func (e *closureExecutor) indexScanProcessCore(key, value []byte) error {
 	colLen := e.idxScanCtx.columnLen
 	pkStatus := e.idxScanCtx.pkStatus
 	chk := e.scanCtx.chk
-	values, b, err := cutIndexKeyNew(key, colLen)
+	values, b, err := tablecodec.CutIndexKeyNew(key, colLen)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -502,21 +497,25 @@ func (e *closureExecutor) topNFinish() error {
 		return errors.Trace(err)
 	}
 	sort.Sort(&ctx.heap.topNSorter)
+	chk := e.scanCtx.chk
 
 	for _, row := range ctx.heap.rows {
-		h, err := decodeRowKey(row.data[0])
+		h, err := tablecodec.DecodeRowKey(row.data[0])
 		if err != nil {
 			return errors.Trace(err)
 		}
-		decoder.Decode(row.data[1], h, ctx.chk)
+		err = decoder.Decode(row.data[1], h, chk)
+		if err != nil {
+			return err
+		}
 
-		if ctx.chk.NumRows() == chunkMaxRows {
-			if err := e.chunkToOldChunk(ctx.chk); err != nil {
+		if chk.NumRows() == chunkMaxRows {
+			if err := e.chunkToOldChunk(chk); err != nil {
 				return errors.Trace(err)
 			}
 		}
 	}
-	return e.chunkToOldChunk(ctx.chk)
+	return e.chunkToOldChunk(chk)
 }
 
 type topNProcessor struct {
@@ -530,7 +529,7 @@ func (e *topNProcessor) Process(key, value []byte) (err error) {
 	}
 
 	ctx := e.topNCtx
-	row := ctx.chk.GetRow(0)
+	row := e.scanCtx.chk.GetRow(0)
 	for i, expr := range ctx.orderByExprs {
 		ctx.sortRow.key[i], err = expr.Eval(row)
 		if err != nil {

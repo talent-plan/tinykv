@@ -7,16 +7,6 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 )
 
-var isShardingEnabled = false
-
-func EnableSharding() {
-	isShardingEnabled = true
-}
-
-func IsShardingEnabled() bool {
-	return isShardingEnabled
-}
-
 // DecodeLock decodes data to lock, the primary and value is copied.
 func DecodeLock(data []byte) (l MvccLock) {
 	l.MvccLockHdr = *(*MvccLockHdr)(unsafe.Pointer(&data[0]))
