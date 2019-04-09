@@ -18,7 +18,7 @@ import (
 	"github.com/zhangjinpeng1987/raft"
 )
 
-type JobStatus int64
+type JobStatus = int64
 
 const (
 	JobStatus_Pending JobStatus = 0 + iota
@@ -914,4 +914,9 @@ func (p *PeerStorage) CancelApplyingSnap() bool {
 func (p *PeerStorage) CheckApplyingSnap() bool {
 	// Todo: currently it is a place holder
 	return false
+}
+
+func doSnapshot(engines *Engines, mgr *SnapManager, regionId uint64) (*eraftpb.Snapshot, error) {
+	// todo, currently it is a place holder
+	return nil, nil
 }
