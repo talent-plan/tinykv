@@ -370,7 +370,7 @@ func (svr *Server) KvDeleteRange(ctx context.Context, req *kvrpcpb.DeleteRangeRe
 	if !isMvccRegion(reqCtx.regCtx) {
 		return &kvrpcpb.DeleteRangeResponse{}, nil
 	}
-	err = svr.mvccStore.DeleteRange(reqCtx, req.StartKey, req.EndKey)
+	err = svr.mvccStore.dbWriter.DeleteRange(req.StartKey, req.EndKey, reqCtx.regCtx)
 	if err != nil {
 		log.Error(err)
 	}

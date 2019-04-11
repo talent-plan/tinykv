@@ -1,15 +1,16 @@
 package tikv
 
 import (
-	"bufio"
-	"io"
-	"os"
+	"math"
 	"sync"
+	"sync/atomic"
 	"time"
-	"unsafe"
+
+	"github.com/cznic/mathutil"
+	"github.com/ngaut/unistore/tikv/dbreader"
+	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 
 	"github.com/coocood/badger"
-	"github.com/juju/errors"
 	"github.com/ngaut/unistore/tikv/mvcc"
 )
 
@@ -19,14 +20,12 @@ const (
 
 type writeDBBatch struct {
 	entries []*badger.Entry
-	buf     []byte
 	err     error
 	wg      sync.WaitGroup
-	reqCtx  *requestCtx
 }
 
-func newWriteDBBatch(reqCtx *requestCtx) *writeDBBatch {
-	return &writeDBBatch{reqCtx: reqCtx}
+func newWriteDBBatch() *writeDBBatch {
+	return &writeDBBatch{}
 }
 
 func (batch *writeDBBatch) set(key, val []byte, userMeta []byte) {
@@ -45,24 +44,10 @@ func (batch *writeDBBatch) delete(key []byte) {
 	})
 }
 
-func (batch *writeDBBatch) size() int64 {
-	var s int
-	for _, entry := range batch.entries {
-		s += len(entry.Key) + len(entry.Value) + len(entry.UserMeta)
-	}
-	return int64(s)
-}
-
 type writeLockBatch struct {
 	entries []*badger.Entry
-	buf     []byte
 	err     error
 	wg      sync.WaitGroup
-	reqCtx  *requestCtx
-}
-
-func newWriteLockBatch(reqCtx *requestCtx) *writeLockBatch {
-	return &writeLockBatch{reqCtx: reqCtx}
 }
 
 func (batch *writeLockBatch) set(key, val []byte) {
@@ -94,39 +79,18 @@ func (batch *writeLockBatch) delete(key []byte) {
 	})
 }
 
-func (store *MVCCStore) writeDB(batch *writeDBBatch) error {
-	if len(batch.entries) == 0 {
-		return nil
-	}
-	batch.wg.Add(1)
-	store.writeDBWorker.batchCh <- batch
-	batch.wg.Wait()
-	return batch.err
-}
-
-func (store *MVCCStore) writeLocks(batch *writeLockBatch) error {
-	if len(batch.entries) == 0 {
-		return nil
-	}
-	batch.wg.Add(1)
-	store.writeLockWorker.batchCh <- batch
-	batch.wg.Wait()
-	return batch.err
-}
-
 type writeDBWorker struct {
 	batchCh chan *writeDBBatch
-	closeCh <-chan struct{}
-	store   *MVCCStore
+	writer  *dbWriter
 }
 
-func (w *writeDBWorker) run() {
-	defer w.store.wg.Done()
+func (w writeDBWorker) run() {
+	defer w.writer.wg.Done()
 	var batches []*writeDBBatch
 	for {
 		batches = batches[:0]
 		select {
-		case <-w.closeCh:
+		case <-w.writer.closeCh:
 			return
 		case batch := <-w.batchCh:
 			batches = append(batches, batch)
@@ -141,8 +105,8 @@ func (w *writeDBWorker) run() {
 	}
 }
 
-func (w *writeDBWorker) updateBatchGroup(batchGroup []*writeDBBatch) {
-	e := w.store.db.Update(func(txn *badger.Txn) error {
+func (w writeDBWorker) updateBatchGroup(batchGroup []*writeDBBatch) {
+	e := w.writer.bundle.DB.Update(func(txn *badger.Txn) error {
 		for _, batch := range batchGroup {
 			for _, entry := range batch.entries {
 				var err error
@@ -166,19 +130,18 @@ func (w *writeDBWorker) updateBatchGroup(batchGroup []*writeDBBatch) {
 
 type writeLockWorker struct {
 	batchCh chan *writeLockBatch
-	closeCh <-chan struct{}
-	store   *MVCCStore
+	writer  *dbWriter
 }
 
-func (w *writeLockWorker) run() {
-	defer w.store.wg.Done()
-	rollbackStore := w.store.rollbackStore
-	ls := w.store.lockStore
+func (w writeLockWorker) run() {
+	defer w.writer.wg.Done()
+	rollbackStore := w.writer.bundle.RollbackStore
+	ls := w.writer.bundle.LockStore
 	var batches []*writeLockBatch
 	for {
 		batches = batches[:0]
 		select {
-		case <-w.store.closeCh:
+		case <-w.writer.closeCh:
 			return
 		case batch := <-w.batchCh:
 			batches = append(batches, batch)
@@ -192,7 +155,7 @@ func (w *writeLockWorker) run() {
 			for _, entry := range batch.entries {
 				switch entry.UserMeta[0] {
 				case mvcc.LockUserMetaRollbackByte:
-					w.store.rollbackStore.Insert(entry.Key, []byte{0})
+					rollbackStore.Insert(entry.Key, []byte{0})
 				case mvcc.LockUserMetaDeleteByte:
 					delCnt++
 					if !ls.Delete(entry.Key) {
@@ -214,114 +177,209 @@ func (w *writeLockWorker) run() {
 
 // rollbackGCWorker delete all rollback keys after one minute to recycle memory.
 type rollbackGCWorker struct {
-	store *MVCCStore
+	writer *dbWriter
 }
 
-func (w *rollbackGCWorker) run() {
-	store := w.store
-	defer store.wg.Done()
+func (w rollbackGCWorker) run() {
+	defer w.writer.wg.Done()
 	ticker := time.Tick(time.Minute)
+	rollbackStore := w.writer.bundle.RollbackStore
 	for {
 		select {
-		case <-store.closeCh:
+		case <-w.writer.closeCh:
 			return
 		case <-ticker:
 		}
-		lockBatch := newWriteLockBatch(new(requestCtx))
-		it := store.rollbackStore.NewIterator()
-		latestTS := store.getLatestTS()
+		lockBatch := &writeLockBatch{}
+		it := rollbackStore.NewIterator()
+		latestTS := w.writer.getLatestTS()
 		for it.SeekToFirst(); it.Valid(); it.Next() {
 			ts := mvcc.DecodeRollbackTS(it.Key())
 			if tsSub(latestTS, ts) > time.Minute {
 				lockBatch.rollbackGC(safeCopy(it.Key()))
 			}
 			if len(lockBatch.entries) >= 1000 {
-				store.writeLocks(lockBatch)
+				lockBatch.wg.Add(1)
+				w.writer.lockCh <- lockBatch
+				lockBatch.wg.Wait()
 				lockBatch.entries = lockBatch.entries[:0]
 			}
 		}
 		if len(lockBatch.entries) == 0 {
 			continue
 		}
-		store.writeLocks(lockBatch)
+		lockBatch.wg.Add(1)
+		w.writer.lockCh <- lockBatch
+		lockBatch.wg.Wait()
 	}
 }
 
-type lockEntryHdr struct {
-	keyLen uint32
-	valLen uint32
+type dbWriter struct {
+	bundle    *mvcc.DBBundle
+	safePoint *SafePoint
+	dbCh      chan<- *writeDBBatch
+	lockCh    chan<- *writeLockBatch
+	wg        sync.WaitGroup
+	closeCh   chan struct{}
+	latestTS  uint64
 }
 
-func (store *MVCCStore) dumpMemLocks() error {
-	tmpFileName := store.dir + "/lock_store.tmp"
-	f, err := os.OpenFile(tmpFileName, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0666)
-	if err != nil {
-		return errors.Trace(err)
+func NewDBWriter(bundle *mvcc.DBBundle, safePoint *SafePoint) mvcc.DBWriter {
+	return &dbWriter{
+		bundle:    bundle,
+		safePoint: safePoint,
+		closeCh:   make(chan struct{}, 0),
 	}
-	writer := bufio.NewWriter(f)
-	cnt := 0
-	it := store.lockStore.NewIterator()
-	hdrBuf := make([]byte, 8)
-	hdr := (*lockEntryHdr)(unsafe.Pointer(&hdrBuf[0]))
-	for it.SeekToFirst(); it.Valid(); it.Next() {
-		hdr.keyLen = uint32(len(it.Key()))
-		hdr.valLen = uint32(len(it.Value()))
-		writer.Write(hdrBuf)
-		writer.Write(it.Key())
-		writer.Write(it.Value())
-		cnt++
-	}
-	err = writer.Flush()
-	if err != nil {
-		return errors.Trace(err)
-	}
-	err = f.Sync()
-	if err != nil {
-		return errors.Trace(err)
-	}
-	f.Close()
-	return os.Rename(tmpFileName, store.dir+"/lock_store")
 }
 
-func (store *MVCCStore) loadLocks() error {
-	fileName := store.dir + "/lock_store"
-	f, err := os.Open(fileName)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
+func (writer *dbWriter) Open() {
+	writer.wg.Add(3)
+
+	dbCh := make(chan *writeDBBatch, batchChanSize)
+	writer.dbCh = dbCh
+	go writeDBWorker{
+		batchCh: dbCh,
+		writer:  writer,
+	}.run()
+
+	lockCh := make(chan *writeLockBatch, batchChanSize)
+	writer.lockCh = lockCh
+	go writeLockWorker{
+		batchCh: lockCh,
+		writer:  writer,
+	}.run()
+
+	go rollbackGCWorker{
+		writer: writer,
+	}.run()
+}
+
+func (writer *dbWriter) Close() {
+	close(writer.closeCh)
+	writer.wg.Wait()
+}
+
+func (writer *dbWriter) Write(batch mvcc.WriteBatch) error {
+	wb := batch.(*writeBatch)
+	if len(wb.dbBatch.entries) > 0 {
+		wb.dbBatch.wg.Add(1)
+		writer.dbCh <- &wb.dbBatch
+		wb.dbBatch.wg.Wait()
+		err := wb.dbBatch.err
+		if err != nil {
+			return err
 		}
-		return errors.Trace(err)
 	}
-	defer f.Close()
-	reader := bufio.NewReader(f)
-	hdrBuf := make([]byte, 8)
-	hdr := (*lockEntryHdr)(unsafe.Pointer(&hdrBuf[0]))
-	var keyBuf, valBuf []byte
-	for {
-		_, err = reader.Read(hdrBuf)
-		if err == io.EOF {
+	if len(wb.lockBatch.entries) > 0 {
+		// We must delete lock after commit succeed, or there will be inconsistency.
+		wb.lockBatch.wg.Add(1)
+		writer.lockCh <- &wb.lockBatch
+		wb.lockBatch.wg.Wait()
+		return wb.lockBatch.err
+	}
+	return nil
+}
+
+type writeBatch struct {
+	startTS   uint64
+	commitTS  uint64
+	dbBatch   writeDBBatch
+	lockBatch writeLockBatch
+}
+
+func (wb *writeBatch) Prewrite(key []byte, lock *mvcc.MvccLock) {
+	wb.lockBatch.set(key, lock.MarshalBinary())
+}
+
+func (wb *writeBatch) Commit(key []byte, lock *mvcc.MvccLock) {
+	if lock.Op != uint8(kvrpcpb.Op_Lock) {
+		userMeta := mvcc.NewDBUserMeta(wb.startTS, wb.commitTS)
+		wb.dbBatch.set(key, lock.Value, userMeta)
+		if lock.HasOldVer {
+			oldKey := mvcc.EncodeOldKey(key, lock.OldMeta.CommitTS())
+			wb.dbBatch.set(oldKey, lock.OldVal, lock.OldMeta.ToOldUserMeta(wb.commitTS))
+		}
+	}
+	wb.lockBatch.delete(key)
+}
+
+func (wb *writeBatch) Rollback(key []byte, deleteLock bool) {
+	rollbackKey := mvcc.EncodeRollbackKey(nil, key, wb.startTS)
+	wb.lockBatch.rollback(rollbackKey)
+	if deleteLock {
+		wb.lockBatch.delete(key)
+	}
+}
+
+func (writer *dbWriter) NewWriteBatch(startTS, commitTS uint64) mvcc.WriteBatch {
+	if commitTS > 0 {
+		writer.updateLatestTS(commitTS)
+	} else {
+		writer.updateLatestTS(startTS)
+	}
+	return &writeBatch{
+		startTS:  startTS,
+		commitTS: commitTS,
+	}
+}
+
+func (writer *dbWriter) getLatestTS() uint64 {
+	return atomic.LoadUint64(&writer.latestTS)
+}
+
+func (writer *dbWriter) updateLatestTS(ts uint64) {
+	latestTS := writer.getLatestTS()
+	if ts != math.MaxUint64 && ts > latestTS {
+		atomic.CompareAndSwapUint64(&writer.latestTS, latestTS, ts)
+	}
+}
+
+const delRangeBatchSize = 4096
+
+func (writer *dbWriter) DeleteRange(startKey, endKey []byte, latchHandle mvcc.LatchHandle) error {
+	keys := make([][]byte, 0, delRangeBatchSize)
+	oldStartKey := mvcc.EncodeOldKey(startKey, maxSystemTS)
+	oldEndKey := mvcc.EncodeOldKey(endKey, maxSystemTS)
+	txn := writer.bundle.DB.NewTransaction(false)
+	reader := dbreader.NewDBReader(startKey, endKey, txn, atomic.LoadUint64(&writer.safePoint.timestamp))
+	keys = writer.collectRangeKeys(reader.GetIter(), startKey, endKey, keys)
+	keys = writer.collectRangeKeys(reader.GetIter(), oldStartKey, oldEndKey, keys)
+	return writer.deleteKeysInBatch(latchHandle, keys, delRangeBatchSize)
+}
+
+func (writer *dbWriter) collectRangeKeys(it *badger.Iterator, startKey, endKey []byte, keys [][]byte) [][]byte {
+	if len(endKey) == 0 {
+		panic("invalid end key")
+	}
+	for it.Seek(startKey); it.Valid(); it.Next() {
+		item := it.Item()
+		key := item.KeyCopy(nil)
+		if exceedEndKey(key, endKey) {
 			break
 		}
-		if err != nil {
-			return errors.Trace(err)
-		}
-		if cap(keyBuf) < int(hdr.keyLen) {
-			keyBuf = make([]byte, hdr.keyLen)
-		}
-		if cap(valBuf) < int(hdr.valLen) {
-			valBuf = make([]byte, hdr.valLen)
-		}
-		keyBuf = keyBuf[:hdr.keyLen]
-		valBuf = valBuf[:hdr.valLen]
-		_, err = reader.Read(keyBuf)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		_, err = reader.Read(valBuf)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		store.lockStore.Insert(keyBuf, valBuf)
+		keys = append(keys, key)
 	}
-	return os.Remove(fileName)
+	return keys
+}
+
+func (writer *dbWriter) deleteKeysInBatch(latchHandle mvcc.LatchHandle, keys [][]byte, batchSize int) error {
+	for len(keys) > 0 {
+		batchSize := mathutil.Min(len(keys), batchSize)
+		batchKeys := keys[:batchSize]
+		keys = keys[batchSize:]
+		hashVals := keysToHashVals(batchKeys...)
+		dbBatch := newWriteDBBatch()
+		for _, key := range batchKeys {
+			dbBatch.delete(key)
+		}
+		latchHandle.AcquireLatches(hashVals)
+		dbBatch.wg.Add(1)
+		writer.dbCh <- dbBatch
+		dbBatch.wg.Wait()
+		latchHandle.ReleaseLatches(hashVals)
+		if dbBatch.err != nil {
+			return dbBatch.err
+		}
+	}
+	return nil
 }

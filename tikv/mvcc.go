@@ -1,14 +1,17 @@
 package tikv
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
+	"io"
 	"math"
+	"os"
 	"sync"
 	"sync/atomic"
+	"unsafe"
 
 	"github.com/coocood/badger"
-	"github.com/cznic/mathutil"
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/lockstore"
@@ -20,61 +23,76 @@ import (
 
 // MVCCStore is a wrapper of badger.DB to provide MVCC functions.
 type MVCCStore struct {
-	dir             string
-	db              *badger.DB
-	writeDBWorker   *writeDBWorker
-	lockStore       *lockstore.MemStore
-	rollbackStore   *lockstore.MemStore
-	writeLockWorker *writeLockWorker
-	closeCh         chan struct{}
-	wg              sync.WaitGroup
-
-	// latestTS records the latest timestamp of requests, used to determine if it is safe to GC rollback key.
-	latestTS uint64
+	dir           string
+	db            *badger.DB
+	lockStore     *lockstore.MemStore
+	rollbackStore *lockstore.MemStore
+	dbWriter      mvcc.DBWriter
 
 	safePoint *SafePoint
 	gcLock    sync.Mutex
 }
 
 // NewMVCCStore creates a new MVCCStore
-func NewMVCCStore(db *badger.DB, dataDir string, safePoint *SafePoint) *MVCCStore {
-	ls := lockstore.NewMemStore(8 << 20)
-	rollbackStore := lockstore.NewMemStore(256 << 10)
-	closeCh := make(chan struct{})
+func NewMVCCStore(bundle *mvcc.DBBundle, dataDir string, safePoint *SafePoint, writer mvcc.DBWriter) *MVCCStore {
 	store := &MVCCStore{
-		db:            db,
+		db:            bundle.DB,
 		dir:           dataDir,
-		lockStore:     ls,
-		rollbackStore: rollbackStore,
-		closeCh:       closeCh,
+		lockStore:     bundle.LockStore,
+		rollbackStore: bundle.RollbackStore,
 		safePoint:     safePoint,
-	}
-	store.writeLockWorker = &writeLockWorker{
-		batchCh: make(chan *writeLockBatch, batchChanSize),
-		closeCh: closeCh,
-		store:   store,
-	}
-	store.writeDBWorker = &writeDBWorker{
-		batchCh: make(chan *writeDBBatch, batchChanSize),
-		closeCh: closeCh,
-		store:   store,
+		dbWriter:      writer,
 	}
 	err := store.loadLocks()
 	if err != nil {
 		log.Fatal(err)
 	}
 	store.loadSafePoint()
-
-	// mark worker count
-	store.wg.Add(3)
-	go store.writeDBWorker.run()
-	go store.writeLockWorker.run()
-	go func() {
-		rbGCWorker := rollbackGCWorker{store: store}
-		rbGCWorker.run()
-	}()
-
+	writer.Open()
 	return store
+}
+
+func (store *MVCCStore) loadLocks() error {
+	fileName := store.dir + "/lock_store"
+	f, err := os.Open(fileName)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return errors.Trace(err)
+	}
+	defer f.Close()
+	reader := bufio.NewReader(f)
+	hdrBuf := make([]byte, 8)
+	hdr := (*lockEntryHdr)(unsafe.Pointer(&hdrBuf[0]))
+	var keyBuf, valBuf []byte
+	for {
+		_, err = reader.Read(hdrBuf)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return errors.Trace(err)
+		}
+		if cap(keyBuf) < int(hdr.keyLen) {
+			keyBuf = make([]byte, hdr.keyLen)
+		}
+		if cap(valBuf) < int(hdr.valLen) {
+			valBuf = make([]byte, hdr.valLen)
+		}
+		keyBuf = keyBuf[:hdr.keyLen]
+		valBuf = valBuf[:hdr.valLen]
+		_, err = reader.Read(keyBuf)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		_, err = reader.Read(valBuf)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		store.lockStore.Insert(keyBuf, valBuf)
+	}
+	return os.Remove(fileName)
 }
 
 func (store *MVCCStore) loadSafePoint() {
@@ -98,8 +116,7 @@ func (store *MVCCStore) loadSafePoint() {
 }
 
 func (store *MVCCStore) Close() error {
-	close(store.closeCh)
-	store.wg.Wait()
+	store.dbWriter.Close()
 
 	err := store.dumpMemLocks()
 	if err != nil {
@@ -108,15 +125,40 @@ func (store *MVCCStore) Close() error {
 	return nil
 }
 
-func (store *MVCCStore) getLatestTS() uint64 {
-	return atomic.LoadUint64(&store.latestTS)
+type lockEntryHdr struct {
+	keyLen uint32
+	valLen uint32
 }
 
-func (store *MVCCStore) updateLatestTS(ts uint64) {
-	latestTS := store.getLatestTS()
-	if ts != math.MaxUint64 && ts > latestTS {
-		atomic.CompareAndSwapUint64(&store.latestTS, latestTS, ts)
+func (store *MVCCStore) dumpMemLocks() error {
+	tmpFileName := store.dir + "/lock_store.tmp"
+	f, err := os.OpenFile(tmpFileName, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0666)
+	if err != nil {
+		return errors.Trace(err)
 	}
+	writer := bufio.NewWriter(f)
+	cnt := 0
+	it := store.lockStore.NewIterator()
+	hdrBuf := make([]byte, 8)
+	hdr := (*lockEntryHdr)(unsafe.Pointer(&hdrBuf[0]))
+	for it.SeekToFirst(); it.Valid(); it.Next() {
+		hdr.keyLen = uint32(len(it.Key()))
+		hdr.valLen = uint32(len(it.Value()))
+		writer.Write(hdrBuf)
+		writer.Write(it.Key())
+		writer.Write(it.Value())
+		cnt++
+	}
+	err = writer.Flush()
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = f.Sync()
+	if err != nil {
+		return errors.Trace(err)
+	}
+	f.Close()
+	return os.Rename(tmpFileName, store.dir+"/lock_store")
 }
 
 func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutation, primary []byte, startTS uint64, ttl uint64) []error {
@@ -125,8 +167,8 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 	errs := make([]error, 0, len(mutations))
 	anyError := false
 
-	regCtx.acquireLatches(hashVals)
-	defer regCtx.releaseLatches(hashVals)
+	regCtx.AcquireLatches(hashVals)
+	defer regCtx.ReleaseLatches(hashVals)
 
 	// Must check the LockStore first.
 	for _, m := range mutations {
@@ -143,7 +185,7 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 		return errs
 	}
 
-	lockBatch := newWriteLockBatch(reqCtx)
+	batch := store.dbWriter.NewWriteBatch(startTS, 0)
 	// Check the DB.
 	txn := reqCtx.getDBReader().GetTxn()
 	keys := make([][]byte, len(mutations))
@@ -191,13 +233,13 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 				OldMeta: oldMeta,
 				OldVal:  oldVal,
 			}
-			lockBatch.set(m.Key, lock.MarshalBinary())
+			batch.Prewrite(m.Key, &lock)
 		}
 	}
 	if anyError {
 		return errs
 	}
-	err = store.writeLocks(lockBatch)
+	err = store.dbWriter.Write(batch)
 	if err != nil {
 		return []error{err}
 	}
@@ -249,14 +291,11 @@ const maxSystemTS uint64 = math.MaxUint64
 
 // Commit implements the MVCCStore interface.
 func (store *MVCCStore) Commit(req *requestCtx, keys [][]byte, startTS, commitTS uint64) error {
-	store.updateLatestTS(commitTS)
 	regCtx := req.regCtx
 	hashVals := keysToHashVals(keys...)
-	dbBatch := newWriteDBBatch(req)
-	userMeta := mvcc.NewDBUserMeta(startTS, commitTS)
-
-	regCtx.acquireLatches(hashVals)
-	defer regCtx.releaseLatches(hashVals)
+	batch := store.dbWriter.NewWriteBatch(startTS, commitTS)
+	regCtx.AcquireLatches(hashVals)
+	defer regCtx.ReleaseLatches(hashVals)
 
 	var buf []byte
 	var tmpDiff int
@@ -271,28 +310,11 @@ func (store *MVCCStore) Commit(req *requestCtx, keys [][]byte, startTS, commitTS
 		if lock.StartTS != startTS {
 			return ErrReplaced
 		}
-		if lock.Op == uint8(kvrpcpb.Op_Lock) {
-			continue
-		}
-		tmpDiff += len(key) + len(lock.Value) + len(userMeta)
-		dbBatch.set(key, lock.Value, userMeta)
-		if lock.HasOldVer {
-			oldKey := mvcc.EncodeOldKey(key, lock.OldMeta.CommitTS())
-			dbBatch.set(oldKey, lock.OldVal, lock.OldMeta.ToOldUserMeta(commitTS))
-		}
+		tmpDiff += len(key) + len(lock.Value)
+		batch.Commit(key, &lock)
 	}
 	atomic.AddInt64(&regCtx.diff, int64(tmpDiff))
-	err := store.writeDB(dbBatch)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	// We must delete lock after commit succeed, or there will be inconsistency.
-	lockBatch := newWriteLockBatch(req)
-	for _, key := range keys {
-		lockBatch.delete(key)
-	}
-	err = store.writeLocks(lockBatch)
-	return errors.Trace(err)
+	return store.dbWriter.Write(batch)
 }
 
 func (store *MVCCStore) handleLockNotFound(reqCtx *requestCtx, key []byte, startTS, commitTS uint64) error {
@@ -327,54 +349,52 @@ const (
 )
 
 func (store *MVCCStore) Rollback(reqCtx *requestCtx, keys [][]byte, startTS uint64) error {
-	store.updateLatestTS(startTS)
 	hashVals := keysToHashVals(keys...)
 	regCtx := reqCtx.regCtx
-	lockBatch := newWriteLockBatch(reqCtx)
+	batch := store.dbWriter.NewWriteBatch(startTS, 0)
 
-	regCtx.acquireLatches(hashVals)
-	defer regCtx.releaseLatches(hashVals)
+	regCtx.AcquireLatches(hashVals)
+	defer regCtx.ReleaseLatches(hashVals)
 
 	statuses := make([]int, len(keys))
 	for i, key := range keys {
-		statuses[i] = store.rollbackKeyReadLock(lockBatch, key, startTS)
+		statuses[i] = store.rollbackKeyReadLock(reqCtx, batch, key, startTS)
 	}
 	for i, key := range keys {
 		if statuses[i] == rollbackStatusDone {
 			continue
 		}
-		err := store.rollbackKeyReadDB(reqCtx, lockBatch, key, startTS, statuses[i] == rollbackStatusNewLock)
+		err := store.rollbackKeyReadDB(reqCtx, batch, key, startTS, statuses[i] == rollbackStatusNewLock)
 		if err != nil {
 			return err
 		}
 	}
-	err := store.writeLocks(lockBatch)
+	err := store.dbWriter.Write(batch)
 	return errors.Trace(err)
 }
 
-func (store *MVCCStore) rollbackKeyReadLock(batch *writeLockBatch, key []byte, startTS uint64) (status int) {
-	batch.buf = mvcc.EncodeRollbackKey(batch.buf, key, startTS)
-	rollbackKey := safeCopy(batch.buf)
-	batch.buf = store.rollbackStore.Get(rollbackKey, batch.buf)
-	if len(batch.buf) != 0 {
+func (store *MVCCStore) rollbackKeyReadLock(reqCtx *requestCtx, batch mvcc.WriteBatch, key []byte, startTS uint64) (status int) {
+	reqCtx.buf = mvcc.EncodeRollbackKey(reqCtx.buf, key, startTS)
+	rollbackKey := safeCopy(reqCtx.buf)
+	reqCtx.buf = store.rollbackStore.Get(rollbackKey, reqCtx.buf)
+	if len(reqCtx.buf) != 0 {
 		// Already rollback.
 		return rollbackStatusDone
 	}
-	batch.buf = store.lockStore.Get(key, batch.buf)
-	hasLock := len(batch.buf) > 0
+	reqCtx.buf = store.lockStore.Get(key, reqCtx.buf)
+	hasLock := len(reqCtx.buf) > 0
 	if hasLock {
-		lock := mvcc.DecodeLock(batch.buf)
+		lock := mvcc.DecodeLock(reqCtx.buf)
 		if lock.StartTS < startTS {
 			// The lock is old, means this is written by an old transaction, and the current transaction may not arrive.
 			// We should write a rollback lock.
-			batch.rollback(rollbackKey)
+			batch.Rollback(key, false)
 			return rollbackStatusDone
 		}
 		if lock.StartTS == startTS {
 			// We can not simply delete the lock because the prewrite may be sent multiple times.
 			// To prevent that we update it a rollback lock.
-			batch.rollback(rollbackKey)
-			batch.delete(key)
+			batch.Rollback(key, true)
 			return rollbackStatusDone
 		}
 		// lock.startTS > startTS, go to DB to check if the key is committed.
@@ -383,9 +403,7 @@ func (store *MVCCStore) rollbackKeyReadLock(batch *writeLockBatch, key []byte, s
 	return rollbackStatusNoLock
 }
 
-func (store *MVCCStore) rollbackKeyReadDB(req *requestCtx, batch *writeLockBatch, key []byte, startTS uint64, hasLock bool) error {
-	batch.buf = mvcc.EncodeRollbackKey(batch.buf, key, startTS)
-	rollbackKey := safeCopy(batch.buf)
+func (store *MVCCStore) rollbackKeyReadDB(req *requestCtx, batch mvcc.WriteBatch, key []byte, startTS uint64, hasLock bool) error {
 	reader := req.getDBReader()
 	item, err := reader.GetTxn().Get(key)
 	if err != nil && err != badger.ErrKeyNotFound {
@@ -394,7 +412,7 @@ func (store *MVCCStore) rollbackKeyReadDB(req *requestCtx, batch *writeLockBatch
 	hasVal := item != nil
 	if !hasVal && !hasLock {
 		// The prewrite request is not arrived, we write a rollback lock to prevent the future prewrite.
-		batch.rollback(rollbackKey)
+		batch.Rollback(key, false)
 		return nil
 	}
 
@@ -408,7 +426,7 @@ func (store *MVCCStore) rollbackKeyReadDB(req *requestCtx, batch *writeLockBatch
 	}
 	if userMeta.StartTS() < startTS && !hasLock {
 		// Prewrite and commit have not arrived.
-		batch.rollback(rollbackKey)
+		batch.Rollback(key, false)
 		return nil
 	}
 	// val.startTS > startTS, look for the key in the old version to check if the key is committed.
@@ -488,22 +506,21 @@ func (store *MVCCStore) CheckRangeLock(startTS uint64, startKey, endKey []byte) 
 }
 
 func (store *MVCCStore) Cleanup(reqCtx *requestCtx, key []byte, startTS uint64) error {
-	store.updateLatestTS(startTS)
 	hashVals := keysToHashVals(key)
 	regCtx := reqCtx.regCtx
-	lockBatch := newWriteLockBatch(reqCtx)
+	batch := store.dbWriter.NewWriteBatch(startTS, 0)
 
-	regCtx.acquireLatches(hashVals)
-	defer regCtx.releaseLatches(hashVals)
+	regCtx.AcquireLatches(hashVals)
+	defer regCtx.ReleaseLatches(hashVals)
 
-	status := store.rollbackKeyReadLock(lockBatch, key, startTS)
+	status := store.rollbackKeyReadLock(reqCtx, batch, key, startTS)
 	if status != rollbackStatusDone {
-		err := store.rollbackKeyReadDB(reqCtx, lockBatch, key, startTS, status == rollbackStatusNewLock)
+		err := store.rollbackKeyReadDB(reqCtx, batch, key, startTS, status == rollbackStatusNewLock)
 		if err != nil {
 			return err
 		}
 	}
-	return store.writeLocks(lockBatch)
+	return store.dbWriter.Write(batch)
 }
 
 func (store *MVCCStore) ScanLock(reqCtx *requestCtx, maxSystemTS uint64) ([]*kvrpcpb.LockInfo, error) {
@@ -553,97 +570,28 @@ func (store *MVCCStore) ResolveLock(reqCtx *requestCtx, startTS, commitTS uint64
 		return nil
 	}
 	hashVals := keysToHashVals(lockKeys...)
-	lockBatch := newWriteLockBatch(reqCtx)
-	var dbBatch *writeDBBatch
-	var userMeta mvcc.DBUserMeta
-	if commitTS > 0 {
-		dbBatch = newWriteDBBatch(reqCtx)
-		userMeta = mvcc.NewDBUserMeta(startTS, commitTS)
-	}
+	batch := store.dbWriter.NewWriteBatch(startTS, commitTS)
 
-	regCtx.acquireLatches(hashVals)
-	defer regCtx.releaseLatches(hashVals)
+	regCtx.AcquireLatches(hashVals)
+	defer regCtx.ReleaseLatches(hashVals)
 
 	var buf []byte
+	var tmpDiff int
 	for i, lockKey := range lockKeys {
 		buf = store.lockStore.Get(lockKey, buf)
 		// We need to check again make sure the lock is not changed.
 		if bytes.Equal(buf, lockVals[i]) {
 			if commitTS > 0 {
 				lock := mvcc.DecodeLock(lockVals[i])
-				dbBatch.set(lockKey, lock.Value, userMeta)
+				tmpDiff += len(lockKey) + len(lock.Value)
+				batch.Commit(lockKey, &lock)
+			} else {
+				batch.Rollback(lockKey, true)
 			}
-			lockBatch.delete(lockKey)
 		}
 	}
-	if len(lockBatch.entries) == 0 {
-		return nil
-	}
-	if dbBatch != nil {
-		atomic.AddInt64(&regCtx.diff, dbBatch.size())
-		err := store.writeDB(dbBatch)
-		if err != nil {
-			return errors.Trace(err)
-		}
-	}
-	err := store.writeLocks(lockBatch)
-	return errors.Trace(err)
-}
-
-const delRangeBatchSize = 4096
-
-func (store *MVCCStore) DeleteRange(reqCtx *requestCtx, startKey, endKey []byte) error {
-	keys := make([][]byte, 0, delRangeBatchSize)
-	oldStartKey := mvcc.EncodeOldKey(startKey, maxSystemTS)
-	oldEndKey := mvcc.EncodeOldKey(endKey, maxSystemTS)
-	reader := reqCtx.getDBReader()
-	keys = store.collectRangeKeys(reader.GetIter(), startKey, endKey, keys)
-	keys = store.collectRangeKeys(reader.GetIter(), oldStartKey, oldEndKey, keys)
-	err := store.deleteKeysInBatch(reqCtx, keys, delRangeBatchSize)
-	if err != nil {
-		log.Error(err)
-	}
-	return errors.Trace(err)
-}
-
-func (store *MVCCStore) collectRangeKeys(it *badger.Iterator, startKey, endKey []byte, keys [][]byte) [][]byte {
-	if len(endKey) == 0 {
-		panic("invalid end key")
-	}
-	for it.Seek(startKey); it.Valid(); it.Next() {
-		item := it.Item()
-		key := item.KeyCopy(nil)
-		if exceedEndKey(key, endKey) {
-			break
-		}
-		keys = append(keys, key)
-		if len(keys) == delRangeBatchSize {
-			break
-		}
-	}
-	return keys
-}
-
-func (store *MVCCStore) deleteKeysInBatch(reqCtx *requestCtx, keys [][]byte, batchSize int) error {
-	regCtx := reqCtx.regCtx
-	for len(keys) > 0 {
-		batchSize := mathutil.Min(len(keys), batchSize)
-		batchKeys := keys[:batchSize]
-		keys = keys[batchSize:]
-		hashVals := keysToHashVals(batchKeys...)
-		dbBatch := newWriteDBBatch(reqCtx)
-		for _, key := range batchKeys {
-			dbBatch.delete(key)
-		}
-
-		regCtx.acquireLatches(hashVals)
-		err := store.writeDB(dbBatch)
-		regCtx.releaseLatches(hashVals)
-		if err != nil {
-			return errors.Trace(err)
-		}
-	}
-	return nil
+	atomic.AddInt64(&regCtx.diff, int64(tmpDiff))
+	return store.dbWriter.Write(batch)
 }
 
 func (store *MVCCStore) GC(reqCtx *requestCtx, safePoint uint64) error {

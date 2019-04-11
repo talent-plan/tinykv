@@ -133,7 +133,7 @@ func (ri *regionCtx) tryAcquireLatches(hashVals []uint64) (bool, *sync.WaitGroup
 	return true, nil
 }
 
-func (ri *regionCtx) acquireLatches(hashVals []uint64) {
+func (ri *regionCtx) AcquireLatches(hashVals []uint64) {
 	start := time.Now()
 	for {
 		ok, wg := ri.tryAcquireLatches(hashVals)
@@ -148,7 +148,7 @@ func (ri *regionCtx) acquireLatches(hashVals []uint64) {
 	}
 }
 
-func (ri *regionCtx) releaseLatches(hashVals []uint64) {
+func (ri *regionCtx) ReleaseLatches(hashVals []uint64) {
 	ri.latchesMu.Lock()
 	defer ri.latchesMu.Unlock()
 	wg := ri.latches[hashVals[0]]

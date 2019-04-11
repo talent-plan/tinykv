@@ -11,10 +11,14 @@ import (
 	"runtime"
 	"syscall"
 
+	"github.com/ngaut/unistore/tikv/raftstore"
+
 	"github.com/coocood/badger"
 	"github.com/coocood/badger/options"
 	"github.com/ngaut/log"
+	"github.com/ngaut/unistore/lockstore"
 	"github.com/ngaut/unistore/tikv"
+	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/kvproto/pkg/tikvpb"
 	"google.golang.org/grpc"
 )
@@ -34,6 +38,7 @@ var (
 	numL0Table       = flag.Int("num-level-zero-tables", 3, "Maximum number of Level 0 tables before we start compacting.")
 	syncWrites       = flag.Bool("sync-write", true, "Sync all writes to disk. Setting this to true would slow down data loading significantly.")
 	maxProcs         = flag.Int("max-procs", 0, "Max CPU cores to use, set 0 to use all CPU cores in the machine.")
+	raft             = flag.Bool("raft", false, "enable raft")
 )
 
 var (
@@ -63,7 +68,18 @@ func main() {
 		RegionSize: *regionSize,
 	}
 	rm := tikv.NewRegionManager(db, regionOpts)
-	store := tikv.NewMVCCStore(db, *dbPath, safePoint)
+	bundle := &mvcc.DBBundle{
+		DB:            db,
+		LockStore:     lockstore.NewMemStore(8 << 20),
+		RollbackStore: lockstore.NewMemStore(256 << 10),
+	}
+	var dbWriter mvcc.DBWriter
+	if *raft {
+		dbWriter = raftstore.NewDBWriter(bundle, raftstore.NewDefaultConfig())
+	} else {
+		dbWriter = tikv.NewDBWriter(bundle, safePoint)
+	}
+	store := tikv.NewMVCCStore(bundle, *dbPath, safePoint, dbWriter)
 	tikvServer := tikv.NewServer(rm, store)
 
 	grpcServer := grpc.NewServer()
