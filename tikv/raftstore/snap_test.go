@@ -291,7 +291,7 @@ func doTestSnapFile(t *testing.T, dbHasData bool) {
 
 	dstDBBundle := openDBBundle(t, dstDBDir)
 	abort := new(uint64)
-	*abort = JobStatusRunning
+	*abort = JobStatus_Running
 	opts := ApplyOptions{
 		DBBundle:  dstDBBundle,
 		Region:    region,
@@ -402,7 +402,7 @@ func TestSnapshotCorruptionSizeOrChecksum(t *testing.T) {
 	defer os.RemoveAll(dstDBDir)
 
 	abort := new(uint64)
-	*abort = JobStatusRunning
+	*abort = JobStatus_Running
 	dstDBBundle := openDBBundle(t, dstDBDir)
 	opts := ApplyOptions{
 		DBBundle:  dstDBBundle,

@@ -18,7 +18,7 @@ import (
 	"github.com/zhangjinpeng1987/raft"
 )
 
-type JobStatus = int64
+type JobStatus = uint64
 
 const (
 	JobStatus_Pending JobStatus = 0 + iota
@@ -289,6 +289,38 @@ func getMsg(engine *badger.DB, key []byte, msg proto.Message) error {
 		return err
 	}
 	return proto.Unmarshal(val, msg)
+}
+
+type storageError string
+
+func (e storageError) Error() string {
+	return string(e)
+}
+
+func getRegionLocalState(db *badger.DB, regionId uint64) (*rspb.RegionLocalState, error) {
+	regionLocalState := new(rspb.RegionLocalState)
+	if err := getMsg(db, RegionStateKey(regionId), regionLocalState); err != nil {
+		return nil, &ErrRegionNotFound{regionId}
+	}
+	return regionLocalState, nil
+}
+
+func getApplyState(db *badger.DB, regionId uint64) (applyState, error) {
+	applyState := applyState{}
+	val, err := getValue(db, ApplyStateKey(regionId))
+	if err != nil {
+		return applyState, storageError(fmt.Sprintf("couldn't load raft state of region %d", regionId))
+	}
+	applyState.Unmarshal(val)
+	return applyState, nil
+}
+
+func getRaftEntry(db *badger.DB, regionId, idx uint64) (*eraftpb.Entry, error) {
+	entry := new(eraftpb.Entry)
+	if err := getMsg(db, RaftLogKey(regionId, idx), entry); err != nil {
+		return nil, storageError(fmt.Sprintf("entry %d of %d not found", idx, regionId))
+	}
+	return entry, nil
 }
 
 func getValue(engine *badger.DB, key []byte) ([]byte, error) {
@@ -916,7 +948,68 @@ func (p *PeerStorage) CheckApplyingSnap() bool {
 	return false
 }
 
+func createAndInitSnapshot(kv *DBBundle, idx, term uint64, key SnapKey, region *metapb.Region, mgr *SnapManager) (*eraftpb.Snapshot, error) {
+	confState := confStateFromRegion(region)
+	snapshot := &eraftpb.Snapshot{
+		Metadata: &eraftpb.SnapshotMetadata{
+			Index:     idx,
+			Term:      term,
+			ConfState: &confState,
+		},
+	}
+	s, err := mgr.GetSnapshotForBuilding(key, kv)
+	if err != nil {
+		return nil, err
+	}
+	// Set snapshot data
+	snapshotData := &rspb.RaftSnapshotData{Region: region}
+	snapshotStatics := SnapStatistics{}
+	err = s.Build(kv, region, snapshotData, &snapshotStatics, mgr)
+	if err != nil {
+		return nil, err
+	}
+	snapshot.Data, err = snapshotData.Marshal()
+	return snapshot, err
+}
+
+func getAppliedIdxTermForSnapshot(raft, kv *badger.DB, regionId uint64) (uint64, uint64, error) {
+	applyState, err := getApplyState(kv, regionId)
+	if err != nil {
+		return 0, 0, err
+	}
+	idx := applyState.appliedIndex
+	var term uint64
+	if idx == applyState.truncatedIndex {
+		term = applyState.truncatedTerm
+	} else {
+		entry, err := getRaftEntry(raft, regionId, idx)
+		if err != nil {
+			return 0, 0, err
+		} else {
+			term = entry.GetTerm()
+		}
+	}
+	return idx, term, nil
+}
+
 func doSnapshot(engines *Engines, mgr *SnapManager, regionId uint64) (*eraftpb.Snapshot, error) {
-	// todo, currently it is a place holder
-	return nil, nil
+	log.Debugf("begin to generate a snapshot. [regionId: %d]", regionId)
+	idx, term, err := getAppliedIdxTermForSnapshot(engines.raft, engines.kv.db, regionId)
+	if err != nil {
+		return nil, err
+	}
+
+	regionLocalState, err := getRegionLocalState(engines.kv.db, regionId)
+	if err != nil {
+		return nil, err
+	}
+	if regionLocalState.GetState() != rspb.PeerState_Normal {
+		return nil, storageError(fmt.Sprintf("snap job %d seems stale, skip", regionId))
+	}
+
+	key := SnapKey{RegionID: regionId, Index: idx, Term: term}
+	mgr.Register(key, SnapEntryGenerating)
+	defer mgr.Deregister(key, SnapEntryGenerating)
+
+	return createAndInitSnapshot(engines.kv, idx, term, key, regionLocalState.GetRegion(), mgr)
 }

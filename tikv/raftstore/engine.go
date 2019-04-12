@@ -2,11 +2,14 @@ package raftstore
 
 import (
 	"github.com/coocood/badger"
+	"github.com/cznic/mathutil"
 	"github.com/golang/protobuf/proto"
 	"github.com/ngaut/unistore/lockstore"
+	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/metapb"
+	"math"
 )
 
 type DBBundle struct {
@@ -225,3 +228,92 @@ func (wb *WriteBatch) Reset() {
 	wb.safePointLock = 0
 	wb.safePointSize = 0
 }
+
+// Todo, the following code redundant to unistore/tikv/worker.go, just as a place holder now.
+
+const delRangeBatchSize = 4096
+
+const maxSystemTS = math.MaxUint64
+
+func deleteRange(db *DBBundle, startKey, endKey []byte) error {
+	// Delete keys first.
+	keys := make([][]byte, 0, delRangeBatchSize)
+	oldStartKey := mvcc.EncodeOldKey(startKey, maxSystemTS)
+	oldEndKey := mvcc.EncodeOldKey(endKey, maxSystemTS)
+	txn := db.db.NewTransaction(false)
+	reader := dbreader.NewDBReader(startKey, endKey, txn, 0)
+	keys = collectRangeKeys(reader.GetIter(), startKey, endKey, keys)
+	keys = collectRangeKeys(reader.GetIter(), oldStartKey, oldEndKey, keys)
+	reader.Close()
+	if err := deleteKeysInBatch(db, keys, delRangeBatchSize); err != nil {
+		return err
+	}
+
+	// Delete lock
+	lockIte := db.lockStore.NewIterator()
+	keys = keys[:0]
+	keys = collectLockRangeKeys(lockIte, startKey, endKey, keys)
+	return deleteLocksInBatch(db, keys, delRangeBatchSize)
+}
+
+func collectRangeKeys(it *badger.Iterator, startKey, endKey []byte, keys [][]byte) [][]byte {
+	if len(endKey) == 0 {
+		panic("invalid end key")
+	}
+	for it.Seek(startKey); it.Valid(); it.Next() {
+		item := it.Item()
+		key := item.KeyCopy(nil)
+		if exceedEndKey(key, endKey) {
+			break
+		}
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+func collectLockRangeKeys(it *lockstore.Iterator, startKey, endKey []byte, keys [][]byte) [][]byte {
+	if len(endKey) == 0 {
+		panic("invalid end key")
+	}
+	for it.Seek(startKey); it.Valid(); it.Next() {
+		key := safeCopy(it.Key())
+		if exceedEndKey(key, endKey) {
+			break
+		}
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+func deleteKeysInBatch(db *DBBundle, keys [][]byte, batchSize int) error {
+	for len(keys) > 0 {
+		batchSize := mathutil.Min(len(keys), batchSize)
+		batchKeys := keys[:batchSize]
+		keys = keys[batchSize:]
+		dbBatch := new(WriteBatch)
+		for _, key := range batchKeys {
+			dbBatch.Delete(key)
+		}
+		if err := dbBatch.WriteToKV(db); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func deleteLocksInBatch(db *DBBundle, keys [][]byte, batchSize int) error {
+	for len(keys) > 0 {
+		batchSize := mathutil.Min(len(keys), batchSize)
+		batchKeys := keys[:batchSize]
+		keys = keys[batchSize:]
+		dbBatch := new(WriteBatch)
+		for _, key := range batchKeys {
+			dbBatch.DeleteLock(key)
+		}
+		if err := dbBatch.WriteToKV(db); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+

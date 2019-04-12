@@ -39,14 +39,13 @@ const (
 	snapshotVersion     = 2
 	deleteRetryMaxTime  = 6
 	deleteRetryDuration = 500 * time.Millisecond
-
-	JobStatusPending    uint64 = 0
-	JobStatusRunning    uint64 = 1
-	JobStatusCancelling uint64 = 2
-	JobStatusCancelled  uint64 = 3
-	JobStatusFinished   uint64 = 4
-	JobStatusFailed     uint64 = 5
 )
+
+type applySnapAbortError string
+
+func (e applySnapAbortError) Error() string {
+	return string(e)
+}
 
 var (
 	snapshotCFs  = []CFName{CFDefault, CFLock, CFWrite}
@@ -54,7 +53,7 @@ var (
 	lockCFIdx    = 1
 	writeCFIdx   = 2
 
-	errAbort = errors.New("abort")
+	errAbort = applySnapAbortError("abort")
 )
 
 type SnapKey struct {
@@ -94,6 +93,15 @@ type ApplyOptions struct {
 	Region    *metapb.Region
 	Abort     *uint64
 	BatchSize int
+}
+
+func newApplyOptions(db *DBBundle, region *metapb.Region, abort *uint64, batchSize int) *ApplyOptions {
+	return &ApplyOptions{
+		DBBundle:  db,
+		Region:    region,
+		Abort:     abort,
+		BatchSize: batchSize,
+	}
 }
 
 // `Snapshot` is an interface for snapshot.
@@ -748,7 +756,7 @@ func (s *Snap) Apply(opts ApplyOptions) error {
 }
 
 func checkAbort(status *uint64) error {
-	if atomic.LoadUint64(status) == JobStatusCancelling {
+	if atomic.LoadUint64(status) == JobStatus_Cancelling {
 		return errAbort
 	}
 	return nil

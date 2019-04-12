@@ -3,7 +3,9 @@ package raftstore
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
 	"github.com/coocood/badger/y"
+	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -338,31 +340,87 @@ func (snapCtx *snapContext) generateSnap(regionId uint64, notifier chan<- *eraft
 	return nil
 }
 
-type applySnapAbortError string
-
-func (e applySnapAbortError) Error() string {
-	return "abort"
+// cleanUpOriginData clear up the region data before applying snapshot
+func (snapCtx *snapContext) cleanUpOriginData(regionState *rspb.RegionLocalState, status *JobStatus) error {
+	startKey := EncStartKey(regionState.GetRegion())
+	endKey := EncEndKey(regionState.GetRegion())
+	if err := checkAbort(status); err != nil {
+		return err
+	}
+	snapCtx.cleanUpOverlapRanges(startKey, endKey)
+	if err := deleteRange(snapCtx.engiens.kv, startKey, endKey); err != nil {
+		return err
+	}
+	if err := checkAbort(status); err != nil {
+		return err
+	}
+	return nil
 }
 
 // applySnap applies snapshot data of the Region.
 func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus) error {
-	// todo, currently, it is a place holder.
+	log.Infof("begin apply snap data. [regionId: %d]", regionId)
+	if err := checkAbort(status); err != nil {
+		return err
+	}
+
+	regionKey := RegionStateKey(regionId)
+	regionState, err := getRegionLocalState(snapCtx.engiens.kv.db, regionId)
+	if err != nil {
+		return errors.New(fmt.Sprintf("failed to get regionState from %v", regionKey))
+	}
+
+	// Clean up origin data
+	if err := snapCtx.cleanUpOriginData(regionState, status); err != nil {
+		return err
+	}
+
+	applyState, err := getApplyState(snapCtx.engiens.kv.db, regionId)
+	if err != nil {
+		return errors.New(fmt.Sprintf("failed to get raftState from %v", ApplyStateKey(regionId)))
+	}
+	snapKey := SnapKey{RegionID: regionId, Index: applyState.truncatedIndex, Term: applyState.truncatedTerm}
+	snapCtx.mgr.Register(snapKey, SnapEntryApplying)
+	defer snapCtx.mgr.Deregister(snapKey, SnapEntryApplying)
+
+	snap, err := snapCtx.mgr.GetSnapshotForApplying(snapKey)
+	if err != nil {
+		return errors.New(fmt.Sprintf("missing snapshot file %s", snap.Path()))
+	}
+
+	t := time.Now()
+	applyOptions := newApplyOptions(snapCtx.engiens.kv, regionState.GetRegion(), status, int(snapCtx.batchSize))
+	if err := snap.Apply(*applyOptions); err != nil {
+		return err
+	}
+
+	wb := new(WriteBatch)
+	regionState.State = rspb.PeerState_Normal
+	if err := wb.SetMsg(regionKey, regionState); err != nil {
+		return err
+	}
+	wb.Delete(SnapshotRaftStateKey(regionId))
+	if err := wb.WriteToKV(snapCtx.engiens.kv); err != nil {
+		panic(fmt.Sprintf("Region %d faile to save applySnap result: %v", regionId, err))
+	}
+
+	log.Infof("applying new data. [regionId: %d, timeTakes: %v]", regionId, time.Now().Sub(t))
 	return nil
 }
 
 // handleApply tries to apply the snapshot of the specified Region. It calls `applySnap` to do the actual work.
 func (snapCtx *snapContext) handleApply(regionId uint64, status *JobStatus) {
-	atomic.CompareAndSwapInt64(status, JobStatus_Pending, JobStatus_Running)
+	atomic.CompareAndSwapUint64(status, JobStatus_Pending, JobStatus_Running)
 	err := snapCtx.applySnap(regionId, status)
 	switch err.(type) {
 	case nil:
-		atomic.SwapInt64(status, JobStatus_Finished)
+		atomic.SwapUint64(status, JobStatus_Finished)
 	case applySnapAbortError:
 		log.Warnf("applying snapshot is aborted. [regionId: %d]", regionId)
-		y.Assert(atomic.SwapInt64(status, JobStatus_Cancelled) == JobStatus_Cancelling)
+		y.Assert(atomic.SwapUint64(status, JobStatus_Cancelled) == JobStatus_Cancelling)
 	default:
 		log.Errorf("failed to apply snap!!!. err: %v", err)
-		atomic.SwapInt64(status, JobStatus_Failed)
+		atomic.SwapUint64(status, JobStatus_Failed)
 	}
 }
 
@@ -394,7 +452,7 @@ func (snapCtx *snapContext) insertPendingDeleteRange(regionId uint64, startKey, 
 	}
 	snapCtx.cleanUpOverlapRanges(startKey, endKey)
 	log.Infof("register deleting data in range. [regionId: %d, startKey: %s, endKey: %s]", regionId,
-		regionId, hex.EncodeToString(startKey), hex.EncodeToString(endKey))
+		hex.EncodeToString(startKey), hex.EncodeToString(endKey))
 	timeout := time.Now().Add(snapCtx.cleanStalePeerDelay)
 	snapCtx.pendingDeleteRanges.insert(regionId, startKey, endKey, timeout)
 	return true

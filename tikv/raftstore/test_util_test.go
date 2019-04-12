@@ -95,6 +95,11 @@ func cleanUpTestData(peerStore *PeerStorage) {
 	os.RemoveAll(peerStore.Engines.raftPath)
 }
 
+func cleanUpTestEngineData(engines *Engines) {
+	os.RemoveAll(engines.kvPath)
+	os.RemoveAll(engines.raftPath)
+}
+
 func newTestEntry(index, term uint64) eraftpb.Entry {
 	return eraftpb.Entry{
 		Index: index,
