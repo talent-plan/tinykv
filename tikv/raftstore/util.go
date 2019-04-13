@@ -476,3 +476,8 @@ func CloneMsg(origin, cloned proto.Message) error {
 	}
 	return proto.Unmarshal(data, cloned)
 }
+
+func deleteAllFilesInRange(db *DBBundle, startKey, endKey []byte) error {
+	// todo, needs badger to export api to support delete files.
+	return nil
+}

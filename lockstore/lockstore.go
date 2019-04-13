@@ -19,7 +19,8 @@ type MemStore struct {
 	arenaPtr unsafe.Pointer
 
 	// We only consume 2 bits for a random height call.
-	rand rand.Source64
+	rand   rand.Source64
+	length int
 }
 
 const (
@@ -272,6 +273,7 @@ func (ls *MemStore) Insert(key []byte, v []byte) bool {
 		}
 		prev[i].setNextAddr(i, x.addr)
 	}
+	ls.length += 1
 	return true
 }
 
@@ -333,5 +335,10 @@ func (ls *MemStore) Delete(key []byte) bool {
 		prevs[i].setNextAddr(i, keyNode.getNextAddr(i))
 	}
 	ls.getArena().free(keyNode.addr)
+	ls.length -= 1
 	return true
+}
+
+func (ls *MemStore) Len() int {
+	return ls.length
 }

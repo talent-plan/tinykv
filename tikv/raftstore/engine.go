@@ -316,4 +316,3 @@ func deleteLocksInBatch(db *DBBundle, keys [][]byte, batchSize int) error {
 	}
 	return nil
 }
-

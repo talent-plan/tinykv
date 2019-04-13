@@ -51,6 +51,12 @@ func (it *Iterator) SeekForPrev(target []byte) {
 	it.setKeyValue(e)
 }
 
+// SeekForExclusivePrev locates the iterator to the last entry with key < target.
+func (it *Iterator) SeekForExclusivePrev(target []byte) {
+	e, _ := it.ls.findLess(target, false)
+	it.setKeyValue(e)
+}
+
 // SeekToFirst locates the iterator to the first entry.
 func (it *Iterator) SeekToFirst() {
 	e := it.ls.getNext(it.ls.head, 0)

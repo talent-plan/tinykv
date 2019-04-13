@@ -2,6 +2,7 @@ package raftstore
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"github.com/coocood/badger/y"
@@ -290,7 +291,74 @@ type pendingDeleteRanges struct {
 }
 
 func (pendDelRanges *pendingDeleteRanges) insert(regionId uint64, startKey, endKey []byte, timeout time.Time) {
-	// todo, currently it is a place holder.
+	if len(pendDelRanges.findOverlapRanges(startKey, endKey)) != 0 {
+		panic(fmt.Sprintf("[region %d] register deleting data in [%v, %v) failed due to overlap", regionId, startKey, endKey))
+	}
+	peerInfo := newStalePeerInfo(regionId, endKey, timeout)
+	pendDelRanges.ranges.Insert(startKey, peerInfo.data)
+}
+
+// remove removes and returns the peer info with the `start_key`.
+func (pendDelRanges *pendingDeleteRanges) remove(startKey []byte) *stalePeerInfo {
+	value := pendDelRanges.ranges.Get(startKey, nil)
+	if value != nil {
+		pendDelRanges.ranges.Delete(startKey)
+		return &stalePeerInfo{data: safeCopy(value)}
+	}
+	return nil
+}
+
+// timeoutRanges returns all timeout ranges info.
+func (pendDelRanges *pendingDeleteRanges) timeoutRanges(now time.Time) (ranges []delRangeHolder) {
+	ite := pendDelRanges.ranges.NewIterator()
+	for ite.Next(); ite.Valid(); ite.Next() {
+		startKey := safeCopy(ite.Key())
+		peerInfo := stalePeerInfo{data: safeCopy(ite.Value())}
+		if peerInfo.timeout().Before(now) {
+			ranges = append(ranges, delRangeHolder{
+				startKey: startKey,
+				endKey:   peerInfo.endKey(),
+				regionId: peerInfo.regionId(),
+			})
+		}
+	}
+	return
+}
+
+type stalePeerInfo struct {
+	data []byte
+}
+
+func newStalePeerInfo(regionId uint64, endKey []byte, timeout time.Time) stalePeerInfo {
+	s := stalePeerInfo{data: make([]byte, 16+len(endKey))}
+	s.setRegionId(regionId)
+	s.setTimeout(timeout)
+	s.setEndKey(endKey)
+	return s
+}
+
+func (s stalePeerInfo) regionId() uint64 {
+	return binary.LittleEndian.Uint64(s.data[:8])
+}
+
+func (s stalePeerInfo) timeout() time.Time {
+	return time.Unix(0, int64(binary.LittleEndian.Uint64(s.data[8:16])))
+}
+
+func (s stalePeerInfo) endKey() []byte {
+	return s.data[16:]
+}
+
+func (s stalePeerInfo) setRegionId(regionId uint64) {
+	binary.LittleEndian.PutUint64(s.data[:8], regionId)
+}
+
+func (s stalePeerInfo) setTimeout(timeout time.Time) {
+	binary.LittleEndian.PutUint64(s.data[8:16], uint64(timeout.UnixNano()))
+}
+
+func (s stalePeerInfo) setEndKey(endKey []byte) {
+	copy(s.data[16:], endKey)
 }
 
 type delRangeHolder struct {
@@ -300,9 +368,28 @@ type delRangeHolder struct {
 }
 
 // findOverlapRanges finds ranges that overlap with [start_key, end_key).
-func (pendDelRanges *pendingDeleteRanges) findOverlapRanges(startKey, endKey []byte) []delRangeHolder {
-	// todo, currently it is a a place holder.
-	return nil
+func (pendDelRanges *pendingDeleteRanges) findOverlapRanges(startKey, endKey []byte) (ranges []delRangeHolder) {
+	if exceedEndKey(startKey, endKey) {
+		return nil
+	}
+	ite := pendDelRanges.ranges.NewIterator()
+	// find the first range that may overlap with [start_key, end_key)
+	if ite.SeekForExclusivePrev(startKey); ite.Valid() {
+		peerInfo := stalePeerInfo{data: safeCopy(ite.Value())}
+		if bytes.Compare(peerInfo.endKey(), startKey) > 0 {
+			ranges = append(ranges, delRangeHolder{startKey: safeCopy(ite.Key()), endKey: peerInfo.endKey(), regionId: peerInfo.regionId()})
+		}
+	}
+	// Find the rest ranges that overlap with [start_key, end_key)
+	for ite.Next(); ite.Valid(); ite.Next() {
+		peerInfo := stalePeerInfo{data: safeCopy(ite.Value())}
+		startKey := safeCopy(ite.Key())
+		if exceedEndKey(startKey, endKey) {
+			break
+		}
+		ranges = append(ranges, delRangeHolder{startKey: startKey, endKey: peerInfo.endKey(), regionId: peerInfo.regionId()})
+	}
+	return
 }
 
 // drainOverlapRanges gets ranges that overlap with [start_key, end_key).
@@ -460,7 +547,20 @@ func (snapCtx *snapContext) insertPendingDeleteRange(regionId uint64, startKey, 
 
 // cleanUpRange cleans up the data within the range.
 func (snapCtx *snapContext) cleanUpRange(regionId uint64, startKey, endKey []byte, useDeleteFiles bool) {
-	// todo, currently it is a place holder.
+	if useDeleteFiles {
+		if err := deleteAllFilesInRange(snapCtx.engiens.kv, startKey, endKey); err != nil {
+			log.Errorf("failed to delete files in range, [regionId: %d, startKey: %s, endKey: %s, err: %v]", regionId,
+				hex.EncodeToString(startKey), hex.EncodeToString(endKey), err)
+			return
+		}
+	}
+	if err := deleteRange(snapCtx.engiens.kv, startKey, endKey); err != nil {
+		log.Errorf("failed to delete data in range, [regionId: %d, startKey: %s, endKey: %s, err: %v]", regionId,
+			hex.EncodeToString(startKey), hex.EncodeToString(endKey), err)
+	} else {
+		log.Infof("succeed in deleting data in range. [regionId: %d, startKey: %s, endKey: %s]", regionId,
+			hex.EncodeToString(startKey), hex.EncodeToString(endKey))
+	}
 }
 
 type regionRunner struct {
@@ -477,7 +577,9 @@ func newRegionRunner(engines *Engines, mgr *SnapManager, batchSize uint64, clean
 			mgr:                 mgr,
 			batchSize:           batchSize,
 			cleanStalePeerDelay: cleanStalePeerDelay,
-			pendingDeleteRanges: &pendingDeleteRanges{},
+			pendingDeleteRanges: &pendingDeleteRanges{
+				ranges: lockstore.NewMemStore(4096),
+			},
 		},
 	}
 }
