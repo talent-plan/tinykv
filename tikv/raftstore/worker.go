@@ -5,13 +5,12 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"github.com/coocood/badger/y"
-	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/coocood/badger"
+	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/lockstore"
 	"github.com/ngaut/unistore/tikv/dbreader"
@@ -19,6 +18,9 @@ import (
 	"github.com/pingcap/kvproto/pkg/eraftpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
+	"github.com/pingcap/kvproto/pkg/raft_serverpb"
+	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
+	"github.com/pingcap/kvproto/pkg/tikvpb"
 )
 
 type taskType int64
@@ -47,6 +49,11 @@ const (
 	///
 	/// The deletion may and may not succeed.
 	taskTypeRegionDestroy taskType = 403
+
+	taskTypeResolveAddr taskType = 501
+
+	taskTypeSnapSend taskType = 601
+	taskTypeSnapRecv taskType = 602
 )
 
 type task struct {
@@ -146,6 +153,21 @@ type checkAndCompactTask struct {
 	ranges                    []keyRange
 	tombStoneNumThreshold     uint64 // The minimum RocksDB tombstones a range that need compacting has
 	tombStonePercentThreshold uint64
+}
+
+type resolveAddrTask struct {
+	storeID  uint64
+	callback func(addr string, err error)
+}
+
+type sendSnapTask struct {
+	addr     string
+	msg      *raft_serverpb.RaftMessage
+	callback func(error)
+}
+
+type recvSnapTask struct {
+	stream tikvpb.Tikv_SnapshotServer
 }
 
 type worker struct {
