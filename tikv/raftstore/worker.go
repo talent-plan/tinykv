@@ -231,14 +231,22 @@ type splitCheckRunner struct {
 	coprocessorHost *CoprocessorHost
 }
 
+func newSplitCheckRunner(engine *badger.DB, router *router, host *CoprocessorHost) *splitCheckRunner {
+	return &splitCheckRunner{
+		engine:          engine,
+		router:          router,
+		coprocessorHost: host,
+	}
+}
+
 /// run checks a region with split checkers to produce split keys and generates split admin command.
 func (r *splitCheckRunner) run(t task) {
 	spCheckTask := t.data.(*splitCheckTask)
 	region := spCheckTask.region
 	regionId := region.Id
-	startKey := EncStartKey(region)
-	endKey := EncEndKey(region)
-	log.Debugf("executing task: [regionId: %d, startKey: %s, endKey: %s]", regionId,
+	startKey := region.StartKey
+	endKey := region.EndKey
+	log.Debugf("executing split check task: [regionId: %d, startKey: %s, endKey: %s]", regionId,
 		hex.EncodeToString(startKey), hex.EncodeToString(endKey))
 	host := r.coprocessorHost.newSplitCheckerHost(region, r.engine, spCheckTask.autoSplit,
 		spCheckTask.policy)

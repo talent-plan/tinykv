@@ -19,7 +19,7 @@ func NewDBReader(startKey, endKey []byte, txn *badger.Txn, safePoint uint64) *DB
 	}
 }
 
-func newIterator(txn *badger.Txn, reverse bool, startKey, endKey []byte) *badger.Iterator {
+func NewIterator(txn *badger.Txn, reverse bool, startKey, endKey []byte) *badger.Iterator {
 	opts := badger.DefaultIteratorOptions
 	opts.PrefetchValues = false
 	opts.Reverse = reverse
@@ -72,14 +72,14 @@ func (r *DBReader) getOld(key []byte, startTS uint64) ([]byte, error) {
 
 func (r *DBReader) GetIter() *badger.Iterator {
 	if r.iter == nil {
-		r.iter = newIterator(r.txn, false, r.startKey, r.endKey)
+		r.iter = NewIterator(r.txn, false, r.startKey, r.endKey)
 	}
 	return r.iter
 }
 
 func (r *DBReader) getReverseIter() *badger.Iterator {
 	if r.revIter == nil {
-		r.revIter = newIterator(r.txn, true, r.startKey, r.endKey)
+		r.revIter = NewIterator(r.txn, true, r.startKey, r.endKey)
 	}
 	return r.revIter
 }
@@ -90,7 +90,7 @@ func (r *DBReader) GetOldIter() *badger.Iterator {
 		oldStartKey[0]++
 		oldEndKey := append([]byte{}, r.endKey...)
 		oldEndKey[0]++
-		r.oldIter = newIterator(r.txn, false, oldStartKey, oldEndKey)
+		r.oldIter = NewIterator(r.txn, false, oldStartKey, oldEndKey)
 	}
 	return r.oldIter
 }

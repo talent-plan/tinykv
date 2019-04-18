@@ -2,7 +2,6 @@ package raftstore
 
 import (
 	"bytes"
-
 	"github.com/coocood/badger"
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/tikv/dbreader"
@@ -82,7 +81,7 @@ func (checker *sizeSplitChecker) onKv(obCtx *observerContext, spCheckKeyEntry sp
 	checker.currentSize += size
 	overLimit := uint64(len(checker.splitKeys)) >= checker.batchSplitLimit
 	if checker.currentSize > checker.splitSize && !overLimit {
-		checker.splitKeys = append(checker.splitKeys, OriginKey(safeCopy(spCheckKeyEntry.key)))
+		checker.splitKeys = append(checker.splitKeys, safeCopy(spCheckKeyEntry.key))
 		// If for previous onKv(), checker.current_size == checker.split_size,
 		// the split key would be pushed this time, but the entry size for this time should not be ignored.
 		if checker.currentSize-size == checker.splitSize {
@@ -175,7 +174,7 @@ func (observer *sizeSplitCheckObserver) addChecker(obCtx *observerContext, host 
 		}
 		host.addChecker(newSizeSplitChecker(observer.regionMaxSize, observer.splitSize, observer.splitLimit, policy))
 	} else {
-		log.Debugf("approximate size less than threshold, doesn't need to do split check. [regionId: %d, size : %d, threshold : %d",
+		log.Debugf("approximate size less than threshold, doesn't need to do split check. [regionId: %d, size : %d, threshold : %d]",
 			regionId, regionSize, observer.regionMaxSize)
 	}
 }
@@ -209,7 +208,7 @@ func (checker *halfSplitChecker) getSplitKeys() [][]byte {
 	dataKey := checker.buckets[mid]
 	checker.buckets[mid] = checker.buckets[bucketLen-1]
 	checker.buckets = checker.buckets[:bucketLen-1]
-	return [][]byte{OriginKey(dataKey)}
+	return [][]byte{dataKey}
 }
 
 func getRegionApproximateMiddle(db *badger.DB, region *metapb.Region) ([]byte, error) {
@@ -285,7 +284,7 @@ func (checker *keysSplitChecker) onKv(obCtx *observerContext, spCheckKeyEntry sp
 	checker.currentCount += 1
 	overLimit := uint64(len(checker.splitKeys)) >= checker.batchSplitLimit
 	if checker.currentCount > checker.splitThreshold && !overLimit {
-		checker.splitKeys = append(checker.splitKeys, OriginKey(safeCopy(spCheckKeyEntry.key)))
+		checker.splitKeys = append(checker.splitKeys, safeCopy(spCheckKeyEntry.key))
 		// If for previous onKv(), checker.currentCount == checker.splitThreshold
 		// the split key would be pushed this time, but the entry size for this time should not be ignored.
 		checker.currentCount = 1
@@ -373,10 +372,6 @@ type tableSplitChecker struct {
 	checkPolicy pdpb.CheckPolicy
 }
 
-func newTableSplitCheckerByPolicy(policy pdpb.CheckPolicy) *tableSplitChecker {
-	return &tableSplitChecker{checkPolicy: policy}
-}
-
 func newTableSplitChecker(splitKey []byte, policy pdpb.CheckPolicy) *tableSplitChecker {
 	return &tableSplitChecker{
 		splitKey:    splitKey,
@@ -401,13 +396,8 @@ func (checker *tableSplitChecker) onKv(obCtx *observerContext, spCheckKeyEntry s
 	if len(checker.splitKey) != 0 {
 		return true
 	}
-	currentEncodedKey := OriginKey(spCheckKeyEntry.key)
-	var splitKey []byte
-	if isTableKey(currentEncodedKey) {
-		splitKey = currentEncodedKey
-	}
-	if len(splitKey) != 0 {
-		splitKey = extractTablePrefix(splitKey)
+	if isTableKey(spCheckKeyEntry.key) {
+		checker.splitKey = extractTablePrefix(spCheckKeyEntry.key)
 		return true
 	}
 	return false
@@ -435,14 +425,22 @@ func (observer *tableSplitCheckObserver) start() {}
 func (observer *tableSplitCheckObserver) stop() {}
 
 func lastKeyOfRegion(db *badger.DB, region *metapb.Region) []byte {
-	startKey := EncStartKey(region)
-	endKey := EncEndKey(region)
 	txn := db.NewTransaction(false)
-	reader := dbreader.NewDBReader(startKey, endKey, txn, 0)
-	defer reader.Close()
-	ite := reader.GetIter()
-	if ite.Seek(endKey); ite.Valid() {
-		return ite.Item().KeyCopy(nil)
+	defer txn.Discard()
+	ite := dbreader.NewIterator(txn, true, region.GetStartKey(), region.GetEndKey())
+	defer ite.Close()
+	if ite.Seek(region.GetEndKey()); ite.Valid() {
+		item := ite.Item()
+		if bytes.Compare(item.Key(), region.GetEndKey()) == 0 {
+			if ite.Next(); ite.Valid() {
+				item = ite.Item()
+			} else {
+				return nil
+			}
+		}
+		if bytes.Compare(item.Key(), region.GetStartKey()) >= 0 {
+			return item.KeyCopy(nil)
+		}
 	}
 	return nil
 }
@@ -458,16 +456,14 @@ func (observer *tableSplitCheckObserver) addChecker(obCtx *observerContext, host
 	if len(endKey) == 0 {
 		return
 	}
-	encodedStartKey := region.GetStartKey()
-	encodedEndKey := OriginKey(endKey)
-	if isSameTable(encodedStartKey, encodedEndKey) {
+	if isSameTable(region.GetStartKey(), endKey) {
 		// Same table
 		return
 	} else {
 		// Different tables.
-		// Note that table id does not grow by 1, so have to use encodedEndKey to extract a table prefix.
+		// Note that table id does not grow by 1, so have to use endKey to extract a table prefix.
 		// See more: https://github.com/pingcap/tidb/issues/4727.
-		splitKey := extractTablePrefix(encodedEndKey)
+		splitKey := extractTablePrefix(endKey)
 		host.addChecker(newTableSplitChecker(splitKey, policy))
 	}
 }
@@ -529,6 +525,50 @@ func (host *splitCheckerHost) addChecker(checker splitChecker) {
 	host.checkers = append(host.checkers, checker)
 }
 
+type splitCheckConfig struct {
+
+	// When it is true, it will try to split a region with table prefix if
+	// that region crosses tables.
+	splitRegionOnTable bool
+
+	// For once split check, there are several splitKey produced for batch.
+	// batchSplitLimit limits the number of produced split-key for one batch.
+	batchSplitLimit uint64
+
+	// When region [a,e) size meets regionMaxSize, it will be split into
+	// several regions [a,b), [b,c), [c,d), [d,e). And the size of [a,b),
+	// [b,c), [c,d) will be regionSplitSize (maybe a little larger).
+	regionMaxSize   uint64
+	regionSplitSize uint64
+
+	// When the number of keys in region [a,e) meets the region_max_keys,
+	// it will be split into two several regions [a,b), [b,c), [c,d), [d,e).
+	// And the number of keys in [a,b), [b,c), [c,d) will be region_split_keys.
+	regionMaxKeys   uint64
+	regionSplitKeys uint64
+}
+
+const (
+	// Default region split size.
+	splitSizeMB uint64 = 96
+	// Default region split keys.
+	splitKeys uint64 = 960000
+	// Default batch split limit.
+	batchSplitLimit uint64 = 10
+)
+
+func newDefaultSplitCheckConfig() *splitCheckConfig {
+	splitSize := splitSizeMB * MB
+	return &splitCheckConfig{
+		splitRegionOnTable: true,
+		batchSplitLimit:    batchSplitLimit,
+		regionSplitSize:    splitSize,
+		regionMaxSize:      splitSize / 2 * 3,
+		regionSplitKeys:    splitKeys,
+		regionMaxKeys:      splitKeys / 2 * 3,
+	}
+}
+
 type registry struct {
 	splitCheckObservers []splitCheckObserver
 }
@@ -536,6 +576,27 @@ type registry struct {
 type CoprocessorHost struct {
 	// Todo: currently it is a place holder
 	registry registry
+}
+
+func newCoprocessorHost(config *splitCheckConfig, router *router) *CoprocessorHost {
+	host := &CoprocessorHost{}
+	// NOTE: the split check observer order is hard coded.
+	halfSplitCheckObserver := newHalfSplitCheckObserver(config.regionMaxSize)
+
+	sizeSplitCheckObserver := newSizeSplitCheckObserver(config.regionMaxSize, config.regionSplitSize,
+		config.batchSplitLimit, router)
+
+	keysSplitCheckObserver := newKeysSplitCheckObserver(config.regionMaxKeys, config.regionSplitKeys,
+		config.batchSplitLimit, router)
+
+	// TableCheckObserver has higher priority than SizeCheckObserver.
+	host.registry.splitCheckObservers = append(host.registry.splitCheckObservers, halfSplitCheckObserver,
+		sizeSplitCheckObserver, keysSplitCheckObserver)
+	if config.splitRegionOnTable {
+		host.registry.splitCheckObservers = append(host.registry.splitCheckObservers, &tableSplitCheckObserver{})
+	}
+
+	return host
 }
 
 func (c *CoprocessorHost) PrePropose(region *metapb.Region, req *raft_cmdpb.RaftCmdRequest) error {
