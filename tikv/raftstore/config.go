@@ -116,6 +116,11 @@ type Config struct {
 
 	StoreMaxBatchSize uint64
 	StorePoolSize     uint64
+
+	GrpcInitialWindowSize uint64
+	GrpcKeepAliveTime     time.Duration
+	GrpcKeepAliveTimeout  time.Duration
+	GrpcRaftConnNum       uint64
 }
 
 func NewDefaultConfig() *Config {
@@ -173,6 +178,10 @@ func NewDefaultConfig() *Config {
 		ApplyPoolSize:            2,
 		StoreMaxBatchSize:        1024,
 		StorePoolSize:            2,
+		GrpcInitialWindowSize:    2 * 1024 * 1024,
+		GrpcKeepAliveTime:        3 * time.Second,
+		GrpcKeepAliveTimeout:     60 * time.Second,
+		GrpcRaftConnNum:          1,
 	}
 }
 
