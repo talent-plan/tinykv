@@ -697,7 +697,7 @@ func (bs *raftBatchSystem) startSystem(
 	workers.pdWorker.start(pdRunner)
 	resolverRunner := newResolverRunner(builder.pdClient)
 	workers.resolverWorker.start(resolverRunner)
-	snapRunner := newSnapRunner(snapMgr)
+	snapRunner := newSnapRunner(snapMgr, builder.cfg)
 	workers.snapWorker.start(snapRunner)
 	workers.computeHashWorker.start(&computeHashRunner{router: bs.router})
 	bs.workers = workers
