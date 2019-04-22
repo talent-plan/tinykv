@@ -1,6 +1,7 @@
 package mvcc
 
 import (
+	"github.com/coocood/badger/y"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/tidb/util/codec"
@@ -37,6 +38,50 @@ func ParseWriteCFValue(data []byte) (wv WriteCFValue, err error) {
 	}
 	wv.ShortVal, wv.StartTS, err = codec.DecodeUvarint(data[1:])
 	return
+}
+
+const (
+	shortValuePrefix = 'v'
+	shortValueMaxLen = 64
+)
+
+// EncodeWriteCFValue accepts a write cf parameters and return the encoded bytes data.
+// Just like the tikv encoding form. See tikv/src/storage/mvcc/write.rs for more detail.
+func EncodeWriteCFValue(t WriteType, startTs uint64, shortVal []byte) []byte {
+	data := make([]byte, 1)
+	data[0] = byte(t)
+	data = codec.EncodeUvarint(data, startTs)
+	if len(shortVal) != 0 {
+		data = append(data, byte(shortValuePrefix), byte(len(shortVal)))
+		return append(data, shortVal...)
+	}
+	return data
+}
+
+// EncodeLockCFValue encodes the mvcc lock and returns putLock value and putDefault value if exists.
+func EncodeLockCFValue(lock *MvccLock) ([]byte, []byte, error) {
+	data := make([]byte, 1)
+	switch lock.Op {
+	case byte(kvrpcpb.Op_Put):
+		data[0] = LockTypePut
+	case byte(kvrpcpb.Op_Del):
+		data[0] = LockTypeDelete
+	case byte(kvrpcpb.Op_Lock):
+		data[0] = LockTypeLock
+	default:
+		return nil, nil, errors.New("invalid lock op")
+	}
+	data = codec.EncodeUvarint(codec.EncodeCompactBytes(data, lock.Primary), lock.StartTS)
+	data = codec.EncodeUvarint(data, uint64(lock.TTL))
+	if len(lock.Value) <= shortValueMaxLen {
+		if len(lock.Value) != 0 {
+			data = append(data, byte(shortValuePrefix), byte(len(lock.Value)))
+			data = append(data, lock.Value...)
+		}
+		return data, nil, nil
+	} else {
+		return data, lock.Value, nil
+	}
 }
 
 type LockType = byte
@@ -80,8 +125,9 @@ func ParseLockCFValue(data []byte) (lock MvccLock, err error) {
 	if err != nil || len(data) == 0 {
 		return
 	}
-	shortValLen := int(data[0])
-	lock.Value = data[1:]
+	y.Assert(data[0] == shortValuePrefix)
+	shortValLen := int(data[1])
+	lock.Value = data[2:]
 	if shortValLen != len(lock.Value) {
 		err = invalidLockCFValue
 	}

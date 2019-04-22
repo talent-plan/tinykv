@@ -1,6 +1,11 @@
 package raftstore
 
-import "github.com/ngaut/unistore/tikv/mvcc"
+import (
+	"fmt"
+	"github.com/ngaut/unistore/tikv/mvcc"
+	rcpb "github.com/pingcap/kvproto/pkg/raft_cmdpb"
+	"github.com/pingcap/tidb/util/codec"
+)
 
 type raftDBWriter struct {
 }
@@ -14,20 +19,91 @@ func (writer *raftDBWriter) Close() {
 }
 
 type raftWriteBatch struct {
+	requests []*rcpb.Request
 	startTS  uint64
 	commitTS uint64
 }
 
 func (wb *raftWriteBatch) Prewrite(key []byte, lock *mvcc.MvccLock) {
-	// TODO: stub
+	encodedKey := codec.EncodeBytes(nil, key)
+	putLock, putDefault, err := mvcc.EncodeLockCFValue(lock)
+	if err != nil {
+		panic(fmt.Sprintf("Prewrite error when transfering lock. [key: %v, %v]", key, err))
+	}
+	if len(putDefault) != 0 {
+		// Prewrite with large value.
+		putDefaultReq := &rcpb.Request{
+			CmdType: rcpb.CmdType_Put,
+			Put: &rcpb.PutRequest{
+				Cf:    "",
+				Key:   codec.EncodeUintDesc(encodedKey, lock.StartTS),
+				Value: putDefault,
+			},
+		}
+		putLockReq := &rcpb.Request{
+			CmdType: rcpb.CmdType_Put,
+			Put: &rcpb.PutRequest{
+				Cf:    CFLock,
+				Key:   encodedKey,
+				Value: putLock,
+			},
+		}
+		wb.requests = append(wb.requests, putDefaultReq, putLockReq)
+	} else {
+		putLockReq := &rcpb.Request{
+			CmdType: rcpb.CmdType_Put,
+			Put: &rcpb.PutRequest{
+				Cf:    CFLock,
+				Key:   encodedKey,
+				Value: putLock,
+			},
+		}
+		wb.requests = append(wb.requests, putLockReq)
+	}
 }
 
 func (wb *raftWriteBatch) Commit(key []byte, lock *mvcc.MvccLock) {
-	// TODO: stub
+	encodedKey := codec.EncodeBytes(nil, key)
+	putWriteReq := &rcpb.Request{
+		CmdType: rcpb.CmdType_Put,
+		Put: &rcpb.PutRequest{
+			Cf:    CFWrite,
+			Key:   codec.EncodeUintDesc(encodedKey, wb.commitTS),
+			Value: mvcc.EncodeWriteCFValue(lock.Op, lock.StartTS, lock.Value),
+		},
+	}
+	delLockReq := &rcpb.Request{
+		CmdType: rcpb.CmdType_Delete,
+		Delete: &rcpb.DeleteRequest{
+			Cf:  CFLock,
+			Key: encodedKey,
+		},
+	}
+	wb.requests = append(wb.requests, putWriteReq, delLockReq)
 }
 
 func (wb *raftWriteBatch) Rollback(key []byte, deleteLock bool) {
-	// TODO: stub
+	encodedKey := codec.EncodeBytes(nil, key)
+	rollBackReq := &rcpb.Request{
+		CmdType: rcpb.CmdType_Put,
+		Put: &rcpb.PutRequest{
+			Cf:    CFWrite,
+			Key:   codec.EncodeUintDesc(encodedKey, wb.startTS),
+			Value: mvcc.EncodeWriteCFValue(mvcc.WriteTypeRollback, wb.startTS, nil),
+		},
+	}
+	if deleteLock {
+		delLockReq := &rcpb.Request{
+			CmdType: rcpb.CmdType_Delete,
+			Delete: &rcpb.DeleteRequest{
+				Cf:  CFLock,
+				Key: encodedKey,
+			},
+		}
+		wb.requests = append(wb.requests, rollBackReq, delLockReq)
+	} else {
+		wb.requests = append(wb.requests, rollBackReq)
+	}
 }
 
 func (writer *raftDBWriter) NewWriteBatch(startTS, commitTS uint64) mvcc.WriteBatch {
