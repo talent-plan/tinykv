@@ -185,7 +185,7 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 		return errs
 	}
 
-	batch := store.dbWriter.NewWriteBatch(startTS, 0)
+	batch := store.dbWriter.NewWriteBatch(startTS, 0, reqCtx.rpcCtx)
 	// Check the DB.
 	txn := reqCtx.getDBReader().GetTxn()
 	keys := make([][]byte, len(mutations))
@@ -293,7 +293,7 @@ const maxSystemTS uint64 = math.MaxUint64
 func (store *MVCCStore) Commit(req *requestCtx, keys [][]byte, startTS, commitTS uint64) error {
 	regCtx := req.regCtx
 	hashVals := keysToHashVals(keys...)
-	batch := store.dbWriter.NewWriteBatch(startTS, commitTS)
+	batch := store.dbWriter.NewWriteBatch(startTS, commitTS, req.rpcCtx)
 	regCtx.AcquireLatches(hashVals)
 	defer regCtx.ReleaseLatches(hashVals)
 
@@ -351,7 +351,7 @@ const (
 func (store *MVCCStore) Rollback(reqCtx *requestCtx, keys [][]byte, startTS uint64) error {
 	hashVals := keysToHashVals(keys...)
 	regCtx := reqCtx.regCtx
-	batch := store.dbWriter.NewWriteBatch(startTS, 0)
+	batch := store.dbWriter.NewWriteBatch(startTS, 0, reqCtx.rpcCtx)
 
 	regCtx.AcquireLatches(hashVals)
 	defer regCtx.ReleaseLatches(hashVals)
@@ -508,7 +508,7 @@ func (store *MVCCStore) CheckRangeLock(startTS uint64, startKey, endKey []byte) 
 func (store *MVCCStore) Cleanup(reqCtx *requestCtx, key []byte, startTS uint64) error {
 	hashVals := keysToHashVals(key)
 	regCtx := reqCtx.regCtx
-	batch := store.dbWriter.NewWriteBatch(startTS, 0)
+	batch := store.dbWriter.NewWriteBatch(startTS, 0, reqCtx.rpcCtx)
 
 	regCtx.AcquireLatches(hashVals)
 	defer regCtx.ReleaseLatches(hashVals)
@@ -570,7 +570,7 @@ func (store *MVCCStore) ResolveLock(reqCtx *requestCtx, startTS, commitTS uint64
 		return nil
 	}
 	hashVals := keysToHashVals(lockKeys...)
-	batch := store.dbWriter.NewWriteBatch(startTS, commitTS)
+	batch := store.dbWriter.NewWriteBatch(startTS, commitTS, reqCtx.rpcCtx)
 
 	regCtx.AcquireLatches(hashVals)
 	defer regCtx.ReleaseLatches(hashVals)

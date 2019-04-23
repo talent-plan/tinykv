@@ -31,7 +31,7 @@ const (
 
 type ReqCbPair struct {
 	Req *raft_cmdpb.RaftCmdRequest
-	Cb  Callback
+	Cb  *Callback
 }
 
 type ReadIndexRequest struct {
@@ -69,15 +69,14 @@ func (q *ReadIndexQueue) PopFront() *ReadIndexRequest {
 	return nil
 }
 
-func NotifyStaleReq(term uint64, cb Callback) {
-	resp := ErrRespStaleCommand(term)
-	cb(resp, nil)
+func NotifyStaleReq(term uint64, cb *Callback) {
+	cb.Done(ErrRespStaleCommand(term))
 }
 
-func NotifyReqRegionRemoved(regionId uint64, cb Callback) {
+func NotifyReqRegionRemoved(regionId uint64, cb *Callback) {
 	regionNotFound := &ErrRegionNotFound{RegionId: regionId}
 	resp := ErrResp(regionNotFound)
-	cb(resp, nil)
+	cb.Done(resp)
 }
 
 func (r *ReadIndexQueue) NextId() uint64 {
@@ -994,7 +993,8 @@ func (p *Peer) ApplyReads(ctx *PollContext, ready *raft.Ready) {
 				panic(fmt.Sprintf("request ctx: %v not equal to read id: %v", state.RequestCtx, read.binaryId()))
 			}
 			for _, reqCb := range read.cmds {
-				reqCb.Cb(p.handleRead(ctx, reqCb.Req, true))
+				resp, _ := p.handleRead(ctx, reqCb.Req, true)
+				reqCb.Cb.Done(resp)
 			}
 			read.cmds = nil
 			proposeTime = read.renewLeaseTime
@@ -1061,7 +1061,8 @@ func (p *Peer) PostApply(ctx *PollContext, applyState applyState, appliedIndexTe
 				panic("read is nil, this should not happen")
 			}
 			for _, reqCb := range read.cmds {
-				reqCb.Cb(p.handleRead(ctx, reqCb.Req, true))
+				resp, _ := p.handleRead(ctx, reqCb.Req, true)
+				reqCb.Cb.Done(resp)
 			}
 			read.cmds = read.cmds[:0]
 		}
@@ -1080,7 +1081,7 @@ func (p *Peer) PostSplit() {
 // Propose a request.
 //
 // Return true means the request has been proposed successfully.
-func (p *Peer) Propose(ctx *PollContext, cb Callback, req *raft_cmdpb.RaftCmdRequest, errResp *raft_cmdpb.RaftCmdResponse) bool {
+func (p *Peer) Propose(ctx *PollContext, cb *Callback, req *raft_cmdpb.RaftCmdRequest, errResp *raft_cmdpb.RaftCmdResponse) bool {
 	if p.PendingRemove {
 		return false
 	}
@@ -1091,7 +1092,7 @@ func (p *Peer) Propose(ctx *PollContext, cb Callback, req *raft_cmdpb.RaftCmdReq
 	policy, err := p.inspect(req)
 	if err != nil {
 		BindRespError(errResp, err)
-		cb(errResp, nil)
+		cb.Done(errResp)
 		return false
 	}
 	var idx uint64
@@ -1112,7 +1113,7 @@ func (p *Peer) Propose(ctx *PollContext, cb Callback, req *raft_cmdpb.RaftCmdReq
 
 	if err != nil {
 		BindRespError(errResp, err)
-		cb(errResp, nil)
+		cb.Done(errResp)
 		return false
 	}
 
@@ -1131,7 +1132,7 @@ func (p *Peer) Propose(ctx *PollContext, cb Callback, req *raft_cmdpb.RaftCmdReq
 	return true
 }
 
-func (p *Peer) PostPropose(meta *ProposalMeta, isConfChange bool, cb Callback) {
+func (p *Peer) PostPropose(meta *ProposalMeta, isConfChange bool, cb *Callback) {
 	// Try to renew leader lease on every consistent read/write request.
 	t := time.Now()
 	meta.RenewLeaseTime = &t
@@ -1267,8 +1268,9 @@ func (p *Peer) readyToTransferLeader(ctx *PollContext, peer *metapb.Peer) bool {
 	return lastIndex <= status.Progress[peerId].Match+ctx.cfg.LeaderTransferMaxLogLag
 }
 
-func (p *Peer) readLocal(ctx *PollContext, req *raft_cmdpb.RaftCmdRequest, cb Callback) {
-	cb(p.handleRead(ctx, req, false))
+func (p *Peer) readLocal(ctx *PollContext, req *raft_cmdpb.RaftCmdRequest, cb *Callback) {
+	resp, _ := p.handleRead(ctx, req, false)
+	cb.Done(resp)
 }
 
 func (p *Peer) preReadIndex() error {
@@ -1287,12 +1289,12 @@ func (p *Peer) preReadIndex() error {
 // 1. The region is in merging or splitting;
 // 2. The message is stale and dropped by the Raft group internally;
 // 3. There is already a read request proposed in the current lease;
-func (p *Peer) readIndex(pollCtx *PollContext, req *raft_cmdpb.RaftCmdRequest, errResp *raft_cmdpb.RaftCmdResponse, cb Callback) bool {
+func (p *Peer) readIndex(pollCtx *PollContext, req *raft_cmdpb.RaftCmdRequest, errResp *raft_cmdpb.RaftCmdResponse, cb *Callback) bool {
 	err := p.preReadIndex()
 	if err != nil {
 		log.Debugf("%v prevents unsafe read index, err: %v", p.Tag, err)
 		BindRespError(errResp, err)
-		cb(errResp, nil)
+		cb.Done(errResp)
 		return false
 	}
 
@@ -1337,7 +1339,7 @@ func (p *Peer) readIndex(pollCtx *PollContext, req *raft_cmdpb.RaftCmdRequest, e
 				Term:           p.Term(),
 				RenewLeaseTime: renewLeaseTime,
 			}
-			p.PostPropose(meta, false, EmptyCallback)
+			p.PostPropose(meta, false, NewCallback())
 		}
 	}
 
@@ -1476,7 +1478,7 @@ func (p *Peer) ProposeNormal(pollCtx *PollContext, req *raft_cmdpb.RaftCmdReques
 }
 
 // Return true if the transfer leader request is accepted.
-func (p *Peer) ProposeTransferLeader(ctx *PollContext, req *raft_cmdpb.RaftCmdRequest, cb Callback) bool {
+func (p *Peer) ProposeTransferLeader(ctx *PollContext, req *raft_cmdpb.RaftCmdRequest, cb *Callback) bool {
 	transferLeader := getTransferLeaderCmd(req)
 	peer := transferLeader.Peer
 
@@ -1491,7 +1493,7 @@ func (p *Peer) ProposeTransferLeader(ctx *PollContext, req *raft_cmdpb.RaftCmdRe
 
 	// transfer leader command doesn't need to replicate log and apply, so we
 	// return immediately. Note that this command may fail, we can view it just as an advice
-	cb(makeTransferLeaderResponse(), nil)
+	cb.Done(makeTransferLeaderResponse())
 
 	return transferred
 }

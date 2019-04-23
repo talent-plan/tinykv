@@ -311,7 +311,7 @@ func (wb *writeBatch) Rollback(key []byte, deleteLock bool) {
 	}
 }
 
-func (writer *dbWriter) NewWriteBatch(startTS, commitTS uint64) mvcc.WriteBatch {
+func (writer *dbWriter) NewWriteBatch(startTS, commitTS uint64, ctx *kvrpcpb.Context) mvcc.WriteBatch {
 	if commitTS > 0 {
 		writer.updateLatestTS(commitTS)
 	} else {

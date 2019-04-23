@@ -71,7 +71,7 @@ func (pf *peerFsm) drop() {
 	for {
 		select {
 		case msg := <-pf.receiver:
-			var cb Callback
+			var cb *Callback
 			switch msg.Type {
 			case MsgTypeRaftCmd:
 				cb = msg.Data.(*MsgRaftCmd).Callback
@@ -80,7 +80,7 @@ func (pf *peerFsm) drop() {
 			default:
 				continue
 			}
-			cb(ErrRespRegionNotFound(pf.regionID()), nil)
+			cb.Done(ErrRespRegionNotFound(pf.regionID()))
 		default:
 			return
 		}
@@ -1005,14 +1005,14 @@ func (d *peerFsmDelegate) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) 
 	return nil, err
 }
 
-func (d *peerFsmDelegate) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb Callback) {
+func (d *peerFsmDelegate) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *Callback) {
 	resp, err := d.preProposeRaftCommand(msg)
 	if err != nil {
-		cb(ErrResp(err), nil)
+		cb.Done(ErrResp(err))
 		return
 	}
 	if resp != nil {
-		cb(resp, nil)
+		cb.Done(resp)
 		return
 	}
 
@@ -1023,7 +1023,7 @@ func (d *peerFsmDelegate) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb 
 
 	if err := d.checkMergeProposal(msg); err != nil {
 		log.Warnf("%s failed to process merge, message %s, err %v", d.tag(), msg, err)
-		cb(ErrResp(err), nil)
+		cb.Done(ErrResp(err))
 		return
 	}
 
@@ -1190,9 +1190,9 @@ func (d *peerFsmDelegate) onSplitRegionCheckTick() {
 	d.peer.CompactionDeclinedBytes = 0
 }
 
-func (d *peerFsmDelegate) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, splitKeys [][]byte, cb Callback) {
+func (d *peerFsmDelegate) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, splitKeys [][]byte, cb *Callback) {
 	if err := d.validateSplitRegion(regionEpoch, splitKeys); err != nil {
-		cb(ErrResp(err), nil)
+		cb.Done(ErrResp(err))
 		return
 	}
 	region := d.region()

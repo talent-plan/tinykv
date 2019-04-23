@@ -30,7 +30,7 @@ const (
 type pendingCmd struct {
 	index uint64
 	term  uint64
-	cb    Callback
+	cb    *Callback
 }
 
 type pendingCmdQueue struct {
@@ -169,24 +169,22 @@ type applyExecContext struct {
 
 type applyCallback struct {
 	region *metapb.Region
-	cbs    []callBackResponsePair
+	cbs    []*Callback
 }
 
 func (c *applyCallback) invokeAll(host *CoprocessorHost) {
 	for _, cb := range c.cbs {
-		host.postApply(c.region, cb.response)
-		if cb.callBack != nil {
-			cb.callBack(cb.response, nil)
-		}
+		host.postApply(c.region, cb.resp)
+		cb.wg.Done()
 	}
 }
 
-func (c *applyCallback) push(cb Callback, resp *raft_cmdpb.RaftCmdResponse) {
-	c.cbs = append(c.cbs, callBackResponsePair{callBack: cb, response: resp})
+func (c *applyCallback) push(cb *Callback, resp *raft_cmdpb.RaftCmdResponse) {
+	c.cbs = append(c.cbs, cb)
 }
 
 type callBackResponsePair struct {
-	callBack Callback
+	callBack *Callback
 	response *raft_cmdpb.RaftCmdResponse
 }
 
@@ -194,7 +192,7 @@ type proposal struct {
 	isConfChange bool
 	index        uint64
 	term         uint64
-	cb           Callback
+	cb           *Callback
 }
 
 type regionProposal struct {
@@ -427,9 +425,8 @@ func notifyRegionRemoved(regionID, peerID uint64, cmd pendingCmd) {
 	notifyReqRegionRemoved(regionID, cmd.cb)
 }
 
-func notifyReqRegionRemoved(regionID uint64, cb Callback) {
-	resp := ErrRespRegionNotFound(regionID)
-	cb(resp, nil)
+func notifyReqRegionRemoved(regionID uint64, cb *Callback) {
+	cb.Done(ErrRespRegionNotFound(regionID))
 }
 
 /// Calls the callback of `cmd` when it can not be processed further.
@@ -439,9 +436,8 @@ func notifyStaleCommand(regionID, peerID, term uint64, cmd pendingCmd) {
 	notifyStaleReq(term, cmd.cb)
 }
 
-func notifyStaleReq(term uint64, cb Callback) {
-	resp := ErrRespStaleCommand(term)
-	cb(resp, nil)
+func notifyStaleReq(term uint64, cb *Callback) {
+	cb.Done(ErrRespStaleCommand(term))
 }
 
 /// Checks if a write is needed to be issued before handling the command.
@@ -667,10 +663,8 @@ func (d *applyDelegate) handleRaftEntryNormal(aCtx *applyContext, entry *eraftpb
 		}
 		// apparently, all the callbacks whose term is less than entry's term are stale.
 		cb := &aCtx.cbs[len(aCtx.cbs)-1]
-		cb.cbs = append(cb.cbs, callBackResponsePair{
-			callBack: cmd.cb,
-			response: ErrRespStaleCommand(term),
-		})
+		cmd.cb.resp = ErrRespStaleCommand(term)
+		cb.cbs = append(cb.cbs, cmd.cb)
 	}
 	return applyResult{}
 }
@@ -700,7 +694,7 @@ func (d *applyDelegate) handleRaftEntryConfChange(aCtx *applyContext, entry *era
 	}
 }
 
-func (d *applyDelegate) findCallback(index, term uint64, isConfChange bool) Callback {
+func (d *applyDelegate) findCallback(index, term uint64, isConfChange bool) *Callback {
 	regionID := d.region.Id
 	peerID := d.id
 	if isConfChange {

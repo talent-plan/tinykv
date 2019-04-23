@@ -72,14 +72,14 @@ func (r *pdRunner) onRegionHeartbeatResponse(resp *pdpb.RegionHeartbeatResponse)
 				ChangeType: changePeer.ChangeType,
 				Peer:       changePeer.Peer,
 			},
-		}, EmptyCallback)
+		}, NewCallback())
 	} else if transferLeader := resp.GetTransferLeader(); transferLeader != nil {
 		r.sendAdminRequest(resp.RegionId, resp.RegionEpoch, resp.TargetPeer, &raft_cmdpb.AdminRequest{
 			CmdType: raft_cmdpb.AdminCmdType_TransferLeader,
 			TransferLeader: &raft_cmdpb.TransferLeaderRequest{
 				Peer: transferLeader.Peer,
 			},
-		}, EmptyCallback)
+		}, NewCallback())
 	} else if splitRegion := resp.GetSplitRegion(); splitRegion != nil {
 		r.router.send(resp.RegionId, Msg{
 			Type:     MsgTypeHalfSplitRegion,
@@ -95,7 +95,7 @@ func (r *pdRunner) onRegionHeartbeatResponse(resp *pdpb.RegionHeartbeatResponse)
 			PrepareMerge: &raft_cmdpb.PrepareMergeRequest{
 				Target: merge.Target,
 			},
-		}, EmptyCallback)
+		}, NewCallback())
 	}
 }
 
@@ -265,7 +265,7 @@ func (r *pdRunner) onDestroyPeer(t *pdDestroyPeerTask) {
 	delete(r.peerStats, t.regionID)
 }
 
-func (r *pdRunner) sendAdminRequest(regionID uint64, epoch *metapb.RegionEpoch, peer *metapb.Peer, req *raft_cmdpb.AdminRequest, callback Callback) {
+func (r *pdRunner) sendAdminRequest(regionID uint64, epoch *metapb.RegionEpoch, peer *metapb.Peer, req *raft_cmdpb.AdminRequest, callback *Callback) {
 	r.router.send(regionID, Msg{
 		Type:     MsgTypeRaftCmd,
 		RegionID: regionID,

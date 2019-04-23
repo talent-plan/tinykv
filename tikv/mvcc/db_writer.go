@@ -3,6 +3,7 @@ package mvcc
 import (
 	"github.com/coocood/badger"
 	"github.com/ngaut/unistore/lockstore"
+	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 )
 
 // DBWriter is the interface to persistent data.
@@ -11,7 +12,7 @@ type DBWriter interface {
 	Close()
 	Write(batch WriteBatch) error
 	DeleteRange(start, end []byte, latchHandle LatchHandle) error
-	NewWriteBatch(startTS, commitTS uint64) WriteBatch
+	NewWriteBatch(startTS, commitTS uint64, ctx *kvrpcpb.Context) WriteBatch
 }
 
 type LatchHandle interface {

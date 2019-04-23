@@ -66,6 +66,7 @@ type requestCtx struct {
 	reader    *dbreader.DBReader
 	method    string
 	startTime time.Time
+	rpcCtx    *kvrpcpb.Context
 }
 
 func newRequestCtx(svr *Server, ctx *kvrpcpb.Context, method string) (*requestCtx, error) {
@@ -78,6 +79,7 @@ func newRequestCtx(svr *Server, ctx *kvrpcpb.Context, method string) (*requestCt
 		svr:       svr,
 		method:    method,
 		startTime: time.Now(),
+		rpcCtx:    ctx,
 	}
 	req.regCtx, req.regErr = svr.regionManager.getRegionFromCtx(ctx)
 	if req.regErr != nil {

@@ -1,6 +1,7 @@
 package raftstore
 
 import (
+	"sync"
 	"time"
 
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -66,9 +67,20 @@ func NewMsg(tp MsgType, data interface{}) Msg {
 	return Msg{Type: tp, Data: data}
 }
 
-type Callback func(resp *raft_cmdpb.RaftCmdResponse, snap *DBSnapshot)
+type Callback struct {
+	resp *raft_cmdpb.RaftCmdResponse
+	wg   sync.WaitGroup
+}
 
-func EmptyCallback(resp *raft_cmdpb.RaftCmdResponse, snap *DBSnapshot) {
+func (cb *Callback) Done(resp *raft_cmdpb.RaftCmdResponse) {
+	cb.resp = resp
+	cb.wg.Done()
+}
+
+func NewCallback() *Callback {
+	cb := &Callback{}
+	cb.wg.Add(1)
+	return cb
 }
 
 type PeerTick int
@@ -107,7 +119,7 @@ type MsgSignificant struct {
 type MsgRaftCmd struct {
 	SendTime time.Time
 	Request  *raft_cmdpb.RaftCmdRequest
-	Callback Callback
+	Callback *Callback
 }
 
 type MsgSplitRegion struct {
@@ -115,7 +127,7 @@ type MsgSplitRegion struct {
 	// It's an encoded key.
 	// TODO: support meta key.
 	SplitKeys [][]byte
-	Callback  Callback
+	Callback  *Callback
 }
 
 type MsgComputeHashResult struct {

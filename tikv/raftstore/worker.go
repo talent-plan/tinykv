@@ -94,7 +94,7 @@ type pdAskSplitTask struct {
 	peer     *metapb.Peer
 	// If true, right Region derives origin region_id.
 	rightDerive bool
-	callback    Callback
+	callback    *Callback
 }
 
 type pdAskBatchSplitTask struct {
@@ -103,7 +103,7 @@ type pdAskBatchSplitTask struct {
 	peer      *metapb.Peer
 	// If true, right Region derives origin region_id.
 	rightDerive bool
-	callback    Callback
+	callback    *Callback
 }
 
 type pdRegionHeartbeatTask struct {
@@ -167,7 +167,7 @@ type sendSnapTask struct {
 }
 
 type recvSnapTask struct {
-	stream tikvpb.Tikv_SnapshotServer
+	stream   tikvpb.Tikv_SnapshotServer
 	callback func(error)
 }
 
@@ -277,7 +277,7 @@ func (r *splitCheckRunner) run(t task) {
 			Data: &MsgSplitRegion{
 				RegionEpoch: regionEpoch,
 				SplitKeys:   keys,
-				Callback:    EmptyCallback,
+				Callback:    NewCallback(),
 			},
 		}
 		err = r.router.send(regionId, msg)
