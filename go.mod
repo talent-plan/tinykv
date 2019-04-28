@@ -1,7 +1,7 @@
 module github.com/ngaut/unistore
 
 require (
-	github.com/coocood/badger v1.5.1-0.20181115111105-250ee6037b80
+	github.com/coocood/badger v0.0.0-20190404050323-c22705509a6a
 	github.com/cznic/mathutil v0.0.0-20181122101859-297441e03548
 	github.com/dgryski/go-farm v0.0.0-20190104051053-3adb47b1fb0f
 	github.com/golang/protobuf v1.3.0
@@ -28,5 +28,3 @@ require (
 )
 
 replace go.etcd.io/etcd => github.com/zhangjinpeng1987/etcd v0.0.0-20190226085253-137eac022b64
-
-replace github.com/coocood/badger => github.com/coocood/badger v0.0.0-20190404050323-c22705509a6a
