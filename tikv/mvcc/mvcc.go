@@ -7,13 +7,20 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 )
 
+var defaultEndian = binary.LittleEndian
+
+// DBUserMeta is the user meta used in DB.
+type DBUserMeta []byte
+
+const dbUserMetaLen = 16
+
 // DecodeLock decodes data to lock, the primary and value is copied.
 func DecodeLock(data []byte) (l MvccLock) {
 	l.MvccLockHdr = *(*MvccLockHdr)(unsafe.Pointer(&data[0]))
 	cursor := mvccLockHdrSize
 	var oldValLen int
 	if l.HasOldVer {
-		oldValLen = int(binary.LittleEndian.Uint32(data[cursor:]))
+		oldValLen = int(defaultEndian.Uint32(data[cursor:]))
 		cursor += 4
 	}
 	buf := append([]byte{}, data[cursor:]...)
@@ -61,7 +68,7 @@ func (l *MvccLock) MarshalBinary() []byte {
 	*hdr = l.MvccLockHdr
 	cursor := mvccLockHdrSize
 	if l.HasOldVer {
-		binary.LittleEndian.PutUint32(buf[cursor:], uint32(dbUserMetaLen+len(l.OldVal)))
+		defaultEndian.PutUint32(buf[cursor:], uint32(dbUserMetaLen+len(l.OldVal)))
 		cursor += 4
 	}
 	copy(buf[cursor:], l.Primary)
@@ -116,13 +123,6 @@ func DecodeRollbackTS(buf []byte) uint64 {
 	}
 	return ts
 }
-
-// DBUserMeta is the user meta used in DB.
-type DBUserMeta []byte
-
-const dbUserMetaLen = 16
-
-var defaultEndian = binary.LittleEndian
 
 // NewDBUserMeta creates a new DBUserMeta.
 func NewDBUserMeta(startTS, commitTS uint64) DBUserMeta {
