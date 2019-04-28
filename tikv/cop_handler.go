@@ -187,7 +187,6 @@ func (svr *Server) buildTableScan(ctx *dagContext, executor *tipb.Executor) (*ta
 }
 
 func (svr *Server) buildIndexScan(ctx *dagContext, executor *tipb.Executor) (*indexScanExec, error) {
-	var err error
 	columns := ctx.evalCtx.columnInfos
 	length := len(columns)
 	pkStatus := pkColNotExists
@@ -444,10 +443,11 @@ const (
 
 // flagsToStatementContext creates a StatementContext from a `tipb.SelectRequest.Flags`.
 func flagsToStatementContext(flags uint64) *stmtctx.StatementContext {
-	sc := new(stmtctx.StatementContext)
-	sc.IgnoreTruncate = (flags & FlagIgnoreTruncate) > 0
-	sc.TruncateAsWarning = (flags & FlagTruncateAsWarning) > 0
-	sc.PadCharToFullLength = (flags & FlagPadCharToFullLength) > 0
+	sc := &stmtctx.StatementContext{
+		IgnoreTruncate:      (flags & FlagIgnoreTruncate) > 0,
+		TruncateAsWarning:   (flags & FlagTruncateAsWarning) > 0,
+		PadCharToFullLength: (flags & FlagPadCharToFullLength) > 0,
+	}
 	return sc
 }
 
@@ -548,10 +548,12 @@ func (mock *mockCopStreamClient) Recv() (*coprocessor.Response, error) {
 }
 
 func (mock *mockCopStreamClient) readBlockFromExecutor() (tipb.Chunk, bool, *coprocessor.KeyRange, []int64, error) {
-	var chunk tipb.Chunk
-	var ran coprocessor.KeyRange
-	var finish bool
-	var desc bool
+	var (
+		chunk  tipb.Chunk
+		ran    coprocessor.KeyRange
+		finish bool
+		desc   bool
+	)
 	mock.exec.ResetCounts()
 	ran.Start, desc = mock.exec.Cursor()
 	for count := 0; count < rowsPerChunk; count++ {
