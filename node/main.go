@@ -45,6 +45,11 @@ var (
 	gitHash = "None"
 )
 
+const (
+	grpcInitialWindowSize     = 1 << 30
+	grpcInitialConnWindowSize = 1 << 30
+)
+
 func main() {
 	flag.Parse()
 	runtime.GOMAXPROCS(*maxProcs)
@@ -82,7 +87,10 @@ func main() {
 	store := tikv.NewMVCCStore(bundle, *dbPath, safePoint, dbWriter)
 	tikvServer := tikv.NewServer(rm, store)
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(
+		grpc.InitialWindowSize(grpcInitialWindowSize),
+		grpc.InitialConnWindowSize(grpcInitialConnWindowSize),
+	)
 	tikvpb.RegisterTikvServer(grpcServer, tikvServer)
 	l, err := net.Listen("tcp", *storeAddr)
 	if err != nil {
