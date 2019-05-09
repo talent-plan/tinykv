@@ -3,6 +3,7 @@ package tikv
 import (
 	"fmt"
 	"github.com/coocood/badger"
+	"github.com/ngaut/unistore/lockstore"
 	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
@@ -10,17 +11,14 @@ import (
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
-	"github.com/pingcap/tidb/util/codec"
-	"golang.org/x/net/context"
-	"math"
-	// remember the tablecodec has two different versions,
-	// one is on the tibd/tablecodec/origin/tablecodec.go
-	// and another is on tidb/tablecodec/tablecodec.go,
-	// this must changes with the isShardingEnabled parameter.
-	"github.com/pingcap/tidb/tablecodec/origin"
+	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/types"
+	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tipb/go-tipb"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/context"
+	"io/ioutil"
+	"math"
 	"os"
 	"sync"
 	"testing"
@@ -34,65 +32,67 @@ const (
 	DagRequestStartTs = 100
 )
 
-// parameter settings for unistore.
-type settings struct {
-	shardKey bool
-	numDb    int
-	dbPath   string
-	vlogPath string
-}
-
 // wrapper of test data, including encoded data, column types etc.
 type data struct {
-	encodedTestKVDatas []*EncodedTestKVData
+	encodedTestKVDatas []*encodedTestKVData
 	colInfos           []*tipb.ColumnInfo
 	rows               map[int64][]types.Datum    // handle -> row
 	colTypes           map[int64]*types.FieldType // colId -> fieldType
 }
 
-type EncodedTestKVData struct {
+type encodedTestKVData struct {
 	encodedRowKey   []byte
 	encodedRowValue []byte
 }
 
-type TestStore struct {
+type testStore struct {
 	mvccStore *MVCCStore
 	svr       *Server
+	dbPath    string
+	vLogPath  string
 }
 
-func NewTestStore() (testStore *TestStore, err error) {
-	settings := settings{
-		shardKey: false,
-		numDb:    1,
-		dbPath:   "/tmp/dbpath",
-		vlogPath: "/tmp/vlogpath",
-	}
-	if err := os.RemoveAll(settings.dbPath); err != nil {
+func newTestStore() (*testStore, error) {
+	dbPath, err := ioutil.TempDir("", "unistore_cop_db")
+	if err != nil {
 		return nil, err
 	}
-	if err := os.Mkdir(settings.dbPath, 0700); err != nil {
+	vLogPath, err := ioutil.TempDir("", "unistore_cop_value")
+	if err != nil {
 		return nil, err
 	}
-	if err := os.RemoveAll(settings.vlogPath); err != nil {
+	safePoint := &SafePoint{}
+	db, err := createTestDB(dbPath, vLogPath)
+	if err != nil {
 		return nil, err
 	}
-	if err := os.Mkdir(settings.vlogPath, 0700); err != nil {
-		return nil, err
+	dbBundle := &mvcc.DBBundle{
+		DB:            db,
+		LockStore:     lockstore.NewMemStore(4096),
+		RollbackStore: lockstore.NewMemStore(4096),
 	}
-	store, testStoreError := makeTestStore(settings)
-	if testStoreError != nil {
-		return nil, testStoreError
-	}
-	return store, nil
+	writer := NewDBWriter(dbBundle, safePoint)
+	store := NewMVCCStore(dbBundle, dbPath, safePoint, writer)
+	svr := &Server{mvccStore: store}
+	return &testStore{
+		mvccStore: store,
+		svr:       svr,
+		dbPath:    dbPath,
+		vLogPath:  vLogPath,
+	}, nil
 }
 
-func (store *TestStore) InitTestData(encodedKVDatas []*EncodedTestKVData) []error {
+func cleanTestStore(t *testing.T, store *testStore) {
+	require.Nil(t, os.RemoveAll(store.dbPath))
+	require.Nil(t, os.RemoveAll(store.vLogPath))
+}
+
+func (store *testStore) initTestData(encodedKVDatas []*encodedTestKVData) []error {
 	reqCtx := requestCtx{
 		regCtx: &regionCtx{
 			latches: make(map[uint64]*sync.WaitGroup),
 		},
-		dbIdx: TableId,
-		svr:   store.svr,
+		svr: store.svr,
 	}
 	i := 0
 	for _, kvData := range encodedKVDatas {
@@ -121,34 +121,15 @@ func makeATestMutaion(op kvrpcpb.Op, key []byte, value []byte) *kvrpcpb.Mutation
 	}
 }
 
-func createTestDB(settings settings, idx int) (db *badger.DB, err error) {
-	subPath := fmt.Sprintf("/%d", idx)
+func createTestDB(dbPath, vLogPath string) (*badger.DB, error) {
+	subPath := fmt.Sprintf("/%d", 0)
 	opts := badger.DefaultOptions
-	opts.Dir = settings.dbPath + subPath
-	opts.ValueDir = settings.vlogPath + subPath
+	opts.Dir = dbPath + subPath
+	opts.ValueDir = vLogPath + subPath
 	return badger.Open(opts)
 }
 
-func makeTestStore(settings settings) (testStore *TestStore, err error) {
-	if settings.shardKey {
-		mvcc.EnableSharding()
-	}
-	safePoint := &SafePoint{}
-	dbs := make([]*badger.DB, settings.numDb)
-	for i := 0; i < settings.numDb; i++ {
-		dbs[i], err = createTestDB(settings, i)
-		if err != nil {
-			return nil, err
-		}
-	}
-	store := NewMVCCStore(dbs, settings.dbPath, safePoint)
-	svr := &Server{
-		mvccStore: store,
-	}
-	return &TestStore{store, svr}, nil
-}
-
-func PrepareTestTableData(t *testing.T, keyNumber int, tableId int64) *data {
+func prepareTestTableData(t *testing.T, keyNumber int, tableId int64) *data {
 	stmtCtx := new(stmtctx.StatementContext)
 	colIds := []int64{1, 2, 3}
 	colTypes := []*types.FieldType{
@@ -166,15 +147,14 @@ func PrepareTestTableData(t *testing.T, keyNumber int, tableId int64) *data {
 		colTypeMap[colIds[i]] = colTypes[i]
 	}
 	rows := map[int64][]types.Datum{}
-	encodedTestKVDatas := make([]*EncodedTestKVData, keyNumber)
+	encodedTestKVDatas := make([]*encodedTestKVData, keyNumber)
 	for i := 0; i < keyNumber; i++ {
 		datum := types.MakeDatums(i, "abc", 10.0)
 		rows[int64(i)] = datum
-		rowEncodedData, err := tablecodec.EncodeRow(stmtCtx, datum,
-			colIds, nil, nil)
+		rowEncodedData, err := tablecodec.EncodeRow(stmtCtx, datum, colIds, nil, nil)
 		require.Nil(t, err)
 		rowKeyEncodedData := tablecodec.EncodeRowKeyWithHandle(tableId, int64(i))
-		encodedTestKVDatas[i] = &EncodedTestKVData{encodedRowKey: rowKeyEncodedData, encodedRowValue: rowEncodedData}
+		encodedTestKVDatas[i] = &encodedTestKVData{encodedRowKey: rowKeyEncodedData, encodedRowValue: rowEncodedData}
 	}
 	return &data{
 		colInfos:           colInfos,
@@ -230,12 +210,11 @@ func isPrefixNext(key []byte, expected []byte) bool {
 }
 
 // return a dag context according to dagReq and key ranges.
-func makeDagContext(store *TestStore, keyRanges []kv.KeyRange, dagReq *tipb.DAGRequest) *dagContext {
+func newDagContext(store *testStore, keyRanges []kv.KeyRange, dagReq *tipb.DAGRequest) *dagContext {
 	sc := flagsToStatementContext(dagReq.Flags)
 	dagCtx := &dagContext{
 		reqCtx: &requestCtx{
-			svr:   store.svr,
-			dbIdx: TableId,
+			svr: store.svr,
 			regCtx: &regionCtx{
 				meta: &metapb.Region{
 					StartKey: nil,
@@ -263,26 +242,26 @@ func makeDagContext(store *TestStore, keyRanges []kv.KeyRange, dagReq *tipb.DAGR
 
 // build and execute the executors according to the dagRequest and dagContext,
 // return the result chunk data, rows count and err if occurs.
-func (store *TestStore) BuildExecutorsAndExecute(dagRequest *tipb.DAGRequest,
-	dagCtx *dagContext) (chunks []tipb.Chunk, count int, err error) {
-	closureExec, error := store.svr.tryBuildClosureExecutor(dagCtx, dagRequest)
-	if error != nil {
-		return nil, 0, error
+func (store *testStore) buildExecutorsAndExecute(dagRequest *tipb.DAGRequest,
+	dagCtx *dagContext) ([]tipb.Chunk, int, error) {
+	closureExec, err := store.svr.tryBuildClosureExecutor(dagCtx, dagRequest)
+	if err != nil {
+		return nil, 0, err
 	}
 	if closureExec != nil {
-		chunks, error = closureExec.execute()
-		if error != nil {
-			return nil, 0, error
+		chunks, err := closureExec.execute()
+		if err != nil {
+			return nil, 0, err
 		}
 		return chunks, closureExec.rowCount, nil
 	}
-	e, error := store.svr.buildDAGExecutor(dagCtx,
-		dagRequest.Executors)
-	if error != nil {
-		return nil, 0, error
+	e, err := store.svr.buildDAGExecutor(dagCtx, dagRequest.Executors)
+	if err != nil {
+		return nil, 0, err
 	}
 	rowCnt := 0
 	ctx := context.TODO()
+	var chunks []tipb.Chunk
 	for {
 		var row [][]byte
 		e.Counts()
@@ -304,30 +283,28 @@ func (store *TestStore) BuildExecutorsAndExecute(dagRequest *tipb.DAGRequest,
 }
 
 // dagBuilder is used to build dag request
-type DagBuilder struct {
+type dagBuilder struct {
 	startTs       uint64
 	executors     []*tipb.Executor
 	outputOffsets []uint32
 }
 
 // return a default dagBuilder
-func MakeDagBuilder() *DagBuilder {
-	return &DagBuilder{
-		executors: make([]*tipb.Executor, 0),
-	}
+func newDagBuilder() *dagBuilder {
+	return &dagBuilder{executors: make([]*tipb.Executor, 0)}
 }
 
-func (dagBuilder *DagBuilder) SetStartTs(startTs uint64) *DagBuilder {
+func (dagBuilder *dagBuilder) setStartTs(startTs uint64) *dagBuilder {
 	dagBuilder.startTs = startTs
 	return dagBuilder
 }
 
-func (dagBuilder *DagBuilder) SetOutputOffsets(outputOffsets []uint32) *DagBuilder {
+func (dagBuilder *dagBuilder) setOutputOffsets(outputOffsets []uint32) *dagBuilder {
 	dagBuilder.outputOffsets = outputOffsets
 	return dagBuilder
 }
 
-func (dagBuilder *DagBuilder) AddTableScan(colInfos []*tipb.ColumnInfo, tableId int64) *DagBuilder {
+func (dagBuilder *dagBuilder) addTableScan(colInfos []*tipb.ColumnInfo, tableId int64) *dagBuilder {
 	dagBuilder.executors = append(dagBuilder.executors, &tipb.Executor{
 		Tp: tipb.ExecType_TypeTableScan,
 		TblScan: &tipb.TableScan{
@@ -338,7 +315,7 @@ func (dagBuilder *DagBuilder) AddTableScan(colInfos []*tipb.ColumnInfo, tableId 
 	return dagBuilder
 }
 
-func (dagBuilder *DagBuilder) Build() *tipb.DAGRequest {
+func (dagBuilder *dagBuilder) build() *tipb.DAGRequest {
 	return &tipb.DAGRequest{
 		StartTs:       dagBuilder.startTs,
 		Executors:     dagBuilder.executors,
@@ -365,33 +342,34 @@ func TestPointGet(t *testing.T) {
 	// here would build mvccStore and server, and prepare
 	// three rows data, just like the test data of table_scan.rs.
 	// then init the store with the generated data.
-	data := PrepareTestTableData(t, keyNumber, TableId)
-	store, err := NewTestStore()
+	data := prepareTestTableData(t, keyNumber, TableId)
+	store, err := newTestStore()
+	defer cleanTestStore(t, store)
 	require.Nil(t, err)
-	errors := store.InitTestData(data.encodedTestKVDatas)
+	errors := store.initTestData(data.encodedTestKVDatas)
 	require.Nil(t, errors)
 	handle := int64(math.MinInt64)
 	// point get should return nothing when handle is math.MinInt64
-	dagRequest := MakeDagBuilder().
-		SetStartTs(DagRequestStartTs).
-		AddTableScan(data.colInfos, TableId).
-		SetOutputOffsets([]uint32{0, 1}).
-		Build()
-	dagCtx := makeDagContext(store, []kv.KeyRange{getTestPointRange(TableId, handle)},
+	dagRequest := newDagBuilder().
+		setStartTs(DagRequestStartTs).
+		addTableScan(data.colInfos, TableId).
+		setOutputOffsets([]uint32{0, 1}).
+		build()
+	dagCtx := newDagContext(store, []kv.KeyRange{getTestPointRange(TableId, handle)},
 		dagRequest)
-	chunks, rowCount, err := store.BuildExecutorsAndExecute(dagRequest, dagCtx)
+	chunks, rowCount, err := store.buildExecutorsAndExecute(dagRequest, dagCtx)
 	require.Nil(t, err)
 	require.Equal(t, rowCount, 0)
 	// point get should return one row when handle = 0
 	handle = 0
-	dagRequest = MakeDagBuilder().
-		SetStartTs(DagRequestStartTs).
-		AddTableScan(data.colInfos, TableId).
-		SetOutputOffsets([]uint32{0, 1}).
-		Build()
-	dagCtx = makeDagContext(store, []kv.KeyRange{getTestPointRange(TableId, handle)},
+	dagRequest = newDagBuilder().
+		setStartTs(DagRequestStartTs).
+		addTableScan(data.colInfos, TableId).
+		setOutputOffsets([]uint32{0, 1}).
+		build()
+	dagCtx = newDagContext(store, []kv.KeyRange{getTestPointRange(TableId, handle)},
 		dagRequest)
-	chunks, rowCount, err = store.BuildExecutorsAndExecute(dagRequest, dagCtx)
+	chunks, rowCount, err = store.buildExecutorsAndExecute(dagRequest, dagCtx)
 	require.Nil(t, err)
 	require.Equal(t, 1, rowCount)
 	returnedRow, err := codec.Decode(chunks[0].RowsData, 2)
