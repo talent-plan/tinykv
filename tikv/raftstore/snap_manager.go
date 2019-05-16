@@ -1,9 +1,6 @@
 package raftstore
 
 import (
-	"github.com/ngaut/log"
-	"github.com/pingcap/errors"
-	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
 	"io/ioutil"
 	"math"
 	"os"
@@ -14,6 +11,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/ngaut/log"
+	"github.com/pingcap/errors"
+	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
 )
 
 type SnapEntry int
@@ -44,9 +45,9 @@ type SnapStats struct {
 	SendingCount   int
 }
 
-func notifyStats(ch chan<- Msg) {
-	if ch != nil {
-		ch <- NewMsg(MsgTypeStoreSnapshotStats, nil)
+func notifyStats(router *router) {
+	if router != nil {
+		router.sendControl(NewMsg(MsgTypeStoreSnapshotStats, nil))
 	}
 }
 
@@ -55,13 +56,13 @@ type SnapManager struct {
 	snapSize     *int64
 	registryLock sync.RWMutex
 	registry     map[SnapKey][]SnapEntry
-	ch           chan<- Msg
+	router       *router
 	limiter      *IOLimiter
 	MaxTotalSize uint64
 }
 
-func NewSnapManager(path string, ch chan<- Msg) *SnapManager {
-	return new(SnapManagerBuilder).Build(path, ch)
+func NewSnapManager(path string, router *router) *SnapManager {
+	return new(SnapManagerBuilder).Build(path, router)
 }
 
 func (sm *SnapManager) init() error {
@@ -258,7 +259,7 @@ func (sm *SnapManager) Register(key SnapKey, entry SnapEntry) {
 	}
 	entries = append(entries, entry)
 	sm.registry[key] = entries
-	notifyStats(sm.ch)
+	notifyStats(sm.router)
 }
 
 func (sm *SnapManager) Deregister(key SnapKey, entry SnapEntry) {
@@ -281,7 +282,7 @@ func (sm *SnapManager) Deregister(key SnapKey, entry SnapEntry) {
 			} else {
 				delete(sm.registry, key)
 			}
-			notifyStats(sm.ch)
+			notifyStats(sm.router)
 			return
 		}
 	}
@@ -340,7 +341,7 @@ func (smb *SnapManagerBuilder) MaxTotalSize(v uint64) *SnapManagerBuilder {
 	return smb
 }
 
-func (smb *SnapManagerBuilder) Build(path string, ch chan<- Msg) *SnapManager {
+func (smb *SnapManagerBuilder) Build(path string, router *router) *SnapManager {
 	var maxTotalSize uint64 = math.MaxUint64
 	if smb.maxTotalSize > 0 {
 		maxTotalSize = smb.maxTotalSize
@@ -349,7 +350,7 @@ func (smb *SnapManagerBuilder) Build(path string, ch chan<- Msg) *SnapManager {
 		base:         path,
 		snapSize:     new(int64),
 		registry:     map[SnapKey][]SnapEntry{},
-		ch:           ch,
+		router:       router,
 		MaxTotalSize: maxTotalSize,
 	}
 }

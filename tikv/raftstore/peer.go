@@ -835,7 +835,6 @@ func (p *Peer) findProposeTime(index, term uint64) *time.Time {
 			return meta.RenewLeaseTime
 		}
 	}
-	return nil
 }
 
 func (p *Peer) Term() uint64 {

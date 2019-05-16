@@ -268,7 +268,7 @@ func (rm *RegionManager) initStore(storeAddr string) error {
 		Peers:       []*metapb.Peer{&metapb.Peer{Id: peerID, StoreId: storeID}},
 	}
 	rm.regions[rootRegion.Id] = newRegionCtx(rootRegion, nil)
-	err = rm.pdc.Bootstrap(ctx, &rm.storeMeta, rootRegion)
+	_, err = rm.pdc.Bootstrap(ctx, &rm.storeMeta, rootRegion)
 	cancel()
 	if err != nil {
 		log.Fatal("Initialize failed: ", err)

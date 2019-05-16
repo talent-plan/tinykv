@@ -603,6 +603,7 @@ func (bs *raftBatchSystem) start(
 	trans Transport,
 	pdClinet pd.Client,
 	snapMgr *SnapManager,
+	pdWorker *worker,
 	coprocessorHost *CoprocessorHost) error {
 	y.Assert(bs.workers == nil)
 	// TODO: we can get cluster meta regularly too later.
@@ -615,7 +616,7 @@ func (bs *raftBatchSystem) start(
 		regionWorker:      newWorker("snapshot-worker", wg),
 		raftLogGCWorker:   newWorker("raft-gc-worker", wg),
 		compactWorker:     newWorker("compact-worker", wg),
-		pdWorker:          newWorker("pd-worker", wg),
+		pdWorker:          pdWorker,
 		resolverWorker:    newWorker("resolver-woker", wg),
 		snapWorker:        newWorker("snap-worker", wg),
 		computeHashWorker: newWorker("compute-hash", wg),

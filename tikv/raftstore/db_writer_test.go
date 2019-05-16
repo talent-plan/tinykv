@@ -2,12 +2,13 @@ package raftstore
 
 import (
 	"fmt"
+	"testing"
+
 	"github.com/coocood/badger"
 	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	rfpb "github.com/pingcap/kvproto/pkg/raft_cmdpb"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestRaftWriteBatch_PrewriteAndCommit(t *testing.T) {

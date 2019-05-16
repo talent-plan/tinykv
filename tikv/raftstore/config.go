@@ -20,6 +20,8 @@ type Config struct {
 	Prevote    bool
 	RaftdbPath string
 
+	SnapPath string
+
 	// store capacity. 0 means no limit.
 	Capacity uint64
 
@@ -124,6 +126,16 @@ type Config struct {
 	GrpcKeepAliveTime     time.Duration
 	GrpcKeepAliveTimeout  time.Duration
 	GrpcRaftConnNum       uint64
+
+	Addr          string
+	AdvertiseAddr string
+	Labels        []StoreLabel
+
+	splitCheck *splitCheckConfig
+}
+
+type StoreLabel struct {
+	LabelKey, LabelValue string
 }
 
 func NewDefaultConfig() *Config {
@@ -132,6 +144,7 @@ func NewDefaultConfig() *Config {
 		SyncLog:                     true,
 		Prevote:                     true,
 		RaftdbPath:                  "",
+		SnapPath:                    "snap",
 		Capacity:                    0,
 		RaftBaseTickInterval:        1 * time.Second,
 		RaftHeartbeatTicks:          2,
@@ -187,6 +200,8 @@ func NewDefaultConfig() *Config {
 		GrpcKeepAliveTime:        3 * time.Second,
 		GrpcKeepAliveTimeout:     60 * time.Second,
 		GrpcRaftConnNum:          1,
+		Addr:                     "127.0.0.1:20160",
+		splitCheck:               newDefaultSplitCheckConfig(),
 	}
 }
 

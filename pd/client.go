@@ -32,7 +32,7 @@ import (
 type Client interface {
 	GetClusterID(ctx context.Context) uint64
 	AllocID(ctx context.Context) (uint64, error)
-	Bootstrap(ctx context.Context, store *metapb.Store, region *metapb.Region) error
+	Bootstrap(ctx context.Context, store *metapb.Store, region *metapb.Region) (*pdpb.BootstrapResponse, error)
 	IsBootstrapped(ctx context.Context) (bool, error)
 	PutStore(ctx context.Context, store *metapb.Store) error
 	GetStore(ctx context.Context, storeID uint64) (*metapb.Store, error)
@@ -249,18 +249,15 @@ func (c *client) AllocID(ctx context.Context) (uint64, error) {
 	return resp.GetId(), nil
 }
 
-func (c *client) Bootstrap(ctx context.Context, store *metapb.Store, region *metapb.Region) error {
+func (c *client) Bootstrap(ctx context.Context, store *metapb.Store, region *metapb.Region) (*pdpb.BootstrapResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	_, err := c.pdClient().Bootstrap(ctx, &pdpb.BootstrapRequest{
+	res, err := c.pdClient().Bootstrap(ctx, &pdpb.BootstrapRequest{
 		Header: c.requestHeader(),
 		Store:  store,
 		Region: region,
 	})
 	cancel()
-	if err != nil {
-		return err
-	}
-	return nil
+	return res, err
 }
 
 func (c *client) IsBootstrapped(ctx context.Context) (bool, error) {
