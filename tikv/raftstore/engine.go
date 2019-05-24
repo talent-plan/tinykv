@@ -1,6 +1,8 @@
 package raftstore
 
 import (
+	"math"
+
 	"github.com/coocood/badger"
 	"github.com/cznic/mathutil"
 	"github.com/golang/protobuf/proto"
@@ -9,7 +11,6 @@ import (
 	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/metapb"
-	"math"
 )
 
 type DBBundle struct {
@@ -42,6 +43,19 @@ type Engines struct {
 	kvPath   string
 	raft     *badger.DB
 	raftPath string
+}
+
+func NewEngines(kvEngine, raftEngine *badger.DB, kvPath, raftPath string) *Engines {
+	return &Engines{
+		kv: &DBBundle{
+			db:            kvEngine,
+			lockStore:     lockstore.NewMemStore(2048),
+			rollbackStore: lockstore.NewMemStore(2048),
+		},
+		kvPath:   kvPath,
+		raft:     raftEngine,
+		raftPath: raftPath,
+	}
 }
 
 func (en *Engines) WriteKV(wb *WriteBatch) error {

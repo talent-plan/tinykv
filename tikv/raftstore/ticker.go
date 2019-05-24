@@ -74,6 +74,17 @@ type tickDriver struct {
 	newRegionCh      chan uint64
 	regions          map[uint64]struct{}
 	router           *router
+	storeTicker      *ticker
+}
+
+func newTickDriver(baseTickInterval time.Duration, router *router, storeTicker *ticker) *tickDriver {
+	return &tickDriver{
+		baseTickInterval: baseTickInterval,
+		newRegionCh:      make(chan uint64),
+		regions:          make(map[uint64]struct{}),
+		router:           router,
+		storeTicker:      storeTicker,
+	}
 }
 
 func (r *tickDriver) run() {
@@ -86,8 +97,18 @@ func (r *tickDriver) run() {
 					delete(r.regions, regionID)
 				}
 			}
+			r.tickStore()
 		case regionID := <-r.newRegionCh:
 			r.regions[regionID] = struct{}{}
 		}
 	}
+}
+
+func (r *tickDriver) tickStore() {
+	for i := range r.storeTicker.schedules {
+		if r.storeTicker.isOnStoreTick(StoreTick(i)) {
+			r.router.sendControl(NewMsg(MsgTypeStoreTick, StoreTick(i)))
+		}
+	}
+	r.storeTicker.tickClock()
 }

@@ -70,7 +70,9 @@ func (q *ReadIndexQueue) PopFront() *ReadIndexRequest {
 }
 
 func NotifyStaleReq(term uint64, cb *Callback) {
-	cb.Done(ErrRespStaleCommand(term))
+	if cb != nil {
+		cb.Done(ErrRespStaleCommand(term))
+	}
 }
 
 func NotifyReqRegionRemoved(regionId uint64, cb *Callback) {
@@ -91,6 +93,7 @@ func (r *ReadIndexQueue) ClearUncommitted(term uint64) {
 		for _, reqCbPair := range read.cmds {
 			NotifyStaleReq(term, reqCbPair.Cb)
 		}
+		read.cmds = nil
 	}
 }
 
@@ -735,6 +738,12 @@ func (p *Peer) HandleRaftReadyAppend(ctx *PollContext) {
 	log.Debugf("%v handle raft ready", p.Tag)
 
 	ready := p.RaftGroup.ReadySince(p.LastApplyingIdx)
+	// TODO: workaround for:
+	//   in kvproto/eraftpb, we use *SnapshotMetadata
+	//   but in etcd, they use SnapshotMetadata
+	if ready.Snapshot.GetMetadata() == nil {
+		ready.Snapshot.Metadata = &eraftpb.SnapshotMetadata{}
+	}
 	p.OnRoleChanged(ctx, &ready)
 
 	// The leader can write to disk and replicate to the followers concurrently
@@ -855,7 +864,19 @@ func (p *Peer) GetPeer(peerId uint64) *metapb.Peer {
 }
 
 func (p *Peer) HeartbeatPd(ctx *PollContext) {
-	// Todo: currently it is a place holder
+	ctx.pdScheduler <- task{
+		tp: taskTypePDHeartbeat,
+		data: &pdRegionHeartbeatTask{
+			region:          p.Region(),
+			peer:            p.Peer,
+			downPeers:       p.CollectDownPeers(time.Minute * 5),
+			pendingPeers:    p.CollectPendingPeers(),
+			writtenBytes:    p.PeerStat.WrittenBytes,
+			writtenKeys:     p.PeerStat.WrittenKeys,
+			approximateSize: p.ApproximateSize,
+			approximateKeys: p.ApproximateKeys,
+		},
+	}
 }
 
 func (p *Peer) sendRaftMessage(msg eraftpb.Message, trans Transport) error {

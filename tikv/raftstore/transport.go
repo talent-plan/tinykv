@@ -31,9 +31,10 @@ func NewServerTransport(raftClient *RaftClient, snapScheduler chan<- task, raftR
 	}
 }
 
-func (t *ServerTransport) Send(msg *raft_serverpb.RaftMessage) {
+func (t *ServerTransport) Send(msg *raft_serverpb.RaftMessage) error {
 	storeID := msg.GetToPeer().GetStoreId()
 	t.SendStore(storeID, msg)
+	return nil
 }
 
 func (t *ServerTransport) SendStore(storeID uint64, msg *raft_serverpb.RaftMessage) {

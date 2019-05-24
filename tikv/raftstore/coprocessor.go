@@ -2,6 +2,7 @@ package raftstore
 
 import (
 	"bytes"
+
 	"github.com/coocood/badger"
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/tikv/dbreader"
@@ -384,7 +385,11 @@ func isTableKey(encodedKey []byte) bool {
 }
 
 func isSameTable(leftKey, rightKey []byte) bool {
-	return bytes.Compare(leftKey[:tablecodec.TableSplitKeyLen], rightKey[:tablecodec.TableSplitKeyLen]) == 0
+	return bytes.HasPrefix(leftKey, tablecodec.TablePrefix()) &&
+		bytes.HasPrefix(rightKey, tablecodec.TablePrefix()) &&
+		len(leftKey) > tablecodec.TableSplitKeyLen &&
+		len(rightKey) > tablecodec.TableSplitKeyLen &&
+		bytes.Compare(leftKey[:tablecodec.TableSplitKeyLen], rightKey[:tablecodec.TableSplitKeyLen]) == 0
 }
 
 func extractTablePrefix(key []byte) []byte {

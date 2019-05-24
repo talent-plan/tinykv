@@ -13,6 +13,7 @@ import (
 	"github.com/ngaut/unistore/lockstore"
 	"github.com/ngaut/unistore/pd"
 	"github.com/ngaut/unistore/rocksdb"
+	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
@@ -280,6 +281,7 @@ func (p *raftPoller) handleRaftReady(peers []fsm) {
 			msg := Msg{Type: MsgTypeApplyProposal, Data: proposal}
 			p.pollCtx.applyRouter.scheduleTask(proposal.RegionId, msg)
 		}
+		p.pendingProposals = nil
 	}
 	kvWB := p.pollCtx.kvWB
 	if len(kvWB.entries) > 0 {
@@ -298,6 +300,7 @@ func (p *raftPoller) handleRaftReady(peers []fsm) {
 		raftWB.Reset()
 	}
 	readyRes := p.pollCtx.ReadyRes
+	p.pollCtx.ReadyRes = nil
 	if len(readyRes) > 0 {
 		batchPos := 0
 		for _, pair := range readyRes {
@@ -405,6 +408,7 @@ type raftPollerBuilder struct {
 	pdClient             pd.Client
 	engines              *Engines
 	applyingSnapCount    *uint64
+	tickDriverCh         chan uint64
 }
 
 type senderPeerFsmPair struct {
@@ -434,11 +438,8 @@ func (b *raftPollerBuilder) init() ([]senderPeerFsmPair, error) {
 	defer b.storeMetaLock.Unlock()
 	meta := b.storeMeta
 	err := kvEngine.View(func(txn *badger.Txn) error {
-		opt := badger.DefaultIteratorOptions
-		opt.StartKey = startKey
-		opt.EndKey = endKey
-		opt.PrefetchValues = false
-		it := txn.NewIterator(opt)
+		it := dbreader.NewIterator(txn, false, startKey, endKey)
+		defer it.Close()
 		for it.Seek(startKey); it.Valid(); it.Next() {
 			item := it.Item()
 			if bytes.Compare(item.Key(), endKey) >= 0 {
@@ -564,6 +565,7 @@ func (b *raftPollerBuilder) build() pollHandler {
 		raftWB:               new(WriteBatch),
 		globalStats:          new(storeStats),
 		localStats:           new(storeStats),
+		tickDriverCh:         b.tickDriverCh,
 	}
 	return &raftPoller{
 		tag:             fmt.Sprintf("[store %d]", ctx.store.Id),
@@ -594,6 +596,7 @@ type raftBatchSystem struct {
 	applySystem *batchSystem
 	router      *router
 	workers     *workers
+	tickDriver  *tickDriver
 }
 
 func (bs *raftBatchSystem) start(
@@ -644,6 +647,7 @@ func (bs *raftBatchSystem) start(
 		storeMetaLock:        new(sync.RWMutex),
 		storeMeta:            newStoreMeta(),
 		applyingSnapCount:    new(uint64),
+		tickDriverCh:         bs.tickDriver.newRegionCh,
 	}
 	regionPeers, err := builder.init()
 	if err != nil {
@@ -702,6 +706,7 @@ func (bs *raftBatchSystem) startSystem(
 	workers.snapWorker.start(snapRunner)
 	workers.computeHashWorker.start(&computeHashRunner{router: bs.router})
 	bs.workers = workers
+	go bs.tickDriver.run() // TODO: temp workaround.
 	return nil
 }
 
@@ -715,7 +720,7 @@ func (bs *raftBatchSystem) scheduleApplySystem(regionPeers []senderPeerFsmPair) 
 			mailbox: newMailbox(sender, applyFsm),
 		})
 	}
-	bs.router.registerAll(mailboxes)
+	bs.applyRouter.registerAll(mailboxes)
 }
 
 func (bs *raftBatchSystem) shutDown() {
@@ -748,6 +753,7 @@ func createRaftBatchSystem(cfg *Config) (*router, *raftBatchSystem) {
 		applyRouter: applyRouter,
 		applySystem: applySystem,
 		router:      router,
+		tickDriver:  newTickDriver(cfg.RaftBaseTickInterval, router, storeFsm.ticker),
 	}
 	return router, raftBatchSystem
 }
@@ -954,6 +960,7 @@ func (d *storeFsmDelegate) storeHeartbeatPD() {
 		stats:    stats,
 		engine:   d.ctx.engine.kv.db,
 		capacity: d.ctx.cfg.Capacity,
+		path:     d.ctx.engine.kvPath,
 	}
 	d.ctx.pdScheduler <- task{tp: taskTypePDStoreHeartbeat, data: storeInfo}
 }

@@ -3,9 +3,12 @@ package raftstore
 import (
 	"bytes"
 	"fmt"
+	"time"
+
 	"github.com/coocood/badger"
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
+	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/eraftpb"
@@ -14,7 +17,6 @@ import (
 	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/uber-go/atomic"
-	"time"
 )
 
 const (
@@ -174,8 +176,10 @@ type applyCallback struct {
 
 func (c *applyCallback) invokeAll(host *CoprocessorHost) {
 	for _, cb := range c.cbs {
-		host.postApply(c.region, cb.resp)
-		cb.wg.Done()
+		if cb != nil {
+			host.postApply(c.region, cb.resp)
+			cb.wg.Done()
+		}
 	}
 }
 
@@ -360,6 +364,7 @@ func (ac *applyContext) writeToDB() {
 	for _, cb := range ac.cbs {
 		cb.invokeAll(ac.host)
 	}
+	ac.cbs = ac.cbs[:0]
 }
 
 /// Finishes `Apply`s for the delegate.
@@ -426,7 +431,9 @@ func notifyRegionRemoved(regionID, peerID uint64, cmd pendingCmd) {
 }
 
 func notifyReqRegionRemoved(regionID uint64, cb *Callback) {
-	cb.Done(ErrRespRegionNotFound(regionID))
+	if cb != nil {
+		cb.Done(ErrRespRegionNotFound(regionID))
+	}
 }
 
 /// Calls the callback of `cmd` when it can not be processed further.
@@ -437,7 +444,9 @@ func notifyStaleCommand(regionID, peerID, term uint64, cmd pendingCmd) {
 }
 
 func notifyStaleReq(term uint64, cb *Callback) {
-	cb.Done(ErrRespStaleCommand(term))
+	if cb != nil {
+		cb.Done(ErrRespStaleCommand(term))
+	}
 }
 
 /// Checks if a write is needed to be issued before handling the command.
@@ -837,7 +846,7 @@ func (d *applyDelegate) newCtx(index, term uint64) *applyExecContext {
 func (d *applyDelegate) execRaftCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdRequest) (
 	resp *raft_cmdpb.RaftCmdResponse, result applyResult, err error) {
 	// Include region for epoch not match after merge may cause key not in range.
-	includeRegion := req.Header.RegionEpoch.Version >= d.lastMergeVersion
+	includeRegion := req.Header.GetRegionEpoch().GetVersion() >= d.lastMergeVersion
 	err = checkRegionEpoch(req, d.region, includeRegion)
 	if err != nil {
 		return
@@ -1115,11 +1124,7 @@ func (d *applyDelegate) execDeleteRange(aCtx *applyContext, req *raft_cmdpb.Dele
 		panic(req.EndKey)
 	}
 	txn := aCtx.getTxn()
-	var opt badger.IteratorOptions
-	opt.PrefetchValues = false
-	opt.StartKey = startKey
-	opt.EndKey = endKey
-	it := txn.NewIterator(opt)
+	it := dbreader.NewIterator(txn, false, startKey, endKey)
 	for it.Seek(startKey); it.Valid(); it.Next() {
 		item := it.Item()
 		if bytes.Compare(item.Key(), endKey) >= 0 {
@@ -1130,9 +1135,7 @@ func (d *applyDelegate) execDeleteRange(aCtx *applyContext, req *raft_cmdpb.Dele
 	it.Close()
 	oldStartKey := mvcc.EncodeOldKey(startKey, 0)
 	oldEndKey := mvcc.EncodeOldKey(endKey, 0)
-	opt.StartKey = oldStartKey
-	opt.EndKey = oldEndKey
-	it = txn.NewIterator(opt)
+	it = dbreader.NewIterator(txn, false, oldStartKey, oldEndKey)
 	for it.Seek(oldStartKey); it.Valid(); it.Next() {
 		item := it.Item()
 		if bytes.Compare(item.Key(), oldEndKey) >= 0 {
@@ -1140,6 +1143,7 @@ func (d *applyDelegate) execDeleteRange(aCtx *applyContext, req *raft_cmdpb.Dele
 		}
 		aCtx.wb.Delete(item.KeyCopy(nil))
 	}
+	it.Close()
 	lockIt := aCtx.engines.kv.lockStore.NewIterator()
 	for lockIt.Seek(startKey); lockIt.Valid(); lockIt.Next() {
 		if bytes.Compare(lockIt.Key(), endKey) >= 0 {
@@ -1493,6 +1497,7 @@ func (a *applyFsm) handleApply(aCtx *applyContext, apply *apply) {
 	a.metrics = applyMetrics{}
 	a.term = apply.term
 	a.handleRaftCommittedEntries(aCtx, apply.entries)
+	apply.entries = apply.entries[:0]
 	if a.waitMergeState != nil {
 		return
 	}
@@ -1628,6 +1633,7 @@ func (p *applyPoller) handleNormal(normal fsm) (pause bool, chLen int) {
 		p.msgBuf = append(p.msgBuf, <-applyFsm.receiver)
 	}
 	applyFsm.handleTasks(p.aCtx, p.msgBuf)
+	p.msgBuf = nil
 	if applyFsm.merged {
 		applyFsm.destroy(p.aCtx)
 	}

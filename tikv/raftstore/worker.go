@@ -204,6 +204,10 @@ func (w *worker) start(runner taskRunner) {
 	}()
 }
 
+func (w *worker) stop() {
+	w.scheduler <- task{tp: taskTypeStop}
+}
+
 const defaultWorkerCapacity = 128
 
 func newWorker(name string, wg *sync.WaitGroup) *worker {

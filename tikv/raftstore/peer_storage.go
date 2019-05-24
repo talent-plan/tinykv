@@ -11,6 +11,7 @@ import (
 	"github.com/cznic/mathutil"
 	"github.com/golang/protobuf/proto"
 	"github.com/ngaut/log"
+	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/eraftpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -692,11 +693,7 @@ func fetchEntriesTo(engine *badger.DB, regionID, low, high, maxSize uint64, buf 
 	}
 	startKey := RaftLogKey(regionID, low)
 	endKey := RaftLogKey(regionID, high)
-	opt := badger.DefaultIteratorOptions
-	opt.StartKey = startKey
-	opt.EndKey = endKey
-	opt.PrefetchValues = false
-	iter := txn.NewIterator(opt)
+	iter := dbreader.NewIterator(txn, false, startKey, endKey)
 	defer iter.Close()
 	for iter.Seek(startKey); iter.Valid(); iter.Next() {
 		item := iter.Item()

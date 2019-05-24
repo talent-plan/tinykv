@@ -467,6 +467,7 @@ func (p *poller) poll() {
 	exhaustedFsms := make([][2]int, 0, p.maxBatchSize)
 	p.fetchBatch(batch, p.maxBatchSize)
 	for !batch.isEmpty() {
+		exhaustedFsms = exhaustedFsms[:0]
 		p.handler.begin(batch.len())
 		if batch.control != nil {
 			pause, chLen := p.handler.handleControl(batch.control)

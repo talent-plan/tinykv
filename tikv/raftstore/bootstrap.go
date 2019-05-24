@@ -4,6 +4,7 @@ import (
 	"bytes"
 
 	"github.com/coocood/badger"
+	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
@@ -17,12 +18,7 @@ const (
 func isRangeEmpty(engine *badger.DB, startKey, endKey []byte) (bool, error) {
 	var hasData bool
 	err := engine.View(func(txn *badger.Txn) error {
-		itOpts := badger.DefaultIteratorOptions
-		if len(startKey) > 0 && len(endKey) > 0 {
-			itOpts.StartKey = startKey
-			itOpts.EndKey = endKey
-		}
-		it := txn.NewIterator(itOpts)
+		it := dbreader.NewIterator(txn, false, startKey, endKey)
 		defer it.Close()
 		it.Seek(startKey)
 		if it.Valid() {
