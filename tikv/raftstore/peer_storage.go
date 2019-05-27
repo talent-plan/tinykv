@@ -773,6 +773,7 @@ func WritePeerState(kvWB *WriteBatch, region *metapb.Region, state rspb.PeerStat
 	regionID := region.Id
 	regionState := new(rspb.RegionLocalState)
 	regionState.State = state
+	regionState.Region = region
 	if mergeState != nil {
 		regionState.MergeState = mergeState
 	}

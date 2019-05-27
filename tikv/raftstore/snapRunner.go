@@ -18,14 +18,16 @@ import (
 type snapRunner struct {
 	config         *Config
 	snapManager    *SnapManager
+	router         RaftRouter
 	sendingCount   int64
 	receivingCount int64
 }
 
-func newSnapRunner(snapManager *SnapManager, config *Config) *snapRunner {
+func newSnapRunner(snapManager *SnapManager, config *Config, router RaftRouter) *snapRunner {
 	return &snapRunner{
 		config:      config,
 		snapManager: snapManager,
+		router:      router,
 	}
 }
 
@@ -121,31 +123,35 @@ func (r *snapRunner) recv(t recvSnapTask) {
 	}
 	atomic.AddInt64(&r.receivingCount, 1)
 	defer atomic.AddInt64(&r.receivingCount, -1)
-	t.callback(r.recvSnap(t.stream))
+	msg, err := r.recvSnap(t.stream)
+	if err == nil {
+		r.router.SendRaftMessage(msg)
+	}
+	t.callback(err)
 }
 
-func (r *snapRunner) recvSnap(stream tikvpb.Tikv_SnapshotServer) error {
+func (r *snapRunner) recvSnap(stream tikvpb.Tikv_SnapshotServer) (*raft_serverpb.RaftMessage, error) {
 	head, err := stream.Recv()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if head.GetMessage() == nil {
-		return errors.New("no raft message in the first chunk")
+		return nil, errors.New("no raft message in the first chunk")
 	}
 	message := head.GetMessage().GetMessage()
 	snapKey, err := SnapKeyFromSnap(message.GetSnapshot())
 	if err != nil {
-		return errors.Errorf("failed to create snap key: %v", err)
+		return nil, errors.Errorf("failed to create snap key: %v", err)
 	}
 
 	data := message.GetSnapshot().GetData()
 	snap, err := r.snapManager.GetSnapshotForReceiving(snapKey, data)
 	if err != nil {
-		return errors.Errorf("%v failed to create snapshot file: %v", snapKey, err)
+		return nil, errors.Errorf("%v failed to create snapshot file: %v", snapKey, err)
 	}
 	if snap.Exists() {
 		log.Infof("snapshot file already exists, skip receiving. snapKey: %v, file: %v", snapKey, snap.Path())
-		return nil
+		return head.GetMessage(), nil
 	}
 	r.snapManager.Register(snapKey, SnapEntryReceiving)
 	defer r.snapManager.Deregister(snapKey, SnapEntryReceiving)
@@ -156,17 +162,23 @@ func (r *snapRunner) recvSnap(stream tikvpb.Tikv_SnapshotServer) error {
 			if err == io.EOF {
 				break
 			}
-			return err
+			return nil, err
 		}
 		data := chunk.GetData()
 		if len(data) == 0 {
-			return errors.Errorf("%v receive chunk with empty data", snapKey)
+			return nil, errors.Errorf("%v receive chunk with empty data", snapKey)
 		}
 		_, err = bytes.NewReader(data).WriteTo(snap)
 		if err != nil {
-			return errors.Errorf("%v failed to write snapshot file %v: %v", snapKey, snap.Path(), err)
+			return nil, errors.Errorf("%v failed to write snapshot file %v: %v", snapKey, snap.Path(), err)
 		}
 	}
 
-	return stream.SendAndClose(&raft_serverpb.Done{})
+	err = snap.Save()
+	if err != nil {
+		return nil, err
+	}
+
+	stream.SendAndClose(&raft_serverpb.Done{})
+	return head.GetMessage(), nil
 }

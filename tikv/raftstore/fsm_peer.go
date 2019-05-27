@@ -53,7 +53,8 @@ func replicatePeerFsm(storeID uint64, cfg *Config, sched chan<- task,
 	// We will remove tombstone key when apply snapshot
 	log.Infof("[region %v] replicates peer with ID %d", regionID, metaPeer.GetId())
 	region := &metapb.Region{
-		Id: regionID,
+		Id:          regionID,
+		RegionEpoch: &metapb.RegionEpoch{},
 	}
 	ch := make(chan Msg, msgDefaultChanSize)
 	peer, err := NewPeer(storeID, cfg, engines, region, sched, metaPeer)
@@ -80,7 +81,9 @@ func (pf *peerFsm) drop() {
 			default:
 				continue
 			}
-			cb.Done(ErrRespRegionNotFound(pf.regionID()))
+			if cb != nil {
+				cb.Done(ErrRespRegionNotFound(pf.regionID()))
+			}
 		default:
 			return
 		}
@@ -304,7 +307,7 @@ func (d *peerFsmDelegate) onSignificantMsg(msg *MsgSignificant) {
 }
 
 func (d *peerFsmDelegate) reportSnapshotStatus(toPeerID uint64, status raft.SnapshotStatus) {
-	toPeer := d.peer.GetPeer(toPeerID)
+	toPeer := d.peer.getPeerFromCache(toPeerID)
 	if toPeer == nil {
 		// If to_peer is gone, ignore this snapshot status
 		log.Warnf("%s peer %d not found, ignore snapshot status %v", d.tag(), toPeerID, status)
@@ -443,6 +446,7 @@ func (d *peerFsmDelegate) onRaftMsg(msg *rspb.RaftMessage) error {
 		d.ctx.snapMgr.DeleteSnapshot(*key, s, false)
 		return nil
 	}
+	d.peer.insertPeerCache(msg.GetFromPeer())
 	err = d.peer.Step(msg.GetMessage())
 	if err != nil {
 		return err
@@ -731,12 +735,14 @@ func (d *peerFsmDelegate) onReadyChangePeer(cp changePeer) {
 			d.peer.PeersStartPendingTime[peerID] = now
 		}
 		d.peer.RecentAddedPeer.Update(peerID, now)
+		d.peer.insertPeerCache(cp.peer)
 	case eraftpb.ConfChangeType_RemoveNode:
 		// Remove this peer from cache.
 		delete(d.peer.PeerHeartbeats, peerID)
 		if d.peer.IsLeader() {
 			delete(d.peer.PeersStartPendingTime, peerID)
 		}
+		d.peer.removePeerCache(peerID)
 	}
 
 	// In pattern matching above, if the peer is the leader,
@@ -838,6 +844,10 @@ func (d *peerFsmDelegate) onReadySplitRegion(derived *metapb.Region, regions []*
 			panic(fmt.Sprintf("create new split region %s error %v", newRegion, err))
 		}
 		metaPeer := newPeer.peer.Peer
+
+		for _, p := range newRegion.GetPeers() {
+			newPeer.peer.insertPeerCache(p)
+		}
 
 		// New peer derive write flow from parent region,
 		// this will be used by balance write flow.
@@ -982,7 +992,7 @@ func (d *peerFsmDelegate) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) 
 	regionID := d.regionID()
 	leaderID := d.peer.LeaderId()
 	if !d.peer.IsLeader() {
-		leader := d.peer.GetPeer(leaderID)
+		leader := d.peer.getPeerFromCache(leaderID)
 		return nil, &ErrNotLeader{regionID, leader}
 	}
 	// peer_id must be the same as peer's.
@@ -1011,11 +1021,15 @@ func (d *peerFsmDelegate) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) 
 func (d *peerFsmDelegate) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *Callback) {
 	resp, err := d.preProposeRaftCommand(msg)
 	if err != nil {
-		cb.Done(ErrResp(err))
+		if cb != nil {
+			cb.Done(ErrResp(err))
+		}
 		return
 	}
 	if resp != nil {
-		cb.Done(resp)
+		if cb != nil {
+			cb.Done(resp)
+		}
 		return
 	}
 
@@ -1026,7 +1040,9 @@ func (d *peerFsmDelegate) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb 
 
 	if err := d.checkMergeProposal(msg); err != nil {
 		log.Warnf("%s failed to process merge, message %s, err %v", d.tag(), msg, err)
-		cb.Done(ErrResp(err))
+		if cb != nil {
+			cb.Done(ErrResp(err))
+		}
 		return
 	}
 
@@ -1195,7 +1211,9 @@ func (d *peerFsmDelegate) onSplitRegionCheckTick() {
 
 func (d *peerFsmDelegate) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, splitKeys [][]byte, cb *Callback) {
 	if err := d.validateSplitRegion(regionEpoch, splitKeys); err != nil {
-		cb.Done(ErrResp(err))
+		if cb != nil {
+			cb.Done(ErrResp(err))
+		}
 		return
 	}
 	region := d.region()
@@ -1229,7 +1247,7 @@ func (d *peerFsmDelegate) validateSplitRegion(epoch *metapb.RegionEpoch, splitKe
 		log.Infof("%s not leader, skip", d.tag())
 		return &ErrNotLeader{
 			RegionId: d.regionID(),
-			Leader:   d.peer.GetPeer(d.peer.LeaderId()),
+			Leader:   d.peer.getPeerFromCache(d.peer.LeaderId()),
 		}
 	}
 
@@ -1475,7 +1493,7 @@ func (d *peerFsmDelegate) executeStatusCommand(request *raft_cmdpb.RaftCmdReques
 
 func (d *peerFsmDelegate) executeRegionLeader() *raft_cmdpb.StatusResponse {
 	resp := &raft_cmdpb.StatusResponse{}
-	if leader := d.peer.GetPeer(d.peer.LeaderId()); leader != nil {
+	if leader := d.peer.getPeerFromCache(d.peer.LeaderId()); leader != nil {
 		resp.RegionLeader = &raft_cmdpb.RegionLeaderResponse{
 			Leader: leader,
 		}
@@ -1493,7 +1511,7 @@ func (d *peerFsmDelegate) executeRegionDetail(request *raft_cmdpb.RaftCmdRequest
 			Region: d.region(),
 		},
 	}
-	if leader := d.peer.GetPeer(d.peer.LeaderId()); leader != nil {
+	if leader := d.peer.getPeerFromCache(d.peer.LeaderId()); leader != nil {
 		resp.RegionDetail = &raft_cmdpb.RegionDetailResponse{
 			Leader: leader,
 		}

@@ -44,7 +44,7 @@ type snapApplier struct {
 func newSnapApplier(cfs []*CFFile) (*snapApplier, error) {
 	var err error
 	it := new(snapApplier)
-	if cfs[lockCFIdx].Size > 0 {
+	if cfs[lockCFIdx].Size > 1 {
 		it.lockCFData, err = ioutil.ReadFile(cfs[lockCFIdx].Path)
 		if err != nil {
 			return nil, errors.WithStack(err)

@@ -16,6 +16,7 @@ func RunRaftServer(cfg *Config, pdClient pd.Client, engines *Engines, signalChan
 	var wg sync.WaitGroup
 	pdWorker := newWorker("pd-worker", &wg)
 	resolveWorker := newWorker("resolver", &wg)
+	resolveRunner := newResolverRunner(pdClient)
 	resolveSender := resolveWorker.scheduler
 
 	// TODO: create local reader
@@ -33,6 +34,8 @@ func RunRaftServer(cfg *Config, pdClient pd.Client, engines *Engines, signalChan
 	server := NewServer(cfg, raftRouter, resolveSender, snapManager)
 
 	coprocessorHost := newCoprocessorHost(cfg.splitCheck, router)
+
+	resolveWorker.start(resolveRunner)
 
 	err := node.Start(context.TODO(), engines, server.Trans(), snapManager, pdWorker, coprocessorHost)
 	if err != nil {
@@ -55,6 +58,8 @@ func RunRaftServer(cfg *Config, pdClient pd.Client, engines *Engines, signalChan
 	}
 
 	node.stop()
+
+	resolveWorker.stop()
 
 	wg.Wait()
 	return nil
@@ -79,7 +84,7 @@ func NewServer(config *Config, router *RaftstoreRouter, resovleSender chan<- tas
 		grpc.InitialConnWindowSize(2 * 1024 * 1024),
 		grpc.MaxConcurrentStreams(1024),
 		grpc.MaxRecvMsgSize(10 * 1024 * 1024),
-		grpc.MaxSendMsgSize(-1),
+		grpc.MaxSendMsgSize(1 << 32),
 	}
 	grpcServer := grpc.NewServer(grpcOpts...)
 	tikvpb.RegisterTikvServer(grpcServer, kvService)
@@ -98,7 +103,7 @@ func NewServer(config *Config, router *RaftstoreRouter, resovleSender chan<- tas
 }
 
 func (s *Server) Start() error {
-	snapRunner := newSnapRunner(s.snapManager, s.config)
+	snapRunner := newSnapRunner(s.snapManager, s.config, s.trans.raftRouter)
 	s.snapWorker.start(snapRunner)
 	lis, err := net.Listen("tcp", s.config.Addr)
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 )
 
 type RaftRouter interface {
+	SendRaftMessage(msg *raft_serverpb.RaftMessage)
 	ReportSnapshotStatus(regionID uint64, toPeerID uint64, status raft.SnapshotStatus) error
 	ReportUnreachable(regionID, toPeerID uint64) error
 }
