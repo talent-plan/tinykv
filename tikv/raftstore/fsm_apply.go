@@ -431,9 +431,7 @@ func notifyRegionRemoved(regionID, peerID uint64, cmd pendingCmd) {
 }
 
 func notifyReqRegionRemoved(regionID uint64, cb *Callback) {
-	if cb != nil {
-		cb.Done(ErrRespRegionNotFound(regionID))
-	}
+	cb.Done(ErrRespRegionNotFound(regionID))
 }
 
 /// Calls the callback of `cmd` when it can not be processed further.
@@ -444,9 +442,7 @@ func notifyStaleCommand(regionID, peerID, term uint64, cmd pendingCmd) {
 }
 
 func notifyStaleReq(term uint64, cb *Callback) {
-	if cb != nil {
-		cb.Done(ErrRespStaleCommand(term))
-	}
+	cb.Done(ErrRespStaleCommand(term))
 }
 
 /// Checks if a write is needed to be issued before handling the command.

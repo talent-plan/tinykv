@@ -73,8 +73,10 @@ type Callback struct {
 }
 
 func (cb *Callback) Done(resp *raft_cmdpb.RaftCmdResponse) {
-	cb.resp = resp
-	cb.wg.Done()
+	if cb != nil {
+		cb.resp = resp
+		cb.wg.Done()
+	}
 }
 
 func NewCallback() *Callback {
