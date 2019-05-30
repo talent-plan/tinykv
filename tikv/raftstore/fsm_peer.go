@@ -22,6 +22,7 @@ type peerFsm struct {
 	hasReady bool
 	mailbox  *mailbox
 	receiver <-chan Msg
+	ticker   *ticker
 }
 
 // If we create the peer actively, like bootstrap/split/merge region, we should
@@ -42,6 +43,7 @@ func createPeerFsm(storeID uint64, cfg *Config, sched chan<- task,
 	return (chan<- Msg)(ch), &peerFsm{
 		peer:     peer,
 		receiver: ch,
+		ticker:   newTicker(region.GetId(), cfg),
 	}, nil
 }
 
@@ -64,6 +66,7 @@ func replicatePeerFsm(storeID uint64, cfg *Config, sched chan<- task,
 	return (chan<- Msg)(ch), &peerFsm{
 		peer:     peer,
 		receiver: ch,
+		ticker:   newTicker(region.GetId(), cfg),
 	}, nil
 }
 
@@ -135,15 +138,13 @@ func (pf *peerFsm) takeMailbox() *mailbox {
 
 type peerFsmDelegate struct {
 	*peerFsm
-	ctx    *PollContext
-	ticker *ticker
+	ctx *PollContext
 }
 
 func newPeerFsmDelegate(fsm *peerFsm, ctx *PollContext) *peerFsmDelegate {
 	return &peerFsmDelegate{
 		peerFsm: fsm,
 		ctx:     ctx,
-		ticker:  newTicker(fsm.regionID(), ctx.cfg),
 	}
 }
 
@@ -208,7 +209,7 @@ func (d *peerFsmDelegate) onTick() {
 	if d.stopped {
 		return
 	}
-
+	d.ticker.tickClock()
 	if d.ticker.isOnTick(PeerTickRaft) {
 		d.onRaftBaseTick()
 	}
@@ -227,7 +228,6 @@ func (d *peerFsmDelegate) onTick() {
 	if d.ticker.isOnTick(PeerTickPeerStaleState) {
 		d.onCheckPeerStaleStateTick()
 	}
-	d.ticker.tickClock()
 	d.ctx.tickDriverCh <- d.regionID()
 }
 
@@ -672,8 +672,10 @@ func (d *peerFsmDelegate) destroyPeer(mergeByTarget bool) {
 		// Trigger region change observer
 		d.ctx.coprocessorHost.OnRegionChanged(d.region(), RegionChangeEvent_Destroy, d.peer.GetRole())
 		d.ctx.pdScheduler <- task{
-			tp:   taskTypePDDestroyPeer,
-			data: regionID,
+			tp: taskTypePDDestroyPeer,
+			data: &pdDestroyPeerTask{
+				regionID: regionID,
+			},
 		}
 	}()
 	meta := d.ctx.storeMeta

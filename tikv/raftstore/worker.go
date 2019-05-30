@@ -532,17 +532,17 @@ func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus) error 
 
 // handleApply tries to apply the snapshot of the specified Region. It calls `applySnap` to do the actual work.
 func (snapCtx *snapContext) handleApply(regionId uint64, status *JobStatus) {
-	atomic.CompareAndSwapUint64(status, JobStatus_Pending, JobStatus_Running)
+	atomic.CompareAndSwapUint32(status, JobStatus_Pending, JobStatus_Running)
 	err := snapCtx.applySnap(regionId, status)
 	switch err.(type) {
 	case nil:
-		atomic.SwapUint64(status, JobStatus_Finished)
+		atomic.SwapUint32(status, JobStatus_Finished)
 	case applySnapAbortError:
 		log.Warnf("applying snapshot is aborted. [regionId: %d]", regionId)
-		y.Assert(atomic.SwapUint64(status, JobStatus_Cancelled) == JobStatus_Cancelling)
+		y.Assert(atomic.SwapUint32(status, JobStatus_Cancelled) == JobStatus_Cancelling)
 	default:
 		log.Errorf("failed to apply snap!!!. err: %v", err)
-		atomic.SwapUint64(status, JobStatus_Failed)
+		atomic.SwapUint32(status, JobStatus_Failed)
 	}
 }
 

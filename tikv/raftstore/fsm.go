@@ -116,6 +116,7 @@ func (mb *mailbox) release(fsm fsm) {
 		prevStatus = atomic.LoadInt64(&mb.state.status)
 		if prevStatus == notifyStateDrop {
 			atomic.SwapPointer(&mb.state.data, nil)
+			return
 		}
 	}
 	panic(fmt.Sprintf("invalid release state %d", prevStatus))

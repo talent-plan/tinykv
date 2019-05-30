@@ -658,7 +658,7 @@ func (bs *raftBatchSystem) startSystem(
 	if err != nil {
 		return err
 	}
-	applyPollerBuilder := newApplyPollerBuilder(builder, notifier{router: bs.router}, bs.applyRouter)
+	applyPollerBuilder := newApplyPollerBuilder(builder, notifier{router: bs.router}, bs.applyRouter, builder.regionScheduler)
 	bs.scheduleApplySystem(regionPeers)
 
 	store := builder.store
@@ -799,7 +799,7 @@ func (d *storeFsmDelegate) checkMsg(msg *rspb.RaftMessage) (bool, error) {
 		d.ctx.handleStaleMsg(msg, regionEpoch, isVoteMsg && notExist, nil)
 		return true, nil
 	}
-	if fromEpoch.Version == regionEpoch.Version {
+	if fromEpoch.ConfVer == regionEpoch.ConfVer {
 		return false, errors.Errorf("tombstone peer [epoch: %s] received an invalid message %s, ignore it",
 			regionEpoch, msgType)
 	}

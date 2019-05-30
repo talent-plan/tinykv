@@ -3,6 +3,7 @@ package raftstore
 import (
 	"bytes"
 	"os"
+	"math"
 
 	"github.com/coocood/badger"
 	"github.com/ngaut/unistore/lockstore"
@@ -12,17 +13,17 @@ import (
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/tidb/util/codec"
-	"math"
 )
 
 func newSnapBuilder(cfFiles []*CFFile, db *badger.DB, lockStore *lockstore.MemStore, region *metapb.Region) (*snapBuilder, error) {
 	b := new(snapBuilder)
 	b.cfFiles = cfFiles
-	b.endKey = rawRegionKey(region.EndKey)
+	b.endKey = DataKey(rawRegionKey(region.EndKey))
 	b.txn = db.NewTransaction(false)
 	b.dbIterator = b.txn.NewIterator(badger.DefaultIteratorOptions)
-	startKey := rawRegionKey(region.StartKey)
+	startKey := DataKey(rawRegionKey(region.StartKey))
 	b.dbIterator.Seek(startKey)
+
 	if b.dbIterator.Valid() && !b.reachEnd(b.dbIterator.Item().Key()) {
 		b.curDBKey = b.dbIterator.Item().Key()
 	}

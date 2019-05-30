@@ -91,11 +91,11 @@ type SnapStatistics struct {
 type ApplyOptions struct {
 	DBBundle  *DBBundle
 	Region    *metapb.Region
-	Abort     *uint64
+	Abort     *uint32
 	BatchSize int
 }
 
-func newApplyOptions(db *DBBundle, region *metapb.Region, abort *uint64, batchSize int) *ApplyOptions {
+func newApplyOptions(db *DBBundle, region *metapb.Region, abort *uint32, batchSize int) *ApplyOptions {
 	return &ApplyOptions{
 		DBBundle:  db,
 		Region:    region,
@@ -755,8 +755,8 @@ func (s *Snap) Apply(opts ApplyOptions) error {
 	return batch.WriteToKV(opts.DBBundle)
 }
 
-func checkAbort(status *uint64) error {
-	if atomic.LoadUint64(status) == JobStatus_Cancelling {
+func checkAbort(status *uint32) error {
+	if atomic.LoadUint32(status) == JobStatus_Cancelling {
 		return errAbort
 	}
 	return nil

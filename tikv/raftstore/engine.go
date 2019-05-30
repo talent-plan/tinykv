@@ -146,7 +146,7 @@ func (wb *WriteBatch) SetMsg(key []byte, msg proto.Message) error {
 
 func (wb *WriteBatch) SetSafePoint() {
 	wb.safePoint = len(wb.entries)
-	wb.safePointLock = len(wb.entries)
+	wb.safePointLock = len(wb.lockEntries)
 	wb.safePointSize = wb.size
 }
 

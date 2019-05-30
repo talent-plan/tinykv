@@ -231,6 +231,28 @@ func newRegistration(peer *Peer) *registration {
 	}
 }
 
+type GenSnapTask struct {
+	regionID     uint64
+	snapNotifier chan *eraftpb.Snapshot
+}
+
+func newGenSnapTask(regionID uint64, notifier chan *eraftpb.Snapshot) *GenSnapTask {
+	return &GenSnapTask{
+		regionID:     regionID,
+		snapNotifier: notifier,
+	}
+}
+
+func (t *GenSnapTask) generateAndScheduleSnapshot(regionSched chan<- task) {
+	regionSched <- task{
+		tp: taskTypeRegionGen,
+		data: &regionTask{
+			regionId: t.regionID,
+			notifier: t.snapNotifier,
+		},
+	}
+}
+
 type applyRouter struct {
 	router
 }
@@ -280,6 +302,7 @@ type applyContext struct {
 	tag              string
 	timer            *time.Time
 	host             *CoprocessorHost
+	regionScheduler  chan<- task
 	router           *applyRouter
 	notifier         notifier
 	engines          *Engines
@@ -301,17 +324,18 @@ type applyContext struct {
 	useDeleteRange bool
 }
 
-func newApplyContext(tag string, host *CoprocessorHost, engines *Engines, router *applyRouter,
+func newApplyContext(tag string, host *CoprocessorHost, regionScheduler chan<- task, engines *Engines, router *applyRouter,
 	notifier notifier, cfg *Config) *applyContext {
 	return &applyContext{
-		tag:            tag,
-		host:           host,
-		engines:        engines,
-		router:         router,
-		notifier:       notifier,
-		enableSyncLog:  cfg.SyncLog,
-		useDeleteRange: cfg.UseDeleteRange,
-		wb:             new(WriteBatch),
+		tag:             tag,
+		host:            host,
+		regionScheduler: regionScheduler,
+		engines:         engines,
+		router:          router,
+		notifier:        notifier,
+		enableSyncLog:   cfg.SyncLog,
+		useDeleteRange:  cfg.UseDeleteRange,
+		wb:              new(WriteBatch),
 	}
 }
 
@@ -1086,7 +1110,7 @@ func (d *applyDelegate) execCommit(aCtx *applyContext, op commitOp) {
 	if err != nil {
 		panic(remain)
 	}
-	val := aCtx.engines.kv.lockStore.Get(rawKey, nil)
+	val := d.getLock(aCtx, rawKey)
 	y.Assert(len(val) > 0)
 	lock := mvcc.DecodeLock(val)
 	userMeta := mvcc.NewDBUserMeta(lock.StartTS, commitTS)
@@ -1095,7 +1119,23 @@ func (d *applyDelegate) execCommit(aCtx *applyContext, op commitOp) {
 		oldKey := mvcc.EncodeOldKey(rawKey, lock.OldMeta.CommitTS())
 		aCtx.wb.SetWithUserMeta(oldKey, lock.OldVal, lock.OldMeta.ToOldUserMeta(commitTS))
 	}
+	if op.delLock != nil {
+		aCtx.wb.DeleteLock(rawKey)
+	}
 	return
+}
+
+func (d *applyDelegate) getLock(aCtx *applyContext, rawKey []byte) []byte {
+	if val := aCtx.engines.kv.lockStore.Get(rawKey, nil); len(val) > 0 {
+		return val
+	}
+	lockEntries := aCtx.wb.lockEntries
+	for i := len(lockEntries) - 1; i >= 0; i-- {
+		if bytes.Equal(lockEntries[i].Key, rawKey) {
+			return lockEntries[i].Value
+		}
+	}
+	return nil
 }
 
 func (d *applyDelegate) execRollback(aCtx *applyContext, op rollbackOp) {
@@ -1430,9 +1470,10 @@ type applyPollerBuilder struct {
 	engines         *Engines
 	sender          notifier
 	router          *applyRouter
+	regionScheduler chan<- task
 }
 
-func newApplyPollerBuilder(raftPollerBuilder *raftPollerBuilder, sender notifier, router *applyRouter) *applyPollerBuilder {
+func newApplyPollerBuilder(raftPollerBuilder *raftPollerBuilder, sender notifier, router *applyRouter, regionScheduler chan<- task) *applyPollerBuilder {
 	return &applyPollerBuilder{
 		tag:             fmt.Sprintf("[store %d]", raftPollerBuilder.store.Id),
 		cfg:             raftPollerBuilder.cfg,
@@ -1440,13 +1481,14 @@ func newApplyPollerBuilder(raftPollerBuilder *raftPollerBuilder, sender notifier
 		engines:         raftPollerBuilder.engines,
 		sender:          sender,
 		router:          router,
+		regionScheduler: regionScheduler,
 	}
 }
 
 func (b *applyPollerBuilder) build() pollHandler {
 	return &applyPoller{
 		msgBuf:          make([]Msg, 0, b.cfg.MessagesPerTick),
-		aCtx:            newApplyContext(b.tag, b.coprocessorHost, b.engines, b.router, b.sender, b.cfg),
+		aCtx:            newApplyContext(b.tag, b.coprocessorHost, b.regionScheduler, b.engines, b.router, b.sender, b.cfg),
 		messagesPerTick: int(b.cfg.MessagesPerTick),
 	}
 }
@@ -1561,6 +1603,20 @@ func (a *applyFsm) catchUpLogsForMerge(aCtx *applyContext, logs *catchUpLogs) {
 	// TODO: merge
 }
 
+func (a *applyFsm) handleSnapshot(aCtx *applyContext, snapTask *GenSnapTask) {
+	if a.applyDelegate.pendingRemove || a.applyDelegate.stopped {
+		return
+	}
+	regionID := a.applyDelegate.region.GetId()
+	for _, res := range aCtx.applyTaskResList {
+		if res.regionID == regionID {
+			aCtx.flush()
+			break
+		}
+	}
+	snapTask.generateAndScheduleSnapshot(aCtx.regionScheduler)
+}
+
 func (a *applyFsm) handleTasks(aCtx *applyContext, msgs []Msg) {
 	for i, msg := range msgs {
 		switch msg.Type {
@@ -1579,6 +1635,8 @@ func (a *applyFsm) handleTasks(aCtx *applyContext, msgs []Msg) {
 		case MsgTypeApplyCatchUpLogs:
 			a.catchUpLogsForMerge(aCtx, msg.Data.(*catchUpLogs))
 		case MsgTypeApplyLogsUpToDate:
+		case MsgTypeApplySnapshot:
+			a.handleSnapshot(aCtx, msg.Data.(*GenSnapTask))
 		}
 	}
 }

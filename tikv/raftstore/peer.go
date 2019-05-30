@@ -280,7 +280,7 @@ func NewPeer(storeId uint64, cfg *Config, engines *Engines, region *metapb.Regio
 	}
 	tag := fmt.Sprintf("[region %v] %v", region.GetId(), peer.GetId())
 
-	ps, err := NewPeerStorage(engines, region, regionSched, tag)
+	ps, err := NewPeerStorage(engines, region, regionSched, peer.GetId(), tag)
 	if err != nil {
 		return nil, err
 	}
@@ -751,6 +751,14 @@ func (p *Peer) HandleRaftReadyAppend(ctx *PollContext) {
 	if p.HasPendingSnapshot() && !p.ReadyToHandlePendingSnap() {
 		log.Debugf("%v [apply_id: %v, last_applying_idx: %v] is not ready to apply snapshot.", p.Tag, p.Store().AppliedIndex(), p.LastApplyingIdx)
 		return
+	}
+
+	if p.peerStorage.genSnapTask != nil {
+		ctx.applyRouter.scheduleTask(p.regionId, Msg{
+			Type: MsgTypeApplySnapshot,
+			Data: p.peerStorage.genSnapTask,
+		})
+		p.peerStorage.genSnapTask = nil
 	}
 
 	if !p.RaftGroup.HasReadySince(&p.LastApplyingIdx) {

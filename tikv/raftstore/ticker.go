@@ -50,6 +50,10 @@ func (t *ticker) tickClock() {
 // schedule arrange the next run for the PeerTick.
 func (t *ticker) schedule(tp PeerTick) {
 	sched := &t.schedules[int(tp)]
+	if sched.interval <= 0 {
+		sched.runAt = -1
+		return
+	}
 	sched.runAt = t.tick + sched.interval
 }
 
@@ -66,6 +70,10 @@ func (t *ticker) isOnStoreTick(tp StoreTick) bool {
 
 func (t *ticker) scheduleStore(tp StoreTick) {
 	sched := &t.schedules[int(tp)]
+	if sched.interval <= 0 {
+		sched.runAt = -1
+		return
+	}
 	sched.runAt = t.tick + sched.interval
 }
 
@@ -105,10 +113,10 @@ func (r *tickDriver) run() {
 }
 
 func (r *tickDriver) tickStore() {
+	r.storeTicker.tickClock()
 	for i := range r.storeTicker.schedules {
 		if r.storeTicker.isOnStoreTick(StoreTick(i)) {
 			r.router.sendControl(NewMsg(MsgTypeStoreTick, StoreTick(i)))
 		}
 	}
-	r.storeTicker.tickClock()
 }

@@ -49,6 +49,7 @@ const (
 	MsgTypeApplyCatchUpLogs  MsgType = 304
 	MsgTypeApplyLogsUpToDate MsgType = 305
 	MsgTypeApplyDestroy      MsgType = 306
+	MsgTypeApplySnapshot     MsgType = 307
 
 	msgDefaultChanSize = 1024
 )
