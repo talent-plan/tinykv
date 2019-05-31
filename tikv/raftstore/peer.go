@@ -5,7 +5,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"github.com/ngaut/log"
 	"github.com/pingcap/kvproto/pkg/eraftpb"
@@ -266,6 +268,7 @@ type Peer struct {
 	PendingMergeState            *rspb.MergeState
 	leaderMissingTime            *time.Time
 	leaderLease                  *Lease
+	leaderChecker                leaderChecker
 
 	// If a snapshot is being applied asynchronously, messages should not be sent.
 	pendingMessages         []eraftpb.Message
@@ -324,6 +327,9 @@ func NewPeer(storeId uint64, cfg *Config, engines *Engines, region *metapb.Regio
 		LastApplyingIdx:       appliedIndex,
 		lastUrgentProposalIdx: math.MaxInt64,
 		leaderLease:           NewLease(cfg.RaftStoreMaxLeaderLease),
+		leaderChecker: leaderChecker{
+			peerID: peer.Id,
+		},
 	}
 
 	// If this region has only one peer and I am the one, campaign directly.
@@ -388,6 +394,7 @@ func (p *Peer) MaybeDestroy() *DestroyPeerJob {
 		asyncRemove = initialized
 	}
 	p.PendingRemove = true
+	p.leaderChecker.invalid.Store(true)
 
 	return &DestroyPeerJob{
 		AsyncRemove: asyncRemove,
@@ -470,7 +477,10 @@ func (p *Peer) SetRegion(host *CoprocessorHost, region *metapb.Region) {
 	}
 	p.Store().SetRegion(region)
 
+	// Always update leaderChecker's region to avoid stale region info after a follower
+	// becoming a leader.
 	if !p.PendingRemove {
+		atomic.StorePointer(&p.leaderChecker.region, unsafe.Pointer(region))
 		host.OnRegionChanged(p.Region(), RegionChangeEvent_Update, p.GetRole())
 	}
 }
@@ -682,7 +692,20 @@ func (p *Peer) OnRoleChanged(ctx *PollContext, ready *raft.Ready) {
 	ss := ready.SoftState
 	if ss != nil {
 		if ss.RaftState == raft.StateLeader {
-			p.HeartbeatPd(ctx)
+			// The local read can only be performed after a new leader has applied
+			// the first empty entry on its term. After that the lease expiring time
+			// should be updated to
+			//   send_to_quorum_ts + max_lease
+			// as the comments in `Lease` explain.
+			// It is recommended to update the lease expiring time right after
+			// this peer becomes leader because it's more convenient to do it here and
+			// it has no impact on the correctness.
+			p.MaybeRenewLeaderLease(time.Now())
+			if !p.PendingRemove {
+				p.leaderChecker.term.Store(p.Term())
+			}
+		} else if ss.RaftState == raft.StateFollower {
+			p.leaderLease.Expire()
 		}
 		ctx.coprocessorHost.OnRoleChanged(p.Region(), ss.RaftState)
 	}
@@ -850,6 +873,10 @@ func (p *Peer) MaybeRenewLeaderLease(ts time.Time) {
 		return
 	}
 	p.leaderLease.Renew(ts)
+	remoteLease := p.leaderLease.MaybeNewRemoteLease(p.Term())
+	if !p.PendingRemove && remoteLease != nil {
+		atomic.StorePointer(&p.leaderChecker.leaderLease, unsafe.Pointer(remoteLease))
+	}
 }
 
 func (p *Peer) MaybeCampaign(parentIsLeader bool) bool {
@@ -1078,6 +1105,7 @@ func (p *Peer) PostApply(ctx *PollContext, applyState applyState, appliedIndexTe
 		p.RaftGroup.AdvanceApply(applyState.appliedIndex)
 	}
 
+	progressToBeUpdated := p.Store().appliedIndexTerm != appliedIndexTerm
 	p.Store().applyState = applyState
 	p.Store().appliedIndexTerm = appliedIndexTerm
 
@@ -1108,6 +1136,11 @@ func (p *Peer) PostApply(ctx *PollContext, applyState applyState, appliedIndexTe
 			read.cmds = read.cmds[:0]
 		}
 		p.pendingReads.readyCnt = 0
+	}
+
+	// Only leaders need to update applied_index_term.
+	if progressToBeUpdated && p.IsLeader() && !p.PendingRemove {
+		p.leaderChecker.appliedIndexTerm.Store(appliedIndexTerm)
 	}
 
 	return hasReady

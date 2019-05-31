@@ -200,6 +200,8 @@ func (d *peerFsmDelegate) handleMsgs(msgs []Msg) {
 			d.onClearRegionSize()
 		case MsgTypeStart:
 			d.start()
+		case MsgTypeGetLeaderChecker:
+			msg.Data.(chan LeaderChecker) <- &d.peer.leaderChecker
 		case MsgTypeNoop:
 		}
 	}
