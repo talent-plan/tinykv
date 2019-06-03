@@ -130,7 +130,7 @@ func (ai *snapApplier) nextLock() (*applySnapItem, error) {
 		return nil, err
 	}
 	item.val = mvccLock.MarshalBinary()
-	if len(ai.lockCFData) > 0 {
+	if len(ai.lockCFData) > 1 {
 		ai.curLockKey, ai.curLockValue, ai.lockCFData, err = readEntryFromPlainFile(ai.lockCFData)
 		if err != nil {
 			return nil, err
@@ -238,10 +238,10 @@ func readEntryFromPlainFile(data []byte) (key, value, remain []byte, err error) 
 	if len(key) == 0 {
 		return
 	}
-	key = key[1:]
-	if err != nil {
-		return
-	}
+	// key = key[1:]
+	// if err != nil {
+	// 	return
+	// }
 	data, value, err = codec.DecodeCompactBytes(data)
 	if err != nil {
 		return
