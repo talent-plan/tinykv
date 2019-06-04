@@ -520,7 +520,7 @@ type selectionExec struct {
 	conditions        []expression.Expression
 	relatedColOffsets []int
 	row               []types.Datum
-	chkRow            chkMutRow
+	chkRow            chunk.MutRow
 	evalCtx           *evalContext
 	src               executor
 	seCtx             sessionctx.Context
@@ -544,9 +544,9 @@ func (e *selectionExec) Counts() []int64 {
 
 // evalBool evaluates expression to a boolean value.
 func (e *selectionExec) evalBool(exprs []expression.Expression, row []types.Datum, ctx *stmtctx.StatementContext) (bool, error) {
-	e.chkRow.update(row)
+	e.chkRow.SetDatums(row...)
 	for _, expr := range exprs {
-		data, err := expr.Eval(e.chkRow.row())
+		data, err := expr.Eval(e.chkRow.ToRow())
 		if err != nil {
 			return false, errors.Trace(err)
 		}
@@ -599,7 +599,7 @@ type topNExec struct {
 	relatedColOffsets []int
 	orderByExprs      []expression.Expression
 	row               []types.Datum
-	chkRow            chkMutRow
+	chkRow            chunk.MutRow
 	cursor            int
 	executed          bool
 
@@ -676,9 +676,9 @@ func (e *topNExec) evalTopN(value [][]byte) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	e.chkRow.update(e.row)
+	e.chkRow.SetDatums(e.row...)
 	for i, expr := range e.orderByExprs {
-		newRow.key[i], err = expr.Eval(e.chkRow.row())
+		newRow.key[i], err = expr.Eval(e.chkRow.ToRow())
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -809,21 +809,4 @@ func decodeHandle(data []byte) (int64, error) {
 	buf := bytes.NewBuffer(data)
 	err := binary.Read(buf, binary.BigEndian, &h)
 	return h, errors.Trace(err)
-}
-
-type chkMutRow struct {
-	mutRow *chunk.MutRow
-}
-
-func (c *chkMutRow) update(row []types.Datum) {
-	if c.mutRow == nil {
-		chkRow := chunk.MutRowFromDatums(row)
-		c.mutRow = &chkRow
-	} else {
-		c.mutRow.SetDatums(row...)
-	}
-}
-
-func (c *chkMutRow) row() chunk.Row {
-	return c.mutRow.ToRow()
 }

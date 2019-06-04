@@ -5,6 +5,7 @@ import (
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/expression/aggregation"
 	"github.com/pingcap/tidb/types"
+	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/codec"
 	"golang.org/x/net/context"
 )
@@ -23,7 +24,7 @@ type hashAggExec struct {
 	groupByExprs      []expression.Expression
 	relatedColOffsets []int
 	row               []types.Datum
-	chkRow            chkMutRow
+	chkRow            chunk.MutRow
 	groups            map[string]struct{}
 	groupKeys         [][]byte
 	groupKeyRows      [][][]byte
@@ -116,9 +117,9 @@ func (e *hashAggExec) getGroupKey() ([]byte, [][]byte, error) {
 	}
 	bufLen := 0
 	row := make([][]byte, 0, length)
-	e.chkRow.update(e.row)
+	e.chkRow.SetDatums(e.row...)
 	for _, item := range e.groupByExprs {
-		v, err := item.Eval(e.chkRow.row())
+		v, err := item.Eval(e.chkRow.ToRow())
 		if err != nil {
 			return nil, nil, errors.Trace(err)
 		}
@@ -154,9 +155,9 @@ func (e *hashAggExec) aggregate(value [][]byte) error {
 	}
 	// Update aggregate expressions.
 	aggCtxs := e.getContexts(gk)
-	e.chkRow.update(e.row)
+	e.chkRow.SetDatums(e.row...)
 	for i, agg := range e.aggExprs {
-		err = agg.Update(aggCtxs[i], e.evalCtx.sc, e.chkRow.row())
+		err = agg.Update(aggCtxs[i], e.evalCtx.sc, e.chkRow.ToRow())
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -184,7 +185,7 @@ type streamAggExec struct {
 	groupByExprs      []expression.Expression
 	relatedColOffsets []int
 	row               []types.Datum
-	chkRow            chkMutRow
+	chkRow            chunk.MutRow
 	tmpGroupByRow     []types.Datum
 	currGroupByRow    []types.Datum
 	nextGroupByRow    []types.Datum
@@ -248,9 +249,9 @@ func (e *streamAggExec) meetNewGroup(row [][]byte) (bool, error) {
 	if e.nextGroupByRow == nil {
 		matched, firstGroup = false, true
 	}
-	e.chkRow.update(e.row)
+	e.chkRow.SetDatums(e.row...)
 	for i, item := range e.groupByExprs {
-		d, err := item.Eval(e.chkRow.row())
+		d, err := item.Eval(e.chkRow.ToRow())
 		if err != nil {
 			return false, errors.Trace(err)
 		}
@@ -311,9 +312,9 @@ func (e *streamAggExec) Next(ctx context.Context) (retRow [][]byte, err error) {
 				return nil, errors.Trace(err)
 			}
 		}
-		e.chkRow.update(e.row)
+		e.chkRow.SetDatums(e.row...)
 		for i, agg := range e.aggExprs {
-			err = agg.Update(e.aggCtxs[i], e.evalCtx.sc, e.chkRow.row())
+			err = agg.Update(e.aggCtxs[i], e.evalCtx.sc, e.chkRow.ToRow())
 			if err != nil {
 				return nil, errors.Trace(err)
 			}

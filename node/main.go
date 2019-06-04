@@ -90,6 +90,7 @@ func main() {
 	grpcServer := grpc.NewServer(
 		grpc.InitialWindowSize(grpcInitialWindowSize),
 		grpc.InitialConnWindowSize(grpcInitialConnWindowSize),
+		grpc.MaxRecvMsgSize(10*1024*1024),
 	)
 	tikvpb.RegisterTikvServer(grpcServer, tikvServer)
 	l, err := net.Listen("tcp", *storeAddr)

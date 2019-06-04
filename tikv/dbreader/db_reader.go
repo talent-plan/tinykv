@@ -205,6 +205,9 @@ func (r *DBReader) ReverseScan(startKey, endKey []byte, limit int, startTS uint6
 		if bytes.Compare(key, startKey) < 0 {
 			break
 		}
+		if cnt == 0 && bytes.Equal(key, endKey) {
+			continue
+		}
 		var err error
 		if mvcc.DBUserMeta(item.UserMeta()).CommitTS() > startTS {
 			item, err = r.getOldItem(mvcc.EncodeOldKey(key, startTS))

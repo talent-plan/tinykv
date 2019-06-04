@@ -155,6 +155,8 @@ func (svr *Server) tryBuildAggClosureExecutor(e *closureExecutor, executors []*t
 		}
 		e.aggCtx.colIdx = int(idx)
 		e.processFunc = &countColumnProcessor{closureExecutor: e}
+	case tipb.ExprType_Null, tipb.ExprType_ScalarFunc:
+		return nil, nil
 	default:
 		e.processFunc = &countStarProcessor{skipVal: skipVal(true), closureExecutor: e}
 	}
@@ -471,12 +473,20 @@ func (e *selectionProcessor) Process(key, value []byte) error {
 	row := chk.GetRow(chk.NumRows() - 1)
 	ok := true
 	for _, expr := range e.selectionCtx.conditions {
-		i, _, err := expr.EvalInt(e.seCtx, row)
+		d, err := expr.Eval(row)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		if i == 0 {
+		if d.IsNull() {
 			ok = false
+		} else {
+			i, err := d.ToBool(e.sc)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			ok = i != 0
+		}
+		if !ok {
 			chk.TruncateTo(chk.NumRows() - 1)
 			break
 		}
