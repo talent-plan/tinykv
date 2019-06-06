@@ -51,8 +51,6 @@ const (
 	MsgTypeApplyDestroy      MsgType = 306
 	MsgTypeApplySnapshot     MsgType = 307
 
-	MsgTypeGetLeaderChecker MsgType = 401
-
 	msgDefaultChanSize = 1024
 )
 

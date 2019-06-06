@@ -343,6 +343,13 @@ func NewPeer(storeId uint64, cfg *Config, engines *Engines, region *metapb.Regio
 	return p, nil
 }
 
+func (p *Peer) getEventContext() *PeerEventContext {
+	return &PeerEventContext{
+		LeaderChecker: &p.leaderChecker,
+		RegionId:      p.regionId,
+	}
+}
+
 func (p *Peer) insertPeerCache(peer *metapb.Peer) {
 	p.peerCache[peer.GetId()] = peer
 }

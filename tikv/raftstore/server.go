@@ -8,9 +8,20 @@ import (
 
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/pd"
+	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/tikvpb"
 	"google.golang.org/grpc"
 )
+
+type dummyEventObserver struct {}
+
+func (*dummyEventObserver) OnPeerCreate(ctx *PeerEventContext, region *metapb.Region) {}
+
+func (*dummyEventObserver) OnPeerApplySnap(ctx *PeerEventContext, region *metapb.Region) {}
+
+func (*dummyEventObserver) OnPeerDestroy(ctx *PeerEventContext) {}
+
+func (*dummyEventObserver) OnSplitRegion(derived *metapb.Region, regions []*metapb.Region, peers []*PeerEventContext) {}
 
 func RunRaftServer(cfg *Config, pdClient pd.Client, engines *Engines, signalChan <-chan os.Signal) error {
 	var wg sync.WaitGroup
@@ -27,7 +38,7 @@ func RunRaftServer(cfg *Config, pdClient pd.Client, engines *Engines, signalChan
 	router, batchSystem := createRaftBatchSystem(cfg)
 	raftRouter := NewRaftstoreRouter(router) // TODO: init with local reader
 	snapManager := NewSnapManager(cfg.SnapPath, router)
-	node := NewNode(batchSystem, cfg, pdClient)
+	node := NewNode(batchSystem, cfg, pdClient, new(dummyEventObserver)) // TODO: Add PeerEventObserver
 
 	// TODO: create storage
 

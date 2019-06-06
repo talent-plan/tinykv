@@ -23,9 +23,10 @@ type Node struct {
 	storeWg   *sync.WaitGroup
 	system    *raftBatchSystem
 	pdClient  pd.Client
+	observer  PeerEventObserver
 }
 
-func NewNode(system *raftBatchSystem, cfg *Config, pdClient pd.Client) *Node {
+func NewNode(system *raftBatchSystem, cfg *Config, pdClient pd.Client, observer PeerEventObserver) *Node {
 	var store metapb.Store
 	if cfg.AdvertiseAddr != "" {
 		store.Address = cfg.AdvertiseAddr
@@ -43,6 +44,7 @@ func NewNode(system *raftBatchSystem, cfg *Config, pdClient pd.Client) *Node {
 		storeWg:   &sync.WaitGroup{},
 		system:    system,
 		pdClient:  pdClient,
+		observer:  observer,
 	}
 }
 
@@ -200,7 +202,7 @@ func (n *Node) BootstrapCluster(ctx context.Context, engines *Engines, firstRegi
 
 func (n *Node) startNode(engines *Engines, trans Transport, snapMgr *SnapManager, pdWorker *worker, copHost *CoprocessorHost) error {
 	log.Infof("start raft store node, storeID: %d", n.store.GetId())
-	return n.system.start(n.store, n.cfg, engines, trans, n.pdClient, snapMgr, pdWorker, copHost)
+	return n.system.start(n.store, n.cfg, engines, trans, n.pdClient, snapMgr, pdWorker, copHost, n.observer)
 }
 
 func (n *Node) stopNode(storeID uint64) {

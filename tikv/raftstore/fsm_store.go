@@ -96,6 +96,7 @@ type PollContext struct {
 	pdClient             pd.Client
 	globalStats          *storeStats
 	localStats           *storeStats
+	peerEventObserver    PeerEventObserver
 }
 
 type storeStats struct {
@@ -409,6 +410,7 @@ type raftPollerBuilder struct {
 	engines              *Engines
 	applyingSnapCount    *uint64
 	tickDriverCh         chan uint64
+	peerEventObserver    PeerEventObserver
 }
 
 type senderPeerFsmPair struct {
@@ -480,6 +482,7 @@ func (b *raftPollerBuilder) init() ([]senderPeerFsmPair, error) {
 			if err != nil {
 				return err
 			}
+			b.peerEventObserver.OnPeerCreate(peer.peer.getEventContext(), region)
 			if localState.State == rspb.PeerState_Merging {
 				log.Infof("region %d is merging", regionID)
 				mergingCount++
@@ -567,6 +570,7 @@ func (b *raftPollerBuilder) build() pollHandler {
 		globalStats:          new(storeStats),
 		localStats:           new(storeStats),
 		tickDriverCh:         b.tickDriverCh,
+		peerEventObserver:    b.peerEventObserver,
 	}
 	return &raftPoller{
 		tag:             fmt.Sprintf("[store %d]", ctx.store.Id),
@@ -606,7 +610,8 @@ func (bs *raftBatchSystem) start(
 	pdClinet pd.Client,
 	snapMgr *SnapManager,
 	pdWorker *worker,
-	coprocessorHost *CoprocessorHost) error {
+	coprocessorHost *CoprocessorHost,
+	observer PeerEventObserver) error {
 	y.Assert(bs.workers == nil)
 	// TODO: we can get cluster meta regularly too later.
 	if err := cfg.Validate(); err != nil {
@@ -643,6 +648,7 @@ func (bs *raftBatchSystem) start(
 		storeMeta:            newStoreMeta(),
 		applyingSnapCount:    new(uint64),
 		tickDriverCh:         bs.tickDriver.newRegionCh,
+		peerEventObserver:    observer,
 	}
 	regionPeers, err := builder.init()
 	if err != nil {
