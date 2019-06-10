@@ -837,7 +837,7 @@ func (p *Peer) PostRaftReadyAppend(ctx *PollContext, ready *raft.Ready, invokeCt
 			if peer.GetId() == p.Peer.GetId() {
 				pr = &metapb.Peer{
 					Id:        peer.Id,
-					StoreId:   peer.Id,
+					StoreId:   peer.StoreId,
 					IsLearner: peer.IsLearner,
 				}
 			}

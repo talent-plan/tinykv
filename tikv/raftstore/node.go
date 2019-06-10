@@ -2,7 +2,6 @@ package raftstore
 
 import (
 	"context"
-	"os"
 	"sync"
 	"time"
 
@@ -33,7 +32,7 @@ func NewNode(system *raftBatchSystem, cfg *Config, pdClient pd.Client, observer 
 	} else {
 		store.Address = cfg.Addr
 	}
-	store.Version = os.Getenv("TIKV_VERSION") // FIXME: Arbitrarily use an environment variable now.
+	store.Version = "3.0.0-bata.1"
 	for _, l := range cfg.Labels {
 		store.Labels = append(store.Labels, &metapb.StoreLabel{Key: l.LabelKey, Value: l.LabelValue})
 	}
@@ -65,11 +64,14 @@ func (n *Node) Start(ctx context.Context, engines *Engines, trans Transport, sna
 	if err != nil {
 		return err
 	}
-	log.Infof("try bootstrap cluster, storeID: %d, region: %s", storeID, firstRegion)
-	err = n.BootstrapCluster(ctx, engines, firstRegion)
-	if err != nil {
-		return err
+	if firstRegion != nil {
+		log.Infof("try bootstrap cluster, storeID: %d, region: %s", storeID, firstRegion)
+		err = n.BootstrapCluster(ctx, engines, firstRegion)
+		if err != nil {
+			return err
+		}
 	}
+
 	err = n.pdClient.PutStore(ctx, n.store)
 	if err != nil {
 		return err

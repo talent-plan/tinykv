@@ -61,7 +61,7 @@ func main() {
 		syscall.SIGTERM,
 		syscall.SIGQUIT)
 
-	raftstore.RunRaftServer(config, pdClient, engines, signalChan)
+	log.Fatal(raftstore.RunRaftServer(config, pdClient, engines, signalChan))
 }
 
 func createDB(path string, safePoint *tikv.SafePoint) *badger.DB {

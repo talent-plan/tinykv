@@ -266,6 +266,8 @@ github.com/zhangjinpeng1987/raft v0.0.0-20190310021757-193cec114d0c h1:htSKkrjdJ
 github.com/zhangjinpeng1987/raft v0.0.0-20190310021757-193cec114d0c/go.mod h1:1KDQ09J8MRHEtHze4at7BJZDW/doUAgkJ8w9KjEUhSo=
 github.com/zhangjinpeng1987/raft v0.0.0-20190529031630-7fd32b9c3377 h1:1Ec3OoG0CEA9P0/LFgTU9IbiNmsDdNVT9RiDg2W9ZvM=
 github.com/zhangjinpeng1987/raft v0.0.0-20190529031630-7fd32b9c3377/go.mod h1:1KDQ09J8MRHEtHze4at7BJZDW/doUAgkJ8w9KjEUhSo=
+github.com/zhangjinpeng1987/raft v0.0.0-20190610095602-72a63e7f0277 h1:NsaXh4BOWFgkidIClr6i9l5AJ43W5ryJZU9e50iQtAE=
+github.com/zhangjinpeng1987/raft v0.0.0-20190610095602-72a63e7f0277/go.mod h1:1KDQ09J8MRHEtHze4at7BJZDW/doUAgkJ8w9KjEUhSo=
 go.etcd.io/bbolt v1.3.2/go.mod h1:IbVyRI1SCnLcuJnV2u8VeU0CEYM7e686BmAb1XKL+uU=
 go.uber.org/atomic v1.3.2 h1:2Oa65PReHzfn29GpvgsYwloV9AVFHPDk8tYxt2c2tr4=
 go.uber.org/atomic v1.3.2/go.mod h1:gD2HeocX3+yG+ygLZcrzQJaqmWj9AIm7n08wl/qW/PE=
