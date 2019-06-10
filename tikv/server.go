@@ -22,13 +22,13 @@ var _ tikvpb.TikvServer = new(Server)
 
 type Server struct {
 	mvccStore     *MVCCStore
-	regionManager *RegionManager
+	regionManager RegionManager
 	wg            sync.WaitGroup
 	refCount      int32
 	stopped       int32
 }
 
-func NewServer(rm *RegionManager, store *MVCCStore) *Server {
+func NewServer(rm RegionManager, store *MVCCStore) *Server {
 	return &Server{
 		mvccStore:     store,
 		regionManager: rm,
@@ -81,7 +81,7 @@ func newRequestCtx(svr *Server, ctx *kvrpcpb.Context, method string) (*requestCt
 		startTime: time.Now(),
 		rpcCtx:    ctx,
 	}
-	req.regCtx, req.regErr = svr.regionManager.getRegionFromCtx(ctx)
+	req.regCtx, req.regErr = svr.regionManager.GetRegionFromCtx(ctx)
 	if req.regErr != nil {
 		return req, nil
 	}

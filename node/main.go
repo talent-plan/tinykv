@@ -72,7 +72,7 @@ func main() {
 		PDAddr:     *pdAddr,
 		RegionSize: *regionSize,
 	}
-	rm := tikv.NewRegionManager(db, regionOpts)
+	rm := tikv.NewStandAloneRegionManager(db, regionOpts)
 	bundle := &mvcc.DBBundle{
 		DB:            db,
 		LockStore:     lockstore.NewMemStore(8 << 20),
