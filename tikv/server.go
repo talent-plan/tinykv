@@ -23,15 +23,17 @@ var _ tikvpb.TikvServer = new(Server)
 type Server struct {
 	mvccStore     *MVCCStore
 	regionManager RegionManager
+	innerServer   InnerServer
 	wg            sync.WaitGroup
 	refCount      int32
 	stopped       int32
 }
 
-func NewServer(rm RegionManager, store *MVCCStore) *Server {
+func NewServer(rm RegionManager, store *MVCCStore, innerServer InnerServer) *Server {
 	return &Server{
 		mvccStore:     store,
 		regionManager: rm,
+		innerServer:   innerServer,
 	}
 }
 
@@ -441,11 +443,15 @@ func (svr *Server) CoprocessorStream(*coprocessor.Request, tikvpb.Tikv_Coprocess
 }
 
 // Raft commands (tikv <-> tikv).
-func (svr *Server) Raft(tikvpb.Tikv_RaftServer) error {
-	return nil
+func (svr *Server) Raft(stream tikvpb.Tikv_RaftServer) error {
+	return svr.innerServer.Raft(stream)
 }
-func (svr *Server) Snapshot(tikvpb.Tikv_SnapshotServer) error {
-	return nil
+func (svr *Server) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
+	return svr.innerServer.Snapshot(stream)
+}
+
+func (svr *Server) BatchRaft(stream tikvpb.Tikv_BatchRaftServer) error {
+	return svr.innerServer.BatchRaft(stream)
 }
 
 // Region commands.
@@ -468,11 +474,6 @@ func (svr *Server) MvccGetByStartTs(context.Context, *kvrpcpb.MvccGetByStartTsRe
 func (svr *Server) UnsafeDestroyRange(context.Context, *kvrpcpb.UnsafeDestroyRangeRequest) (*kvrpcpb.UnsafeDestroyRangeResponse, error) {
 	// TODO
 	return &kvrpcpb.UnsafeDestroyRangeResponse{}, nil
-}
-
-func (svr *Server) BatchRaft(tikvpb.Tikv_BatchRaftServer) error {
-	// TODO
-	return nil
 }
 
 func convertToKeyError(err error) *kvrpcpb.KeyError {

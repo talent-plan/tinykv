@@ -233,10 +233,10 @@ func (rm *regionManager) isEpochStale(lhs, rhs *metapb.RegionEpoch) bool {
 
 type RaftRegionManager struct {
 	regionManager
-	router raftstore.RaftstoreRouter
+	router *raftstore.RaftstoreRouter
 }
 
-func NewRaftRegionManager(store *metapb.Store, router raftstore.RaftstoreRouter) RegionManager {
+func NewRaftRegionManager(store *metapb.Store, router *raftstore.RaftstoreRouter) *RaftRegionManager {
 	return &RaftRegionManager{
 		router: router,
 		regionManager: regionManager{
@@ -308,11 +308,8 @@ type StandAloneRegionManager struct {
 	wg         sync.WaitGroup
 }
 
-func NewStandAloneRegionManager(db *badger.DB, opts RegionOptions) RegionManager {
-	pdc, err := pd.NewClient(opts.PDAddr, "")
-	if err != nil {
-		log.Fatal(err)
-	}
+func NewStandAloneRegionManager(db *badger.DB, opts RegionOptions, pdc pd.Client) *StandAloneRegionManager {
+	var err error
 	clusterID := pdc.GetClusterID(context.TODO())
 	log.Infof("cluster id %v", clusterID)
 	rm := &StandAloneRegionManager{

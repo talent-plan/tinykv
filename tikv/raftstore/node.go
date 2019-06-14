@@ -25,8 +25,7 @@ type Node struct {
 	observer  PeerEventObserver
 }
 
-func NewNode(system *raftBatchSystem, cfg *Config, pdClient pd.Client, observer PeerEventObserver) *Node {
-	var store metapb.Store
+func NewNode(system *raftBatchSystem, store *metapb.Store, cfg *Config, pdClient pd.Client, observer PeerEventObserver) *Node {
 	if cfg.AdvertiseAddr != "" {
 		store.Address = cfg.AdvertiseAddr
 	} else {
@@ -38,7 +37,7 @@ func NewNode(system *raftBatchSystem, cfg *Config, pdClient pd.Client, observer 
 	}
 	return &Node{
 		clusterID: pdClient.GetClusterID((context.TODO())),
-		store:     &store,
+		store:     store,
 		cfg:       cfg,
 		storeWg:   &sync.WaitGroup{},
 		system:    system,

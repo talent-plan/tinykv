@@ -14,7 +14,7 @@ import (
 )
 
 type LeaderChecker interface {
-	IsLeader(ctx *kvrpcpb.Context, router RaftstoreRouter) error
+	IsLeader(ctx *kvrpcpb.Context, router *RaftstoreRouter) error
 }
 
 type leaderChecker struct {
@@ -26,7 +26,7 @@ type leaderChecker struct {
 	region           unsafe.Pointer // *metapb.Region
 }
 
-func (c *leaderChecker) IsLeader(ctx *kvrpcpb.Context, router RaftstoreRouter) error {
+func (c *leaderChecker) IsLeader(ctx *kvrpcpb.Context, router *RaftstoreRouter) error {
 	snapTime := time.Now()
 	isExpired, err := c.isExpired(ctx, &snapTime)
 	if err != nil {
