@@ -113,7 +113,7 @@ func (ris *RaftInnerServer) Start(pdClient pd.Client) error {
 
 	resolveRunner := newResolverRunner(pdClient)
 	ris.resolveWorker.start(resolveRunner)
-	err := ris.node.Start(context.TODO(), ris.engines, trans, ris.snapManager, ris.pdWorker, ris.coprocessorHost)
+	err := ris.node.Start(context.TODO(), ris.engines, trans, ris.snapManager, ris.pdWorker, ris.coprocessorHost, ris.raftRouter)
 	if err != nil {
 		return err
 	}
@@ -168,7 +168,7 @@ func RunRaftServer(cfg *Config, pdClient pd.Client, engines *Engines, signalChan
 
 	resolveWorker.start(resolveRunner)
 
-	err := node.Start(context.TODO(), engines, server.Trans(), snapManager, pdWorker, coprocessorHost)
+	err := node.Start(context.TODO(), engines, server.Trans(), snapManager, pdWorker, coprocessorHost, raftRouter)
 	if err != nil {
 		return err
 	}

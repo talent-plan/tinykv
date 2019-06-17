@@ -13,6 +13,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/kvproto/pkg/raft_serverpb"
+	"github.com/pingcap/tidb/util/codec"
 )
 
 type Node struct {
@@ -46,7 +47,7 @@ func NewNode(system *raftBatchSystem, store *metapb.Store, cfg *Config, pdClient
 	}
 }
 
-func (n *Node) Start(ctx context.Context, engines *Engines, trans Transport, snapMgr *SnapManager, pdWorker *worker, copHost *CoprocessorHost) error {
+func (n *Node) Start(ctx context.Context, engines *Engines, trans Transport, snapMgr *SnapManager, pdWorker *worker, copHost *CoprocessorHost, router *RaftstoreRouter) error {
 	storeID, err := n.checkStore(engines)
 	if err != nil {
 		return err
@@ -75,8 +76,37 @@ func (n *Node) Start(ctx context.Context, engines *Engines, trans Transport, sna
 	if err != nil {
 		return err
 	}
-	err = n.startNode(engines, trans, snapMgr, pdWorker, copHost)
-	return err
+	if err = n.startNode(engines, trans, snapMgr, pdWorker, copHost); err != nil {
+		return err
+	}
+
+	if firstRegion != nil {
+		cb := NewCallback()
+		msg := &MsgSplitRegion{
+			RegionEpoch: firstRegion.GetRegionEpoch(),
+			SplitKeys: [][]byte{
+				codec.EncodeBytes(nil, []byte{'m'}),
+				codec.EncodeBytes(nil, []byte{'n'}),
+				codec.EncodeBytes(nil, []byte{'t'}),
+				codec.EncodeBytes(nil, []byte{'u'}),
+			},
+			Callback: cb,
+		}
+		err := router.router.send(firstRegion.Id, Msg{
+			Type:     MsgTypeSplitRegion,
+			RegionID: firstRegion.Id,
+			Data:     msg,
+		})
+		if err != nil {
+			return err
+		}
+		cb.wg.Wait()
+		if cb.resp.Header.Error != nil {
+			return &RaftError{e: cb.resp.Header.Error}
+		}
+	}
+
+	return nil
 }
 
 func (n *Node) checkStore(engines *Engines) (uint64, error) {
