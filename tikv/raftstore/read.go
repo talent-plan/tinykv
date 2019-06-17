@@ -79,7 +79,7 @@ func (c *leaderChecker) isExpired(ctx *kvrpcpb.Context, snapTime *time.Time) (bo
 		return false, errors.Errorf("mismatch peer id %d != %d", ctx.Peer.Id, peerID)
 	}
 
-	if ctx.Term == 0 || term <= ctx.Term+1 {
+	if !(ctx.Term == 0 || term <= ctx.Term+1) {
 		return false, &ErrStaleCommand{}
 	}
 

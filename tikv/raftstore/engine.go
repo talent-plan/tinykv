@@ -45,12 +45,12 @@ type Engines struct {
 	raftPath string
 }
 
-func NewEngines(kvEngine, raftEngine *badger.DB, kvPath, raftPath string) *Engines {
+func NewEngines(kvEngine *mvcc.DBBundle, raftEngine *badger.DB, kvPath, raftPath string) *Engines {
 	return &Engines{
 		kv: &DBBundle{
-			db:            kvEngine,
-			lockStore:     lockstore.NewMemStore(2048),
-			rollbackStore: lockstore.NewMemStore(2048),
+			db:            kvEngine.DB,
+			lockStore:     kvEngine.LockStore,
+			rollbackStore: kvEngine.RollbackStore,
 		},
 		kvPath:   kvPath,
 		raft:     raftEngine,

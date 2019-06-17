@@ -837,6 +837,7 @@ func (d *peerFsmDelegate) onReadySplitRegion(derived *metapb.Region, regions []*
 		notExist := meta.regionRanges.Insert(newRegion.EndKey, regionIDToBytes(newRegionID))
 		y.Assert(notExist)
 		if newRegionID == regionID {
+			newPeers = append(newPeers, d.peer.getEventContext())
 			continue
 		}
 

@@ -67,7 +67,6 @@ type PollContext struct {
 	cfg                  *Config
 	coprocessorHost      *CoprocessorHost
 	engine               *Engines
-	dbBundle             *DBBundle
 	applyRouter          *applyRouter
 	needFlushTrans       bool
 	ReadyRes             []ReadyICPair

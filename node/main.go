@@ -139,7 +139,7 @@ func setupRaftInnerServer(bundle *mvcc.DBBundle, safePoint *tikv.SafePoint, pdCl
 
 	raftDB := createDB("raft", safePoint)
 
-	engines := raftstore.NewEngines(bundle.DB, raftDB, kvPath, raftPath)
+	engines := raftstore.NewEngines(bundle, raftDB, kvPath, raftPath)
 
 	innerServer := raftstore.NewRaftInnerServer(engines, config)
 	innerServer.Setup(pdClient)

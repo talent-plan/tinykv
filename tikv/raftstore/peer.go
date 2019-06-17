@@ -327,10 +327,12 @@ func NewPeer(storeId uint64, cfg *Config, engines *Engines, region *metapb.Regio
 		LastApplyingIdx:       appliedIndex,
 		lastUrgentProposalIdx: math.MaxInt64,
 		leaderLease:           NewLease(cfg.RaftStoreMaxLeaderLease),
-		leaderChecker: leaderChecker{
-			peerID: peer.Id,
-		},
 	}
+
+	p.leaderChecker.peerID = p.PeerId()
+	p.leaderChecker.region = unsafe.Pointer(region)
+	p.leaderChecker.term.Store(p.Term())
+	p.leaderChecker.appliedIndexTerm.Store(ps.appliedIndexTerm)
 
 	// If this region has only one peer and I am the one, campaign directly.
 	if len(region.GetPeers()) == 1 && region.GetPeers()[0].GetStoreId() == storeId {
@@ -1626,7 +1628,7 @@ func (p *Peer) ProposeConfChange(ctx *PollContext, req *raft_cmdpb.RaftCmdReques
 }
 
 func (p *Peer) handleRead(ctx *PollContext, req *raft_cmdpb.RaftCmdRequest, checkEpoch bool) (*raft_cmdpb.RaftCmdResponse, *DBSnapshot) {
-	readExecutor := NewReadExecutor(ctx.dbBundle, checkEpoch, false)
+	readExecutor := NewReadExecutor(ctx.engine.kv, checkEpoch, false)
 	resp, snap := readExecutor.Execute(req, p.Region())
 	BindRespTerm(resp, p.Term())
 	return resp, snap

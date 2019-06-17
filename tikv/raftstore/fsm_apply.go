@@ -184,6 +184,9 @@ func (c *applyCallback) invokeAll(host *CoprocessorHost) {
 }
 
 func (c *applyCallback) push(cb *Callback, resp *raft_cmdpb.RaftCmdResponse) {
+	if cb != nil {
+		cb.resp = resp
+	}
 	c.cbs = append(c.cbs, cb)
 }
 
