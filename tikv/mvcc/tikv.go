@@ -80,7 +80,7 @@ func EncodeLockCFValue(lock *MvccLock) ([]byte, []byte, error) {
 		}
 		return data, nil, nil
 	} else {
-		return data, lock.Value, nil
+		return data, y.SafeCopy(nil, lock.Value), nil
 	}
 }
 

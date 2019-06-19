@@ -1685,16 +1685,20 @@ func (p *applyPoller) handleNormal(normal fsm) (pause bool, chLen int) {
 	numToRecv := p.messagesPerTick - len(p.msgBuf)
 	if numToRecv >= receiverLen {
 		numToRecv = receiverLen
+		pause = true
 	}
 	for i := 0; i < numToRecv; i++ {
 		p.msgBuf = append(p.msgBuf, <-applyFsm.receiver)
 	}
 	applyFsm.handleTasks(p.aCtx, p.msgBuf)
-	p.msgBuf = nil
+	p.msgBuf = p.msgBuf[:0]
 	if applyFsm.merged {
 		applyFsm.destroy(p.aCtx)
+		pause = true
+	} else if applyFsm.waitMergeState != nil {
+		pause = true
 	}
-	return false, 0
+	return pause, 0
 }
 
 func (p *applyPoller) end(fsms []fsm) {

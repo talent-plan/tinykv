@@ -21,6 +21,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/raft_serverpb"
 	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
 	"github.com/pingcap/kvproto/pkg/tikvpb"
+	"github.com/pingcap/tidb/util/codec"
 )
 
 type taskType int64
@@ -275,6 +276,9 @@ func (r *splitCheckRunner) run(t task) {
 	}
 	if len(keys) != 0 {
 		regionEpoch := region.GetRegionEpoch()
+		for i, k := range keys {
+			keys[i] = codec.EncodeBytes(nil, k)
+		}
 		msg := Msg{
 			Type:     MsgTypeSplitRegion,
 			RegionID: regionId,
