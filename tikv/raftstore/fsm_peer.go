@@ -39,6 +39,8 @@ type PeerEventObserver interface {
 	OnPeerDestroy(ctx *PeerEventContext)
 	// OnSplitRegion will be invoked when region split into new regions with corresponding peers.
 	OnSplitRegion(derived *metapb.Region, regions []*metapb.Region, peers []*PeerEventContext)
+	// OnRegionConfChange will be invoked after conf change updated region's epoch.
+	OnRegionConfChange(ctx *PeerEventContext, epoch *metapb.RegionEpoch)
 }
 
 // If we create the peer actively, like bootstrap/split/merge region, we should
@@ -342,7 +344,12 @@ func (d *peerFsmDelegate) collectReady(proposals []*regionProposal) []*regionPro
 	if p := d.peer.TakeApplyProposals(); p != nil {
 		proposals = append(proposals, p)
 	}
-	d.peer.HandleRaftReadyAppend(d.ctx)
+	if d.peer.HandleRaftReadyAppend(d.ctx) {
+		ss := d.ctx.ReadyRes[len(d.ctx.ReadyRes)-1].Ready.SoftState
+		if ss != nil && ss.RaftState == raft.StateLeader {
+			d.peer.HeartbeatPd(d.ctx)
+		}
+	}
 	return proposals
 }
 
@@ -738,6 +745,10 @@ func (d *peerFsmDelegate) onReadyChangePeer(cp changePeer) {
 	d.ctx.storeMetaLock.Lock()
 	d.ctx.storeMeta.setRegion(d.ctx.coprocessorHost, cp.region, d.peer)
 	d.ctx.storeMetaLock.Unlock()
+	d.ctx.peerEventObserver.OnRegionConfChange(d.peer.getEventContext(), &metapb.RegionEpoch{
+		ConfVer: cp.region.RegionEpoch.ConfVer,
+		Version: cp.region.RegionEpoch.Version,
+	})
 	peerID := cp.peer.Id
 	switch changeType {
 	case eraftpb.ConfChangeType_AddNode, eraftpb.ConfChangeType_AddLearnerNode:
@@ -1140,7 +1151,8 @@ func (d *peerFsmDelegate) onRaftGCLogTick() {
 	truncatedIdx := d.peer.Store().truncatedIndex()
 	lastIdx, _ := d.peer.Store().LastIndex()
 	replicatedIdx, aliveCacheIdx := lastIdx, lastIdx
-	for peerID, progress := range d.peer.RaftGroup.Raft.Prs {
+	prs := d.peer.RaftGroup.Status().Progress
+	for peerID, progress := range prs {
 		if replicatedIdx > progress.Match {
 			replicatedIdx = progress.Match
 		}

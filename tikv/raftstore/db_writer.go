@@ -148,16 +148,16 @@ func (writer *raftDBWriter) Write(batch mvcc.WriteBatch) error {
 }
 
 type RaftError struct {
-	e *errorpb.Error
+	RequestErr *errorpb.Error
 }
 
 func (re *RaftError) Error() string {
-	return re.e.Message
+	return re.RequestErr.String()
 }
 
 func (writer *raftDBWriter) checkResponse(resp *rcpb.RaftCmdResponse, reqCount int) error {
 	if resp.Header.Error != nil {
-		return &RaftError{e: resp.Header.Error}
+		return &RaftError{RequestErr: resp.Header.Error}
 	}
 	if len(resp.Responses) != reqCount {
 		return errors.Errorf("responses count %d is not equal to requests count %d",

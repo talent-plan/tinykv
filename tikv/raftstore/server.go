@@ -142,6 +142,8 @@ func (*dummyEventObserver) OnPeerDestroy(ctx *PeerEventContext) {}
 func (*dummyEventObserver) OnSplitRegion(derived *metapb.Region, regions []*metapb.Region, peers []*PeerEventContext) {
 }
 
+func (*dummyEventObserver) OnRegionConfChange(ctx *PeerEventContext, epoch *metapb.RegionEpoch) {}
+
 func RunRaftServer(cfg *Config, pdClient pd.Client, engines *Engines, signalChan <-chan os.Signal) error {
 	var wg sync.WaitGroup
 	pdWorker := newWorker("pd-worker", &wg)

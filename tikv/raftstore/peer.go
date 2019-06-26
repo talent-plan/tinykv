@@ -647,7 +647,11 @@ func (p *Peer) AnyNewPeerCatchUp(peerId uint64) bool {
 	}
 	if startPendingTime, ok := p.PeersStartPendingTime[peerId]; ok {
 		truncatedIdx := p.Store().truncatedIndex()
-		if progress, ok := p.RaftGroup.Raft.Prs[peerId]; ok {
+		progress, ok := p.RaftGroup.Raft.Prs[peerId]
+		if !ok {
+			progress, ok = p.RaftGroup.Raft.LearnerPrs[peerId]
+		}
+		if ok {
 			if progress.Match >= truncatedIdx {
 				delete(p.PeersStartPendingTime, peerId)
 				elapsed := time.Since(startPendingTime)
@@ -759,16 +763,16 @@ func (p *Peer) TakeApplyProposals() *regionProposal {
 	return newRegionProposal(p.PeerId(), p.regionId, props)
 }
 
-func (p *Peer) HandleRaftReadyAppend(ctx *PollContext) {
+func (p *Peer) HandleRaftReadyAppend(ctx *PollContext) bool {
 	if p.PendingRemove {
-		return
+		return false
 	}
 	if p.Store().CheckApplyingSnap() {
 		// If we continue to handle all the messages, it may cause too many messages because
 		// leader will send all the remaining messages to this follower, which can lead
 		// to full message queue under high load.
 		log.Debugf("%v still applying snapshot, skip further handling", p.Tag)
-		return
+		return false
 	}
 
 	if len(p.pendingMessages) > 0 {
@@ -782,7 +786,7 @@ func (p *Peer) HandleRaftReadyAppend(ctx *PollContext) {
 
 	if p.HasPendingSnapshot() && !p.ReadyToHandlePendingSnap() {
 		log.Debugf("%v [apply_id: %v, last_applying_idx: %v] is not ready to apply snapshot.", p.Tag, p.Store().AppliedIndex(), p.LastApplyingIdx)
-		return
+		return false
 	}
 
 	if p.peerStorage.genSnapTask != nil {
@@ -794,7 +798,7 @@ func (p *Peer) HandleRaftReadyAppend(ctx *PollContext) {
 	}
 
 	if !p.RaftGroup.HasReadySince(&p.LastApplyingIdx) {
-		return
+		return false
 	}
 
 	log.Debugf("%v handle raft ready", p.Tag)
@@ -823,6 +827,7 @@ func (p *Peer) HandleRaftReadyAppend(ctx *PollContext) {
 		panic(fmt.Sprintf("failed to handle raft ready, error: %v", err))
 	}
 	ctx.ReadyRes = append(ctx.ReadyRes, ReadyICPair{Ready: ready, IC: invokeCtx})
+	return true
 }
 
 func (p *Peer) PostRaftReadyAppend(ctx *PollContext, ready *raft.Ready, invokeCtx *InvokeContext) *ApplySnapResult {

@@ -7,7 +7,6 @@ import (
 	"unsafe"
 
 	"github.com/coocood/badger/y"
-	"github.com/cznic/mathutil"
 	"github.com/ngaut/log"
 	"github.com/pingcap/errors"
 )
@@ -410,7 +409,6 @@ func (b *batch) removeControl(controlBox *mailbox) {
 /// Note that, every poll thread has its own handler, which doesn't have to be
 /// Sync.
 type pollHandler interface {
-
 	/// This function is called at the very beginning of every round.
 	begin(batchSize int)
 
@@ -452,13 +450,17 @@ func (p *poller) fetchBatch(batch *batch, maxSize int) {
 		batch.push(msg)
 		curBatchLen++
 	}
-	n := mathutil.Min(len(p.fsmReceiver), maxSize-curBatchLen)
-	for i := 0; i < n; i++ {
-		msg, ok := <-p.fsmReceiver
-		if !ok {
+	for curBatchLen < maxSize {
+		select {
+		case msg, ok := <-p.fsmReceiver:
+			if !ok {
+				return
+			}
+			batch.push(msg)
+			curBatchLen++
+		default:
 			return
 		}
-		batch.push(msg)
 	}
 }
 

@@ -2,8 +2,8 @@ package raftstore
 
 import (
 	"bytes"
-	"os"
 	"math"
+	"os"
 
 	"github.com/coocood/badger"
 	"github.com/ngaut/unistore/lockstore"
@@ -18,12 +18,15 @@ import (
 func newSnapBuilder(cfFiles []*CFFile, db *badger.DB, lockStore *lockstore.MemStore, region *metapb.Region) (*snapBuilder, error) {
 	b := new(snapBuilder)
 	b.cfFiles = cfFiles
-	b.endKey = DataKey(rawRegionKey(region.EndKey))
+	b.endKey = rawRegionKey(region.EndKey)
 	b.txn = db.NewTransaction(false)
 	b.dbIterator = b.txn.NewIterator(badger.DefaultIteratorOptions)
-	startKey := DataKey(rawRegionKey(region.StartKey))
-	b.dbIterator.Seek(startKey)
+	startKey := rawRegionKey(region.StartKey)
+	if len(startKey) == 0 || startKey[0] == LocalPrefix {
+		startKey = []byte{LocalPrefix + 1}
+	}
 
+	b.dbIterator.Seek(startKey)
 	if b.dbIterator.Valid() && !b.reachEnd(b.dbIterator.Item().Key()) {
 		b.curDBKey = b.dbIterator.Item().Key()
 	}

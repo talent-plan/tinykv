@@ -10,6 +10,7 @@ import (
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/rowcodec"
 	"github.com/ngaut/unistore/tikv/dbreader"
+	"github.com/ngaut/unistore/tikv/raftstore"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
@@ -84,9 +85,6 @@ func newRequestCtx(svr *Server, ctx *kvrpcpb.Context, method string) (*requestCt
 		rpcCtx:    ctx,
 	}
 	req.regCtx, req.regErr = svr.regionManager.GetRegionFromCtx(ctx)
-	if req.regErr != nil {
-		return req, nil
-	}
 	return req, nil
 }
 
@@ -194,16 +192,17 @@ func (p *kvScanProcessor) Process(key, value []byte) (err error) {
 func (svr *Server) KvPrewrite(ctx context.Context, req *kvrpcpb.PrewriteRequest) (*kvrpcpb.PrewriteResponse, error) {
 	reqCtx, err := newRequestCtx(svr, req.Context, "KvPrewrite")
 	if err != nil {
-		return &kvrpcpb.PrewriteResponse{Errors: convertToKeyErrors([]error{err})}, nil
+		return &kvrpcpb.PrewriteResponse{Errors: []*kvrpcpb.KeyError{convertToKeyError(err)}}, nil
 	}
 	defer reqCtx.finish()
 	if reqCtx.regErr != nil {
 		return &kvrpcpb.PrewriteResponse{RegionError: reqCtx.regErr}, nil
 	}
 	errs := svr.mvccStore.Prewrite(reqCtx, req.Mutations, req.PrimaryLock, req.GetStartVersion(), req.GetLockTtl())
-	return &kvrpcpb.PrewriteResponse{
-		Errors: convertToKeyErrors(errs),
-	}, nil
+
+	resp := new(kvrpcpb.PrewriteResponse)
+	resp.Errors, resp.RegionError = convertToPBErrors(errs)
+	return resp, nil
 }
 
 func (svr *Server) KvCommit(ctx context.Context, req *kvrpcpb.CommitRequest) (*kvrpcpb.CommitResponse, error) {
@@ -215,10 +214,12 @@ func (svr *Server) KvCommit(ctx context.Context, req *kvrpcpb.CommitRequest) (*k
 	if reqCtx.regErr != nil {
 		return &kvrpcpb.CommitResponse{RegionError: reqCtx.regErr}, nil
 	}
+	resp := new(kvrpcpb.CommitResponse)
 	err = svr.mvccStore.Commit(reqCtx, req.Keys, req.GetStartVersion(), req.GetCommitVersion())
-	return &kvrpcpb.CommitResponse{
-		Error: convertToKeyError(err),
-	}, nil
+	if err != nil {
+		resp.Error, resp.RegionError = convertToPBError(err)
+	}
+	return resp, nil
 }
 
 func (svr *Server) KvImport(context.Context, *kvrpcpb.ImportRequest) (*kvrpcpb.ImportResponse, error) {
@@ -241,7 +242,7 @@ func (svr *Server) KvCleanup(ctx context.Context, req *kvrpcpb.CleanupRequest) (
 		resp.CommitVersion = uint64(committed)
 	} else if err != nil {
 		log.Error(err)
-		resp.Error = convertToKeyError(err)
+		resp.Error, resp.RegionError = convertToPBError(err)
 	}
 	return resp, nil
 }
@@ -289,9 +290,10 @@ func (svr *Server) KvBatchRollback(ctx context.Context, req *kvrpcpb.BatchRollba
 	if reqCtx.regErr != nil {
 		return &kvrpcpb.BatchRollbackResponse{RegionError: reqCtx.regErr}, nil
 	}
+	resp := new(kvrpcpb.BatchRollbackResponse)
 	err = svr.mvccStore.Rollback(reqCtx, req.Keys, req.StartVersion)
 	if err != nil {
-		return &kvrpcpb.BatchRollbackResponse{Error: convertToKeyError(err)}, nil
+		resp.Error, resp.RegionError = convertToPBError(err)
 	}
 	return &kvrpcpb.BatchRollbackResponse{}, nil
 }
@@ -331,7 +333,7 @@ func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRe
 			log.Debugf("kv resolve lock region:%d txn:%v", reqCtx.regCtx.meta.Id, txnInfo.Txn)
 			err := svr.mvccStore.ResolveLock(reqCtx, txnInfo.Txn, txnInfo.Status)
 			if err != nil {
-				resp.Error = convertToKeyError(err)
+				resp.Error, resp.RegionError = convertToPBError(err)
 				break
 			}
 		}
@@ -339,7 +341,7 @@ func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRe
 		log.Debugf("kv resolve lock region:%d txn:%v", reqCtx.regCtx.meta.Id, req.StartVersion)
 		err := svr.mvccStore.ResolveLock(reqCtx, req.StartVersion, req.CommitVersion)
 		if err != nil {
-			resp.Error = convertToKeyError(err)
+			resp.Error, resp.RegionError = convertToPBError(err)
 		}
 	}
 	return resp, nil
@@ -508,14 +510,31 @@ func convertToKeyError(err error) *kvrpcpb.KeyError {
 	}
 }
 
-func convertToKeyErrors(errs []error) []*kvrpcpb.KeyError {
-	var keyErrors []*kvrpcpb.KeyError
+func convertToPBError(err error) (*kvrpcpb.KeyError, *errorpb.Error) {
+	if regErr := extractRegionError(err); regErr != nil  {
+		return nil, regErr
+	}
+	return convertToKeyError(err), nil
+}
+
+func convertToPBErrors(errs []error) ([]*kvrpcpb.KeyError, *errorpb.Error) {
+	var keyErrs []*kvrpcpb.KeyError
 	for _, err := range errs {
 		if err != nil {
-			keyErrors = append(keyErrors, convertToKeyError(err))
+			if regErr := extractRegionError(err); regErr != nil {
+				return nil, regErr
+			}
+			keyErrs = append(keyErrs, convertToKeyError(err))
 		}
 	}
-	return keyErrors
+	return keyErrs, nil
+}
+
+func extractRegionError(err error) *errorpb.Error {
+	if raftError, ok := err.(*raftstore.RaftError); ok {
+		return raftError.RequestErr
+	}
+	return nil
 }
 
 func isMvccRegion(regCtx *regionCtx) bool {

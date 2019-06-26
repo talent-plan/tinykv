@@ -20,7 +20,7 @@ require (
 	github.com/shirou/gopsutil v2.18.10+incompatible
 	github.com/stretchr/testify v1.3.0
 	github.com/uber-go/atomic v1.3.2
-	github.com/zhangjinpeng1987/raft v0.0.0-20190610095602-72a63e7f0277
+	github.com/zhangjinpeng1987/raft v0.0.0-20190624145930-deeb32d6553d
 	go.etcd.io/etcd v3.3.12+incompatible
 	golang.org/x/net v0.0.0-20190108225652-1e06a53dbb7e
 	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4

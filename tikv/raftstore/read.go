@@ -7,6 +7,7 @@ import (
 	"unsafe"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/kvproto/pkg/errorpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
@@ -14,7 +15,7 @@ import (
 )
 
 type LeaderChecker interface {
-	IsLeader(ctx *kvrpcpb.Context, router *RaftstoreRouter) error
+	IsLeader(ctx *kvrpcpb.Context, router *RaftstoreRouter) *errorpb.Error
 }
 
 type leaderChecker struct {
@@ -26,11 +27,11 @@ type leaderChecker struct {
 	region           unsafe.Pointer // *metapb.Region
 }
 
-func (c *leaderChecker) IsLeader(ctx *kvrpcpb.Context, router *RaftstoreRouter) error {
+func (c *leaderChecker) IsLeader(ctx *kvrpcpb.Context, router *RaftstoreRouter) *errorpb.Error {
 	snapTime := time.Now()
 	isExpired, err := c.isExpired(ctx, &snapTime)
 	if err != nil {
-		return err
+		return RaftstoreErrToPbError(err)
 	}
 	if !isExpired {
 		return nil
@@ -53,13 +54,13 @@ func (c *leaderChecker) IsLeader(ctx *kvrpcpb.Context, router *RaftstoreRouter) 
 
 	err = router.SendCommand(cmd, cb)
 	if err != nil {
-		return err
+		return RaftstoreErrToPbError(err)
 	}
 
 	cb.wg.Wait()
 
 	if cb.resp.Header.Error != nil {
-		return &RaftError{e: cb.resp.Header.Error}
+		return cb.resp.Header.Error
 	}
 	return nil
 }
@@ -95,7 +96,7 @@ func (c *leaderChecker) isExpired(ctx *kvrpcpb.Context, snapTime *time.Time) (bo
 	}
 
 	if appliedIndexTerm != term {
-		return false, nil
+		return true, nil
 	}
 	return lease.Inspect(snapTime) == LeaseState_Valid, nil
 }

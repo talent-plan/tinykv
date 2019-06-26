@@ -35,6 +35,7 @@ func InternalRegionMetaKey(regionId uint64) []byte {
 
 type regionCtx struct {
 	meta            *metapb.Region
+	regionEpoch     unsafe.Pointer // *metapb.RegionEpoch
 	startKey        []byte
 	endKey          []byte
 	approximateSize int64
@@ -53,6 +54,7 @@ func newRegionCtx(meta *metapb.Region, parent *regionCtx, checker raftstore.Lead
 	regCtx := &regionCtx{
 		meta:          meta,
 		latches:       make(map[uint64]*sync.WaitGroup),
+		regionEpoch:   unsafe.Pointer(meta.GetRegionEpoch()),
 		parent:        unsafe.Pointer(parent),
 		leaderChecker: checker,
 	}
@@ -60,6 +62,14 @@ func newRegionCtx(meta *metapb.Region, parent *regionCtx, checker raftstore.Lead
 	regCtx.endKey = regCtx.rawEndKey()
 	regCtx.refCount.Add(1)
 	return regCtx
+}
+
+func (ri *regionCtx) getRegionEpoch() *metapb.RegionEpoch {
+	return (*metapb.RegionEpoch)(atomic.LoadPointer(&ri.regionEpoch))
+}
+
+func (ri *regionCtx) updateRegionEpoch(epoch *metapb.RegionEpoch) {
+	atomic.StorePointer(&ri.regionEpoch, (unsafe.Pointer)(epoch))
 }
 
 func (ri *regionCtx) rawStartKey() []byte {
@@ -214,12 +224,18 @@ func (rm *regionManager) GetRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *er
 		}
 	}
 	// Region epoch does not match.
-	if rm.isEpochStale(ri.meta.GetRegionEpoch(), ctx.GetRegionEpoch()) {
+	if rm.isEpochStale(ri.getRegionEpoch(), ctx.GetRegionEpoch()) {
 		ri.refCount.Done()
 		return nil, &errorpb.Error{
 			Message: "stale epoch",
 			EpochNotMatch: &errorpb.EpochNotMatch{
-				CurrentRegions: []*metapb.Region{ri.meta},
+				CurrentRegions: []*metapb.Region{{
+					Id:          ri.meta.Id,
+					StartKey:    ri.meta.StartKey,
+					EndKey:      ri.meta.EndKey,
+					RegionEpoch: ri.getRegionEpoch(),
+					Peers:       ri.meta.Peers,
+				}},
 			},
 		}
 	}
@@ -281,15 +297,21 @@ func (rm *RaftRegionManager) OnSplitRegion(derived *metapb.Region, regions []*me
 	oldRegion.refCount.Done()
 }
 
+func (rm *RaftRegionManager) OnRegionConfChange(ctx *raftstore.PeerEventContext, epoch *metapb.RegionEpoch) {
+	rm.mu.RLock()
+	region := rm.regions[ctx.RegionId]
+	rm.mu.RUnlock()
+	region.updateRegionEpoch(epoch)
+}
+
 func (rm *RaftRegionManager) GetRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *errorpb.Error) {
 	regionCtx, err := rm.regionManager.GetRegionFromCtx(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if err := regionCtx.leaderChecker.IsLeader(ctx, rm.router); err != nil {
-		return nil, &errorpb.Error{
-			Message: err.Error(),
-		}
+		regionCtx.refCount.Done()
+		return nil, err
 	}
 	return regionCtx, nil
 }

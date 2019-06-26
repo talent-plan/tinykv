@@ -235,13 +235,13 @@ func (ai *snapApplier) close() {
 
 func readEntryFromPlainFile(data []byte) (key, value, remain []byte, err error) {
 	data, key, err = codec.DecodeCompactBytes(data)
+	if err != nil {
+		return
+	}
 	if len(key) == 0 {
 		return
 	}
-	// key = key[1:]
-	// if err != nil {
-	// 	return
-	// }
+	key = key[1:]
 	data, value, err = codec.DecodeCompactBytes(data)
 	if err != nil {
 		return

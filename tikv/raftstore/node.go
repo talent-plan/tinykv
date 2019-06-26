@@ -102,7 +102,7 @@ func (n *Node) Start(ctx context.Context, engines *Engines, trans Transport, sna
 		}
 		cb.wg.Wait()
 		if cb.resp.Header.Error != nil {
-			return &RaftError{e: cb.resp.Header.Error}
+			return &RaftError{RequestErr: cb.resp.Header.Error}
 		}
 	}
 
