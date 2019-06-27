@@ -114,7 +114,7 @@ func (ai *snapApplier) nextLock() (*applySnapItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	val, err := ai.loadFullValue(item.key, lv.startTS, lv.shortVal, lv.lockType)
+	val, err := ai.popFullValue(item.key, lv.startTS, lv.shortVal, lv.lockType)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +141,15 @@ func (ai *snapApplier) nextLock() (*applySnapItem, error) {
 	return item, err
 }
 
+func (ai *snapApplier) popFullValue(key []byte, startTS uint64, shortVal []byte, op byte) ([]byte, error) {
+	return ai.loadFullValueOpt(key, startTS, shortVal, op, true)
+}
+
 func (ai *snapApplier) loadFullValue(key []byte, startTS uint64, shortVal []byte, op byte) ([]byte, error) {
+	return ai.loadFullValueOpt(key, startTS, shortVal, op, false)
+}
+
+func (ai *snapApplier) loadFullValueOpt(key []byte, startTS uint64, shortVal []byte, op byte, pop bool) ([]byte, error) {
 	if shortVal == nil && op == byte(kvrpcpb.Op_Put) {
 		if !ai.defaultCFIterator.Valid() {
 			return nil, errors.WithStack(errInvalidSnapshot)
@@ -158,7 +166,9 @@ func (ai *snapApplier) loadFullValue(key []byte, startTS uint64, shortVal []byte
 			return nil, errors.WithStack(errInvalidSnapshot)
 		}
 		val := y.SafeCopy(nil, ai.defaultCFIterator.Value())
-		ai.defaultCFIterator.Next()
+		if pop {
+			ai.defaultCFIterator.Next()
+		}
 		return val, nil
 	}
 	return shortVal, nil
@@ -182,7 +192,7 @@ func (ai *snapApplier) loadOldValue(lock *mvcc.MvccLock) error {
 		}
 		lock.HasOldVer = true
 		lock.OldMeta = mvcc.NewDBUserMeta(writeVal.startTS, ai.curWriteCommitTS)
-		lock.OldVal, err = ai.loadFullValue(ai.curLockKey, lock.StartTS, writeVal.shortValue, writeVal.writeType)
+		lock.OldVal, err = ai.loadFullValue(ai.curLockKey, writeVal.startTS, writeVal.shortValue, writeVal.writeType)
 		return err
 	}
 	return nil
@@ -203,7 +213,7 @@ func (ai *snapApplier) nextWrite() (*applySnapItem, error) {
 		item.key = ai.curWriteKey
 		item.useMeta = mvcc.NewDBUserMeta(writeVal.startTS, ai.curWriteCommitTS)
 	}
-	val, err := ai.loadFullValue(ai.curWriteKey, writeVal.startTS, writeVal.shortValue, writeVal.writeType)
+	val, err := ai.popFullValue(ai.curWriteKey, writeVal.startTS, writeVal.shortValue, writeVal.writeType)
 	if err != nil {
 		return nil, err
 	}
