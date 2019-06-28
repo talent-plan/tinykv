@@ -163,7 +163,7 @@ func setupStandAlongInnerServer(bundle *mvcc.DBBundle, safePoint *tikv.SafePoint
 		RegionSize: *regionSize,
 	}
 
-	innerServer := tikv.NewStandAlongInnerServer()
+	innerServer := tikv.NewStandAlongInnerServer(bundle)
 	innerServer.Setup(pdClient)
 	store := tikv.NewMVCCStore(bundle, *dbPath, safePoint, tikv.NewDBWriter(bundle, safePoint))
 	rm := tikv.NewStandAloneRegionManager(bundle.DB, regionOpts, pdClient)

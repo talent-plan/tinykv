@@ -2,6 +2,7 @@ package tikv
 
 import (
 	"github.com/ngaut/unistore/pd"
+	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/kvproto/pkg/tikvpb"
 )
 
@@ -14,10 +15,14 @@ type InnerServer interface {
 	Snapshot(stream tikvpb.Tikv_SnapshotServer) error
 }
 
-type StandAlongInnerServer struct{}
+type StandAlongInnerServer struct {
+	bundle *mvcc.DBBundle
+}
 
-func NewStandAlongInnerServer() *StandAlongInnerServer {
-	return &StandAlongInnerServer{}
+func NewStandAlongInnerServer(bundle *mvcc.DBBundle) *StandAlongInnerServer {
+	return &StandAlongInnerServer{
+		bundle: bundle,
+	}
 }
 
 func (is *StandAlongInnerServer) Raft(stream tikvpb.Tikv_RaftServer) error {
@@ -39,5 +44,5 @@ func (is *StandAlongInnerServer) Start(pdClient pd.Client) error {
 }
 
 func (is *StandAlongInnerServer) Stop() error {
-	return nil
+	return is.bundle.DB.Close()
 }

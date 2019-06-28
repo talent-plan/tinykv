@@ -734,8 +734,8 @@ func (bs *raftBatchSystem) shutDown() {
 	workers.compactWorker.scheduler <- stopTask
 	bs.applySystem.shutdown()
 	bs.system.shutdown()
-	bs.workers.wg.Wait()
-	bs.workers.coprocessorHost.shutdown()
+	workers.wg.Wait()
+	workers.coprocessorHost.shutdown()
 }
 
 func createRaftBatchSystem(cfg *Config) (*router, *raftBatchSystem) {

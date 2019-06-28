@@ -123,11 +123,15 @@ func (ris *RaftInnerServer) Start(pdClient pd.Client) error {
 }
 
 func (ris *RaftInnerServer) Stop() error {
-	// TODO: Be graceful!
-	os.Exit(0)
 	ris.snapWorker.stop()
 	ris.node.stop()
 	ris.resolveWorker.stop()
+	if err := ris.engines.raft.Close(); err != nil {
+		return err
+	}
+	if err := ris.engines.kv.db.Close(); err != nil {
+		return err
+	}
 	return nil
 }
 
