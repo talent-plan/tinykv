@@ -1404,8 +1404,8 @@ func (d *applyDelegate) execCompactLog(aCtx *applyContext, req *raft_cmdpb.Admin
 	resp *raft_cmdpb.AdminResponse, result applyResult, err error) {
 	compactIndex := req.CompactLog.CompactIndex
 	resp = new(raft_cmdpb.AdminResponse)
-	applyState := aCtx.execCtx.applyState
-	firstIndex := firstIndex(applyState)
+	applyState := &aCtx.execCtx.applyState
+	firstIndex := firstIndex(*applyState)
 	if compactIndex <= firstIndex {
 		log.Debugf("%s compact index <= first index, no need to compact", d.tag)
 		return
@@ -1423,7 +1423,7 @@ func (d *applyDelegate) execCompactLog(aCtx *applyContext, req *raft_cmdpb.Admin
 	}
 
 	// compact failure is safe to be omitted, no need to assert.
-	err = CompactRaftLog(d.tag, &applyState, compactIndex, compactTerm)
+	err = CompactRaftLog(d.tag, applyState, compactIndex, compactTerm)
 	if err != nil {
 		return
 	}
