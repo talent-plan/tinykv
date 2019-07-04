@@ -45,7 +45,7 @@ func (r *DBReader) Get(key []byte, startTS uint64) ([]byte, error) {
 		return nil, errors.Trace(err)
 	}
 	if err == badger.ErrKeyNotFound {
-		return nil, nil
+		return r.getOld(key, startTS)
 	}
 	if mvcc.DBUserMeta(item.UserMeta()).CommitTS() <= startTS {
 		return item.Value()
@@ -61,10 +61,15 @@ func (r *DBReader) getOld(key []byte, startTS uint64) ([]byte, error) {
 		return nil, nil
 	}
 	item := iter.Item()
-	if mvcc.OldUserMeta(item.UserMeta()).NextCommitTS() < r.safePoint {
+	nextCommitTs := mvcc.OldUserMeta(item.UserMeta()).NextCommitTS()
+	if nextCommitTs < r.safePoint {
 		// This entry is eligible for GC. Normally we will not see this version.
 		// But when the latest version is DELETE and it is GCed first,
 		// we may end up here, so we should ignore the obsolete version.
+		return nil, nil
+	}
+	if nextCommitTs <= startTS {
+		// There should be a newer entry for this key, so ignore this entry.
 		return nil, nil
 	}
 	return item.Value()
