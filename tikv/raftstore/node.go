@@ -64,9 +64,10 @@ func (n *Node) Start(ctx context.Context, engines *Engines, trans Transport, sna
 	if err != nil {
 		return err
 	}
-	if firstRegion != nil {
+	newCluster := firstRegion != nil
+	if newCluster {
 		log.Infof("try bootstrap cluster, storeID: %d, region: %s", storeID, firstRegion)
-		err = n.BootstrapCluster(ctx, engines, firstRegion)
+		newCluster, err = n.BootstrapCluster(ctx, engines, firstRegion)
 		if err != nil {
 			return err
 		}
@@ -80,7 +81,8 @@ func (n *Node) Start(ctx context.Context, engines *Engines, trans Transport, sna
 		return err
 	}
 
-	if firstRegion != nil {
+	if newCluster {
+		log.Info("pre-split regions")
 		cb := NewCallback()
 		msg := &MsgSplitRegion{
 			RegionEpoch: firstRegion.GetRegionEpoch(),
@@ -197,7 +199,7 @@ func (n *Node) prepareBootstrapCluster(ctx context.Context, engines *Engines, st
 	return PrepareBootstrap(engines, storeID, regionID, peerID)
 }
 
-func (n *Node) BootstrapCluster(ctx context.Context, engines *Engines, firstRegion *metapb.Region) error {
+func (n *Node) BootstrapCluster(ctx context.Context, engines *Engines, firstRegion *metapb.Region) (newCluster bool, err error) {
 	regionID := firstRegion.GetId()
 	for retry := 0; retry < MaxCheckClusterBootstrappedRetryCount; retry++ {
 		if retry != 0 {
@@ -212,7 +214,7 @@ func (n *Node) BootstrapCluster(ctx context.Context, engines *Engines, firstRegi
 		resErr := res.GetHeader().GetError()
 		if resErr == nil {
 			log.Infof("bootstrap cluster ok, clusterID: %d", n.clusterID)
-			return ClearPrepareBootstrapState(engines)
+			return true, ClearPrepareBootstrapState(engines)
 		}
 		if resErr.GetType() == pdpb.ErrorType_ALREADY_BOOTSTRAPPED {
 			region, err := n.pdClient.GetRegion(ctx, []byte{})
@@ -221,14 +223,14 @@ func (n *Node) BootstrapCluster(ctx context.Context, engines *Engines, firstRegi
 				continue
 			}
 			if region.GetId() == regionID {
-				return ClearPrepareBootstrapState(engines)
+				return false, ClearPrepareBootstrapState(engines)
 			}
 			log.Infof("cluster is already bootstrapped, clusterID: %v", n.clusterID)
-			return ClearPrepareBootstrap(engines, regionID)
+			return false, ClearPrepareBootstrap(engines, regionID)
 		}
 		log.Errorf("bootstrap cluster, clusterID: %v, err: %v", n.clusterID, err)
 	}
-	return errors.New("bootstrap cluster failed")
+	return false, errors.New("bootstrap cluster failed")
 }
 
 func (n *Node) startNode(engines *Engines, trans Transport, snapMgr *SnapManager, pdWorker *worker, copHost *CoprocessorHost) error {
