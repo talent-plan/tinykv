@@ -12,7 +12,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/coocood/badger"
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/rocksdb"
 	"github.com/ngaut/unistore/util"
@@ -114,8 +113,7 @@ func newApplyOptions(db *DBBundle, region *metapb.Region, abort *uint32, batchSi
 type Snapshot interface {
 	io.Reader
 	io.Writer
-	Build(dbBundle *DBBundle, region *metapb.Region, snapData *rspb.RaftSnapshotData,
-		stat *SnapStatistics, deleter SnapshotDeleter) error
+	Build(dbBundle *regionSnapshot, region *metapb.Region, snapData *rspb.RaftSnapshotData, stat *SnapStatistics, deleter SnapshotDeleter) error
 	Path() string
 	Exists() bool
 	Delete()
@@ -481,7 +479,7 @@ func getDisplayPath(dir string, prefix string) string {
 	return fmt.Sprintf("%s/%s_%s%s", dir, prefix, cfNames, sstFileSuffix)
 }
 
-func (s *Snap) validate(db *badger.DB) error {
+func (s *Snap) validate() error {
 	for _, cfFile := range s.CFFiles {
 		if cfFile.Size == 0 {
 			// Skip empty file. The checksum of this cf file should be 0 and
@@ -557,10 +555,9 @@ func (s *Snap) saveMetaFile() error {
 	return nil
 }
 
-func (s *Snap) Build(dbSnap *DBBundle, region *metapb.Region, snapData *rspb.RaftSnapshotData,
-	stat *SnapStatistics, deleter SnapshotDeleter) error {
+func (s *Snap) Build(dbSnap *regionSnapshot, region *metapb.Region, snapData *rspb.RaftSnapshotData, stat *SnapStatistics, deleter SnapshotDeleter) error {
 	if s.Exists() {
-		err := s.validate(dbSnap.db)
+		err := s.validate()
 		if err == nil {
 			return nil
 		}
@@ -576,7 +573,7 @@ func (s *Snap) Build(dbSnap *DBBundle, region *metapb.Region, snapData *rspb.Raf
 		}
 	}
 
-	builder, err := newSnapBuilder(s.CFFiles, dbSnap.db, dbSnap.lockStore, region)
+	builder, err := newSnapBuilder(s.CFFiles, dbSnap, region)
 	if err != nil {
 		return err
 	}
@@ -714,7 +711,7 @@ func (s *Snap) Save() error {
 }
 
 func (s *Snap) Apply(opts ApplyOptions) error {
-	err := s.validate(opts.DBBundle.db)
+	err := s.validate()
 	if err != nil {
 		return err
 	}

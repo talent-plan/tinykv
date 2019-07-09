@@ -331,6 +331,14 @@ func getRaftEntry(db *badger.DB, regionId, idx uint64) (*eraftpb.Entry, error) {
 	return entry, nil
 }
 
+func getValueTxn(txn *badger.Txn, key []byte) ([]byte, error) {
+	i, err := txn.Get(key)
+	if err != nil {
+		return nil, err
+	}
+	return i.Value()
+}
+
 func getValue(engine *badger.DB, key []byte) ([]byte, error) {
 	var result []byte
 	err := engine.View(func(txn *badger.Txn) error {
@@ -1019,23 +1027,24 @@ func (p *PeerStorage) CheckApplyingSnap() bool {
 	return false
 }
 
-func createAndInitSnapshot(kv *DBBundle, idx, term uint64, key SnapKey, region *metapb.Region, mgr *SnapManager) (*eraftpb.Snapshot, error) {
+func createAndInitSnapshot(snap *regionSnapshot, key SnapKey, mgr *SnapManager) (*eraftpb.Snapshot, error) {
+	region := snap.regionState.GetRegion()
 	confState := confStateFromRegion(region)
 	snapshot := &eraftpb.Snapshot{
 		Metadata: &eraftpb.SnapshotMetadata{
-			Index:     idx,
-			Term:      term,
+			Index:     snap.index,
+			Term:      snap.term,
 			ConfState: &confState,
 		},
 	}
-	s, err := mgr.GetSnapshotForBuilding(key, kv)
+	s, err := mgr.GetSnapshotForBuilding(key)
 	if err != nil {
 		return nil, err
 	}
 	// Set snapshot data
 	snapshotData := &rspb.RaftSnapshotData{Region: region}
 	snapshotStatics := SnapStatistics{}
-	err = s.Build(kv, region, snapshotData, &snapshotStatics, mgr)
+	err = s.Build(snap, region, snapshotData, &snapshotStatics, mgr)
 	if err != nil {
 		return nil, err
 	}
@@ -1043,11 +1052,14 @@ func createAndInitSnapshot(kv *DBBundle, idx, term uint64, key SnapKey, region *
 	return snapshot, err
 }
 
-func getAppliedIdxTermForSnapshot(raft, kv *badger.DB, regionId uint64) (uint64, uint64, error) {
-	applyState, err := getApplyState(kv, regionId)
+func getAppliedIdxTermForSnapshot(raft *badger.DB, kv *badger.Txn, regionId uint64) (uint64, uint64, error) {
+	applyState := applyState{}
+	val, err := getValueTxn(kv, ApplyStateKey(regionId))
 	if err != nil {
 		return 0, 0, err
 	}
+	applyState.Unmarshal(val)
+
 	idx := applyState.appliedIndex
 	var term uint64
 	if idx == applyState.truncatedIndex {
@@ -1065,22 +1077,20 @@ func getAppliedIdxTermForSnapshot(raft, kv *badger.DB, regionId uint64) (uint64,
 
 func doSnapshot(engines *Engines, mgr *SnapManager, regionId uint64) (*eraftpb.Snapshot, error) {
 	log.Debugf("begin to generate a snapshot. [regionId: %d]", regionId)
-	idx, term, err := getAppliedIdxTermForSnapshot(engines.raft, engines.kv.db, regionId)
+
+	snap, err := engines.newRegionSnapshot(regionId)
 	if err != nil {
 		return nil, err
 	}
 
-	regionLocalState, err := getRegionLocalState(engines.kv.db, regionId)
-	if err != nil {
-		return nil, err
-	}
+	regionLocalState := snap.regionState
 	if regionLocalState.GetState() != rspb.PeerState_Normal {
 		return nil, storageError(fmt.Sprintf("snap job %d seems stale, skip", regionId))
 	}
 
-	key := SnapKey{RegionID: regionId, Index: idx, Term: term}
+	key := SnapKey{RegionID: regionId, Index: snap.index, Term: snap.term}
 	mgr.Register(key, SnapEntryGenerating)
 	defer mgr.Deregister(key, SnapEntryGenerating)
 
-	return createAndInitSnapshot(engines.kv, idx, term, key, regionLocalState.GetRegion(), mgr)
+	return createAndInitSnapshot(snap, key, mgr)
 }

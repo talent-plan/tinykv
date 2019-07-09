@@ -171,7 +171,7 @@ func (sm *SnapManager) GetTotalSnapSize() uint64 {
 	return uint64(atomic.LoadInt64(sm.snapSize))
 }
 
-func (sm *SnapManager) GetSnapshotForBuilding(key SnapKey, bundle *DBBundle) (Snapshot, error) {
+func (sm *SnapManager) GetSnapshotForBuilding(key SnapKey) (Snapshot, error) {
 	if sm.GetTotalSnapSize() > sm.MaxTotalSize {
 		err := sm.deleteOldIdleSnaps()
 		if err != nil {

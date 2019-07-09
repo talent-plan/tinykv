@@ -926,6 +926,7 @@ func (d *applyDelegate) execWriteCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmd
 	resp *raft_cmdpb.RaftCmdResponse, result applyResult, err error) {
 	requests := req.GetRequests()
 	writeCmdOps := d.createWriteCmdOps(requests)
+	aCtx.wb.NewUndoAt(d.region.Id, aCtx.execCtx.index)
 	for _, op := range writeCmdOps.prewrites {
 		d.execPrewrite(aCtx, op)
 	}
@@ -1123,7 +1124,7 @@ func (d *applyDelegate) execCommit(aCtx *applyContext, op commitOp) {
 		aCtx.wb.SetWithUserMeta(oldKey, lock.OldVal, lock.OldMeta.ToOldUserMeta(commitTS))
 	}
 	if op.delLock != nil {
-		aCtx.wb.DeleteLock(rawKey)
+		aCtx.wb.DeleteLock(rawKey, val)
 	}
 	return
 }
@@ -1148,7 +1149,7 @@ func (d *applyDelegate) execRollback(aCtx *applyContext, op rollbackOp) {
 	}
 	aCtx.wb.Rollback(append(rawKey, remain...))
 	if op.delLock != nil {
-		aCtx.wb.DeleteLock(rawKey)
+		aCtx.wb.DeleteLock(rawKey, d.getLock(aCtx, rawKey))
 	}
 	return
 }
@@ -1188,7 +1189,7 @@ func (d *applyDelegate) execDeleteRange(aCtx *applyContext, req *raft_cmdpb.Dele
 		if bytes.Compare(lockIt.Key(), endKey) >= 0 {
 			break
 		}
-		aCtx.wb.DeleteLock(safeCopy(lockIt.Key()))
+		aCtx.wb.DeleteLock(safeCopy(lockIt.Key()), safeCopy(lockIt.Key()))
 	}
 	return
 }

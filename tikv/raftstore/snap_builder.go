@@ -15,16 +15,13 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 )
 
-func newSnapBuilder(cfFiles []*CFFile, db *badger.DB, lockStore *lockstore.MemStore, region *metapb.Region) (*snapBuilder, error) {
+func newSnapBuilder(cfFiles []*CFFile, snap *regionSnapshot, region *metapb.Region) (*snapBuilder, error) {
 	b := new(snapBuilder)
 	b.cfFiles = cfFiles
 	b.endKey = rawRegionKey(region.EndKey)
-	b.txn = db.NewTransaction(false)
+	b.txn = snap.txn
 	b.dbIterator = b.txn.NewIterator(badger.DefaultIteratorOptions)
-	startKey := rawRegionKey(region.StartKey)
-	if len(startKey) == 0 || startKey[0] == LocalPrefix {
-		startKey = []byte{LocalPrefix + 1}
-	}
+	startKey := rawDataStartKey(region.StartKey)
 
 	b.dbIterator.Seek(startKey)
 	if b.dbIterator.Valid() && !b.reachEnd(b.dbIterator.Item().Key()) {
@@ -33,7 +30,7 @@ func newSnapBuilder(cfFiles []*CFFile, db *badger.DB, lockStore *lockstore.MemSt
 	b.dbOldIterator = b.txn.NewIterator(badger.DefaultIteratorOptions)
 	b.dbOldIterator.Seek(mvcc.EncodeOldKey(startKey, math.MaxUint64))
 
-	b.lockIterator = lockStore.NewIterator()
+	b.lockIterator = snap.lockSnap.NewIterator()
 	b.lockIterator.Seek(startKey)
 	if b.lockIterator.Valid() && !b.reachEnd(b.lockIterator.Key()) {
 		b.curLockKey = b.lockIterator.Key()

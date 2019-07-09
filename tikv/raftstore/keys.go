@@ -92,6 +92,10 @@ func SnapshotRaftStateKey(regionID uint64) []byte {
 	return makeRegionPrefix(regionID, SnapshotRaftStateSuffix)
 }
 
+func IsRaftStateKey(key []byte) bool {
+	return len(key) == 11 && key[0] == LocalPrefix && key[1] == RegionRaftPrefix
+}
+
 func decodeRegionMetaKey(key []byte) (uint64, byte, error) {
 	if len(RegionMetaMinKey)+8+1 != len(key) {
 		return 0, 0, errors.Errorf("invalid region meta key length for key %v", key)
@@ -173,4 +177,12 @@ func rawRegionKey(key []byte) []byte {
 	_, rawKey, err := codec.DecodeBytes(key, nil)
 	y.Assert(err == nil)
 	return rawKey
+}
+
+func rawDataStartKey(key []byte) []byte {
+	startKey := rawRegionKey(key)
+	if len(startKey) == 0 || startKey[0] == LocalPrefix {
+		startKey = []byte{LocalPrefix + 1}
+	}
+	return startKey
 }
