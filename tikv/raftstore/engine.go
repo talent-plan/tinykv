@@ -317,7 +317,7 @@ func (wb *WriteBatch) WriteToKV(bundle *DBBundle) error {
 					raftStates = append(raftStates, entry)
 					continue
 				}
-				if len(entry.Value) == 0 {
+				if len(entry.UserMeta) == 0 && len(entry.Value) == 0 {
 					err1 = txn.Delete(entry.Key)
 				} else {
 					err1 = txn.SetEntry(entry)

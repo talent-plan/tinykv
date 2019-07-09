@@ -98,5 +98,5 @@ func (c *leaderChecker) isExpired(ctx *kvrpcpb.Context, snapTime *time.Time) (bo
 	if appliedIndexTerm != term {
 		return true, nil
 	}
-	return lease.Inspect(snapTime) == LeaseState_Valid, nil
+	return lease.Inspect(snapTime) == LeaseState_Expired, nil
 }

@@ -211,6 +211,8 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 					return []error{&ErrKeyAlreadyExists{Key: m.Key}}
 				}
 				op = kvrpcpb.Op_Put
+			} else if op == kvrpcpb.Op_Lock {
+				oldMeta, oldVal = nil, nil
 			}
 			if rowcodec.IsRowKey(m.Key) && op == kvrpcpb.Op_Put {
 				buf, err = enc.EncodeFromOldRow(m.Value, buf)

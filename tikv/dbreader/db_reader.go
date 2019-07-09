@@ -45,7 +45,7 @@ func (r *DBReader) Get(key []byte, startTS uint64) ([]byte, error) {
 		return nil, errors.Trace(err)
 	}
 	if err == badger.ErrKeyNotFound {
-		return r.getOld(key, startTS)
+		return nil, nil
 	}
 	if mvcc.DBUserMeta(item.UserMeta()).CommitTS() <= startTS {
 		return item.Value()

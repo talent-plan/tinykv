@@ -12,6 +12,7 @@ import (
 	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/eraftpb"
+	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
@@ -1117,8 +1118,10 @@ func (d *applyDelegate) execCommit(aCtx *applyContext, op commitOp) {
 	val := d.getLock(aCtx, rawKey)
 	y.Assert(len(val) > 0)
 	lock := mvcc.DecodeLock(val)
-	userMeta := mvcc.NewDBUserMeta(lock.StartTS, commitTS)
-	aCtx.wb.SetWithUserMeta(rawKey, lock.Value, userMeta)
+	if lock.Op != uint8(kvrpcpb.Op_Lock) {
+		userMeta := mvcc.NewDBUserMeta(lock.StartTS, commitTS)
+		aCtx.wb.SetWithUserMeta(rawKey, lock.Value, userMeta)
+	}
 	if lock.HasOldVer {
 		oldKey := mvcc.EncodeOldKey(rawKey, lock.OldMeta.CommitTS())
 		aCtx.wb.SetWithUserMeta(oldKey, lock.OldVal, lock.OldMeta.ToOldUserMeta(commitTS))
