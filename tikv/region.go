@@ -117,6 +117,7 @@ func (ri *regionCtx) unmarshal(data []byte) error {
 	ri.latches = make(map[uint64]*sync.WaitGroup)
 	ri.startKey = ri.rawStartKey()
 	ri.endKey = ri.rawEndKey()
+	ri.regionEpoch = unsafe.Pointer(ri.meta.RegionEpoch)
 	ri.refCount.Add(1)
 	return nil
 }
