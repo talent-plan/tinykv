@@ -112,36 +112,49 @@ func (decoder *Decoder) Decode(rowData []byte, handle int64, chk *chunk.Chunk) e
 		if found {
 			continue
 		}
-		// Search the column in null columns array.
-		i, j = int(decoder.numNotNullCols), int(decoder.numNotNullCols+decoder.numNullCols)
-		for i < j {
-			h := int(uint(i+j) >> 1) // avoid overflow when computing h
-			// i ≤ h < j
-			var v int64
-			if decoder.large {
-				v = int64(decoder.colIDs32[h])
-			} else {
-				v = int64(decoder.colIDs[h])
-			}
-			if v < colID {
-				i = h + 1
-			} else if v > colID {
-				j = h
-			} else {
-				found = true
-				break
-			}
-		}
-		if found || decoder.origDefaults[colIdx] == nil {
+		defaultVal := decoder.origDefaults[colIdx]
+		if decoder.isNull(colID, defaultVal) {
 			chk.AppendNull(colIdx)
 		} else {
-			err := decoder.decodeColData(colIdx, decoder.origDefaults[colIdx], chk)
+			err := decoder.decodeColData(colIdx, defaultVal, chk)
 			if err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// ColumnIsNull returns if the column value is null. Mainly used for count column aggregation.
+func (decoder *Decoder) ColumnIsNull(rowData []byte, colID int64, defaultVal []byte) (bool, error) {
+	err := decoder.setRowData(rowData)
+	if err != nil {
+		return false, err
+	}
+	return decoder.isNull(colID, defaultVal), nil
+}
+
+func (decoder *Decoder) isNull(colID int64, defaultVal []byte) bool {
+	// Search the column in null columns array.
+	i, j := int(decoder.numNotNullCols), int(decoder.numNotNullCols+decoder.numNullCols)
+	for i < j {
+		h := int(uint(i+j) >> 1) // avoid overflow when computing h
+		// i ≤ h < j
+		var v int64
+		if decoder.large {
+			v = int64(decoder.colIDs32[h])
+		} else {
+			v = int64(decoder.colIDs[h])
+		}
+		if v < colID {
+			i = h + 1
+		} else if v > colID {
+			j = h
+		} else {
+			return true
+		}
+	}
+	return defaultVal == nil
 }
 
 func (decoder *Decoder) decodeColData(colIdx int, colData []byte, chk *chunk.Chunk) error {

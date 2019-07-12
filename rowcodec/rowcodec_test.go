@@ -44,6 +44,32 @@ func (s *testSuite) TestRowCodec(c *C) {
 	}
 }
 
+func (s *testSuite) TestRowCodecIsNull(c *C) {
+	colIDs := []int64{1, 2}
+	tps := make([]*types.FieldType, 2)
+	for i := 0; i < 2; i++ {
+		tps[i] = types.NewFieldType(mysql.TypeLonglong)
+	}
+	var rb Encoder
+	newRow, err := rb.Encode(colIDs, types.MakeDatums(1, nil), nil)
+	c.Assert(err, IsNil)
+	rd, err := NewDecoder(colIDs, 0, tps, make([][]byte, 3), time.Local)
+	c.Assert(err, IsNil)
+	defaultVal := make([]byte, 1)
+	isNull, err := rd.ColumnIsNull(newRow, 1, defaultVal)
+	c.Assert(err, IsNil)
+	c.Assert(isNull, IsFalse)
+	isNull, err = rd.ColumnIsNull(newRow, 2, defaultVal)
+	c.Assert(err, IsNil)
+	c.Assert(isNull, IsTrue)
+	isNull, err = rd.ColumnIsNull(newRow, 3, defaultVal)
+	c.Assert(err, IsNil)
+	c.Assert(isNull, IsFalse)
+	isNull, err = rd.ColumnIsNull(newRow, 3, nil)
+	c.Assert(err, IsNil)
+	c.Assert(isNull, IsTrue)
+}
+
 func BenchmarkEncode(b *testing.B) {
 	b.ReportAllocs()
 	oldRow := types.MakeDatums(1, "abc", 1.1)
@@ -98,6 +124,32 @@ func BenchmarkDecode(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		chk.Reset()
 		err = decoder.Decode(xRowData, 1, chk)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkIsNull(b *testing.B) {
+	b.ReportAllocs()
+	oldRow := types.MakeDatums(1, "abc", 1.1)
+	colIDs := []int64{-1, 2, 3}
+	tps := []*types.FieldType{
+		types.NewFieldType(mysql.TypeLonglong),
+		types.NewFieldType(mysql.TypeString),
+		types.NewFieldType(mysql.TypeDouble),
+	}
+	var xb Encoder
+	xRowData, err := xb.Encode(colIDs, oldRow, nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+	decoder, err := NewDecoder(colIDs, -1, tps, make([][]byte, 3), time.Local)
+	if err != nil {
+		b.Fatal(err)
+	}
+	for i := 0; i < b.N; i++ {
+		_, err = decoder.ColumnIsNull(xRowData, int64(i)%4, nil)
 		if err != nil {
 			b.Fatal(err)
 		}

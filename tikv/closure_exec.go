@@ -153,7 +153,7 @@ func (svr *Server) tryBuildAggClosureExecutor(e *closureExecutor, executors []*t
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		e.aggCtx.colIdx = int(idx)
+		e.aggCtx.col = e.columnInfos[idx]
 		e.processFunc = &countColumnProcessor{closureExecutor: e}
 	case tipb.ExprType_Null, tipb.ExprType_ScalarFunc:
 		return nil, nil
@@ -230,7 +230,7 @@ type idxScanCtx struct {
 }
 
 type aggCtx struct {
-	colIdx int
+	col *tipb.ColumnInfo
 }
 
 type selectionCtx struct {
@@ -331,13 +331,11 @@ func (e *countColumnProcessor) Process(key, value []byte) error {
 		}
 	} else {
 		// Since the handle value doesn't affect the count result, we don't need to decode the handle.
-		e.scanCtx.chk.Reset()
-		err := e.scanCtx.decoder.Decode(value, 0, e.scanCtx.chk)
+		isNull, err := e.scanCtx.decoder.ColumnIsNull(value, e.aggCtx.col.ColumnId, e.aggCtx.col.DefaultVal)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		row := e.scanCtx.chk.GetRow(0)
-		if !row.IsNull(e.aggCtx.colIdx) {
+		if !isNull {
 			e.rowCount++
 		}
 	}
