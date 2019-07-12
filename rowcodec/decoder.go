@@ -131,6 +131,25 @@ func (decoder *Decoder) ColumnIsNull(rowData []byte, colID int64, defaultVal []b
 	if err != nil {
 		return false, err
 	}
+	// Search the column in not-null columns array.
+	i, j := 0, int(decoder.numNotNullCols)
+	for i < j {
+		h := int(uint(i+j) >> 1) // avoid overflow when computing h
+		// i ≤ h < j
+		var v int64
+		if decoder.large {
+			v = int64(decoder.colIDs32[h])
+		} else {
+			v = int64(decoder.colIDs[h])
+		}
+		if v < colID {
+			i = h + 1
+		} else if v > colID {
+			j = h
+		} else {
+			return false, nil
+		}
+	}
 	return decoder.isNull(colID, defaultVal), nil
 }
 
