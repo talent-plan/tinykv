@@ -21,6 +21,8 @@ github.com/coocood/badger v0.0.0-20190305091133-b847f4303993 h1:r4hjyvw7h0ZMDcvE
 github.com/coocood/badger v0.0.0-20190305091133-b847f4303993/go.mod h1:0ZAjZotZ/BYlG9IKm5BKvsAGaVaIT1jrDefwJE8kB+c=
 github.com/coocood/badger v0.0.0-20190404050323-c22705509a6a h1:e9ZU+9hbebI1yKrqNRfUt8sj1xR2ttCYBvW8/7x/x0E=
 github.com/coocood/badger v0.0.0-20190404050323-c22705509a6a/go.mod h1:0ZAjZotZ/BYlG9IKm5BKvsAGaVaIT1jrDefwJE8kB+c=
+github.com/coocood/badger v0.0.0-20190725030524-290d1127e1a3 h1:PLkxUcjKc8//ZNubSU8Oypjd+jvX1dbWRC64ZTyqUsE=
+github.com/coocood/badger v0.0.0-20190725030524-290d1127e1a3/go.mod h1:0ZAjZotZ/BYlG9IKm5BKvsAGaVaIT1jrDefwJE8kB+c=
 github.com/coocood/badger v1.5.0/go.mod h1:5kK93cEvzGGDQSPoYhF9ZyTU0+ABUnMWh6vyBPadbYo=
 github.com/coocood/badger v1.5.1-0.20181115111105-250ee6037b80 h1:dJk40GVwhrc5ZHj6Tg07xF/1EZ6zFmyi3Kbxu18/QRI=
 github.com/coocood/badger v1.5.1-0.20181115111105-250ee6037b80/go.mod h1:5kK93cEvzGGDQSPoYhF9ZyTU0+ABUnMWh6vyBPadbYo=

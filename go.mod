@@ -1,7 +1,7 @@
 module github.com/ngaut/unistore
 
 require (
-	github.com/coocood/badger v1.5.1-0.20190617061430-79d109a8fc71
+	github.com/coocood/badger v0.0.0-20190725030524-290d1127e1a3
 	github.com/cznic/mathutil v0.0.0-20181122101859-297441e03548
 	github.com/dgryski/go-farm v0.0.0-20190104051053-3adb47b1fb0f
 	github.com/golang/protobuf v1.3.0
