@@ -2,8 +2,12 @@ package raftstore
 
 import (
 	"context"
+	"encoding/binary"
+	"path/filepath"
 	"sync"
+	"time"
 
+	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/pd"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/tikvpb"
@@ -23,6 +27,7 @@ type RaftInnerServer struct {
 	pdWorker        *worker
 	resolveWorker   *worker
 	snapWorker      *worker
+	lsDumper        *lockStoreDumper
 }
 
 func (ris *RaftInnerServer) Raft(stream tikvpb.Tikv_RaftServer) error {
@@ -86,6 +91,11 @@ func (ris *RaftInnerServer) Setup(pdClient pd.Client) {
 	ris.snapManager = NewSnapManager(cfg.SnapPath, router)
 	ris.batchSystem = batchSystem
 	ris.coprocessorHost = newCoprocessorHost(cfg.splitCheck, router)
+	ris.lsDumper = &lockStoreDumper{
+		stopCh:      make(chan struct{}),
+		engines:     ris.engines,
+		fileNumDiff: 2,
+	}
 }
 
 func (ris *RaftInnerServer) GetRaftstoreRouter() *RaftstoreRouter {
@@ -115,6 +125,7 @@ func (ris *RaftInnerServer) Start(pdClient pd.Client) error {
 	}
 	snapRunner := newSnapRunner(ris.snapManager, ris.raftConfig, ris.raftRouter)
 	ris.snapWorker.start(snapRunner)
+	go ris.lsDumper.run()
 	return nil
 }
 
@@ -129,4 +140,39 @@ func (ris *RaftInnerServer) Stop() error {
 		return err
 	}
 	return nil
+}
+
+const LockstoreFileName = "lockstore.dump"
+
+type lockStoreDumper struct {
+	stopCh      chan struct{}
+	engines     *Engines
+	fileNumDiff uint64
+}
+
+func (dumper *lockStoreDumper) run() {
+	ticker := time.NewTicker(time.Second * 10)
+	lastFileNum := dumper.engines.raft.GetVLogOffset() >> 32
+	for {
+		select {
+		case <-ticker.C:
+			vlogOffset := dumper.engines.raft.GetVLogOffset()
+			currentFileNum := vlogOffset >> 32
+			if currentFileNum-lastFileNum >= dumper.fileNumDiff {
+				meta := make([]byte, 8)
+				binary.LittleEndian.PutUint64(meta, vlogOffset)
+				// Waiting for the raft log to be applied.
+				// TODO: it is possible that some log is not applied after sleep, find a better way to make sure this.
+				time.Sleep(5 * time.Second)
+				err := dumper.engines.kv.lockStore.DumpToFile(filepath.Join(dumper.engines.kvPath, LockstoreFileName), meta)
+				if err != nil {
+					log.Errorf("dump lock store failed with err %v", err)
+					continue
+				}
+				lastFileNum = currentFileNum
+			}
+		case <-dumper.stopCh:
+			return
+		}
+	}
 }

@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
-	"io"
 	"math"
 	"os"
 	"sync"
@@ -43,56 +42,9 @@ func NewMVCCStore(bundle *mvcc.DBBundle, dataDir string, safePoint *SafePoint, w
 		safePoint:     safePoint,
 		dbWriter:      writer,
 	}
-	err := store.loadLocks()
-	if err != nil {
-		log.Fatal(err)
-	}
 	store.loadSafePoint()
 	writer.Open()
 	return store
-}
-
-func (store *MVCCStore) loadLocks() error {
-	fileName := store.dir + "/lock_store"
-	f, err := os.Open(fileName)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return errors.Trace(err)
-	}
-	defer f.Close()
-	reader := bufio.NewReader(f)
-	hdrBuf := make([]byte, 8)
-	hdr := (*lockEntryHdr)(unsafe.Pointer(&hdrBuf[0]))
-	var keyBuf, valBuf []byte
-	for {
-		_, err = reader.Read(hdrBuf)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return errors.Trace(err)
-		}
-		if cap(keyBuf) < int(hdr.keyLen) {
-			keyBuf = make([]byte, hdr.keyLen)
-		}
-		if cap(valBuf) < int(hdr.valLen) {
-			valBuf = make([]byte, hdr.valLen)
-		}
-		keyBuf = keyBuf[:hdr.keyLen]
-		valBuf = valBuf[:hdr.valLen]
-		_, err = reader.Read(keyBuf)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		_, err = reader.Read(valBuf)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		store.lockStore.Insert(keyBuf, valBuf)
-	}
-	return os.Remove(fileName)
 }
 
 func (store *MVCCStore) loadSafePoint() {

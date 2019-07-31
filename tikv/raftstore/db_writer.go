@@ -76,7 +76,7 @@ func (wb *raftWriteBatch) Commit(key []byte, lock *mvcc.MvccLock) {
 		Put: &rcpb.PutRequest{
 			Cf:    CFWrite,
 			Key:   codec.EncodeUintDesc(encodedKey, wb.commitTS),
-			Value: mvcc.EncodeWriteCFValue(lock.Op, lock.StartTS, lock.Value),
+			Value: mvcc.EncodeWriteCFValue(mvcc.WriteTypePut, lock.StartTS, lock.Value),
 		},
 	}
 	delLockReq := &rcpb.Request{

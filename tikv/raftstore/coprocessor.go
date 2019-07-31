@@ -10,6 +10,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
 	"github.com/pingcap/tidb/tablecodec"
+	"github.com/pingcap/tidb/util/codec"
 	"github.com/zhangjinpeng1987/raft"
 )
 
@@ -381,7 +382,7 @@ func newTableSplitChecker(splitKey []byte, policy pdpb.CheckPolicy) *tableSplitC
 }
 
 func isTableKey(encodedKey []byte) bool {
-	return len(encodedKey) >= tablecodec.TableSplitKeyLen
+	return bytes.HasPrefix(encodedKey, tablecodec.TablePrefix())
 }
 
 func isSameTable(leftKey, rightKey []byte) bool {
@@ -453,22 +454,33 @@ func lastKeyOfRegion(db *badger.DB, region *metapb.Region) []byte {
 func (observer *tableSplitCheckObserver) addChecker(obCtx *observerContext, host *splitCheckerHost, db *badger.DB,
 	policy pdpb.CheckPolicy) {
 	region := obCtx.region
-	if isSameTable(region.GetStartKey(), region.GetEndKey()) {
+	_, regionStartKey, err := codec.DecodeBytes(region.StartKey, nil)
+	if err != nil {
+		return
+	}
+	_, regionEndKey, err := codec.DecodeBytes(region.EndKey, nil)
+	if err != nil {
+		return
+	}
+	if !isTableKey(regionStartKey) {
+		return
+	}
+	if isSameTable(regionStartKey, regionEndKey) {
 		// Region is inside a table, skip for saving IO.
 		return
 	}
-	endKey := lastKeyOfRegion(db, region)
-	if len(endKey) == 0 {
+	lastKey := lastKeyOfRegion(db, region)
+	if len(lastKey) == 0 {
 		return
 	}
-	if isSameTable(region.GetStartKey(), endKey) {
+	if isSameTable(regionStartKey, lastKey) {
 		// Same table
 		return
 	} else {
 		// Different tables.
 		// Note that table id does not grow by 1, so have to use endKey to extract a table prefix.
 		// See more: https://github.com/pingcap/tidb/issues/4727.
-		splitKey := extractTablePrefix(endKey)
+		splitKey := extractTablePrefix(lastKey)
 		host.addChecker(newTableSplitChecker(splitKey, policy))
 	}
 }

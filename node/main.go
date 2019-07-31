@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"flag"
 	"net"
 	"net/http"
@@ -29,6 +30,7 @@ var (
 	httpAddr         = flag.String("http-addr", "127.0.0.1:9291", "http address")
 	dbPath           = flag.String("db-path", "/tmp/badger", "Directory to store the data in. Should exist and be writable.")
 	vlogPath         = flag.String("vlog-path", "", "Directory to store the value log in. can be the same as db-path.")
+	vlogFileSize     = flag.Int64("vlog-file-size", 1024*1024*1024, "value log file size")
 	valThreshold     = flag.Int("value-threshold", 20, "If value size >= this threshold, only store value offsets in tree.")
 	regionSize       = flag.Int64("region-size", 96*1024*1024, "Average region size.")
 	logLevel         = flag.String("L", "info", "log level")
@@ -138,6 +140,18 @@ func setupRaftInnerServer(bundle *mvcc.DBBundle, safePoint *tikv.SafePoint, pdCl
 	config.SnapPath = snapPath
 
 	raftDB := createDB("raft", safePoint)
+	meta, err := bundle.LockStore.LoadFromFile(filepath.Join(kvPath, raftstore.LockstoreFileName))
+	if err != nil {
+		log.Fatal(err)
+	}
+	if meta != nil {
+		offset := binary.LittleEndian.Uint64(meta)
+		err = raftstore.RestoreLockStore(offset, bundle, raftDB)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Info("restored lock store from offset", offset)
+	}
 
 	engines := raftstore.NewEngines(bundle, raftDB, kvPath, raftPath)
 
@@ -193,6 +207,7 @@ func createDB(subPath string, safePoint *tikv.SafePoint) *badger.DB {
 	if *tableLoadingMode == "memory-map" {
 		opts.TableLoadingMode = options.MemoryMap
 	}
+	opts.ValueLogFileSize = *vlogFileSize
 	opts.ValueLogLoadingMode = options.FileIO
 	opts.MaxTableSize = *maxTableSize
 	opts.NumMemtables = *numMemTables

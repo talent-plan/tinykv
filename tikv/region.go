@@ -360,7 +360,9 @@ func NewStandAloneRegionManager(db *badger.DB, opts RegionOptions, pdc pd.Client
 			return err1
 		}
 		// load region meta
-		it := txn.NewIterator(badger.DefaultIteratorOptions)
+		opts := badger.DefaultIteratorOptions
+		opts.PrefetchValues = false
+		it := txn.NewIterator(opts)
 		defer it.Close()
 		prefix := InternalRegionMetaPrefix
 		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {

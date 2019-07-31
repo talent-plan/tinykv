@@ -926,7 +926,7 @@ func (d *applyDelegate) execAdminCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmd
 func (d *applyDelegate) execWriteCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdRequest) (
 	resp *raft_cmdpb.RaftCmdResponse, result applyResult, err error) {
 	requests := req.GetRequests()
-	writeCmdOps := d.createWriteCmdOps(requests)
+	writeCmdOps := createWriteCmdOps(requests)
 	aCtx.wb.NewUndoAt(d.region.Id, aCtx.execCtx.index)
 	for _, op := range writeCmdOps.prewrites {
 		d.execPrewrite(aCtx, op)
@@ -986,7 +986,7 @@ type writeCmdOps struct {
 }
 
 // createWriteCmdOps regroups requests into operations.
-func (d *applyDelegate) createWriteCmdOps(requests []*raft_cmdpb.Request) (ops writeCmdOps) {
+func createWriteCmdOps(requests []*raft_cmdpb.Request) (ops writeCmdOps) {
 	// If first request is delete write, then this is a GC command, we can ignore it.
 	if del := requests[0].Delete; del != nil {
 		if del.Cf == CFWrite {
@@ -1072,7 +1072,7 @@ func (d *applyDelegate) createWriteCmdOps(requests []*raft_cmdpb.Request) (ops w
 			// Don't panic here in case there are old entries need to be applied.
 			// It's also safe to skip them here, because a restart must have happened,
 			// hence there is no callback to be called.
-			log.Warnf("%s skip read-only command %s", d.tag, req)
+			log.Warnf("skip read-only command %s", req)
 		default:
 			panic("unreachable")
 		}
@@ -1081,6 +1081,12 @@ func (d *applyDelegate) createWriteCmdOps(requests []*raft_cmdpb.Request) (ops w
 }
 
 func (d *applyDelegate) execPrewrite(aCtx *applyContext, op prewriteOp) {
+	key, value := convertPrewriteToLock(op, aCtx.getTxn())
+	aCtx.wb.SetLock(key, value)
+	return
+}
+
+func convertPrewriteToLock(op prewriteOp, txn *badger.Txn) (key, value []byte) {
 	_, rawKey, err := codec.DecodeBytes(op.putLock.Key, nil)
 	if err != nil {
 		panic(op.putLock.Key)
@@ -1089,7 +1095,6 @@ func (d *applyDelegate) execPrewrite(aCtx *applyContext, op prewriteOp) {
 	if err != nil {
 		panic(op.putLock.Value)
 	}
-	txn := aCtx.getTxn()
 	if item, err := txn.Get(rawKey); err == nil {
 		val, err1 := item.Value()
 		if err1 != nil {
@@ -1102,8 +1107,7 @@ func (d *applyDelegate) execPrewrite(aCtx *applyContext, op prewriteOp) {
 	if op.putDefault != nil {
 		lock.Value = op.putDefault.Value
 	}
-	aCtx.wb.SetLock(rawKey, lock.MarshalBinary())
-	return
+	return rawKey, lock.MarshalBinary()
 }
 
 func (d *applyDelegate) execCommit(aCtx *applyContext, op commitOp) {

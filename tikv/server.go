@@ -511,7 +511,7 @@ func convertToKeyError(err error) *kvrpcpb.KeyError {
 }
 
 func convertToPBError(err error) (*kvrpcpb.KeyError, *errorpb.Error) {
-	if regErr := extractRegionError(err); regErr != nil  {
+	if regErr := extractRegionError(err); regErr != nil {
 		return nil, regErr
 	}
 	return convertToKeyError(err), nil
