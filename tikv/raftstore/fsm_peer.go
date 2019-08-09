@@ -20,8 +20,6 @@ type peerFsm struct {
 	peer     *Peer
 	stopped  bool
 	hasReady bool
-	mailbox  *mailbox
-	receiver <-chan Msg
 	ticker   *ticker
 }
 
@@ -47,21 +45,19 @@ type PeerEventObserver interface {
 // use this function to create the peer. The region must contain the peer info
 // for this store.
 func createPeerFsm(storeID uint64, cfg *Config, sched chan<- task,
-	engines *Engines, region *metapb.Region) (chan<- Msg, *peerFsm, error) {
+	engines *Engines, region *metapb.Region) (*peerFsm, error) {
 	metaPeer := findPeer(region, storeID)
 	if metaPeer == nil {
-		return nil, nil, errors.Errorf("find no peer for store %d in region %v", storeID, region)
+		return nil, errors.Errorf("find no peer for store %d in region %v", storeID, region)
 	}
 	log.Infof("region %v create peer with ID %d", region, metaPeer.Id)
-	ch := make(chan Msg, msgDefaultChanSize)
 	peer, err := NewPeer(storeID, cfg, engines, region, sched, metaPeer)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return (chan<- Msg)(ch), &peerFsm{
-		peer:     peer,
-		receiver: ch,
-		ticker:   newTicker(region.GetId(), cfg),
+	return &peerFsm{
+		peer:   peer,
+		ticker: newTicker(region.GetId(), cfg),
 	}, nil
 }
 
@@ -69,44 +65,25 @@ func createPeerFsm(storeID uint64, cfg *Config, sched chan<- task,
 // know the region_id and peer_id when creating this replicated peer, the region info
 // will be retrieved later after applying snapshot.
 func replicatePeerFsm(storeID uint64, cfg *Config, sched chan<- task,
-	engines *Engines, regionID uint64, metaPeer *metapb.Peer) (chan<- Msg, *peerFsm, error) {
+	engines *Engines, regionID uint64, metaPeer *metapb.Peer) (*peerFsm, error) {
 	// We will remove tombstone key when apply snapshot
 	log.Infof("[region %v] replicates peer with ID %d", regionID, metaPeer.GetId())
 	region := &metapb.Region{
 		Id:          regionID,
 		RegionEpoch: &metapb.RegionEpoch{},
 	}
-	ch := make(chan Msg, msgDefaultChanSize)
 	peer, err := NewPeer(storeID, cfg, engines, region, sched, metaPeer)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return (chan<- Msg)(ch), &peerFsm{
-		peer:     peer,
-		receiver: ch,
-		ticker:   newTicker(region.GetId(), cfg),
+	return &peerFsm{
+		peer:   peer,
+		ticker: newTicker(region.GetId(), cfg),
 	}, nil
 }
 
 func (pf *peerFsm) drop() {
 	pf.peer.Stop()
-	for {
-		select {
-		case msg := <-pf.receiver:
-			var cb *Callback
-			switch msg.Type {
-			case MsgTypeRaftCmd:
-				cb = msg.Data.(*MsgRaftCmd).Callback
-			case MsgTypeSplitRegion:
-				cb = msg.Data.(*MsgSplitRegion).Callback
-			default:
-				continue
-			}
-			cb.Done(ErrRespRegionNotFound(pf.regionID()))
-		default:
-			return
-		}
-	}
 }
 
 func (pf *peerFsm) regionID() uint64 {
@@ -139,19 +116,6 @@ func (pf *peerFsm) hasPendingMergeApplyResult() bool {
 
 func (pf *peerFsm) isStopped() bool {
 	return pf.stopped
-}
-
-/// Set a mailbox to Fsm, which should be used to send message to itself.
-func (pf *peerFsm) setMailbox(mb *mailbox) {
-	pf.mailbox = mb
-}
-
-/// Take the mailbox from Fsm. Implementation should ensure there will be
-/// no reference to mailbox after calling this method.
-func (pf *peerFsm) takeMailbox() *mailbox {
-	mb := pf.mailbox
-	pf.mailbox = nil
-	return mb
 }
 
 type peerFsmDelegate struct {
@@ -672,7 +636,7 @@ func (d *peerFsmDelegate) findOverlapRegions(storeMeta *storeMeta, snapRegion *m
 
 func (d *peerFsmDelegate) handleDestroyPeer(job *DestroyPeerJob) bool {
 	if job.Initialized {
-		d.ctx.applyRouter.scheduleTask(job.RegionId, NewPeerMsg(MsgTypeApplyDestroy, job.RegionId, nil))
+		d.ctx.applyMsgs.appendMsg(job.RegionId, NewPeerMsg(MsgTypeApplyDestroy, job.RegionId, nil))
 	}
 	if job.AsyncRemove {
 		log.Infof("[region %d] %d is destroyed asynchronously", job.RegionId, job.Peer.Id)
@@ -691,7 +655,7 @@ func (d *peerFsmDelegate) destroyPeer(mergeByTarget bool) {
 	defer func() {
 		d.ctx.storeMetaLock.Unlock()
 		// Send messages out of store meta lock.
-		d.ctx.applyRouter.scheduleTask(regionID, NewPeerMsg(MsgTypeApplyDestroy, regionID, nil))
+		d.ctx.applyMsgs.appendMsg(regionID, NewPeerMsg(MsgTypeApplyDestroy, regionID, nil))
 		// Trigger region change observer
 		d.ctx.coprocessorHost.OnRegionChanged(d.region(), RegionChangeEvent_Destroy, d.peer.GetRole())
 		d.ctx.pdScheduler <- task{
@@ -868,7 +832,7 @@ func (d *peerFsmDelegate) onReadySplitRegion(derived *metapb.Region, regions []*
 			d.ctx.router.close(newRegionID)
 		}
 
-		sender, newPeer, err := createPeerFsm(d.ctx.store.Id, d.ctx.cfg, d.ctx.regionScheduler, d.ctx.engine, newRegion)
+		newPeer, err := createPeerFsm(d.ctx.store.Id, d.ctx.cfg, d.ctx.regionScheduler, d.ctx.engine, newRegion)
 		if err != nil {
 			// peer information is already written into db, can't recover.
 			// there is probably a bug.
@@ -900,8 +864,7 @@ func (d *peerFsmDelegate) onReadySplitRegion(derived *metapb.Region, regions []*
 			// check again after split.
 			newPeer.peer.SizeDiffHint = d.ctx.cfg.RegionSplitCheckDiff
 		}
-		mb := newMailbox(sender, newPeer)
-		d.ctx.router.register(newRegionID, mb)
+		d.ctx.router.register(newRegionID, newPeer)
 		_ = d.ctx.router.send(newRegionID, NewPeerMsg(MsgTypeStart, newRegionID, nil))
 		if !campaigned {
 			for i, msg := range meta.pendingVotes {

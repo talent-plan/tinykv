@@ -257,49 +257,14 @@ func (t *GenSnapTask) generateAndScheduleSnapshot(regionSched chan<- task) {
 	}
 }
 
-type applyRouter struct {
-	router
+type applyMsgs struct {
+	msgs []Msg
 }
 
-func (r *applyRouter) scheduleTask(regionID uint64, msg Msg) {
-	if err := r.send(regionID, msg); err == nil {
-		return
-	}
-	switch msg.Type {
-	case MsgTypeApplyRegistration:
-		// Messages in one region are sent in sequence, so there is no race here.
-		// However, this can't be handled inside control fsm, as messages can be
-		// queued inside both queue of control fsm and normal fsm, which can reorder
-		// messages.
-		sender, applyFsm := newApplyFsmFromRegistration(msg.Data.(*registration))
-		mb := newMailbox(sender, applyFsm)
-		r.register(regionID, mb)
-	case MsgTypeApplyProposal:
-		log.Infof("target region %d is not found, drop proposals", regionID)
-		props := msg.Data.(*regionProposal)
-		for _, prop := range props.Props {
-			cmd := pendingCmd{index: prop.index, term: prop.term, cb: prop.cb}
-			notifyRegionRemoved(regionID, props.Id, cmd)
-		}
-	case MsgTypeApplyCatchUpLogs:
-		cuLog := msg.Data.(*catchUpLogs)
-		panic(fmt.Sprintf("region %d is removed before merged, failed to schedule %s", regionID, cuLog.merge))
-	default:
-		log.Infof("target region %d is not found, drop messages", regionID)
-	}
-}
-
-type notifier struct {
-	router *router
-	sender chan<- Msg
-}
-
-func (n *notifier) notify(regionID uint64, msg Msg) {
-	if n.router != nil {
-		_ = n.router.send(regionID, msg)
-	} else {
-		n.sender <- msg
-	}
+func (r *applyMsgs) appendMsg(regionID uint64, msg Msg) {
+	msg.RegionID = regionID
+	r.msgs = append(r.msgs, msg)
+	return
 }
 
 type applyContext struct {
@@ -307,8 +272,7 @@ type applyContext struct {
 	timer            *time.Time
 	host             *CoprocessorHost
 	regionScheduler  chan<- task
-	router           *applyRouter
-	notifier         notifier
+	notifier         chan<- Msg
 	engines          *Engines
 	txn              *badger.Txn
 	cbs              []applyCallback
@@ -328,14 +292,13 @@ type applyContext struct {
 	useDeleteRange bool
 }
 
-func newApplyContext(tag string, host *CoprocessorHost, regionScheduler chan<- task, engines *Engines, router *applyRouter,
-	notifier notifier, cfg *Config) *applyContext {
+func newApplyContext(tag string, host *CoprocessorHost, regionScheduler chan<- task, engines *Engines,
+	notifier chan<- Msg, cfg *Config) *applyContext {
 	return &applyContext{
 		tag:             tag,
 		host:            host,
 		regionScheduler: regionScheduler,
 		engines:         engines,
-		router:          router,
 		notifier:        notifier,
 		enableSyncLog:   cfg.SyncLog,
 		useDeleteRange:  cfg.UseDeleteRange,
@@ -445,7 +408,7 @@ func (ac *applyContext) flush() {
 	ac.writeToDB()
 	if len(ac.applyTaskResList) > 0 {
 		for _, res := range ac.applyTaskResList {
-			ac.notifier.notify(res.regionID, NewPeerMsg(MsgTypeApplyRes, res.regionID, res))
+			ac.notifier <- NewPeerMsg(MsgTypeApplyRes, res.regionID, res)
 		}
 		ac.applyTaskResList = ac.applyTaskResList[:0]
 	}
@@ -838,7 +801,6 @@ func (d *applyDelegate) applyRaftCmd(aCtx *applyContext, index, term uint64,
 
 func (d *applyDelegate) destroy(aCtx *applyContext) {
 	d.stopped = true
-	aCtx.router.close(d.region.Id)
 	for _, cmd := range d.pendingCmds.normals {
 		notifyRegionRemoved(d.region.Id, d.id, cmd)
 	}
@@ -1469,53 +1431,21 @@ func (d *applyDelegate) execVerifyHash(aCtx *applyContext, req *raft_cmdpb.Admin
 }
 
 type catchUpLogs struct {
-	targetMailBox *mailbox
-	merge         *raft_cmdpb.CommitMergeRequest
-	readyToMerge  *atomic.Uint64
-}
-
-type applyPollerBuilder struct {
-	tag             string
-	cfg             *Config
-	coprocessorHost *CoprocessorHost
-	engines         *Engines
-	sender          notifier
-	router          *applyRouter
-	regionScheduler chan<- task
-}
-
-func newApplyPollerBuilder(raftPollerBuilder *raftPollerBuilder, sender notifier, router *applyRouter, regionScheduler chan<- task) *applyPollerBuilder {
-	return &applyPollerBuilder{
-		tag:             fmt.Sprintf("[store %d]", raftPollerBuilder.store.Id),
-		cfg:             raftPollerBuilder.cfg,
-		coprocessorHost: raftPollerBuilder.coprocessorHost,
-		engines:         raftPollerBuilder.engines,
-		sender:          sender,
-		router:          router,
-		regionScheduler: regionScheduler,
-	}
-}
-
-func (b *applyPollerBuilder) build() pollHandler {
-	return &applyPoller{
-		msgBuf:          make([]Msg, 0, b.cfg.MessagesPerTick),
-		aCtx:            newApplyContext(b.tag, b.coprocessorHost, b.regionScheduler, b.engines, b.router, b.sender, b.cfg),
-		messagesPerTick: int(b.cfg.MessagesPerTick),
-	}
+	merge        *raft_cmdpb.CommitMergeRequest
+	readyToMerge *atomic.Uint64
 }
 
 type applyFsm struct {
 	applyDelegate
 	receiver <-chan Msg
-	mailbox  *mailbox
 }
 
-func newApplyFsmFromPeer(peer *peerFsm) (chan<- Msg, fsm) {
+func newApplyFsmFromPeer(peer *peerFsm) (chan<- Msg, *applyFsm) {
 	reg := newRegistration(peer.peer)
 	return newApplyFsmFromRegistration(reg)
 }
 
-func newApplyFsmFromRegistration(reg *registration) (chan<- Msg, fsm) {
+func newApplyFsmFromRegistration(reg *registration) (chan<- Msg, *applyFsm) {
 	ch := make(chan Msg, msgDefaultChanSize)
 	delegate := newApplyDelegate(reg)
 	aFsm := &applyFsm{
@@ -1599,10 +1529,10 @@ func (a *applyFsm) destroy(aCtx *applyContext) {
 func (a *applyFsm) handleDestroy(aCtx *applyContext, regionID uint64) {
 	if !a.stopped {
 		a.destroy(aCtx)
-		aCtx.notifier.notify(regionID, NewPeerMsg(MsgTypeApplyRes, a.region.Id, &applyTaskRes{
+		aCtx.notifier <- NewPeerMsg(MsgTypeApplyRes, a.region.Id, &applyTaskRes{
 			regionID:      a.region.Id,
 			destroyPeerID: a.id,
-		}))
+		})
 	}
 }
 
@@ -1628,93 +1558,24 @@ func (a *applyFsm) handleSnapshot(aCtx *applyContext, snapTask *GenSnapTask) {
 	snapTask.generateAndScheduleSnapshot(aCtx.regionScheduler)
 }
 
-func (a *applyFsm) handleTasks(aCtx *applyContext, msgs []Msg) {
-	for i, msg := range msgs {
-		switch msg.Type {
-		case MsgTypeApply:
-			a.handleApply(aCtx, msg.Data.(*apply))
-			if a.waitMergeState != nil {
-				a.waitMergeState.pendingMsgs = msgs[i+1:]
-				break
-			}
-		case MsgTypeApplyProposal:
-			a.handleProposal(msg.Data.(*regionProposal))
-		case MsgTypeApplyRegistration:
-			a.handleRegistration(msg.Data.(*registration))
-		case MsgTypeApplyDestroy:
-			a.handleDestroy(aCtx, msg.Data.(uint64))
-		case MsgTypeApplyCatchUpLogs:
-			a.catchUpLogsForMerge(aCtx, msg.Data.(*catchUpLogs))
-		case MsgTypeApplyLogsUpToDate:
-		case MsgTypeApplySnapshot:
-			a.handleSnapshot(aCtx, msg.Data.(*GenSnapTask))
-		}
+func (a *applyFsm) handleTask(aCtx *applyContext, msg Msg) {
+	switch msg.Type {
+	case MsgTypeApply:
+		a.handleApply(aCtx, msg.Data.(*apply))
+	case MsgTypeApplyProposal:
+		a.handleProposal(msg.Data.(*regionProposal))
+	case MsgTypeApplyRegistration:
+		a.handleRegistration(msg.Data.(*registration))
+	case MsgTypeApplyDestroy:
+		a.handleDestroy(aCtx, msg.Data.(uint64))
+	case MsgTypeApplyCatchUpLogs:
+		a.catchUpLogsForMerge(aCtx, msg.Data.(*catchUpLogs))
+	case MsgTypeApplyLogsUpToDate:
+	case MsgTypeApplySnapshot:
+		a.handleSnapshot(aCtx, msg.Data.(*GenSnapTask))
 	}
 }
 
 func (a *applyFsm) isStopped() bool {
 	return a.stopped
-}
-
-func (a *applyFsm) setMailbox(mb *mailbox) {
-	a.mailbox = mb
-}
-
-func (a *applyFsm) takeMailbox() *mailbox {
-	mb := a.mailbox
-	a.mailbox = nil
-	return mb
-}
-
-type applyPoller struct {
-	msgBuf          []Msg
-	aCtx            *applyContext
-	messagesPerTick int
-}
-
-func (p *applyPoller) begin(batchSize int) {}
-
-/// There is no control fsm in apply poller.
-func (p *applyPoller) handleControl(control fsm) (pause bool, chLen int) {
-	panic("unimplemented")
-}
-
-func (p *applyPoller) handleNormal(normal fsm) (pause bool, chLen int) {
-	applyFsm := normal.(*applyFsm)
-	receiverLen := len(applyFsm.receiver)
-	if applyFsm.waitMergeState != nil {
-		// We need to query the length first, otherwise there is a race
-		// condition that new messages are queued after resuming and before
-		// query the length.
-		if !applyFsm.resumePendingMerge(p.aCtx) {
-			return true, receiverLen
-		}
-	}
-	numToRecv := p.messagesPerTick - len(p.msgBuf)
-	if numToRecv >= receiverLen {
-		numToRecv = receiverLen
-		pause = true
-	}
-	for i := 0; i < numToRecv; i++ {
-		p.msgBuf = append(p.msgBuf, <-applyFsm.receiver)
-	}
-	applyFsm.handleTasks(p.aCtx, p.msgBuf)
-	p.msgBuf = p.msgBuf[:0]
-	if applyFsm.merged {
-		applyFsm.destroy(p.aCtx)
-		pause = true
-	} else if applyFsm.waitMergeState != nil {
-		pause = true
-	}
-	return pause, 0
-}
-
-func (p *applyPoller) end(fsms []fsm) {
-	p.aCtx.flush()
-}
-
-func createApplyBatchSystem(cfg *Config) (*applyRouter, *batchSystem) {
-	router, system := createBatchSystem(int(cfg.ApplyPoolSize), int(cfg.ApplyMaxBatchSize), nil, nil)
-	applyRouter := &applyRouter{router: *router}
-	return applyRouter, system
 }

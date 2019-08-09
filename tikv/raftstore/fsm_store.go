@@ -67,7 +67,7 @@ type PollContext struct {
 	cfg                  *Config
 	coprocessorHost      *CoprocessorHost
 	engine               *Engines
-	applyRouter          *applyRouter
+	applyMsgs            *applyMsgs
 	needFlushTrans       bool
 	ReadyRes             []ReadyICPair
 	kvWB                 *WriteBatch
@@ -202,12 +202,6 @@ func (s *storeFsm) isStopped() bool {
 	return s.stopped
 }
 
-func (s *storeFsm) setMailbox(mb *mailbox) {}
-
-func (s *storeFsm) takeMailbox() *mailbox {
-	return nil
-}
-
 type storeFsmDelegate struct {
 	*storeFsm
 	ctx *PollContext
@@ -265,128 +259,6 @@ func (d *storeFsmDelegate) start(store *metapb.Store) {
 	d.ticker.scheduleStore(StoreTickConsistencyCheck)
 }
 
-type raftPoller struct {
-	tag              string
-	storeMsgBuf      []Msg
-	peerMsgBuf       []Msg
-	pollCtx          *PollContext
-	pendingProposals []*regionProposal
-	messagesPerTick  int
-	startTime        time.Time
-}
-
-func (p *raftPoller) handleRaftReady(peers []fsm) {
-	if len(p.pendingProposals) > 0 {
-		for _, proposal := range p.pendingProposals {
-			msg := Msg{Type: MsgTypeApplyProposal, Data: proposal}
-			p.pollCtx.applyRouter.scheduleTask(proposal.RegionId, msg)
-		}
-		p.pendingProposals = nil
-	}
-	kvWB := p.pollCtx.kvWB
-	if len(kvWB.entries) > 0 {
-		err := kvWB.WriteToKV(p.pollCtx.engine.kv)
-		if err != nil {
-			panic(err)
-		}
-		kvWB.Reset()
-	}
-	raftWB := p.pollCtx.raftWB
-	if len(raftWB.entries) > 0 {
-		err := raftWB.WriteToRaft(p.pollCtx.engine.raft)
-		if err != nil {
-			panic(err)
-		}
-		raftWB.Reset()
-	}
-	readyRes := p.pollCtx.ReadyRes
-	p.pollCtx.ReadyRes = nil
-	if len(readyRes) > 0 {
-		batchPos := 0
-		for _, pair := range readyRes {
-			regionID := pair.IC.RegionID
-			for peers[batchPos].(*peerFsm).peer.regionId != regionID {
-				batchPos++
-			}
-			newPeerFsmDelegate(peers[batchPos].(*peerFsm), p.pollCtx).postRaftReadyAppend(&pair.Ready, pair.IC)
-		}
-	}
-	dur := time.Since(p.startTime)
-	if !p.pollCtx.isBusy {
-		electionTimeout := p.pollCtx.cfg.RaftBaseTickInterval * time.Duration(p.pollCtx.cfg.RaftElectionTimeoutTicks)
-		if dur > electionTimeout {
-			p.pollCtx.isBusy = true
-		}
-	}
-	return
-}
-
-func (p *raftPoller) begin(batchSize int) {
-	p.pollCtx.pendingCount = 0
-	p.pollCtx.hasReady = false
-	p.startTime = time.Now()
-	return
-}
-
-func (p *raftPoller) handleControl(fsm fsm) (pause bool, chLen int) {
-	store := fsm.(*storeFsm)
-	numToRecv := p.messagesPerTick - len(p.storeMsgBuf)
-	receiverLen := len(store.receiver)
-	if numToRecv >= receiverLen {
-		numToRecv = receiverLen
-		pause = true
-	}
-	for i := 0; i < numToRecv; i++ {
-		p.storeMsgBuf = append(p.storeMsgBuf, <-store.receiver)
-	}
-	newStoreFsmDelegate(store, p.pollCtx).handleMessages(p.storeMsgBuf)
-	p.storeMsgBuf = p.storeMsgBuf[:0]
-	return
-}
-
-func (p *raftPoller) handleNormal(normal fsm) (pause bool, chLen int) {
-	peer := normal.(*peerFsm)
-	receiverLen := len(peer.receiver)
-	delegate := newPeerFsmDelegate(peer, p.pollCtx)
-	if peer.hasPendingMergeApplyResult() {
-		if !delegate.resumeHandlePendingApplyResult() {
-			return true, receiverLen
-		}
-	}
-	numToRecv := p.messagesPerTick - len(p.storeMsgBuf)
-	if numToRecv >= receiverLen {
-		numToRecv = receiverLen
-		pause = true
-	}
-	for i := 0; i < numToRecv; i++ {
-		p.peerMsgBuf = append(p.peerMsgBuf, <-peer.receiver)
-	}
-	delegate.handleMsgs(p.peerMsgBuf)
-	p.peerMsgBuf = p.peerMsgBuf[:0]
-	p.pendingProposals = delegate.collectReady(p.pendingProposals)
-	return
-}
-
-func (p *raftPoller) end(peers []fsm) {
-	if p.pollCtx.hasReady {
-		p.handleRaftReady(peers)
-	}
-	if len(p.pollCtx.queuedSnaps) > 0 {
-		p.pollCtx.storeMetaLock.Lock()
-		meta := p.pollCtx.storeMeta
-		retained := meta.pendingSnapshotRegions[:0]
-		for _, region := range meta.pendingSnapshotRegions {
-			if _, ok := p.pollCtx.queuedSnaps[region.Id]; !ok {
-				retained = append(retained, region)
-			}
-		}
-		meta.pendingSnapshotRegions = retained
-		p.pollCtx.storeMetaLock.Unlock()
-		p.pollCtx.queuedSnaps = map[uint64]struct{}{}
-	}
-	return
-}
-
 type raftPollerBuilder struct {
 	cfg                  *Config
 	store                *metapb.Store
@@ -397,7 +269,7 @@ type raftPollerBuilder struct {
 	computeHashScheduler chan<- task
 	splitCheckScheduler  chan<- task
 	regionScheduler      chan<- task
-	applyRouter          *applyRouter
+	applyRouter          *applyMsgs
 	router               *router
 	compactScheduler     chan<- task
 	storeMetaLock        *sync.RWMutex
@@ -412,15 +284,10 @@ type raftPollerBuilder struct {
 	peerEventObserver    PeerEventObserver
 }
 
-type senderPeerFsmPair struct {
-	sender chan<- Msg
-	fsm    *peerFsm
-}
-
 /// init Initialize this store. It scans the db engine, loads all regions
 /// and their peers from it, and schedules snapshot worker if necessary.
 /// WARN: This store should not be used before initialized.
-func (b *raftPollerBuilder) init() ([]senderPeerFsmPair, error) {
+func (b *raftPollerBuilder) init() ([]*peerFsm, error) {
 	// Scan region meta to get saved regions.
 	startKey := RegionMetaMinKey
 	endKey := RegionMetaMaxKey
@@ -428,7 +295,7 @@ func (b *raftPollerBuilder) init() ([]senderPeerFsmPair, error) {
 	storeID := b.store.Id
 
 	var totalCount, tombStoneCount, applyingCount int
-	var regionPeers []senderPeerFsmPair
+	var regionPeers []*peerFsm
 
 	t := time.Now()
 	kvWB := new(WriteBatch)
@@ -477,7 +344,7 @@ func (b *raftPollerBuilder) init() ([]senderPeerFsmPair, error) {
 				continue
 			}
 
-			sender, peer, err := createPeerFsm(storeID, b.cfg, b.regionScheduler, b.engines, region)
+			peer, err := createPeerFsm(storeID, b.cfg, b.regionScheduler, b.engines, region)
 			if err != nil {
 				return err
 			}
@@ -491,7 +358,7 @@ func (b *raftPollerBuilder) init() ([]senderPeerFsmPair, error) {
 			meta.regions[regionID] = region
 			// No need to check duplicated here, because we use region id as the key
 			// in DB.
-			regionPeers = append(regionPeers, senderPeerFsmPair{sender: sender, fsm: peer})
+			regionPeers = append(regionPeers, peer)
 			b.coprocessorHost.OnRegionChanged(region, RegionChangeEvent_Create, raft.StateFollower)
 		}
 		return nil
@@ -509,14 +376,14 @@ func (b *raftPollerBuilder) init() ([]senderPeerFsmPair, error) {
 	// schedule applying snapshot after raft write batch were written.
 	for _, region := range applyingRegions {
 		log.Infof("region %d is applying snapshot", region.Id)
-		sender, peer, err := createPeerFsm(storeID, b.cfg, b.regionScheduler, b.engines, region)
+		peer, err := createPeerFsm(storeID, b.cfg, b.regionScheduler, b.engines, region)
 		if err != nil {
 			return nil, err
 		}
 		peer.scheduleApplyingSnapshot()
 		meta.regionRanges.Insert(region.EndKey, regionIDToBytes(region.Id))
 		meta.regions[region.Id] = region
-		regionPeers = append(regionPeers, senderPeerFsmPair{sender: sender, fsm: peer})
+		regionPeers = append(regionPeers, peer)
 	}
 	log.Infof("start store %d, region_count %d, tombstone_count %d, applying_count %d, merge_count %d, takes %v",
 		storeID, totalCount, tombStoneCount, applyingCount, mergingCount, time.Since(t))
@@ -543,8 +410,8 @@ func (b *raftPollerBuilder) clearStaleMeta(kvWB, raftWB *WriteBatch, originState
 	}
 }
 
-func (b *raftPollerBuilder) build() pollHandler {
-	ctx := &PollContext{
+func (b *raftPollerBuilder) build() *PollContext {
+	return &PollContext{
 		cfg:                  b.cfg,
 		store:                b.store,
 		pdScheduler:          b.pdScheduler,
@@ -552,7 +419,7 @@ func (b *raftPollerBuilder) build() pollHandler {
 		computeHashScheduler: b.computeHashScheduler,
 		splitCheckScheduler:  b.splitCheckScheduler,
 		regionScheduler:      b.regionScheduler,
-		applyRouter:          b.applyRouter,
+		applyMsgs:            b.applyRouter,
 		router:               b.router,
 		compactScheduler:     b.compactScheduler,
 		storeMeta:            b.storeMeta,
@@ -571,14 +438,6 @@ func (b *raftPollerBuilder) build() pollHandler {
 		tickDriverCh:         b.tickDriverCh,
 		peerEventObserver:    b.peerEventObserver,
 	}
-	return &raftPoller{
-		tag:             fmt.Sprintf("[store %d]", ctx.store.Id),
-		storeMsgBuf:     make([]Msg, 0, ctx.cfg.MessagesPerTick),
-		peerMsgBuf:      make([]Msg, 0, ctx.cfg.MessagesPerTick),
-		startTime:       time.Now(),
-		messagesPerTick: int(ctx.cfg.MessagesPerTick),
-		pollCtx:         ctx,
-	}
 }
 
 type workers struct {
@@ -593,12 +452,9 @@ type workers struct {
 }
 
 type raftBatchSystem struct {
-	system      *batchSystem
-	applyRouter *applyRouter
-	applySystem *batchSystem
-	router      *router
-	workers     *workers
-	tickDriver  *tickDriver
+	router     *router
+	workers    *workers
+	tickDriver *tickDriver
 }
 
 func (bs *raftBatchSystem) start(
@@ -638,7 +494,6 @@ func (bs *raftBatchSystem) start(
 		compactScheduler:     workers.compactWorker.scheduler,
 		pdScheduler:          workers.pdWorker.scheduler,
 		computeHashScheduler: workers.computeHashWorker.scheduler,
-		applyRouter:          bs.applyRouter,
 		trans:                trans,
 		pdClient:             pdClinet,
 		coprocessorHost:      coprocessorHost,
@@ -657,37 +512,30 @@ func (bs *raftBatchSystem) start(
 }
 
 func (bs *raftBatchSystem) startSystem(
-	workers *workers, regionPeers []senderPeerFsmPair, builder *raftPollerBuilder) error {
+	workers *workers, regionPeers []*peerFsm, builder *raftPollerBuilder) error {
 	snapMgr := builder.snapMgr
 	err := snapMgr.init()
 	if err != nil {
 		return err
 	}
-	applyPollerBuilder := newApplyPollerBuilder(builder, notifier{router: bs.router}, bs.applyRouter, builder.regionScheduler)
-	bs.scheduleApplySystem(regionPeers)
-
-	store := builder.store
-	tag := fmt.Sprintf("raftstore-%d", store.Id)
-	bs.system.start(tag, builder)
-
-	mailboxes := make([]addrMailboxPair, 0, len(regionPeers))
-	for _, pair := range regionPeers {
-		mailboxes = append(mailboxes, addrMailboxPair{
-			addr:    pair.fsm.regionID(),
-			mailbox: newMailbox(pair.sender, pair.fsm),
-		})
+	pr := bs.router.pr
+	for _, peer := range regionPeers {
+		pr.register(peer)
 	}
-	bs.router.registerAll(mailboxes)
-	// Make sure Msg::Start is the first message each FSM received.
-	bs.router.sendControl(Msg{Type: MsgTypeStoreStart, Data: store})
-	for _, mb := range mailboxes {
-		err = bs.router.send(mb.addr, Msg{Type: MsgTypeStart})
-		if err != nil {
-			panic(err)
-		}
+	for i := uint64(0); i < builder.cfg.RaftWorkerCnt; i++ {
+		rw := newRaftWorker(builder, pr.workerSenders[i], pr)
+		go rw.runRaft()
+		go rw.runApply()
 	}
-
-	bs.applySystem.start("apply", applyPollerBuilder)
+	sw := &storeWorker{
+		store: newStoreFsmDelegate(pr.storeFsm, builder.build()),
+	}
+	go sw.run()
+	pr.sendStore(Msg{Type: MsgTypeStoreStart, Data: builder.store})
+	for i := 0; i < len(regionPeers); i++ {
+		regionID := regionPeers[i].peer.regionId
+		_ = pr.send(regionID, Msg{RegionID: regionID, Type: MsgTypeStart})
+	}
 	engines := builder.engines
 	workers.splitCheckWorker.start(&splitCheckRunner{
 		engine:          engines.kv.db,
@@ -698,25 +546,12 @@ func (bs *raftBatchSystem) startSystem(
 	workers.regionWorker.start(newRegionRunner(engines, snapMgr, cfg.SnapApplyBatchSize, cfg.CleanStalePeerDelay))
 	workers.raftLogGCWorker.start(&raftLogGCRunner{})
 	workers.compactWorker.start(&compactRunner{engine: engines.kv.db})
-	pdRunner := newPDRunner(store.Id, builder.pdClient, bs.router, engines.kv.db, workers.pdWorker.scheduler)
+	pdRunner := newPDRunner(builder.store.Id, builder.pdClient, bs.router, engines.kv.db, workers.pdWorker.scheduler)
 	workers.pdWorker.start(pdRunner)
 	workers.computeHashWorker.start(&computeHashRunner{router: bs.router})
 	bs.workers = workers
 	go bs.tickDriver.run() // TODO: temp workaround.
 	return nil
-}
-
-func (bs *raftBatchSystem) scheduleApplySystem(regionPeers []senderPeerFsmPair) {
-	mailboxes := make([]addrMailboxPair, 0, len(regionPeers))
-	for _, pair := range regionPeers {
-		peer := pair.fsm
-		sender, applyFsm := newApplyFsmFromPeer(peer)
-		mailboxes = append(mailboxes, addrMailboxPair{
-			addr:    peer.regionID(),
-			mailbox: newMailbox(sender, applyFsm),
-		})
-	}
-	bs.applyRouter.registerAll(mailboxes)
 }
 
 func (bs *raftBatchSystem) shutDown() {
@@ -732,22 +567,16 @@ func (bs *raftBatchSystem) shutDown() {
 	workers.computeHashWorker.scheduler <- stopTask
 	workers.pdWorker.scheduler <- stopTask
 	workers.compactWorker.scheduler <- stopTask
-	bs.applySystem.shutdown()
-	bs.system.shutdown()
 	workers.wg.Wait()
 	workers.coprocessorHost.shutdown()
 }
 
 func createRaftBatchSystem(cfg *Config) (*router, *raftBatchSystem) {
 	storeSender, storeFsm := newStoreFsm(cfg)
-	applyRouter, applySystem := createApplyBatchSystem(cfg)
-	router, system := createBatchSystem(int(cfg.StorePoolSize), int(cfg.StoreMaxBatchSize), storeSender, storeFsm)
+	router := newRouter(newPeerRouter(int(cfg.RaftWorkerCnt), storeSender, storeFsm))
 	raftBatchSystem := &raftBatchSystem{
-		system:      system,
-		applyRouter: applyRouter,
-		applySystem: applySystem,
-		router:      router,
-		tickDriver:  newTickDriver(cfg.RaftBaseTickInterval, router, storeFsm.ticker),
+		router:     router,
+		tickDriver: newTickDriver(cfg.RaftBaseTickInterval, router, storeFsm.ticker),
 	}
 	return router, raftBatchSystem
 }
@@ -903,7 +732,7 @@ func (d *storeFsmDelegate) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessag
 	}
 
 	// New created peers should know it's learner or not.
-	sender, peer, err := replicatePeerFsm(
+	peer, err := replicatePeerFsm(
 		d.ctx.store.Id, d.ctx.cfg, d.ctx.regionScheduler, d.ctx.engine, regionID, msg.ToPeer)
 	if err != nil {
 		return false, err
@@ -911,8 +740,7 @@ func (d *storeFsmDelegate) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessag
 	// following snapshot may overlap, should insert into region_ranges after
 	// snapshot is applied.
 	meta.regions[regionID] = peer.peer.Region()
-	mb := newMailbox(sender, peer)
-	d.ctx.router.register(regionID, mb)
+	d.ctx.router.register(regionID, peer)
 	_ = d.ctx.router.send(regionID, Msg{Type: MsgTypeStart})
 	return true, nil
 }
@@ -986,7 +814,7 @@ func (d *storeFsmDelegate) handleSnapMgrGC() error {
 			if err != nil {
 				return err
 			}
-			keys = keys[:0]
+			keys = nil
 		}
 		lastRegionID = key.RegionID
 		keys = append(keys, pair)

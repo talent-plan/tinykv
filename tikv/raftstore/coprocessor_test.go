@@ -2,55 +2,21 @@ package raftstore
 
 import (
 	"fmt"
+	"math"
+	"testing"
+
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/stretchr/testify/assert"
-	"math"
-	"testing"
 )
 
-type testSplitCheckFsm struct {
-	stopped bool
-	recv    <-chan Msg
-	mailbox *mailbox
-}
-
-func (s *testSplitCheckFsm) isStopped() bool {
-	return s.stopped
-}
-
-func (s *testSplitCheckFsm) setMailbox(mb *mailbox) {
-	s.mailbox = mb
-}
-
-func (s *testSplitCheckFsm) takeMailbox() *mailbox {
-	mb := s.mailbox
-	s.mailbox = nil
-	return mb
-}
-
-func newSplitCheckFsm(cap int) (chan Msg, fsm) {
-	ch := make(chan Msg, cap)
-	r := &testSplitCheckFsm{
-		recv: ch,
-	}
-	return ch, r
-}
-
-func newTestRouter() (*router, chan Msg) {
-	ctrlSender, ctrlFsm := newSplitCheckFsm(10)
-	normarlSender, normalFsm := newSplitCheckFsm(10)
-	ctrlBox := newMailbox(ctrlSender, ctrlFsm)
-
-	normalScheCh := make(chan Msg, msgDefaultChanSize)
-	normalSche := &normalScheduler{sender: normalScheCh}
-
-	router := newRouter(ctrlBox, normalSche, normalSche)
-	normalBox := newMailbox(normarlSender, normalFsm)
-	router.register(1, normalBox)
-	return router, normarlSender
+func newTestRouter() (*router, <-chan Msg) {
+	cfg := NewDefaultConfig()
+	storeSender, storeFsm := newStoreFsm(cfg)
+	router := newRouter(newPeerRouter(1, storeSender, storeFsm))
+	return router, storeFsm.receiver
 }
 
 func newTestSplitCheckRegion() *metapb.Region {

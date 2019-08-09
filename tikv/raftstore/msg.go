@@ -51,6 +51,8 @@ const (
 	MsgTypeApplyDestroy      MsgType = 306
 	MsgTypeApplySnapshot     MsgType = 307
 
+	MsgTypeBarrier MsgType = 401
+
 	msgDefaultChanSize = 1024
 )
 

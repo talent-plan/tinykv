@@ -117,7 +117,7 @@ type Config struct {
 	ApplyPoolSize     uint64
 
 	StoreMaxBatchSize uint64
-	StorePoolSize     uint64
+	RaftWorkerCnt     uint64
 
 	ConcurrentSendSnapLimit uint64
 	ConcurrentRecvSnapLimit uint64
@@ -193,7 +193,7 @@ func NewDefaultConfig() *Config {
 		ApplyMaxBatchSize:        1024,
 		ApplyPoolSize:            2,
 		StoreMaxBatchSize:        1024,
-		StorePoolSize:            2,
+		RaftWorkerCnt:            2,
 		ConcurrentSendSnapLimit:  32,
 		ConcurrentRecvSnapLimit:  32,
 		GrpcInitialWindowSize:    2 * 1024 * 1024,
@@ -284,7 +284,7 @@ func (c *Config) Validate() error {
 	if c.ApplyMaxBatchSize == 0 {
 		return fmt.Errorf("apply-max-batch-size should be greater than 0")
 	}
-	if c.StorePoolSize == 0 {
+	if c.RaftWorkerCnt == 0 {
 		return fmt.Errorf("store-pool-size should be greater than 0")
 	}
 	if c.StoreMaxBatchSize == 0 {

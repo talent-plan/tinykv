@@ -373,10 +373,10 @@ func (p *Peer) getPeerFromCache(peerID uint64) *metapb.Peer {
 	return nil
 }
 
-/// Register self to applyRouter so that the peer is then usable.
+/// Register self to applyMsgs so that the peer is then usable.
 /// Also trigger `RegionChangeEvent::Create` here.
 func (p *Peer) Activate(ctx *PollContext) {
-	ctx.applyRouter.scheduleTask(p.regionId, NewMsg(MsgTypeApplyRegistration, newRegistration(p)))
+	ctx.applyMsgs.appendMsg(p.regionId, NewMsg(MsgTypeApplyRegistration, newRegistration(p)))
 	ctx.coprocessorHost.OnRegionChanged(p.Region(), RegionChangeEvent_Create, p.GetRole())
 }
 
@@ -790,7 +790,7 @@ func (p *Peer) HandleRaftReadyAppend(ctx *PollContext) bool {
 	}
 
 	if p.peerStorage.genSnapTask != nil {
-		ctx.applyRouter.scheduleTask(p.regionId, Msg{
+		ctx.applyMsgs.appendMsg(p.regionId, Msg{
 			Type: MsgTypeApplySnapshot,
 			Data: p.peerStorage.genSnapTask,
 		})
@@ -1049,7 +1049,7 @@ func (p *Peer) HandleRaftReadyApply(ctx *PollContext, ready *raft.Ready) {
 				term:     p.Term(),
 				entries:  committedEntries,
 			}
-			ctx.applyRouter.scheduleTask(p.regionId, newApplyMsg(apply))
+			ctx.applyMsgs.appendMsg(p.regionId, newApplyMsg(apply))
 		}
 	}
 

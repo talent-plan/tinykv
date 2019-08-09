@@ -155,7 +155,7 @@ func (ri *regionCtx) AcquireLatches(hashVals []uint64) {
 		if ok {
 			dur := time.Since(start)
 			if dur > time.Millisecond*50 {
-				log.Warnf("acquire %d locks takes %v", len(hashVals), dur)
+				log.Warnf("region %d acquire %d locks takes %v", ri.meta.Id, len(hashVals), dur)
 			}
 			return
 		}

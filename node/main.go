@@ -41,6 +41,7 @@ var (
 	syncWrites       = flag.Bool("sync-write", true, "Sync all writes to disk. Setting this to true would slow down data loading significantly.")
 	maxProcs         = flag.Int("max-procs", 0, "Max CPU cores to use, set 0 to use all CPU cores in the machine.")
 	raft             = flag.Bool("raft", false, "enable raft")
+	raftWorkerCnt    = flag.Uint64("raft-worker-cnt", 2, "number of raft workers")
 )
 
 var (
@@ -138,6 +139,7 @@ func setupRaftInnerServer(bundle *mvcc.DBBundle, safePoint *tikv.SafePoint, pdCl
 	config := raftstore.NewDefaultConfig()
 	config.Addr = *storeAddr
 	config.SnapPath = snapPath
+	config.RaftWorkerCnt = *raftWorkerCnt
 
 	raftDB := createDB("raft", safePoint)
 	meta, err := bundle.LockStore.LoadFromFile(filepath.Join(kvPath, raftstore.LockstoreFileName))

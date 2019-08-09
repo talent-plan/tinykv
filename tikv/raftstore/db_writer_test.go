@@ -15,7 +15,7 @@ func TestRaftWriteBatch_PrewriteAndCommit(t *testing.T) {
 	engines := newTestEngines(t)
 	defer cleanUpTestEngineData(engines)
 	apply := new(applyDelegate)
-	applyCtx := newApplyContext("test", nil, engines, nil, notifier{}, NewDefaultConfig())
+	applyCtx := newApplyContext("test", nil, nil, engines, nil, NewDefaultConfig())
 	wb := &raftWriteBatch{
 		startTS:  100,
 		commitTS: 0,
@@ -101,7 +101,7 @@ func TestRaftWriteBatch_Rollback(t *testing.T) {
 	engines := newTestEngines(t)
 	defer cleanUpTestEngineData(engines)
 	apply := new(applyDelegate)
-	applyCtx := newApplyContext("test", nil, engines, nil, notifier{}, NewDefaultConfig())
+	applyCtx := newApplyContext("test", nil, nil, engines, nil, NewDefaultConfig())
 	wb := &raftWriteBatch{
 		startTS:  100,
 		commitTS: 0,
