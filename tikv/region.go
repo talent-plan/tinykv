@@ -198,8 +198,8 @@ type RegionManager interface {
 
 type regionManager struct {
 	storeMeta *metapb.Store
-	mu        sync.RWMutex
-	regions   map[uint64]*regionCtx
+	regions   sync.Map
+	regionCnt int64
 }
 
 func (rm *regionManager) GetRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *errorpb.Error) {
@@ -210,12 +210,12 @@ func (rm *regionManager) GetRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *er
 			StoreNotMatch: &errorpb.StoreNotMatch{},
 		}
 	}
-	rm.mu.RLock()
-	ri := rm.regions[ctx.RegionId]
-	if ri != nil {
+	var ri *regionCtx
+	v, ok := rm.regions.Load(ctx.RegionId)
+	if ok {
+		ri = v.(*regionCtx)
 		ri.refCount.Add(1)
 	}
-	rm.mu.RUnlock()
 	if ri == nil {
 		return nil, &errorpb.Error{
 			Message: "region not found",
@@ -258,50 +258,45 @@ func NewRaftRegionManager(store *metapb.Store, router *raftstore.RaftstoreRouter
 		router: router,
 		regionManager: regionManager{
 			storeMeta: store,
-			regions:   make(map[uint64]*regionCtx),
 		},
 	}
 }
 
 func (rm *RaftRegionManager) OnPeerCreate(ctx *raftstore.PeerEventContext, region *metapb.Region) {
-	rm.mu.Lock()
-	rm.regions[ctx.RegionId] = newRegionCtx(region, nil, ctx.LeaderChecker)
-	rm.mu.Unlock()
+	rm.regions.Store(ctx.RegionId, newRegionCtx(region, nil, ctx.LeaderChecker))
+	atomic.AddInt64(&rm.regionCnt, 1)
 }
 
 func (rm *RaftRegionManager) OnPeerApplySnap(ctx *raftstore.PeerEventContext, region *metapb.Region) {
-	rm.mu.Lock()
-	rm.regions[ctx.RegionId] = newRegionCtx(region, nil, ctx.LeaderChecker)
-	rm.mu.Unlock()
+	rm.regions.Store(ctx.RegionId, newRegionCtx(region, nil, ctx.LeaderChecker))
 }
 
 func (rm *RaftRegionManager) OnPeerDestroy(ctx *raftstore.PeerEventContext) {
-	rm.mu.Lock()
-	region := rm.regions[ctx.RegionId]
+	v, ok := rm.regions.Load(ctx.RegionId)
+	if !ok {
+		return
+	}
+	region := v.(*regionCtx)
 	region.waitParent()
-	delete(rm.regions, ctx.RegionId)
-	rm.mu.Unlock()
+	rm.regions.Delete(ctx.RegionId)
 	region.refCount.Done()
+	atomic.AddInt64(&rm.regionCnt, 1)
 }
 
 func (rm *RaftRegionManager) OnSplitRegion(derived *metapb.Region, regions []*metapb.Region, peers []*raftstore.PeerEventContext) {
-	rm.mu.RLock()
-	oldRegion := rm.regions[derived.Id]
-	rm.mu.RUnlock()
+	v, _ := rm.regions.Load(derived.Id)
+	oldRegion := v.(*regionCtx)
 	oldRegion.waitParent()
-
-	rm.mu.Lock()
 	for i, region := range regions {
-		rm.regions[region.Id] = newRegionCtx(region, oldRegion, peers[i].LeaderChecker)
+		rm.regions.Store(region.Id, newRegionCtx(region, oldRegion, peers[i].LeaderChecker))
 	}
-	rm.mu.Unlock()
 	oldRegion.refCount.Done()
+	atomic.AddInt64(&rm.regionCnt, int64(len(regions)-1))
 }
 
 func (rm *RaftRegionManager) OnRegionConfChange(ctx *raftstore.PeerEventContext, epoch *metapb.RegionEpoch) {
-	rm.mu.RLock()
-	region := rm.regions[ctx.RegionId]
-	rm.mu.RUnlock()
+	v, _ := rm.regions.Load(ctx.RegionId)
+	region := v.(*regionCtx)
 	region.updateRegionEpoch(epoch)
 }
 
@@ -342,7 +337,6 @@ func NewStandAloneRegionManager(db *badger.DB, opts RegionOptions, pdc pd.Client
 		regionSize: opts.RegionSize,
 		closeCh:    make(chan struct{}),
 		regionManager: regionManager{
-			regions:   make(map[uint64]*regionCtx),
 			storeMeta: new(metapb.Store),
 		},
 	}
@@ -376,7 +370,8 @@ func NewStandAloneRegionManager(db *badger.DB, opts RegionOptions, pdc pd.Client
 			if err != nil {
 				return errors.Trace(err)
 			}
-			rm.regions[r.meta.Id] = r
+			rm.regions.Store(r.meta.Id, r)
+			atomic.AddInt64(&rm.regionCnt, 1)
 		}
 		return nil
 	})
@@ -412,7 +407,7 @@ func (rm *StandAloneRegionManager) initStore(storeAddr string) error {
 		RegionEpoch: &metapb.RegionEpoch{ConfVer: 1, Version: 1},
 		Peers:       []*metapb.Peer{&metapb.Peer{Id: peerID, StoreId: storeID}},
 	}
-	rm.regions[rootRegion.Id] = newRegionCtx(rootRegion, nil, nil)
+	rm.regions.Store(rootRegion.Id, newRegionCtx(rootRegion, nil, nil))
 	_, err = rm.pdc.Bootstrap(ctx, rm.storeMeta, rootRegion)
 	cancel()
 	if err != nil {
@@ -425,23 +420,28 @@ func (rm *StandAloneRegionManager) initStore(storeAddr string) error {
 	}
 	err = rm.db.Update(func(txn *badger.Txn) error {
 		txn.Set(InternalStoreMetaKey, storeBuf)
-		for rid, region := range rm.regions {
+		rm.regions.Range(func(key, value interface{}) bool {
+			rid := key.(uint64)
+			region := value.(*regionCtx)
 			regionBuf := region.marshal()
 			err = txn.Set(InternalRegionMetaKey(rid), regionBuf)
 			if err != nil {
 				log.Fatal("%+v", err)
 			}
-		}
+			return true
+		})
 		return nil
 	})
-	for _, region := range rm.regions {
+	rm.regions.Range(func(key, value interface{}) bool {
+		region := value.(*regionCtx)
 		req := &pdpb.RegionHeartbeatRequest{
 			Region:          region.meta,
 			Leader:          region.meta.Peers[0],
 			ApproximateSize: uint64(region.approximateSize),
 		}
 		rm.pdc.ReportRegion(req)
-	}
+		return true
+	})
 	log.Info("Initialize success")
 	return nil
 }
@@ -450,7 +450,7 @@ func (rm *StandAloneRegionManager) initStore(storeAddr string) error {
 func (rm *StandAloneRegionManager) initialSplit(root *metapb.Region) {
 	root.EndKey = codec.EncodeBytes(nil, []byte{'m'})
 	root.RegionEpoch.Version = 2
-	rm.regions[root.Id] = newRegionCtx(root, nil, nil)
+	rm.regions.Store(root.Id, newRegionCtx(root, nil, nil))
 	preSplitStartKeys := [][]byte{{'m'}, {'n'}, {'t'}, {'u'}}
 	ids, err := rm.allocIDs(len(preSplitStartKeys) * 2)
 	if err != nil {
@@ -468,8 +468,9 @@ func (rm *StandAloneRegionManager) initialSplit(root *metapb.Region) {
 			StartKey:    codec.EncodeBytes(nil, startKey),
 			EndKey:      endKey,
 		}
-		rm.regions[newRegion.Id] = newRegionCtx(newRegion, nil, nil)
+		rm.regions.Store(newRegion.Id, newRegionCtx(newRegion, nil, nil))
 	}
+	rm.regionCnt = 1 + int64(len(preSplitStartKeys))
 }
 
 func (rm *StandAloneRegionManager) allocIDs(n int) ([]uint64, error) {
@@ -496,9 +497,7 @@ func (rm *StandAloneRegionManager) storeHeartBeatLoop() {
 		storeStats := new(pdpb.StoreStats)
 		storeStats.StoreId = rm.storeMeta.Id
 		storeStats.Available = 1024 * 1024 * 1024
-		rm.mu.RLock()
-		storeStats.RegionCount = uint32(len(rm.regions))
-		rm.mu.RUnlock()
+		storeStats.RegionCount = uint32(atomic.LoadInt64(&rm.regionCnt))
 		storeStats.Capacity = 2048 * 1024 * 1024
 		rm.pdc.StoreHeartbeat(context.Background(), storeStats)
 	}
@@ -569,25 +568,25 @@ func (rm *StandAloneRegionManager) runSplitWorker() {
 	var regionsToSave []*regionCtx
 	for {
 		regionsToCheck = regionsToCheck[:0]
-		rm.mu.RLock()
-		for _, ri := range rm.regions {
+		rm.regions.Range(func(key, value interface{}) bool {
+			ri := value.(*regionCtx)
 			if ri.approximateSize+atomic.LoadInt64(&ri.diff) > rm.regionSize*3/2 {
 				regionsToCheck = append(regionsToCheck, ri)
 			}
-		}
-		rm.mu.RUnlock()
+			return true
+		})
 		for _, ri := range regionsToCheck {
 			rm.splitCheckRegion(ri)
 		}
 
 		regionsToSave = regionsToSave[:0]
-		rm.mu.RLock()
-		for _, ri := range rm.regions {
+		rm.regions.Range(func(key, value interface{}) bool {
+			ri := value.(*regionCtx)
 			if atomic.LoadInt64(&ri.diff) > rm.regionSize/8 {
 				regionsToSave = append(regionsToSave, ri)
 			}
-		}
-		rm.mu.RUnlock()
+			return true
+		})
 		rm.saveSize(regionsToSave)
 		select {
 		case <-rm.closeCh:
@@ -688,11 +687,10 @@ func (rm *StandAloneRegionManager) splitRegion(oldRegionCtx *regionCtx, splitKey
 	if err1 != nil {
 		return errors.Trace(err1)
 	}
-	rm.mu.Lock()
-	rm.regions[left.meta.Id] = left
-	rm.regions[right.meta.Id] = right
-	rm.mu.Unlock()
+	rm.regions.Store(left.meta.Id, left)
+	rm.regions.Store(right.meta.Id, right)
 	oldRegionCtx.refCount.Done()
+	atomic.AddInt64(&rm.regionCnt, 1)
 	rm.pdc.ReportRegion(&pdpb.RegionHeartbeatRequest{
 		Region:          right.meta,
 		Leader:          right.meta.Peers[0],

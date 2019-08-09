@@ -73,8 +73,7 @@ type applyBatch struct {
 
 // peerRouter routes a message to a peer.
 type peerRouter struct {
-	mu            sync.RWMutex
-	peers         map[uint64]*peerState
+	peers         sync.Map
 	workerSenders []chan Msg
 	storeSender   chan<- Msg
 	storeFsm      *storeFsm
@@ -82,7 +81,6 @@ type peerRouter struct {
 
 func newPeerRouter(workerSize int, storeSender chan<- Msg, storeFsm *storeFsm) *peerRouter {
 	pm := &peerRouter{
-		peers:         map[uint64]*peerState{},
 		workerSenders: make([]chan Msg, workerSize),
 		storeSender:   storeSender,
 		storeFsm:      storeFsm,
@@ -94,10 +92,11 @@ func newPeerRouter(workerSize int, storeSender chan<- Msg, storeFsm *storeFsm) *
 }
 
 func (pr *peerRouter) get(regionID uint64) *peerState {
-	pr.mu.RLock()
-	p := pr.peers[regionID]
-	pr.mu.RUnlock()
-	return p
+	v, ok := pr.peers.Load(regionID)
+	if ok {
+		return v.(*peerState)
+	}
+	return nil
 }
 
 func (pr *peerRouter) register(peer *peerFsm) {
@@ -112,18 +111,15 @@ func (pr *peerRouter) register(peer *peerFsm) {
 		peer:   peer,
 		apply:  apply,
 	}
-	pr.mu.Lock()
-	pr.peers[id] = newPeer
-	pr.mu.Unlock()
+	pr.peers.Store(id, newPeer)
 }
 
 func (pr *peerRouter) close(regionID uint64) {
-	pr.mu.Lock()
-	defer pr.mu.Unlock()
-	ps := pr.peers[regionID]
-	if ps != nil {
+	v, ok := pr.peers.Load(regionID)
+	if ok {
+		ps := v.(*peerState)
 		ps.close()
-		delete(pr.peers, regionID)
+		pr.peers.Delete(regionID)
 	}
 }
 
