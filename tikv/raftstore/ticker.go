@@ -1,6 +1,7 @@
 package raftstore
 
 import (
+	"sync"
 	"time"
 )
 
@@ -95,10 +96,13 @@ func newTickDriver(baseTickInterval time.Duration, router *router, storeTicker *
 	}
 }
 
-func (r *tickDriver) run() {
+func (r *tickDriver) run(closeCh chan struct{}, wg *sync.WaitGroup) {
 	timer := time.Tick(r.baseTickInterval)
 	for {
 		select {
+		case <-closeCh:
+			wg.Done()
+			return
 		case <-timer:
 			for regionID, _ := range r.regions {
 				if r.router.send(regionID, NewPeerMsg(MsgTypeTick, regionID, nil)) != nil {

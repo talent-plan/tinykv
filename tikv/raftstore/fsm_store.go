@@ -455,6 +455,8 @@ type raftBatchSystem struct {
 	router     *router
 	workers    *workers
 	tickDriver *tickDriver
+	closeCh    chan struct{}
+	wg         *sync.WaitGroup
 }
 
 func (bs *raftBatchSystem) start(
@@ -522,15 +524,22 @@ func (bs *raftBatchSystem) startSystem(
 	for _, peer := range regionPeers {
 		pr.register(peer)
 	}
+	balancer := &balancer{
+		router: pr,
+	}
 	for i := uint64(0); i < builder.cfg.RaftWorkerCnt; i++ {
 		rw := newRaftWorker(builder, pr.workerSenders[i], pr)
-		go rw.runRaft()
-		go rw.runApply()
+		balancer.workers = append(balancer.workers, rw)
+		bs.wg.Add(1)
+		go rw.run(bs.closeCh, bs.wg)
 	}
 	sw := &storeWorker{
 		store: newStoreFsmDelegate(pr.storeFsm, builder.build()),
 	}
-	go sw.run()
+	bs.wg.Add(1)
+	go sw.run(bs.closeCh, bs.wg)
+	bs.wg.Add(1)
+	go balancer.run(bs.closeCh, bs.wg)
 	pr.sendStore(Msg{Type: MsgTypeStoreStart, Data: builder.store})
 	for i := 0; i < len(regionPeers); i++ {
 		regionID := regionPeers[i].peer.regionId
@@ -550,7 +559,8 @@ func (bs *raftBatchSystem) startSystem(
 	workers.pdWorker.start(pdRunner)
 	workers.computeHashWorker.start(&computeHashRunner{router: bs.router})
 	bs.workers = workers
-	go bs.tickDriver.run() // TODO: temp workaround.
+	bs.wg.Add(1)
+	go bs.tickDriver.run(bs.closeCh, bs.wg) // TODO: temp workaround.
 	return nil
 }
 
@@ -558,6 +568,8 @@ func (bs *raftBatchSystem) shutDown() {
 	if bs.workers == nil {
 		return
 	}
+	close(bs.closeCh)
+	bs.wg.Wait()
 	workers := bs.workers
 	bs.workers = nil
 	stopTask := task{tp: taskTypeStop}
@@ -577,6 +589,8 @@ func createRaftBatchSystem(cfg *Config) (*router, *raftBatchSystem) {
 	raftBatchSystem := &raftBatchSystem{
 		router:     router,
 		tickDriver: newTickDriver(cfg.RaftBaseTickInterval, router, storeFsm.ticker),
+		closeCh:    make(chan struct{}),
+		wg:         new(sync.WaitGroup),
 	}
 	return router, raftBatchSystem
 }

@@ -1,10 +1,13 @@
 package raftstore
 
 import (
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
+
+	"github.com/ngaut/log"
 )
 
 // peerState contains the peer states that needs to run raft command and apply command.
@@ -139,13 +142,17 @@ func (pr *peerRouter) sendStore(msg Msg) {
 type raftWorker struct {
 	pr *peerRouter
 
-	raftCh           <-chan Msg
+	raftCh           chan Msg
 	raftCtx          *PollContext
 	raftStartTime    time.Time
 	pendingProposals []*regionProposal
 
 	applyCh  chan *applyBatch
 	applyCtx *applyContext
+
+	msgCnt            uint64
+	movePeerCandidate uint64
+	closeCh           <-chan struct{}
 }
 
 func newRaftWorker(b *raftPollerBuilder, ch chan Msg, pm *peerRouter) *raftWorker {
@@ -161,18 +168,26 @@ func newRaftWorker(b *raftPollerBuilder, ch chan Msg, pm *peerRouter) *raftWorke
 	}
 }
 
-// runRaft runs raft commands.
+// run runs raft commands.
 // On each loop, raft commands are batched by channel buffer.
 // After commands are handled, we collect apply messages by peers, make a applyBatch, send it to apply channel.
-func (rw *raftWorker) runRaft() {
+func (rw *raftWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
+	go rw.runApply(wg)
 	var msgs []Msg
 	for {
 		msgs = msgs[:0]
-		msgs = append(msgs, <-rw.raftCh)
+		select {
+		case <-closeCh:
+			rw.applyCh <- nil
+			return
+		case msg := <-rw.raftCh:
+			msgs = append(msgs, msg)
+		}
 		pending := len(rw.raftCh)
 		for i := 0; i < pending; i++ {
 			msgs = append(msgs, <-rw.raftCh)
 		}
+		atomic.AddUint64(&rw.msgCnt, uint64(len(msgs)))
 		peerStateMap := make(map[uint64]*peerState)
 		rw.raftCtx.pendingCount = 0
 		rw.raftCtx.hasReady = false
@@ -189,10 +204,14 @@ func (rw *raftWorker) runRaft() {
 			delegate := &peerFsmDelegate{peerFsm: peerState.peer, ctx: rw.raftCtx}
 			delegate.handleMsgs([]Msg{msg})
 		}
-		for _, peerState := range peerStateMap {
+		var movePeer uint64
+		for id, peerState := range peerStateMap {
+			movePeer = id
 			delegate := &peerFsmDelegate{peerFsm: peerState.peer, ctx: rw.raftCtx}
 			rw.pendingProposals = delegate.collectReady(rw.pendingProposals)
 		}
+		// Pick one peer as the candidate to be moved to other workers.
+		atomic.StoreUint64(&rw.movePeerCandidate, movePeer)
 		if rw.raftCtx.hasReady {
 			rw.handleRaftReady(peerStateMap)
 		}
@@ -271,9 +290,13 @@ func (rw *raftWorker) removeQueuedSnapshots() {
 }
 
 // runApply runs apply tasks, since it is already batched by raftCh, we don't need to batch it here.
-func (rw *raftWorker) runApply() {
+func (rw *raftWorker) runApply(wg *sync.WaitGroup) {
 	for {
 		batch := <-rw.applyCh
+		if batch == nil {
+			wg.Done()
+			return
+		}
 		for _, msg := range batch.msgs {
 			ps := batch.peers[msg.RegionID]
 			if ps == nil {
@@ -294,9 +317,69 @@ type storeWorker struct {
 	store *storeFsmDelegate
 }
 
-func (sw *storeWorker) run() {
+func (sw *storeWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
 	for {
-		msg := <-sw.store.receiver
+		var msg Msg
+		select {
+		case <-closeCh:
+			wg.Done()
+			return
+		case msg = <-sw.store.receiver:
+		}
 		sw.store.handleMessages([]Msg{msg})
+	}
+}
+
+type balancer struct {
+	workers []*raftWorker
+	router  *peerRouter
+}
+
+const (
+	minBalanceMsgCntPerSecond = 1000
+	balanceInterval           = time.Second * 10
+	minBalanceMsgCnt          = minBalanceMsgCntPerSecond * uint64(balanceInterval/time.Second)
+	minBalanceFactor          = 2
+)
+
+func (wb *balancer) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
+	ticker := time.NewTicker(balanceInterval)
+	deltas := make([]uint64, len(wb.workers))
+	lastCnt := make([]uint64, len(wb.workers))
+	lastMove := uint64(0)
+	for {
+		select {
+		case <-closeCh:
+			wg.Done()
+			return
+		case <-ticker.C:
+		}
+		maxDelta := uint64(0)
+		minDelta := uint64(math.MaxUint64)
+		var maxWorker, minWorker *raftWorker
+		for i := range wb.workers {
+			worker := wb.workers[i]
+			msgCnt := atomic.LoadUint64(&worker.msgCnt)
+			delta := msgCnt - lastCnt[i]
+			if delta > maxDelta {
+				maxWorker = worker
+			}
+			if delta < minDelta {
+				minWorker = worker
+			}
+			deltas[i] = delta
+			lastCnt[i] = msgCnt
+		}
+		if maxDelta > minDelta*minBalanceFactor && maxDelta > minBalanceMsgCnt {
+			movePeerID := atomic.LoadUint64(&maxWorker.movePeerCandidate)
+			if movePeerID == lastMove {
+				// Avoid to move the same peer back and force.
+				continue
+			}
+			lastMove = movePeerID
+			movePeer := wb.router.get(movePeerID)
+			log.Infof("balance peer %d from busy worker to idle worker", movePeerID)
+			movePeer.changeWorker(minWorker.raftCh)
+		}
 	}
 }
