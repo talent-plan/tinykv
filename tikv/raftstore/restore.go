@@ -6,6 +6,7 @@ import (
 	"github.com/coocood/badger"
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
+	"github.com/ngaut/unistore/lockstore"
 	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/kvproto/pkg/eraftpb"
 	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
@@ -39,29 +40,9 @@ func RestoreLockStore(offset uint64, bundle *mvcc.DBBundle, raftDB *badger.DB) e
 		if err != nil {
 			return
 		}
-		if entry.EntryType != eraftpb.EntryType_EntryNormal {
-			return
-		}
-		var raftCmdRequest raft_cmdpb.RaftCmdRequest
-		err = raftCmdRequest.Unmarshal(entry.Data)
+		err = restoreAppliedEntry(&entry, txn, bundle.LockStore, bundle.RollbackStore)
 		if err != nil {
 			return
-		}
-		if raftCmdRequest.AdminRequest != nil {
-			return
-		}
-		if len(raftCmdRequest.Requests) == 0 {
-			return
-		}
-		writeCmdOps := createWriteCmdOps(raftCmdRequest.Requests)
-		for _, prewrite := range writeCmdOps.prewrites {
-			restorePrewrite(prewrite, txn, bundle)
-		}
-		for _, commit := range writeCmdOps.commits {
-			restoreCommit(commit, bundle)
-		}
-		for _, rollback := range writeCmdOps.rollbacks {
-			restoreRollback(rollback, bundle)
 		}
 	})
 	log.Info("restore lock store iterated", iterCnt, "entries")
@@ -71,25 +52,55 @@ func RestoreLockStore(offset uint64, bundle *mvcc.DBBundle, raftDB *badger.DB) e
 	return err1
 }
 
-func restorePrewrite(op prewriteOp, txn *badger.Txn, bundle *mvcc.DBBundle) {
-	key, value := convertPrewriteToLock(op, txn)
-	bundle.LockStore.Insert(key, value)
+func restoreAppliedEntry(entry *eraftpb.Entry, txn *badger.Txn, lockStore, rollbackStore *lockstore.MemStore) error {
+	if entry.EntryType != eraftpb.EntryType_EntryNormal {
+		return nil
+	}
+	var raftCmdRequest raft_cmdpb.RaftCmdRequest
+	err := raftCmdRequest.Unmarshal(entry.Data)
+	if err != nil {
+		return err
+	}
+	if raftCmdRequest.AdminRequest != nil {
+		return nil
+	}
+	if len(raftCmdRequest.Requests) == 0 {
+		return nil
+	}
+	writeCmdOps := createWriteCmdOps(raftCmdRequest.Requests)
+	for _, prewrite := range writeCmdOps.prewrites {
+		restorePrewrite(prewrite, txn, lockStore)
+	}
+	for _, commit := range writeCmdOps.commits {
+		restoreCommit(commit, lockStore)
+	}
+	if rollbackStore != nil {
+		for _, rollback := range writeCmdOps.rollbacks {
+			restoreRollback(rollback, rollbackStore)
+		}
+	}
+	return nil
 }
 
-func restoreCommit(op commitOp, bundle *mvcc.DBBundle) {
+func restorePrewrite(op prewriteOp, txn *badger.Txn, lockStore *lockstore.MemStore) {
+	key, value := convertPrewriteToLock(op, txn)
+	lockStore.Insert(key, value)
+}
+
+func restoreCommit(op commitOp, lockStore *lockstore.MemStore) {
 	_, rawKey, err := codec.DecodeBytes(op.delLock.Key, nil)
 	if err != nil {
 		panic(err)
 	}
-	bundle.LockStore.Delete(rawKey)
+	lockStore.Delete(rawKey)
 }
 
-func restoreRollback(op rollbackOp, bundle *mvcc.DBBundle) {
+func restoreRollback(op rollbackOp, rollbackStore *lockstore.MemStore) {
 	remain, rawKey, err := codec.DecodeBytes(op.putWrite.Key, nil)
 	if err != nil {
 		panic(err)
 	}
-	bundle.RollbackStore.Insert(append(rawKey, remain...), []byte{0})
+	rollbackStore.Insert(append(rawKey, remain...), []byte{0})
 }
 
 func isRaftLogKey(key []byte) bool {

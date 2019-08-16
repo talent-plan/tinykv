@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"math"
 	"sync"
-	"sync/atomic"
 
 	"github.com/coocood/badger"
 	"github.com/cznic/mathutil"
@@ -20,49 +19,7 @@ type DBBundle struct {
 	db            *badger.DB
 	lockStore     *lockstore.MemStore
 	rollbackStore *lockstore.MemStore
-	regionUndo    *sync.Map // map[uint64]*lockUndoLog
 	memStoreMu    sync.Mutex
-}
-
-type lockUndoLog struct {
-	refCnt      int32
-	undoEntries atomic.Value // []*undoEntry
-}
-
-func (ll *lockUndoLog) getUndoEntries() []*undoEntry {
-	es := ll.undoEntries.Load()
-	if es == nil {
-		return nil
-	}
-	return es.([]*undoEntry)
-}
-
-func (ll *lockUndoLog) resetUndoEntries() {
-	ll.undoEntries.Store([]*undoEntry{})
-}
-
-func (ll *lockUndoLog) appendUndoEntries(entries []*undoEntry) {
-	oldLog := ll.getUndoEntries()
-	newLog := make([]*undoEntry, 0, len(oldLog)+len(entries))
-	newLog = append(append(newLog, oldLog...), entries...)
-	ll.undoEntries.Store(newLog)
-}
-
-type undoEntry struct {
-	regionId  uint64
-	index     uint64
-	undoLocks []*undoLock
-}
-
-type undoLock struct {
-	isSet bool
-	key   []byte
-	val   []byte
-}
-
-func (bundle *DBBundle) getLockUndoLog(region uint64) *lockUndoLog {
-	v, _ := bundle.regionUndo.LoadOrStore(region, new(lockUndoLog))
-	return v.(*lockUndoLog)
 }
 
 type DBSnapshot struct {
@@ -87,28 +44,30 @@ type regionSnapshot struct {
 	index       uint64
 }
 
-func (rs *regionSnapshot) snapLocks(start, end []byte, lockStore *lockstore.MemStore, undoLog *lockUndoLog) {
-	rs.lockSnap = lockstore.NewMemStore(8 << 20)
-	iter := lockStore.NewIterator()
-	for iter.Seek(start); iter.Valid() && (len(end) == 0 || bytes.Compare(iter.Key(), end) < 0); iter.Next() {
-		rs.lockSnap.Insert(iter.Key(), iter.Value())
+func (rs *regionSnapshot) redoLocks(raft *badger.DB, redoIdx uint64) error {
+	regionID := rs.regionState.Region.Id
+	item, err := rs.txn.Get(ApplyStateKey(regionID))
+	if err != nil {
+		return err
 	}
-
-	undoEntries := undoLog.getUndoEntries()
-	for i := len(undoEntries) - 1; i >= 0; i-- {
-		undo := undoEntries[i]
-		if undo.index <= rs.index {
-			break
-		}
-		for j := len(undo.undoLocks) - 1; j >= 0; j-- {
-			undoLock := undo.undoLocks[j]
-			if undoLock.isSet {
-				rs.lockSnap.Delete(undoLock.key)
-			} else {
-				rs.lockSnap.Insert(undoLock.key, undoLock.val)
-			}
+	val, err := item.Value()
+	if err != nil {
+		return err
+	}
+	var applyState applyState
+	applyState.Unmarshal(val)
+	appliedIdx := applyState.appliedIndex
+	entries, _, err := fetchEntriesTo(raft, regionID, redoIdx, appliedIdx+1, math.MaxUint64, nil)
+	if err != nil {
+		return err
+	}
+	for i := range entries {
+		err = restoreAppliedEntry(&entries[i], rs.txn, rs.lockSnap, nil)
+		if err != nil {
+			return err
 		}
 	}
+	return nil
 }
 
 type Engines struct {
@@ -124,7 +83,6 @@ func NewEngines(kvEngine *mvcc.DBBundle, raftEngine *badger.DB, kvPath, raftPath
 			db:            kvEngine.DB,
 			lockStore:     kvEngine.LockStore,
 			rollbackStore: kvEngine.RollbackStore,
-			regionUndo:    new(sync.Map),
 		},
 		kvPath:   kvPath,
 		raft:     raftEngine,
@@ -132,36 +90,52 @@ func NewEngines(kvEngine *mvcc.DBBundle, raftEngine *badger.DB, kvPath, raftPath
 	}
 }
 
-func (en *Engines) newRegionSnapshot(regionId uint64) (snap *regionSnapshot, err error) {
-	undoLog := en.kv.getLockUndoLog(regionId)
+func (en *Engines) newRegionSnapshot(regionId, redoIdx uint64) (snap *regionSnapshot, err error) {
+	// We need to get the old region state out of the snapshot transaction to fetch data in lockStore.
+	// The lockStore data must be fetch before we start the snapshot transaction to make sure there is no newer data
+	// in the lockStore. The missing old data can be restored by raft log.
+	oldRegionState, err := getRegionLocalState(en.kv.db, regionId)
+	if err != nil {
+		return nil, err
+	}
+	lockSnap := lockstore.NewMemStore(8 << 20)
+	iter := en.kv.lockStore.NewIterator()
+	start, end := rawDataStartKey(oldRegionState.Region.StartKey), rawRegionKey(oldRegionState.Region.EndKey)
+	for iter.Seek(start); iter.Valid() && (len(end) == 0 || bytes.Compare(iter.Key(), end) < 0); iter.Next() {
+		lockSnap.Insert(iter.Key(), iter.Value())
+	}
 
-	// Acquire lockstore undo logs before snapshot db.
-	// Otherwise apply worker may release undo logs after raft index in db snapshot.
-	atomic.AddInt32(&undoLog.refCnt, 1)
 	txn := en.kv.db.NewTransaction(false)
+
+	// Verify that the region version to make sure the start key and end key has not changed.
+	regionState := new(raft_serverpb.RegionLocalState)
+	val, err := getValueTxn(txn, RegionStateKey(regionId))
+	if err != nil {
+		return nil, err
+	}
+	err = regionState.Unmarshal(val)
+	if err != nil {
+		return nil, err
+	}
+	if regionState.Region.RegionEpoch.Version != oldRegionState.Region.RegionEpoch.Version {
+		return nil, errors.New("region changed during newRegionSnapshot")
+	}
+
+	index, term, err := getAppliedIdxTermForSnapshot(en.raft, txn, regionId)
+	if err != nil {
+		return nil, err
+	}
 	snap = &regionSnapshot{
-		regionState: new(raft_serverpb.RegionLocalState),
+		regionState: regionState,
 		txn:         txn,
+		lockSnap:    lockSnap,
+		term:        term,
+		index:       index,
 	}
-
-	snap.index, snap.term, err = getAppliedIdxTermForSnapshot(en.raft, txn, regionId)
+	err = snap.redoLocks(en.raft, redoIdx)
 	if err != nil {
 		return nil, err
 	}
-
-	stateVal, err := getValueTxn(txn, RegionStateKey(regionId))
-	if err != nil {
-		return nil, err
-	}
-	if err := snap.regionState.Unmarshal(stateVal); err != nil {
-		return nil, err
-	}
-
-	region := snap.regionState.GetRegion()
-	start, end := rawDataStartKey(region.StartKey), rawRegionKey(region.EndKey)
-	snap.snapLocks(start, end, en.kv.lockStore, undoLog)
-	atomic.AddInt32(&undoLog.refCnt, -1)
-
 	return snap, nil
 }
 
@@ -186,19 +160,11 @@ func (en *Engines) SyncRaftWAL() error {
 type WriteBatch struct {
 	entries       []*badger.Entry
 	lockEntries   []*badger.Entry
-	undoEntries   []*undoEntry
 	size          int
 	safePoint     int
 	safePointLock int
 	safePointSize int
 	safePointUndo int
-}
-
-func (wb *WriteBatch) NewUndoAt(region, index uint64) {
-	wb.undoEntries = append(wb.undoEntries, &undoEntry{
-		regionId: region,
-		index:    index,
-	})
 }
 
 func (wb *WriteBatch) Len() int {
@@ -219,11 +185,6 @@ func (wb *WriteBatch) SetLock(key, val []byte) {
 		Value:    val,
 		UserMeta: mvcc.LockUserMetaNone,
 	})
-	undo := wb.undoEntries[len(wb.undoEntries)-1]
-	undo.undoLocks = append(undo.undoLocks, &undoLock{
-		isSet: true,
-		key:   key,
-	})
 }
 
 func (wb *WriteBatch) DeleteLock(key []byte, val []byte) {
@@ -231,13 +192,6 @@ func (wb *WriteBatch) DeleteLock(key []byte, val []byte) {
 		Key:      key,
 		UserMeta: mvcc.LockUserMetaDelete,
 	})
-	if len(val) != 0 {
-		undo := wb.undoEntries[len(wb.undoEntries)-1]
-		undo.undoLocks = append(undo.undoLocks, &undoLock{
-			key: key,
-			val: val,
-		})
-	}
 }
 
 func (wb *WriteBatch) Rollback(key []byte) {
@@ -275,48 +229,23 @@ func (wb *WriteBatch) SetMsg(key []byte, msg proto.Message) error {
 func (wb *WriteBatch) SetSafePoint() {
 	wb.safePoint = len(wb.entries)
 	wb.safePointLock = len(wb.lockEntries)
-	wb.safePointUndo = len(wb.undoEntries)
 	wb.safePointSize = wb.size
 }
 
 func (wb *WriteBatch) RollbackToSafePoint() {
 	wb.entries = wb.entries[:wb.safePoint]
 	wb.lockEntries = wb.lockEntries[:wb.safePointLock]
-	wb.undoEntries = wb.undoEntries[:wb.safePointUndo]
 	wb.size = wb.safePointSize
 }
 
-// WriteToKV flush WriteBatch to DB by three steps:
-// 	1. Flush undo log.
-//	2. Update lockstore. Because we have save undo log, ongoing snapshot can revert dirty locks by replay undo log.
-// 	3. Write entries to badger. After save ApplyState to badger, subsequent regionSnapshot will start at new raft index.
-// 	   So we can safely release all undo logs if there is no ongoing snapshot progress.
+// WriteToKV flush WriteBatch to DB by two steps:
+// 	1. Write entries to badger. After save ApplyState to badger, subsequent regionSnapshot will start at new raft index.
+//	2. Update lockStore, the date in lockStore may be older than the DB, so we need to restore then entries from raft log.
 func (wb *WriteBatch) WriteToKV(bundle *DBBundle) error {
-	if len(wb.undoEntries) > 0 {
-		currRegion := wb.undoEntries[0].regionId
-		undoLog := bundle.getLockUndoLog(currRegion)
-		var undoBuf []*undoEntry
-		for _, undo := range wb.undoEntries {
-			if undo.regionId != currRegion {
-				undoLog.appendUndoEntries(undoBuf)
-				undoBuf = undoBuf[:0]
-				undoLog = bundle.getLockUndoLog(undo.regionId)
-				currRegion = undo.regionId
-			}
-			undoBuf = append(undoBuf, undo)
-		}
-		undoLog.appendUndoEntries(undoBuf)
-	}
-
-	var raftStates []*badger.Entry
 	if len(wb.entries) > 0 {
 		err := bundle.db.Update(func(txn *badger.Txn) error {
-			var err1 error
 			for _, entry := range wb.entries {
-				if IsRaftStateKey(entry.Key) {
-					raftStates = append(raftStates, entry)
-					continue
-				}
+				var err1 error
 				if len(entry.UserMeta) == 0 && len(entry.Value) == 0 {
 					err1 = txn.Delete(entry.Key)
 				} else {
@@ -332,7 +261,6 @@ func (wb *WriteBatch) WriteToKV(bundle *DBBundle) error {
 			return errors.WithStack(err)
 		}
 	}
-
 	if len(wb.lockEntries) > 0 {
 		bundle.memStoreMu.Lock()
 		for _, entry := range wb.lockEntries {
@@ -353,29 +281,6 @@ func (wb *WriteBatch) WriteToKV(bundle *DBBundle) error {
 		}
 		bundle.memStoreMu.Unlock()
 	}
-
-	if len(raftStates) > 0 {
-		err := bundle.db.Update(func(txn *badger.Txn) error {
-			var err1 error
-			for _, entry := range raftStates {
-				if err1 = txn.SetEntry(entry); err1 != nil {
-					return err1
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			return errors.WithStack(err)
-		}
-	}
-
-	for _, undo := range wb.undoEntries {
-		undoLog := bundle.getLockUndoLog(undo.regionId)
-		if atomic.LoadInt32(&undoLog.refCnt) == 0 {
-			undoLog.resetUndoEntries()
-		}
-	}
-
 	return nil
 }
 
@@ -419,7 +324,6 @@ func (wb *WriteBatch) MustWriteToRaft(db *badger.DB) {
 func (wb *WriteBatch) Reset() {
 	wb.entries = wb.entries[:0]
 	wb.lockEntries = wb.lockEntries[:0]
-	wb.undoEntries = wb.undoEntries[:0]
 	wb.size = 0
 	wb.safePoint = 0
 	wb.safePointLock = 0

@@ -247,12 +247,13 @@ func newGenSnapTask(regionID uint64, notifier chan *eraftpb.Snapshot) *GenSnapTa
 	}
 }
 
-func (t *GenSnapTask) generateAndScheduleSnapshot(regionSched chan<- task) {
+func (t *GenSnapTask) generateAndScheduleSnapshot(regionSched chan<- task, redoIdx uint64) {
 	regionSched <- task{
 		tp: taskTypeRegionGen,
 		data: &regionTask{
 			regionId: t.regionID,
 			notifier: t.snapNotifier,
+			redoIdx:  redoIdx,
 		},
 	}
 }
@@ -551,6 +552,9 @@ type applyDelegate struct {
 	applyState applyState
 	/// The term of the raft log at applied index.
 	appliedIndexTerm uint64
+
+	// redoIdx is the raft log index starts redo for lockStore.
+	redoIndex uint64
 
 	/// The local metrics, and it will be flushed periodically.
 	metrics applyMetrics
@@ -889,7 +893,6 @@ func (d *applyDelegate) execWriteCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmd
 	resp *raft_cmdpb.RaftCmdResponse, result applyResult, err error) {
 	requests := req.GetRequests()
 	writeCmdOps := createWriteCmdOps(requests)
-	aCtx.wb.NewUndoAt(d.region.Id, aCtx.execCtx.index)
 	for _, op := range writeCmdOps.prewrites {
 		d.execPrewrite(aCtx, op)
 	}
@@ -1544,7 +1547,7 @@ func (a *applyFsm) catchUpLogsForMerge(aCtx *applyContext, logs *catchUpLogs) {
 	// TODO: merge
 }
 
-func (a *applyFsm) handleSnapshot(aCtx *applyContext, snapTask *GenSnapTask) {
+func (a *applyFsm) handleGenSnapshot(aCtx *applyContext, snapTask *GenSnapTask) {
 	if a.applyDelegate.pendingRemove || a.applyDelegate.stopped {
 		return
 	}
@@ -1555,7 +1558,7 @@ func (a *applyFsm) handleSnapshot(aCtx *applyContext, snapTask *GenSnapTask) {
 			break
 		}
 	}
-	snapTask.generateAndScheduleSnapshot(aCtx.regionScheduler)
+	snapTask.generateAndScheduleSnapshot(aCtx.regionScheduler, a.redoIndex)
 }
 
 func (a *applyFsm) handleTask(aCtx *applyContext, msg Msg) {
@@ -1572,7 +1575,7 @@ func (a *applyFsm) handleTask(aCtx *applyContext, msg Msg) {
 		a.catchUpLogsForMerge(aCtx, msg.Data.(*catchUpLogs))
 	case MsgTypeApplyLogsUpToDate:
 	case MsgTypeApplySnapshot:
-		a.handleSnapshot(aCtx, msg.Data.(*GenSnapTask))
+		a.handleGenSnapshot(aCtx, msg.Data.(*GenSnapTask))
 	}
 }
 
