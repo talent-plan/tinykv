@@ -138,13 +138,6 @@ func TestLastKeyOfRegion(t *testing.T) {
 	engines := newTestEngines(t)
 	defer cleanUpTestEngineData(engines)
 
-	region := &metapb.Region{
-		Id: 1,
-		Peers: []*metapb.Peer{
-			new(metapb.Peer),
-		},
-	}
-
 	writeBatch := new(WriteBatch)
 	dataKeys := [2][]byte{}
 	padding := []byte("_r00000005")
@@ -159,9 +152,7 @@ func TestLastKeyOfRegion(t *testing.T) {
 	checkCases := func(startId, endId int64, want []byte) {
 		startTableKey := codec.EncodeInt(tablecodec.TablePrefix(), startId)
 		endTableKey := codec.EncodeInt(tablecodec.TablePrefix(), endId)
-		region.StartKey = startTableKey
-		region.EndKey = endTableKey
-		assert.Equal(t, lastKeyOfRegion(engines.kv.db, region), want)
+		assert.Equal(t, lastKeyOfRegion(engines.kv.db, startTableKey, endTableKey), want)
 	}
 
 	// ["", "") => t2_xx

@@ -388,8 +388,8 @@ func isTableKey(encodedKey []byte) bool {
 func isSameTable(leftKey, rightKey []byte) bool {
 	return bytes.HasPrefix(leftKey, tablecodec.TablePrefix()) &&
 		bytes.HasPrefix(rightKey, tablecodec.TablePrefix()) &&
-		len(leftKey) > tablecodec.TableSplitKeyLen &&
-		len(rightKey) > tablecodec.TableSplitKeyLen &&
+		len(leftKey) >= tablecodec.TableSplitKeyLen &&
+		len(rightKey) >= tablecodec.TableSplitKeyLen &&
 		bytes.Compare(leftKey[:tablecodec.TableSplitKeyLen], rightKey[:tablecodec.TableSplitKeyLen]) == 0
 }
 
@@ -430,21 +430,21 @@ func (observer *tableSplitCheckObserver) start() {}
 
 func (observer *tableSplitCheckObserver) stop() {}
 
-func lastKeyOfRegion(db *badger.DB, region *metapb.Region) []byte {
+func lastKeyOfRegion(db *badger.DB, regionStartKey, regionEndKey []byte) []byte {
 	txn := db.NewTransaction(false)
 	defer txn.Discard()
-	ite := dbreader.NewIterator(txn, true, region.GetStartKey(), region.GetEndKey())
+	ite := dbreader.NewIterator(txn, true, regionStartKey, regionEndKey)
 	defer ite.Close()
-	if ite.Seek(region.GetEndKey()); ite.Valid() {
+	if ite.Seek(regionEndKey); ite.Valid() {
 		item := ite.Item()
-		if bytes.Compare(item.Key(), region.GetEndKey()) == 0 {
+		if bytes.Compare(item.Key(), regionEndKey) == 0 {
 			if ite.Next(); ite.Valid() {
 				item = ite.Item()
 			} else {
 				return nil
 			}
 		}
-		if bytes.Compare(item.Key(), region.GetStartKey()) >= 0 {
+		if bytes.Compare(item.Key(), regionStartKey) >= 0 {
 			return item.KeyCopy(nil)
 		}
 	}
@@ -469,7 +469,7 @@ func (observer *tableSplitCheckObserver) addChecker(obCtx *observerContext, host
 		// Region is inside a table, skip for saving IO.
 		return
 	}
-	lastKey := lastKeyOfRegion(db, region)
+	lastKey := lastKeyOfRegion(db, regionStartKey, regionEndKey)
 	if len(lastKey) == 0 {
 		return
 	}
