@@ -502,7 +502,7 @@ func (d *peerFsmDelegate) checkMessage(msg *rspb.RaftMessage) bool {
 			log.Infof("%s is stale as received a larger peer %s, destroying", d.tag(), target)
 			if d.handleDestroyPeer(job) {
 				storeMsg := NewMsg(MsgTypeStoreRaftMessage, msg)
-				d.ctx.router.sendControl(storeMsg)
+				d.ctx.router.sendStore(storeMsg)
 			}
 		}
 		return true
@@ -864,7 +864,7 @@ func (d *peerFsmDelegate) onReadySplitRegion(derived *metapb.Region, regions []*
 			// check again after split.
 			newPeer.peer.SizeDiffHint = d.ctx.cfg.RegionSplitCheckDiff
 		}
-		d.ctx.router.register(newRegionID, newPeer)
+		d.ctx.router.register(newPeer)
 		_ = d.ctx.router.send(newRegionID, NewPeerMsg(MsgTypeStart, newRegionID, nil))
 		if !campaigned {
 			for i, msg := range meta.pendingVotes {

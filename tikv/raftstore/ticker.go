@@ -120,7 +120,7 @@ func (r *tickDriver) tickStore() {
 	r.storeTicker.tickClock()
 	for i := range r.storeTicker.schedules {
 		if r.storeTicker.isOnStoreTick(StoreTick(i)) {
-			r.router.sendControl(NewMsg(MsgTypeStoreTick, StoreTick(i)))
+			r.router.sendStore(NewMsg(MsgTypeStoreTick, StoreTick(i)))
 		}
 	}
 }

@@ -266,22 +266,19 @@ func (r *pdRunner) onDestroyPeer(t *pdDestroyPeerTask) {
 }
 
 func (r *pdRunner) sendAdminRequest(regionID uint64, epoch *metapb.RegionEpoch, peer *metapb.Peer, req *raft_cmdpb.AdminRequest, callback *Callback) {
-	r.router.send(regionID, Msg{
-		Type:     MsgTypeRaftCmd,
-		RegionID: regionID,
-		Data: &MsgRaftCmd{
-			SendTime: time.Now(),
-			Request: &raft_cmdpb.RaftCmdRequest{
-				Header: &raft_cmdpb.RaftRequestHeader{
-					RegionId:    regionID,
-					Peer:        peer,
-					RegionEpoch: epoch,
-				},
-				AdminRequest: req,
+	cmd := &MsgRaftCmd{
+		SendTime: time.Now(),
+		Request: &raft_cmdpb.RaftCmdRequest{
+			Header: &raft_cmdpb.RaftRequestHeader{
+				RegionId:    regionID,
+				Peer:        peer,
+				RegionEpoch: epoch,
 			},
-			Callback: callback,
+			AdminRequest: req,
 		},
-	})
+		Callback: callback,
+	}
+	r.router.sendRaftCommand(cmd)
 }
 
 func (r *pdRunner) sendMergeFail(source uint64, target *metapb.Peer) {

@@ -15,7 +15,7 @@ import (
 func newTestRouter() (*router, <-chan Msg) {
 	cfg := NewDefaultConfig()
 	storeSender, storeFsm := newStoreFsm(cfg)
-	router := newRouter(newPeerRouter(1, storeSender, storeFsm))
+	router := newRouter(1, storeSender, storeFsm)
 	return router, storeFsm.receiver
 }
 

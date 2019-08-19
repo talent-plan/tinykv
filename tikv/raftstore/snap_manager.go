@@ -47,7 +47,7 @@ type SnapStats struct {
 
 func notifyStats(router *router) {
 	if router != nil {
-		router.sendControl(NewMsg(MsgTypeStoreSnapshotStats, nil))
+		router.sendStore(NewMsg(MsgTypeStoreSnapshotStats, nil))
 	}
 }
 

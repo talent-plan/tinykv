@@ -108,17 +108,6 @@ type Transport interface {
 	Send(msg *rspb.RaftMessage) error
 }
 
-func (r *router) sendRaftMessage(msg *rspb.RaftMessage) {
-	if r.send(msg.RegionId, Msg{Type: MsgTypeRaftMessage, Data: msg}) != nil {
-		r.sendControl(Msg{Type: MsgTypeStoreRaftMessage, Data: msg})
-	}
-}
-
-func (r *router) sendRaftCommand(cmd *MsgRaftCmd) error {
-	regionID := cmd.Request.Header.RegionId
-	return r.send(regionID, Msg{Type: MsgTypeRaftCmd, Data: cmd})
-}
-
 func (pc *PollContext) flushLocalStats() {
 	if pc.localStats.engineTotalBytesWritten > 0 {
 		atomic.AddUint64(&pc.globalStats.engineTotalBytesWritten, pc.localStats.engineTotalBytesWritten)
@@ -520,30 +509,30 @@ func (bs *raftBatchSystem) startSystem(
 	if err != nil {
 		return err
 	}
-	pr := bs.router.pr
+	router := bs.router
 	for _, peer := range regionPeers {
-		pr.register(peer)
+		router.register(peer)
 	}
 	balancer := &balancer{
-		router: pr,
+		router: router,
 	}
 	for i := uint64(0); i < builder.cfg.RaftWorkerCnt; i++ {
-		rw := newRaftWorker(builder, pr.workerSenders[i], pr)
+		rw := newRaftWorker(builder, router.workerSenders[i], router)
 		balancer.workers = append(balancer.workers, rw)
 		bs.wg.Add(1)
 		go rw.run(bs.closeCh, bs.wg)
 	}
 	sw := &storeWorker{
-		store: newStoreFsmDelegate(pr.storeFsm, builder.build()),
+		store: newStoreFsmDelegate(router.storeFsm, builder.build()),
 	}
 	bs.wg.Add(1)
 	go sw.run(bs.closeCh, bs.wg)
 	bs.wg.Add(1)
 	go balancer.run(bs.closeCh, bs.wg)
-	pr.sendStore(Msg{Type: MsgTypeStoreStart, Data: builder.store})
+	router.sendStore(Msg{Type: MsgTypeStoreStart, Data: builder.store})
 	for i := 0; i < len(regionPeers); i++ {
 		regionID := regionPeers[i].peer.regionId
-		_ = pr.send(regionID, Msg{RegionID: regionID, Type: MsgTypeStart})
+		_ = router.send(regionID, Msg{RegionID: regionID, Type: MsgTypeStart})
 	}
 	engines := builder.engines
 	workers.splitCheckWorker.start(&splitCheckRunner{
@@ -585,7 +574,7 @@ func (bs *raftBatchSystem) shutDown() {
 
 func createRaftBatchSystem(cfg *Config) (*router, *raftBatchSystem) {
 	storeSender, storeFsm := newStoreFsm(cfg)
-	router := newRouter(newPeerRouter(int(cfg.RaftWorkerCnt), storeSender, storeFsm))
+	router := newRouter(int(cfg.RaftWorkerCnt), storeSender, storeFsm)
 	raftBatchSystem := &raftBatchSystem{
 		router:     router,
 		tickDriver: newTickDriver(cfg.RaftBaseTickInterval, router, storeFsm.ticker),
@@ -754,7 +743,7 @@ func (d *storeFsmDelegate) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessag
 	// following snapshot may overlap, should insert into region_ranges after
 	// snapshot is applied.
 	meta.regions[regionID] = peer.peer.Region()
-	d.ctx.router.register(regionID, peer)
+	d.ctx.router.register(peer)
 	_ = d.ctx.router.send(regionID, Msg{Type: MsgTypeStart})
 	return true, nil
 }
@@ -894,7 +883,7 @@ func (d *storeFsmDelegate) onComputeHashTick() {
 	cmd := &MsgRaftCmd{
 		Request: request,
 	}
-	_ = d.ctx.router.send(targetRegion.Id, NewPeerMsg(MsgTypeRaftCmd, targetRegion.Id, cmd))
+	_ = d.ctx.router.sendRaftCommand(cmd)
 }
 
 func (d *storeFsmDelegate) findTargetRegionForComputeHash() *metapb.Region {

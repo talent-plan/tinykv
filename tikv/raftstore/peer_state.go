@@ -47,7 +47,7 @@ func (np *peerState) send(msg Msg) error {
 			}
 		}
 		if handle.closed {
-			return errMailboxNotFound
+			return errPeerNotFound
 		}
 		handle.msgCh <- msg
 		return nil
@@ -74,73 +74,9 @@ type applyBatch struct {
 	barriers []*sync.WaitGroup
 }
 
-// peerRouter routes a message to a peer.
-type peerRouter struct {
-	peers         sync.Map
-	workerSenders []chan Msg
-	storeSender   chan<- Msg
-	storeFsm      *storeFsm
-}
-
-func newPeerRouter(workerSize int, storeSender chan<- Msg, storeFsm *storeFsm) *peerRouter {
-	pm := &peerRouter{
-		workerSenders: make([]chan Msg, workerSize),
-		storeSender:   storeSender,
-		storeFsm:      storeFsm,
-	}
-	for i := 0; i < workerSize; i++ {
-		pm.workerSenders[i] = make(chan Msg, 4096)
-	}
-	return pm
-}
-
-func (pr *peerRouter) get(regionID uint64) *peerState {
-	v, ok := pr.peers.Load(regionID)
-	if ok {
-		return v.(*peerState)
-	}
-	return nil
-}
-
-func (pr *peerRouter) register(peer *peerFsm) {
-	id := peer.peer.regionId
-	idx := int(id) % len(pr.workerSenders)
-	_, apply := newApplyFsmFromPeer(peer)
-	handle := &workerHandle{
-		msgCh: pr.workerSenders[idx],
-	}
-	newPeer := &peerState{
-		handle: unsafe.Pointer(handle),
-		peer:   peer,
-		apply:  apply,
-	}
-	pr.peers.Store(id, newPeer)
-}
-
-func (pr *peerRouter) close(regionID uint64) {
-	v, ok := pr.peers.Load(regionID)
-	if ok {
-		ps := v.(*peerState)
-		ps.close()
-		pr.peers.Delete(regionID)
-	}
-}
-
-func (pr *peerRouter) send(regionID uint64, msg Msg) error {
-	p := pr.get(regionID)
-	if p == nil {
-		return errMailboxNotFound
-	}
-	return p.send(msg)
-}
-
-func (pr *peerRouter) sendStore(msg Msg) {
-	pr.storeSender <- msg
-}
-
 // raftWorker is responsible for run raft commands and apply raft logs.
 type raftWorker struct {
-	pr *peerRouter
+	pr *router
 
 	raftCh           chan Msg
 	raftCtx          *PollContext
@@ -155,7 +91,7 @@ type raftWorker struct {
 	closeCh           <-chan struct{}
 }
 
-func newRaftWorker(b *raftPollerBuilder, ch chan Msg, pm *peerRouter) *raftWorker {
+func newRaftWorker(b *raftPollerBuilder, ch chan Msg, pm *router) *raftWorker {
 	pollCtx := b.build()
 	// Make one apply router for each apply context to collect apply Msgs.
 	pollCtx.applyMsgs = &applyMsgs{}
@@ -335,7 +271,7 @@ func (sw *storeWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
 
 type balancer struct {
 	workers []*raftWorker
-	router  *peerRouter
+	router  *router
 }
 
 const (
