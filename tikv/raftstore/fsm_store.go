@@ -258,7 +258,7 @@ type raftPollerBuilder struct {
 	computeHashScheduler chan<- task
 	splitCheckScheduler  chan<- task
 	regionScheduler      chan<- task
-	applyRouter          *applyMsgs
+	applyMsgs            *applyMsgs
 	router               *router
 	compactScheduler     chan<- task
 	storeMetaLock        *sync.RWMutex
@@ -280,7 +280,7 @@ func (b *raftPollerBuilder) init() ([]*peerFsm, error) {
 	// Scan region meta to get saved regions.
 	startKey := RegionMetaMinKey
 	endKey := RegionMetaMaxKey
-	kvEngine := b.engines.kv.db
+	kvEngine := b.engines.kv.DB
 	storeID := b.store.Id
 
 	var totalCount, tombStoneCount, applyingCount int
@@ -408,7 +408,7 @@ func (b *raftPollerBuilder) build() *PollContext {
 		computeHashScheduler: b.computeHashScheduler,
 		splitCheckScheduler:  b.splitCheckScheduler,
 		regionScheduler:      b.regionScheduler,
-		applyMsgs:            b.applyRouter,
+		applyMsgs:            b.applyMsgs,
 		router:               b.router,
 		compactScheduler:     b.compactScheduler,
 		storeMeta:            b.storeMeta,
@@ -536,15 +536,15 @@ func (bs *raftBatchSystem) startSystem(
 	}
 	engines := builder.engines
 	workers.splitCheckWorker.start(&splitCheckRunner{
-		engine:          engines.kv.db,
+		engine:          engines.kv.DB,
 		router:          bs.router,
 		coprocessorHost: workers.coprocessorHost,
 	})
 	cfg := builder.cfg
 	workers.regionWorker.start(newRegionRunner(engines, snapMgr, cfg.SnapApplyBatchSize, cfg.CleanStalePeerDelay))
 	workers.raftLogGCWorker.start(&raftLogGCRunner{})
-	workers.compactWorker.start(&compactRunner{engine: engines.kv.db})
-	pdRunner := newPDRunner(builder.store.Id, builder.pdClient, bs.router, engines.kv.db, workers.pdWorker.scheduler)
+	workers.compactWorker.start(&compactRunner{engine: engines.kv.DB})
+	pdRunner := newPDRunner(builder.store.Id, builder.pdClient, bs.router, engines.kv.DB, workers.pdWorker.scheduler)
 	workers.pdWorker.start(pdRunner)
 	workers.computeHashWorker.start(&computeHashRunner{router: bs.router})
 	bs.workers = workers
@@ -597,7 +597,7 @@ func (d *storeFsmDelegate) checkMsg(msg *rspb.RaftMessage) (bool, error) {
 	// Check if the target is tombstone,
 	stateKey := RegionStateKey(regionID)
 	localState := new(rspb.RegionLocalState)
-	err := getMsg(d.ctx.engine.kv.db, stateKey, localState)
+	err := getMsg(d.ctx.engine.kv.DB, stateKey, localState)
 	if err != nil {
 		if err == badger.ErrKeyNotFound {
 			return false, nil
@@ -783,7 +783,7 @@ func (d *storeFsmDelegate) storeHeartbeatPD() {
 	stats.IsBusy = atomic.SwapUint64(&globalStats.isBusy, 0) > 0
 	storeInfo := &pdStoreHeartbeatTask{
 		stats:    stats,
-		engine:   d.ctx.engine.kv.db,
+		engine:   d.ctx.engine.kv.DB,
 		capacity: d.ctx.cfg.Capacity,
 		path:     d.ctx.engine.kvPath,
 	}

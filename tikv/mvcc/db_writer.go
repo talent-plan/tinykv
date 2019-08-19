@@ -1,6 +1,8 @@
 package mvcc
 
 import (
+	"sync"
+
 	"github.com/coocood/badger"
 	"github.com/ngaut/unistore/lockstore"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
@@ -30,4 +32,19 @@ type DBBundle struct {
 	DB            *badger.DB
 	LockStore     *lockstore.MemStore
 	RollbackStore *lockstore.MemStore
+	MemStoreMu    sync.Mutex
+}
+
+type DBSnapshot struct {
+	Txn           *badger.Txn
+	LockStore     *lockstore.MemStore
+	RollbackStore *lockstore.MemStore
+}
+
+func NewDBSnapshot(db *DBBundle) *DBSnapshot {
+	return &DBSnapshot{
+		Txn:           db.DB.NewTransaction(false),
+		LockStore:     db.LockStore,
+		RollbackStore: db.RollbackStore,
+	}
 }

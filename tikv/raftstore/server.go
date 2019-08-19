@@ -136,7 +136,7 @@ func (ris *RaftInnerServer) Stop() error {
 	if err := ris.engines.raft.Close(); err != nil {
 		return err
 	}
-	if err := ris.engines.kv.db.Close(); err != nil {
+	if err := ris.engines.kv.DB.Close(); err != nil {
 		return err
 	}
 	return nil
@@ -164,7 +164,7 @@ func (dumper *lockStoreDumper) run() {
 				// Waiting for the raft log to be applied.
 				// TODO: it is possible that some log is not applied after sleep, find a better way to make sure this.
 				time.Sleep(5 * time.Second)
-				err := dumper.engines.kv.lockStore.DumpToFile(filepath.Join(dumper.engines.kvPath, LockstoreFileName), meta)
+				err := dumper.engines.kv.LockStore.DumpToFile(filepath.Join(dumper.engines.kvPath, LockstoreFileName), meta)
 				if err != nil {
 					log.Errorf("dump lock store failed with err %v", err)
 					continue

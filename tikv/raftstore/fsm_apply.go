@@ -137,7 +137,7 @@ type execResultRollbackMerge struct {
 type execResultComputeHash struct {
 	region *metapb.Region
 	index  uint64
-	snap   *DBSnapshot
+	snap   *mvcc.DBSnapshot
 }
 
 type execResultVerifyHash struct {
@@ -385,7 +385,7 @@ func (ac *applyContext) deltaKeys() uint64 {
 
 func (ac *applyContext) getTxn() *badger.Txn {
 	if ac.txn == nil {
-		ac.txn = ac.engines.kv.db.NewTransaction(false)
+		ac.txn = ac.engines.kv.DB.NewTransaction(false)
 	}
 	return ac.txn
 }
@@ -1102,7 +1102,7 @@ func (d *applyDelegate) execCommit(aCtx *applyContext, op commitOp) {
 }
 
 func (d *applyDelegate) getLock(aCtx *applyContext, rawKey []byte) []byte {
-	if val := aCtx.engines.kv.lockStore.Get(rawKey, nil); len(val) > 0 {
+	if val := aCtx.engines.kv.LockStore.Get(rawKey, nil); len(val) > 0 {
 		return val
 	}
 	lockEntries := aCtx.wb.lockEntries
@@ -1156,7 +1156,7 @@ func (d *applyDelegate) execDeleteRange(aCtx *applyContext, req *raft_cmdpb.Dele
 		aCtx.wb.Delete(item.KeyCopy(nil))
 	}
 	it.Close()
-	lockIt := aCtx.engines.kv.lockStore.NewIterator()
+	lockIt := aCtx.engines.kv.LockStore.NewIterator()
 	for lockIt.Seek(startKey); lockIt.Valid(); lockIt.Next() {
 		if bytes.Compare(lockIt.Key(), endKey) >= 0 {
 			break
@@ -1417,7 +1417,7 @@ func (d *applyDelegate) execComputeHash(aCtx *applyContext, req *raft_cmdpb.Admi
 		// open files in rocksdb.
 		// TODO: figure out another way to do consistency check without snapshot
 		// or short life snapshot.
-		snap: NewDBSnapshot(aCtx.engines.kv),
+		snap: mvcc.NewDBSnapshot(aCtx.engines.kv),
 	}}
 	return
 }

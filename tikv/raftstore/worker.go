@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ngaut/unistore/tikv/mvcc"
+
 	"github.com/coocood/badger"
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
@@ -87,7 +89,7 @@ type splitCheckTask struct {
 type computeHashTask struct {
 	index  uint64
 	region *metapb.Region
-	snap   *DBSnapshot
+	snap   *mvcc.DBSnapshot
 }
 
 type pdAskSplitTask struct {
@@ -492,7 +494,7 @@ func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus) error 
 	}
 
 	regionKey := RegionStateKey(regionId)
-	regionState, err := getRegionLocalState(snapCtx.engiens.kv.db, regionId)
+	regionState, err := getRegionLocalState(snapCtx.engiens.kv.DB, regionId)
 	if err != nil {
 		return errors.New(fmt.Sprintf("failed to get regionState from %v", regionKey))
 	}
@@ -502,7 +504,7 @@ func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus) error 
 		return err
 	}
 
-	applyState, err := getApplyState(snapCtx.engiens.kv.db, regionId)
+	applyState, err := getApplyState(snapCtx.engiens.kv.DB, regionId)
 	if err != nil {
 		return errors.New(fmt.Sprintf("failed to get raftState from %v", ApplyStateKey(regionId)))
 	}

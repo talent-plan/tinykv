@@ -10,6 +10,7 @@ import (
 	"unsafe"
 
 	"github.com/ngaut/log"
+	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/kvproto/pkg/eraftpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
@@ -1632,7 +1633,7 @@ func (p *Peer) ProposeConfChange(ctx *PollContext, req *raft_cmdpb.RaftCmdReques
 	return proposeIndex, nil
 }
 
-func (p *Peer) handleRead(ctx *PollContext, req *raft_cmdpb.RaftCmdRequest, checkEpoch bool) (*raft_cmdpb.RaftCmdResponse, *DBSnapshot) {
+func (p *Peer) handleRead(ctx *PollContext, req *raft_cmdpb.RaftCmdRequest, checkEpoch bool) (*raft_cmdpb.RaftCmdResponse, *mvcc.DBSnapshot) {
 	readExecutor := NewReadExecutor(ctx.engine.kv, checkEpoch, false)
 	resp, snap := readExecutor.Execute(req, p.Region())
 	BindRespTerm(resp, p.Term())
@@ -1739,13 +1740,13 @@ func Inspect(i RequestInspector, req *raft_cmdpb.RaftCmdRequest) (RequestPolicy,
 
 type ReadExecutor struct {
 	checkEpoch       bool
-	engine           *DBBundle
-	snapshot         *DBSnapshot
+	engine           *mvcc.DBBundle
+	snapshot         *mvcc.DBSnapshot
 	snapshotTime     *time.Time
 	needSnapshotTime bool
 }
 
-func NewReadExecutor(engine *DBBundle, checkEpoch bool, needSnapshotTime bool) *ReadExecutor {
+func NewReadExecutor(engine *mvcc.DBBundle, checkEpoch bool, needSnapshotTime bool) *ReadExecutor {
 	return &ReadExecutor{
 		checkEpoch:       checkEpoch,
 		engine:           engine,
@@ -1764,10 +1765,10 @@ func (r *ReadExecutor) MaybeUpdateSnapshot() {
 	if r.snapshot != nil {
 		return
 	}
-	r.snapshot = &DBSnapshot{
-		Txn:           r.engine.db.NewTransaction(false),
-		LockStore:     r.engine.lockStore,
-		RollbackStore: r.engine.rollbackStore,
+	r.snapshot = &mvcc.DBSnapshot{
+		Txn:           r.engine.DB.NewTransaction(false),
+		LockStore:     r.engine.LockStore,
+		RollbackStore: r.engine.RollbackStore,
 	}
 	// Reading current timespec after snapshot, in case we do not
 	// expire lease in time.
@@ -1800,7 +1801,7 @@ func (r *ReadExecutor) DoGet(req *raft_cmdpb.Request, region *metapb.Region) (*r
 	return resp, nil
 }
 
-func (r *ReadExecutor) Execute(msg *raft_cmdpb.RaftCmdRequest, region *metapb.Region) (*raft_cmdpb.RaftCmdResponse, *DBSnapshot) {
+func (r *ReadExecutor) Execute(msg *raft_cmdpb.RaftCmdRequest, region *metapb.Region) (*raft_cmdpb.RaftCmdResponse, *mvcc.DBSnapshot) {
 	if r.checkEpoch {
 		if err := CheckRegionEpoch(msg, region, true); err != nil {
 			log.Debugf("[region %v] epoch not match, err: %v", region.Id, err)

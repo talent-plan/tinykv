@@ -3,6 +3,7 @@ package raftstore
 import (
 	"bytes"
 	"fmt"
+	"github.com/ngaut/unistore/tikv/mvcc"
 	"hash"
 	"hash/crc32"
 	"io"
@@ -88,13 +89,13 @@ type SnapStatistics struct {
 }
 
 type ApplyOptions struct {
-	DBBundle  *DBBundle
+	DBBundle  *mvcc.DBBundle
 	Region    *metapb.Region
 	Abort     *uint32
 	BatchSize int
 }
 
-func newApplyOptions(db *DBBundle, region *metapb.Region, abort *uint32, batchSize int) *ApplyOptions {
+func newApplyOptions(db *mvcc.DBBundle, region *metapb.Region, abort *uint32, batchSize int) *ApplyOptions {
 	return &ApplyOptions{
 		DBBundle:  db,
 		Region:    region,
@@ -744,9 +745,9 @@ func (s *Snap) Apply(opts ApplyOptions) error {
 				batch = new(WriteBatch)
 			}
 		case applySnapTypeLock:
-			opts.DBBundle.lockStore.Insert(item.key, item.val)
+			opts.DBBundle.LockStore.Insert(item.key, item.val)
 		case applySnapTypeRollback:
-			opts.DBBundle.rollbackStore.Insert(item.key, item.val)
+			opts.DBBundle.RollbackStore.Insert(item.key, item.val)
 		}
 	}
 	return batch.WriteToKV(opts.DBBundle)

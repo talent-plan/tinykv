@@ -7,6 +7,7 @@ import (
 
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
+	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/eraftpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -112,10 +113,6 @@ func (pf *peerFsm) scheduleApplyingSnapshot() {
 
 func (pf *peerFsm) hasPendingMergeApplyResult() bool {
 	return pf.peer.PendingMergeApplyResult != nil
-}
-
-func (pf *peerFsm) isStopped() bool {
-	return pf.stopped
 }
 
 type peerFsmDelegate struct {
@@ -1345,7 +1342,7 @@ func (d *peerFsmDelegate) onCheckPeerStaleStateTick() {
 	}
 }
 
-func (d *peerFsmDelegate) onReadyComputeHash(region *metapb.Region, index uint64, snap *DBSnapshot) {
+func (d *peerFsmDelegate) onReadyComputeHash(region *metapb.Region, index uint64, snap *mvcc.DBSnapshot) {
 	d.peer.ConsistencyState.LastCheckTime = time.Now()
 	log.Infof("%s schedule compute hash task", d.tag())
 	d.ctx.computeHashScheduler <- task{

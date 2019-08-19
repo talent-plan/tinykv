@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ngaut/unistore/tikv/mvcc"
+
 	"github.com/golang/protobuf/proto"
 	"github.com/ngaut/log"
 	"github.com/pingcap/errors"
@@ -477,7 +479,7 @@ func CloneMsg(origin, cloned proto.Message) error {
 	return proto.Unmarshal(data, cloned)
 }
 
-func deleteAllFilesInRange(db *DBBundle, startKey, endKey []byte) error {
+func deleteAllFilesInRange(db *mvcc.DBBundle, startKey, endKey []byte) error {
 	// todo, needs badger to export api to support delete files.
 	return nil
 }

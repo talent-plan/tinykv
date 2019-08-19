@@ -3,7 +3,6 @@ package raftstore
 import (
 	"bytes"
 	"math"
-	"sync"
 
 	"github.com/coocood/badger"
 	"github.com/cznic/mathutil"
@@ -14,27 +13,6 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/raft_serverpb"
 )
-
-type DBBundle struct {
-	db            *badger.DB
-	lockStore     *lockstore.MemStore
-	rollbackStore *lockstore.MemStore
-	memStoreMu    sync.Mutex
-}
-
-type DBSnapshot struct {
-	Txn           *badger.Txn
-	LockStore     *lockstore.MemStore
-	RollbackStore *lockstore.MemStore
-}
-
-func NewDBSnapshot(db *DBBundle) *DBSnapshot {
-	return &DBSnapshot{
-		Txn:           db.db.NewTransaction(false),
-		LockStore:     db.lockStore,
-		RollbackStore: db.rollbackStore,
-	}
-}
 
 type regionSnapshot struct {
 	regionState *raft_serverpb.RegionLocalState
@@ -71,7 +49,7 @@ func (rs *regionSnapshot) redoLocks(raft *badger.DB, redoIdx uint64) error {
 }
 
 type Engines struct {
-	kv       *DBBundle
+	kv       *mvcc.DBBundle
 	kvPath   string
 	raft     *badger.DB
 	raftPath string
@@ -79,10 +57,10 @@ type Engines struct {
 
 func NewEngines(kvEngine *mvcc.DBBundle, raftEngine *badger.DB, kvPath, raftPath string) *Engines {
 	return &Engines{
-		kv: &DBBundle{
-			db:            kvEngine.DB,
-			lockStore:     kvEngine.LockStore,
-			rollbackStore: kvEngine.RollbackStore,
+		kv: &mvcc.DBBundle{
+			DB:            kvEngine.DB,
+			LockStore:     kvEngine.LockStore,
+			RollbackStore: kvEngine.RollbackStore,
 		},
 		kvPath:   kvPath,
 		raft:     raftEngine,
@@ -94,18 +72,18 @@ func (en *Engines) newRegionSnapshot(regionId, redoIdx uint64) (snap *regionSnap
 	// We need to get the old region state out of the snapshot transaction to fetch data in lockStore.
 	// The lockStore data must be fetch before we start the snapshot transaction to make sure there is no newer data
 	// in the lockStore. The missing old data can be restored by raft log.
-	oldRegionState, err := getRegionLocalState(en.kv.db, regionId)
+	oldRegionState, err := getRegionLocalState(en.kv.DB, regionId)
 	if err != nil {
 		return nil, err
 	}
 	lockSnap := lockstore.NewMemStore(8 << 20)
-	iter := en.kv.lockStore.NewIterator()
+	iter := en.kv.LockStore.NewIterator()
 	start, end := rawDataStartKey(oldRegionState.Region.StartKey), rawRegionKey(oldRegionState.Region.EndKey)
 	for iter.Seek(start); iter.Valid() && (len(end) == 0 || bytes.Compare(iter.Key(), end) < 0); iter.Next() {
 		lockSnap.Insert(iter.Key(), iter.Value())
 	}
 
-	txn := en.kv.db.NewTransaction(false)
+	txn := en.kv.DB.NewTransaction(false)
 
 	// Verify that the region version to make sure the start key and end key has not changed.
 	regionState := new(raft_serverpb.RegionLocalState)
@@ -241,9 +219,9 @@ func (wb *WriteBatch) RollbackToSafePoint() {
 // WriteToKV flush WriteBatch to DB by two steps:
 // 	1. Write entries to badger. After save ApplyState to badger, subsequent regionSnapshot will start at new raft index.
 //	2. Update lockStore, the date in lockStore may be older than the DB, so we need to restore then entries from raft log.
-func (wb *WriteBatch) WriteToKV(bundle *DBBundle) error {
+func (wb *WriteBatch) WriteToKV(bundle *mvcc.DBBundle) error {
 	if len(wb.entries) > 0 {
-		err := bundle.db.Update(func(txn *badger.Txn) error {
+		err := bundle.DB.Update(func(txn *badger.Txn) error {
 			for _, entry := range wb.entries {
 				var err1 error
 				if len(entry.UserMeta) == 0 && len(entry.Value) == 0 {
@@ -262,24 +240,24 @@ func (wb *WriteBatch) WriteToKV(bundle *DBBundle) error {
 		}
 	}
 	if len(wb.lockEntries) > 0 {
-		bundle.memStoreMu.Lock()
+		bundle.MemStoreMu.Lock()
 		for _, entry := range wb.lockEntries {
 			switch entry.UserMeta[0] {
 			case mvcc.LockUserMetaRollbackByte:
-				bundle.rollbackStore.Insert(entry.Key, []byte{0})
+				bundle.RollbackStore.Insert(entry.Key, []byte{0})
 			case mvcc.LockUserMetaDeleteByte:
-				if !bundle.lockStore.Delete(entry.Key) {
+				if !bundle.LockStore.Delete(entry.Key) {
 					panic("failed to delete key")
 				}
 			case mvcc.LockUserMetaRollbackGCByte:
-				bundle.rollbackStore.Delete(entry.Key)
+				bundle.RollbackStore.Delete(entry.Key)
 			default:
-				if !bundle.lockStore.Insert(entry.Key, entry.Value) {
+				if !bundle.LockStore.Insert(entry.Key, entry.Value) {
 					panic("failed to insert key")
 				}
 			}
 		}
-		bundle.memStoreMu.Unlock()
+		bundle.MemStoreMu.Unlock()
 	}
 	return nil
 }
@@ -307,7 +285,7 @@ func (wb *WriteBatch) WriteToRaft(db *badger.DB) error {
 	return nil
 }
 
-func (wb *WriteBatch) MustWriteToKV(db *DBBundle) {
+func (wb *WriteBatch) MustWriteToKV(db *mvcc.DBBundle) {
 	err := wb.WriteToKV(db)
 	if err != nil {
 		panic(err)
@@ -337,12 +315,12 @@ const delRangeBatchSize = 4096
 
 const maxSystemTS = math.MaxUint64
 
-func deleteRange(db *DBBundle, startKey, endKey []byte) error {
+func deleteRange(db *mvcc.DBBundle, startKey, endKey []byte) error {
 	// Delete keys first.
 	keys := make([][]byte, 0, delRangeBatchSize)
 	oldStartKey := mvcc.EncodeOldKey(startKey, maxSystemTS)
 	oldEndKey := mvcc.EncodeOldKey(endKey, maxSystemTS)
-	txn := db.db.NewTransaction(false)
+	txn := db.DB.NewTransaction(false)
 	reader := dbreader.NewDBReader(startKey, endKey, txn, 0)
 	keys = collectRangeKeys(reader.GetIter(), startKey, endKey, keys)
 	keys = collectRangeKeys(reader.GetIter(), oldStartKey, oldEndKey, keys)
@@ -352,7 +330,7 @@ func deleteRange(db *DBBundle, startKey, endKey []byte) error {
 	}
 
 	// Delete lock
-	lockIte := db.lockStore.NewIterator()
+	lockIte := db.LockStore.NewIterator()
 	keys = keys[:0]
 	keys = collectLockRangeKeys(lockIte, startKey, endKey, keys)
 	return deleteLocksInBatch(db, keys, delRangeBatchSize)
@@ -387,7 +365,7 @@ func collectLockRangeKeys(it *lockstore.Iterator, startKey, endKey []byte, keys 
 	return keys
 }
 
-func deleteKeysInBatch(db *DBBundle, keys [][]byte, batchSize int) error {
+func deleteKeysInBatch(db *mvcc.DBBundle, keys [][]byte, batchSize int) error {
 	for len(keys) > 0 {
 		batchSize := mathutil.Min(len(keys), batchSize)
 		batchKeys := keys[:batchSize]
@@ -403,7 +381,7 @@ func deleteKeysInBatch(db *DBBundle, keys [][]byte, batchSize int) error {
 	return nil
 }
 
-func deleteLocksInBatch(db *DBBundle, keys [][]byte, batchSize int) error {
+func deleteLocksInBatch(db *mvcc.DBBundle, keys [][]byte, batchSize int) error {
 	for len(keys) > 0 {
 		batchSize := mathutil.Min(len(keys), batchSize)
 		batchKeys := keys[:batchSize]
