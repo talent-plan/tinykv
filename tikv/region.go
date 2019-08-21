@@ -12,6 +12,7 @@ import (
 	"github.com/coocood/badger"
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
+	"github.com/ngaut/unistore/metrics"
 	"github.com/ngaut/unistore/pd"
 	"github.com/ngaut/unistore/tikv/raftstore"
 	"github.com/pingcap/kvproto/pkg/errorpb"
@@ -154,6 +155,7 @@ func (ri *regionCtx) AcquireLatches(hashVals []uint64) {
 		ok, wg := ri.tryAcquireLatches(hashVals)
 		if ok {
 			dur := time.Since(start)
+			metrics.LatchWait.Observe(dur.Seconds())
 			if dur > time.Millisecond*50 {
 				log.Warnf("region %d acquire %d locks takes %v", ri.meta.Id, len(hashVals), dur)
 			}

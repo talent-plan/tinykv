@@ -17,6 +17,7 @@ require (
 	github.com/pingcap/pd v2.1.0-rc.4+incompatible
 	github.com/pingcap/tidb v0.0.0-20190325083614-d6490c1cab3a
 	github.com/pingcap/tipb v0.0.0-20190107072121-abbec73437b7
+	github.com/prometheus/client_golang v0.9.0
 	github.com/shirou/gopsutil v2.18.10+incompatible
 	github.com/stretchr/testify v1.3.0
 	github.com/uber-go/atomic v1.3.2

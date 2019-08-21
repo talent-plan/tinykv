@@ -175,10 +175,11 @@ type applyCallback struct {
 	cbs    []*Callback
 }
 
-func (c *applyCallback) invokeAll(host *CoprocessorHost) {
+func (c *applyCallback) invokeAll(host *CoprocessorHost, doneApplyTime time.Time) {
 	for _, cb := range c.cbs {
 		if cb != nil {
 			host.postApply(c.region, cb.resp)
+			cb.applyDoneTime = doneApplyTime
 			cb.wg.Done()
 		}
 	}
@@ -353,8 +354,9 @@ func (ac *applyContext) writeToDB() {
 		}
 		ac.wb.Reset()
 	}
+	doneApply := time.Now()
 	for _, cb := range ac.cbs {
-		cb.invokeAll(ac.host)
+		cb.invokeAll(ac.host, doneApply)
 	}
 	ac.cbs = ac.cbs[:0]
 }

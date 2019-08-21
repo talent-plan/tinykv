@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ngaut/unistore/metrics"
 	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/errorpb"
@@ -139,12 +140,22 @@ func (writer *raftDBWriter) Write(batch mvcc.WriteBatch) error {
 		Request:  request,
 		Callback: NewCallback(),
 	}
+	start := time.Now()
 	err := writer.router.sendRaftCommand(cmd)
 	if err != nil {
 		return err
 	}
 	cmd.Callback.wg.Wait()
-	return writer.checkResponse(cmd.Callback.resp, len(b.requests))
+	waitDoneTime := time.Now()
+	metrics.RaftWriterWait.Observe(waitDoneTime.Sub(start).Seconds())
+	cb := cmd.Callback
+	if !cb.raftBeginTime.IsZero() {
+		metrics.WriteWaiteStepOne.Observe(cb.raftBeginTime.Sub(start).Seconds())
+		metrics.WriteWaiteStepTwo.Observe(cb.raftDoneTime.Sub(cb.raftBeginTime).Seconds())
+		metrics.WriteWaiteStepThree.Observe(cb.applyBeginTime.Sub(cb.raftDoneTime).Seconds())
+		metrics.WriteWaiteStepFour.Observe(cb.applyDoneTime.Sub(cb.applyBeginTime).Seconds())
+	}
+	return writer.checkResponse(cb.resp, len(b.requests))
 }
 
 type RaftError struct {

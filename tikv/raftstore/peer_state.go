@@ -8,6 +8,7 @@ import (
 	"unsafe"
 
 	"github.com/ngaut/log"
+	"github.com/ngaut/unistore/metrics"
 )
 
 // peerState contains the peer states that needs to run raft command and apply command.
@@ -69,19 +70,29 @@ type workerHandle struct {
 }
 
 type applyBatch struct {
-	msgs     []Msg
-	peers    map[uint64]*peerState
-	barriers []*sync.WaitGroup
+	msgs      []Msg
+	peers     map[uint64]*peerState
+	barriers  []*sync.WaitGroup
+	proposals []*regionProposal
+}
+
+func (b *applyBatch) iterCallbacks(f func(cb *Callback)) {
+	for _, rp := range b.proposals {
+		for _, p := range rp.Props {
+			if p.cb != nil {
+				f(p.cb)
+			}
+		}
+	}
 }
 
 // raftWorker is responsible for run raft commands and apply raft logs.
 type raftWorker struct {
 	pr *router
 
-	raftCh           chan Msg
-	raftCtx          *PollContext
-	raftStartTime    time.Time
-	pendingProposals []*regionProposal
+	raftCh        chan Msg
+	raftCtx       *PollContext
+	raftStartTime time.Time
 
 	applyCh  chan *applyBatch
 	applyCtx *applyContext
@@ -123,6 +134,7 @@ func (rw *raftWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
 		for i := 0; i < pending; i++ {
 			msgs = append(msgs, <-rw.raftCh)
 		}
+		metrics.RaftBatchSize.Observe(float64(len(msgs)))
 		atomic.AddUint64(&rw.msgCnt, uint64(len(msgs)))
 		peerStateMap := make(map[uint64]*peerState)
 		rw.raftCtx.pendingCount = 0
@@ -144,13 +156,18 @@ func (rw *raftWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
 		for id, peerState := range peerStateMap {
 			movePeer = id
 			delegate := &peerFsmDelegate{peerFsm: peerState.peer, ctx: rw.raftCtx}
-			rw.pendingProposals = delegate.collectReady(rw.pendingProposals)
+			batch.proposals = delegate.collectReady(batch.proposals)
 		}
 		// Pick one peer as the candidate to be moved to other workers.
 		atomic.StoreUint64(&rw.movePeerCandidate, movePeer)
 		if rw.raftCtx.hasReady {
 			rw.handleRaftReady(peerStateMap)
 		}
+		doneRaftTime := time.Now()
+		batch.iterCallbacks(func(cb *Callback) {
+			cb.raftBeginTime = rw.raftStartTime
+			cb.raftDoneTime = doneRaftTime
+		})
 		applyMsgs := rw.raftCtx.applyMsgs
 		batch.msgs = append(batch.msgs, applyMsgs.msgs...)
 		applyMsgs.msgs = applyMsgs.msgs[:0]
@@ -168,13 +185,10 @@ func (rw *raftWorker) getPeerState(peersMap map[uint64]*peerState, regionID uint
 	return peer
 }
 
-func (rw *raftWorker) handleRaftReady(peers map[uint64]*peerState) {
-	if len(rw.pendingProposals) > 0 {
-		for _, proposal := range rw.pendingProposals {
-			msg := Msg{Type: MsgTypeApplyProposal, Data: proposal}
-			rw.raftCtx.applyMsgs.appendMsg(proposal.RegionId, msg)
-		}
-		rw.pendingProposals = nil
+func (rw *raftWorker) handleRaftReady(peers map[uint64]*peerState, batch *applyBatch) {
+	for _, proposal := range batch.proposals {
+		msg := Msg{Type: MsgTypeApplyProposal, Data: proposal}
+		rw.raftCtx.applyMsgs.appendMsg(proposal.RegionId, msg)
 	}
 	kvWB := rw.raftCtx.kvWB
 	if len(kvWB.entries) > 0 {
@@ -233,6 +247,10 @@ func (rw *raftWorker) runApply(wg *sync.WaitGroup) {
 			wg.Done()
 			return
 		}
+		begin := time.Now()
+		batch.iterCallbacks(func(cb *Callback) {
+			cb.applyBeginTime = begin
+		})
 		for _, peer := range batch.peers {
 			peer.apply.redoIndex = peer.apply.applyState.appliedIndex + 1
 		}
