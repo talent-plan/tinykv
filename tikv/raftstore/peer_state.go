@@ -161,7 +161,7 @@ func (rw *raftWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
 		// Pick one peer as the candidate to be moved to other workers.
 		atomic.StoreUint64(&rw.movePeerCandidate, movePeer)
 		if rw.raftCtx.hasReady {
-			rw.handleRaftReady(peerStateMap)
+			rw.handleRaftReady(peerStateMap, batch)
 		}
 		doneRaftTime := time.Now()
 		batch.iterCallbacks(func(cb *Callback) {

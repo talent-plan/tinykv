@@ -478,6 +478,18 @@ func (svr *Server) UnsafeDestroyRange(context.Context, *kvrpcpb.UnsafeDestroyRan
 	return &kvrpcpb.UnsafeDestroyRangeResponse{}, nil
 }
 
+func (svr *Server) KvPessimisticLock(context.Context, *kvrpcpb.PessimisticLockRequest) (*kvrpcpb.PessimisticLockResponse, error) {
+	return nil, nil
+}
+
+func (svr *Server) KVPessimisticRollback(context.Context, *kvrpcpb.PessimisticRollbackRequest) (*kvrpcpb.PessimisticRollbackResponse, error) {
+	return nil, nil
+}
+
+func (svr *Server) ReadIndex(context.Context, *kvrpcpb.ReadIndexRequest) (*kvrpcpb.ReadIndexResponse, error) {
+	return nil, nil
+}
+
 func convertToKeyError(err error) *kvrpcpb.KeyError {
 	if err == nil {
 		return nil

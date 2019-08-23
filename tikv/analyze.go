@@ -169,7 +169,7 @@ func (svr *Server) handleAnalyzeColumnsReq(reqCtx *requestCtx, ranges []kv.KeyRa
 	return &coprocessor.Response{Data: data}, nil
 }
 
-// Fields implements the ast.RecordSet Fields interface.
+// Fields implements the sqlexec.RecordSet Fields interface.
 func (e *analyzeColumnsExec) Fields() []*ast.ResultField {
 	return e.fields
 }
@@ -193,7 +193,7 @@ func (e *analyzeColumnsExec) getNext(ctx context.Context) ([]types.Datum, error)
 	return datumRow, nil
 }
 
-func (e *analyzeColumnsExec) Next(ctx context.Context, req *chunk.RecordBatch) error {
+func (e *analyzeColumnsExec) Next(ctx context.Context, req *chunk.Chunk) error {
 	req.Reset()
 	row, err := e.getNext(ctx)
 	if row == nil || err != nil {
@@ -205,15 +205,15 @@ func (e *analyzeColumnsExec) Next(ctx context.Context, req *chunk.RecordBatch) e
 	return nil
 }
 
-func (e *analyzeColumnsExec) NewRecordBatch() *chunk.RecordBatch {
+func (e *analyzeColumnsExec) NewChunk() *chunk.Chunk {
 	fields := make([]*types.FieldType, 0, len(e.fields))
 	for _, field := range e.fields {
 		fields = append(fields, &field.Column.FieldType)
 	}
-	return chunk.NewRecordBatch(chunk.NewChunkWithCapacity(fields, 1))
+	return chunk.NewChunkWithCapacity(fields, 1)
 }
 
-// Close implements the ast.RecordSet Close interface.
+// Close implements the sqlexec.RecordSet Close interface.
 func (e *analyzeColumnsExec) Close() error {
 	return nil
 }

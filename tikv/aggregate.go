@@ -235,7 +235,7 @@ func (e *streamAggExec) getPartialResult() ([][]byte, error) {
 		}
 		e.currGroupByValues = append(e.currGroupByValues, buf)
 	}
-	e.currGroupByRow = types.CopyRow(e.nextGroupByRow)
+	e.currGroupByRow = types.CloneRow(e.nextGroupByRow)
 	return append(value, e.currGroupByValues...), nil
 }
 
@@ -249,9 +249,8 @@ func (e *streamAggExec) meetNewGroup(row [][]byte) (bool, error) {
 	if e.nextGroupByRow == nil {
 		matched, firstGroup = false, true
 	}
-	e.chkRow.SetDatums(e.row...)
 	for i, item := range e.groupByExprs {
-		d, err := item.Eval(e.chkRow.ToRow())
+		d, err := item.Eval(chunk.MutRowFromDatums(e.row).ToRow())
 		if err != nil {
 			return false, errors.Trace(err)
 		}
@@ -265,12 +264,12 @@ func (e *streamAggExec) meetNewGroup(row [][]byte) (bool, error) {
 		e.tmpGroupByRow = append(e.tmpGroupByRow, d)
 	}
 	if firstGroup {
-		e.currGroupByRow = types.CopyRow(e.tmpGroupByRow)
+		e.currGroupByRow = types.CloneRow(e.tmpGroupByRow)
 	}
 	if matched {
 		return false, nil
 	}
-	e.nextGroupByRow = types.CopyRow(e.tmpGroupByRow)
+	e.nextGroupByRow = e.tmpGroupByRow
 	return !firstGroup, nil
 }
 
