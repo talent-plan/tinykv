@@ -24,7 +24,7 @@ const (
 
 type BlockBasedTableBuilder struct {
 	props      TableProperties
-	writer     *fileutil.BufferedFileWriter
+	writer     *fileutil.BufferedWriter
 	comparator Comparator
 
 	dataBlockBuilder  *blockBuilder
@@ -44,7 +44,7 @@ type BlockBasedTableBuilder struct {
 }
 
 func NewBlockBasedTableBuilder(f *os.File, opts *BlockBasedTableOptions) *BlockBasedTableBuilder {
-	w := fileutil.NewBufferedFileWriter(f, opts.BufferSize, opts.BytesPerSync, opts.RateLimiter)
+	w := fileutil.NewBufferedWriter(f, opts.BufferSize, opts.RateLimiter)
 	blockSizeDeviationLimit := ((opts.BlockSize * (100 - opts.BlockSizeDeviation)) + 99) / 100
 	alignment := 4 * 1024
 	if opts.BlockSize < alignment {
@@ -144,7 +144,8 @@ func (b *BlockBasedTableBuilder) Finish() error {
 		return err
 	}
 	b.offset += uint64(len(footerBuf))
-	return b.writer.Flush(true)
+	b.writer.Flush()
+	return b.writer.Sync()
 }
 
 func (b *BlockBasedTableBuilder) flush() error {

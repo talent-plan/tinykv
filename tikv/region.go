@@ -287,12 +287,9 @@ func (rm *RaftRegionManager) OnPeerDestroy(ctx *raftstore.PeerEventContext) {
 }
 
 func (rm *RaftRegionManager) OnSplitRegion(derived *metapb.Region, regions []*metapb.Region, peers []*raftstore.PeerEventContext) {
-	rm.mu.RLock()
-	oldRegion := rm.regions[derived.Id]
-	rm.mu.RUnlock()
-	oldRegion.waitParent()
-
 	rm.mu.Lock()
+	oldRegion := rm.regions[derived.Id]
+	oldRegion.waitParent()
 	for i, region := range regions {
 		rm.regions[region.Id] = newRegionCtx(region, oldRegion, peers[i].LeaderChecker)
 	}

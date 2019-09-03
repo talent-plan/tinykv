@@ -572,15 +572,17 @@ type SafePoint struct {
 }
 
 // CreateCompactionFilter implements badger.CompactionFilterFactory function.
-func (sp *SafePoint) CreateCompactionFilter() badger.CompactionFilter {
+func (sp *SafePoint) CreateCompactionFilter(targetLevel int, startKey, endKey []byte) badger.CompactionFilter {
 	return &GCCompactionFilter{
-		safePoint: atomic.LoadUint64(&sp.timestamp),
+		targetLevel: targetLevel,
+		safePoint:   atomic.LoadUint64(&sp.timestamp),
 	}
 }
 
 // GCCompactionFilter implements the badger.CompactionFilter interface.
 type GCCompactionFilter struct {
-	safePoint uint64
+	targetLevel int
+	safePoint   uint64
 }
 
 // (old key first byte) = (latest key first byte) + 1
@@ -619,4 +621,28 @@ func (f *GCCompactionFilter) Filter(key, value, userMeta []byte) badger.Decision
 		}
 	}
 	return badger.DecisionKeep
+}
+
+var (
+	baseGuard          = badger.Guard{MatchLen: 64, MinSize: 64 * 1024}
+	raftGuard          = badger.Guard{Prefix: []byte{0}, MatchLen: 1, MinSize: 64 * 1024}
+	metaGuard          = badger.Guard{Prefix: []byte{'m'}, MatchLen: 1, MinSize: 64 * 1024}
+	metaOldGuard       = badger.Guard{Prefix: []byte{'n'}, MatchLen: 1, MinSize: 64 * 1024}
+	tableGuard         = badger.Guard{Prefix: []byte{'t'}, MatchLen: 9, MinSize: 1 * 1024 * 1024}
+	tableOldGuard      = badger.Guard{Prefix: []byte{'u'}, MatchLen: 9, MinSize: 1 * 1024 * 1024}
+	tableIndexGuard    = badger.Guard{Prefix: []byte{'t'}, MatchLen: 11, MinSize: 1 * 1024 * 1024}
+	tableIndexOldGuard = badger.Guard{Prefix: []byte{'u'}, MatchLen: 11, MinSize: 1 * 1024 * 1024}
+)
+
+func (f *GCCompactionFilter) Guards() []badger.Guard {
+	if f.targetLevel < 4 {
+		// do not split index and row for top levels.
+		return []badger.Guard{
+			baseGuard, raftGuard, metaGuard, metaOldGuard, tableGuard, tableOldGuard,
+		}
+	}
+	// split index and row for bottom levels.
+	return []badger.Guard{
+		baseGuard, raftGuard, metaGuard, metaOldGuard, tableIndexGuard, tableIndexOldGuard,
+	}
 }

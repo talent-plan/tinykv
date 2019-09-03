@@ -141,7 +141,7 @@ func setupRaftInnerServer(bundle *mvcc.DBBundle, safePoint *tikv.SafePoint, pdCl
 	config.SnapPath = snapPath
 	config.RaftWorkerCnt = *raftWorkerCnt
 
-	raftDB := createDB("raft", safePoint)
+	raftDB := createDB("raft", nil)
 	meta, err := bundle.LockStore.LoadFromFile(filepath.Join(kvPath, raftstore.LockstoreFileName))
 	if err != nil {
 		log.Fatal(err)
@@ -193,13 +193,9 @@ func setupStandAlongInnerServer(bundle *mvcc.DBBundle, safePoint *tikv.SafePoint
 
 func createDB(subPath string, safePoint *tikv.SafePoint) *badger.DB {
 	opts := badger.DefaultOptions
+	opts.NumCompactors = 1
 	opts.ValueThreshold = *valThreshold
-	opts.TableBuilderOptions.EnableHashIndex = false
-	opts.TableBuilderOptions.BytesPerSync = 4 * 1024 * 1024
-	opts.TableBuilderOptions.BytesPerSecond = 200 * 1024 * 1024
-	opts.TableBuilderOptions.WriteBufferSize = 8 * 1024 * 1024
-	opts.ValueLogWriteOptions.BytesPerSync = 0
-	opts.ValueLogWriteOptions.WriteBufferSize = 8 * 1024 * 1024
+	opts.ValueLogWriteOptions.WriteBufferSize = 4 * 1024 * 1024
 	opts.Dir = filepath.Join(*dbPath, subPath)
 	if *vlogPath != "" {
 		opts.ValueDir = filepath.Join(*dbPath, subPath)
@@ -216,7 +212,9 @@ func createDB(subPath string, safePoint *tikv.SafePoint) *badger.DB {
 	opts.NumLevelZeroTables = *numL0Table
 	opts.NumLevelZeroTablesStall = opts.NumLevelZeroTables + 5
 	opts.SyncWrites = *syncWrites
-	opts.CompactionFilterFactory = safePoint.CreateCompactionFilter
+	if safePoint != nil {
+		opts.CompactionFilterFactory = safePoint.CreateCompactionFilter
+	}
 	db, err := badger.Open(opts)
 	if err != nil {
 		log.Fatal(err)
