@@ -2,6 +2,12 @@ package tikv
 
 import (
 	"fmt"
+	"io/ioutil"
+	"math"
+	"os"
+	"sync"
+	"testing"
+
 	"github.com/coocood/badger"
 	"github.com/ngaut/unistore/lockstore"
 	"github.com/ngaut/unistore/tikv/mvcc"
@@ -17,11 +23,6 @@ import (
 	"github.com/pingcap/tipb/go-tipb"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/context"
-	"io/ioutil"
-	"math"
-	"os"
-	"sync"
-	"testing"
 )
 
 const (
@@ -98,10 +99,15 @@ func (store *testStore) initTestData(encodedKVDatas []*encodedTestKVData) []erro
 	for _, kvData := range encodedKVDatas {
 		mutation := makeATestMutaion(kvrpcpb.Op_Put, kvData.encodedRowKey,
 			kvData.encodedRowValue)
-		errors := store.mvccStore.Prewrite(&reqCtx, []*kvrpcpb.Mutation{mutation},
-			kvData.encodedRowKey, uint64(StartTs+i), TTL)
-		if errors != nil {
-			return errors
+		req := &kvrpcpb.PrewriteRequest{
+			Mutations:    []*kvrpcpb.Mutation{mutation},
+			PrimaryLock:  kvData.encodedRowKey,
+			StartVersion: uint64(StartTs + i),
+			LockTtl:      TTL,
+		}
+		err := store.mvccStore.Prewrite(&reqCtx, req)
+		if err != nil {
+			return []error{err}
 		}
 		commitError := store.mvccStore.Commit(&reqCtx, [][]byte{kvData.encodedRowKey},
 			uint64(StartTs+i), uint64(StartTs+i+1))

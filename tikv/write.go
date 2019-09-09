@@ -287,7 +287,10 @@ type writeBatch struct {
 	lockBatch writeLockBatch
 }
 
-func (wb *writeBatch) Prewrite(key []byte, lock *mvcc.MvccLock) {
+func (wb *writeBatch) Prewrite(key []byte, lock *mvcc.MvccLock, isPessimisticLock bool) {
+	if isPessimisticLock {
+		wb.lockBatch.delete(key)
+	}
 	wb.lockBatch.set(key, lock.MarshalBinary())
 }
 
@@ -309,6 +312,14 @@ func (wb *writeBatch) Rollback(key []byte, deleteLock bool) {
 	if deleteLock {
 		wb.lockBatch.delete(key)
 	}
+}
+
+func (wb *writeBatch) PessimisticLock(key []byte, lock *mvcc.MvccLock) {
+	wb.lockBatch.set(key, lock.MarshalBinary())
+}
+
+func (wb *writeBatch) PessimisticRollback(key []byte) {
+	wb.lockBatch.delete(key)
 }
 
 func (writer *dbWriter) NewWriteBatch(startTS, commitTS uint64, ctx *kvrpcpb.Context) mvcc.WriteBatch {

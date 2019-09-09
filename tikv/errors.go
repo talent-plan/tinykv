@@ -46,3 +46,24 @@ type ErrKeyAlreadyExists struct {
 func (e ErrKeyAlreadyExists) Error() string {
 	return "key already exists"
 }
+
+type ErrDeadlock struct {
+	LockKey         []byte
+	LockTS          uint64
+	DeadlockKeyHash uint64
+}
+
+func (e ErrDeadlock) Error() string {
+	return "deadlock"
+}
+
+type ErrConflict struct {
+	StartTS          uint64
+	ConflictTS       uint64
+	ConflictCommitTS uint64
+	Key              []byte
+}
+
+func (e *ErrConflict) Error() string {
+	return "write conflict"
+}

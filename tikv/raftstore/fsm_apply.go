@@ -980,6 +980,8 @@ func createWriteCmdOps(requests []*raft_cmdpb.Request) (ops writeCmdOps) {
 				i += 2
 			case CFWrite:
 				// This is collapse rollback, since we do local rollback GC, we can ignore it.
+			case CFLock:
+				// This is pessimistic rollback.
 			default:
 				panic("unreachable")
 			}

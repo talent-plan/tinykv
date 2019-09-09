@@ -257,9 +257,9 @@ func (wb *WriteBatch) WriteToKV(bundle *mvcc.DBBundle) error {
 			case mvcc.LockUserMetaRollbackGCByte:
 				bundle.RollbackStore.Delete(entry.Key)
 			default:
-				if !bundle.LockStore.Insert(entry.Key, entry.Value) {
-					panic("failed to insert key")
-				}
+				// For a pessimistic transaction, the lock will be updated.
+				bundle.LockStore.Delete(entry.Key)
+				bundle.LockStore.Insert(entry.Key, entry.Value)
 			}
 		}
 		bundle.MemStoreMu.Unlock()

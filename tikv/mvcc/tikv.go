@@ -42,6 +42,7 @@ func ParseWriteCFValue(data []byte) (wv WriteCFValue, err error) {
 
 const (
 	shortValuePrefix = 'v'
+	forUpdatePrefix  = 'f'
 	shortValueMaxLen = 64
 )
 
@@ -59,7 +60,7 @@ func EncodeWriteCFValue(t WriteType, startTs uint64, shortVal []byte) []byte {
 }
 
 // EncodeLockCFValue encodes the mvcc lock and returns putLock value and putDefault value if exists.
-func EncodeLockCFValue(lock *MvccLock) ([]byte, []byte, error) {
+func EncodeLockCFValue(lock *MvccLock) ([]byte, []byte) {
 	data := make([]byte, 1)
 	switch lock.Op {
 	case byte(kvrpcpb.Op_Put):
@@ -68,9 +69,12 @@ func EncodeLockCFValue(lock *MvccLock) ([]byte, []byte, error) {
 		data[0] = LockTypeDelete
 	case byte(kvrpcpb.Op_Lock):
 		data[0] = LockTypeLock
+	case byte(kvrpcpb.Op_PessimisticLock):
+		data[0] = LockTypePessimistic
 	default:
-		return nil, nil, errors.New("invalid lock op")
+		panic("invalid lock op")
 	}
+	var longValue []byte
 	data = codec.EncodeUvarint(codec.EncodeCompactBytes(data, lock.Primary), lock.StartTS)
 	data = codec.EncodeUvarint(data, uint64(lock.TTL))
 	if len(lock.Value) <= shortValueMaxLen {
@@ -78,18 +82,23 @@ func EncodeLockCFValue(lock *MvccLock) ([]byte, []byte, error) {
 			data = append(data, byte(shortValuePrefix), byte(len(lock.Value)))
 			data = append(data, lock.Value...)
 		}
-		return data, nil, nil
 	} else {
-		return data, y.SafeCopy(nil, lock.Value), nil
+		longValue = y.SafeCopy(nil, lock.Value)
 	}
+	if lock.ForUpdateTS > 0 {
+		data = append(data, byte(forUpdatePrefix))
+		data = codec.EncodeUint(data, lock.ForUpdateTS)
+	}
+	return data, longValue
 }
 
 type LockType = byte
 
 const (
-	LockTypePut    LockType = 'P'
-	LockTypeDelete LockType = 'D'
-	LockTypeLock   LockType = 'L'
+	LockTypePut         LockType = 'P'
+	LockTypeDelete      LockType = 'D'
+	LockTypeLock        LockType = 'L'
+	LockTypePessimistic LockType = 'S'
 )
 
 var invalidLockCFValue = errors.New("invalid lock CF value")
@@ -106,6 +115,8 @@ func ParseLockCFValue(data []byte) (lock MvccLock, err error) {
 		lock.Op = byte(kvrpcpb.Op_Del)
 	case LockTypeLock:
 		lock.Op = byte(kvrpcpb.Op_Lock)
+	case LockTypePessimistic:
+		lock.Op = byte(kvrpcpb.Op_PessimisticLock)
 	default:
 		err = invalidLockCFValue
 		return
@@ -125,11 +136,14 @@ func ParseLockCFValue(data []byte) (lock MvccLock, err error) {
 	if err != nil || len(data) == 0 {
 		return
 	}
-	y.Assert(data[0] == shortValuePrefix)
-	shortValLen := int(data[1])
-	lock.Value = data[2:]
-	if shortValLen != len(lock.Value) {
-		err = invalidLockCFValue
+	if data[0] == shortValuePrefix {
+		shortValLen := int(data[1])
+		data = data[2:]
+		lock.Value = data[:shortValLen]
+		data = data[shortValLen:]
+	}
+	if len(data) > 0 && data[0] == forUpdatePrefix {
+		data, lock.ForUpdateTS, err = codec.DecodeUint(data[1:])
 	}
 	return
 }

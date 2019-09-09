@@ -1,7 +1,6 @@
 package raftstore
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/ngaut/unistore/metrics"
@@ -32,12 +31,9 @@ type raftWriteBatch struct {
 	commitTS uint64
 }
 
-func (wb *raftWriteBatch) Prewrite(key []byte, lock *mvcc.MvccLock) {
+func (wb *raftWriteBatch) Prewrite(key []byte, lock *mvcc.MvccLock, isPessimisticLock bool) {
 	encodedKey := codec.EncodeBytes(nil, key)
-	putLock, putDefault, err := mvcc.EncodeLockCFValue(lock)
-	if err != nil {
-		panic(fmt.Sprintf("Prewrite error when transfering lock. [key: %v, %v]", key, err))
-	}
+	putLock, putDefault := mvcc.EncodeLockCFValue(lock)
 	if len(putDefault) != 0 {
 		// Prewrite with large value.
 		putDefaultReq := &rcpb.Request{
@@ -112,6 +108,30 @@ func (wb *raftWriteBatch) Rollback(key []byte, deleteLock bool) {
 	} else {
 		wb.requests = append(wb.requests, rollBackReq)
 	}
+}
+
+func (wb *raftWriteBatch) PessimisticLock(key []byte, lock *mvcc.MvccLock) {
+	encodedKey := codec.EncodeBytes(nil, key)
+	val, _ := mvcc.EncodeLockCFValue(lock)
+	wb.requests = append(wb.requests, &rcpb.Request{
+		CmdType: rcpb.CmdType_Put,
+		Put: &rcpb.PutRequest{
+			Cf:    CFLock,
+			Key:   encodedKey,
+			Value: val,
+		},
+	})
+}
+
+func (wb *raftWriteBatch) PessimisticRollback(key []byte) {
+	encodedKey := codec.EncodeBytes(nil, key)
+	wb.requests = append(wb.requests, &rcpb.Request{
+		CmdType: rcpb.CmdType_Delete,
+		Delete: &rcpb.DeleteRequest{
+			Cf:  CFLock,
+			Key: encodedKey,
+		},
+	})
 }
 
 func (writer *raftDBWriter) NewWriteBatch(startTS, commitTS uint64, ctx *kvrpcpb.Context) mvcc.WriteBatch {

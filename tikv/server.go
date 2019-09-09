@@ -11,6 +11,7 @@ import (
 	"github.com/ngaut/unistore/rowcodec"
 	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/ngaut/unistore/tikv/raftstore"
+	"github.com/ngaut/unistore/util/lockwaiter"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
@@ -189,6 +190,60 @@ func (p *kvScanProcessor) Process(key, value []byte) (err error) {
 	return nil
 }
 
+func (svr *Server) KvPessimisticLock(ctx context.Context, req *kvrpcpb.PessimisticLockRequest) (*kvrpcpb.PessimisticLockResponse, error) {
+	reqCtx, err := newRequestCtx(svr, req.Context, "PessimisticLock")
+	if err != nil {
+		return &kvrpcpb.PessimisticLockResponse{Errors: []*kvrpcpb.KeyError{convertToKeyError(err)}}, nil
+	}
+	defer reqCtx.finish()
+	if reqCtx.regErr != nil {
+		return &kvrpcpb.PessimisticLockResponse{RegionError: reqCtx.regErr}, nil
+	}
+	waiter, err := svr.mvccStore.PessimisticLock(reqCtx, req)
+	resp := &kvrpcpb.PessimisticLockResponse{}
+	resp.Errors, resp.RegionError = convertToPBErrors(err)
+	if waiter == nil {
+		return resp, nil
+	}
+	result := waiter.Wait()
+	svr.mvccStore.deadlockDetector.CleanUpWaitFor(req.StartVersion, waiter.LockTS, waiter.KeyHash)
+	if result.Position == lockwaiter.WaitTimeout {
+		svr.mvccStore.lockWaiterManager.CleanUp(waiter)
+		return resp, nil
+	}
+	if result.Position > 0 {
+		// Sleep a little so the transaction in lower position will more likely get the lock.
+		time.Sleep(time.Millisecond * 3)
+	}
+	conflictCommitTS := result.CommitTS
+	if conflictCommitTS < req.GetForUpdateTs() {
+		// The key is rollbacked, we don't have the exact commitTS, but we can use the server's latest.
+		conflictCommitTS = svr.mvccStore.getLatestTS()
+	}
+	err = &ErrConflict{
+		StartTS:          req.GetForUpdateTs(),
+		ConflictTS:       waiter.LockTS,
+		ConflictCommitTS: conflictCommitTS,
+	}
+	resp.Errors, _ = convertToPBErrors(err)
+	return resp, nil
+}
+
+func (svr *Server) KVPessimisticRollback(ctx context.Context, req *kvrpcpb.PessimisticRollbackRequest) (*kvrpcpb.PessimisticRollbackResponse, error) {
+	reqCtx, err := newRequestCtx(svr, req.Context, "PessimisticRollback")
+	if err != nil {
+		return &kvrpcpb.PessimisticRollbackResponse{Errors: []*kvrpcpb.KeyError{convertToKeyError(err)}}, nil
+	}
+	defer reqCtx.finish()
+	if reqCtx.regErr != nil {
+		return &kvrpcpb.PessimisticRollbackResponse{RegionError: reqCtx.regErr}, nil
+	}
+	err = svr.mvccStore.PessimisticRollback(reqCtx, req)
+	resp := &kvrpcpb.PessimisticRollbackResponse{}
+	resp.Errors, resp.RegionError = convertToPBErrors(err)
+	return resp, nil
+}
+
 func (svr *Server) KvPrewrite(ctx context.Context, req *kvrpcpb.PrewriteRequest) (*kvrpcpb.PrewriteResponse, error) {
 	reqCtx, err := newRequestCtx(svr, req.Context, "KvPrewrite")
 	if err != nil {
@@ -198,10 +253,9 @@ func (svr *Server) KvPrewrite(ctx context.Context, req *kvrpcpb.PrewriteRequest)
 	if reqCtx.regErr != nil {
 		return &kvrpcpb.PrewriteResponse{RegionError: reqCtx.regErr}, nil
 	}
-	errs := svr.mvccStore.Prewrite(reqCtx, req.Mutations, req.PrimaryLock, req.GetStartVersion(), req.GetLockTtl())
-
-	resp := new(kvrpcpb.PrewriteResponse)
-	resp.Errors, resp.RegionError = convertToPBErrors(errs)
+	err = svr.mvccStore.Prewrite(reqCtx, req)
+	resp := &kvrpcpb.PrewriteResponse{}
+	resp.Errors, resp.RegionError = convertToPBErrors(err)
 	return resp, nil
 }
 
@@ -292,10 +346,8 @@ func (svr *Server) KvBatchRollback(ctx context.Context, req *kvrpcpb.BatchRollba
 	}
 	resp := new(kvrpcpb.BatchRollbackResponse)
 	err = svr.mvccStore.Rollback(reqCtx, req.Keys, req.StartVersion)
-	if err != nil {
-		resp.Error, resp.RegionError = convertToPBError(err)
-	}
-	return &kvrpcpb.BatchRollbackResponse{}, nil
+	resp.Error, resp.RegionError = convertToPBError(err)
+	return resp, nil
 }
 
 func (svr *Server) KvScanLock(ctx context.Context, req *kvrpcpb.ScanLockRequest) (*kvrpcpb.ScanLockResponse, error) {
@@ -340,9 +392,7 @@ func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRe
 	} else {
 		log.Debugf("kv resolve lock region:%d txn:%v", reqCtx.regCtx.meta.Id, req.StartVersion)
 		err := svr.mvccStore.ResolveLock(reqCtx, req.StartVersion, req.CommitVersion)
-		if err != nil {
-			resp.Error, resp.RegionError = convertToPBError(err)
-		}
+		resp.Error, resp.RegionError = convertToPBError(err)
 	}
 	return resp, nil
 }
@@ -462,6 +512,11 @@ func (svr *Server) SplitRegion(ctx context.Context, req *kvrpcpb.SplitRegionRequ
 	return &kvrpcpb.SplitRegionResponse{}, nil
 }
 
+func (svr *Server) ReadIndex(context.Context, *kvrpcpb.ReadIndexRequest) (*kvrpcpb.ReadIndexResponse, error) {
+	// TODO:
+	return &kvrpcpb.ReadIndexResponse{}, nil
+}
+
 // transaction debugger commands.
 func (svr *Server) MvccGetByKey(context.Context, *kvrpcpb.MvccGetByKeyRequest) (*kvrpcpb.MvccGetByKeyResponse, error) {
 	// TODO
@@ -476,18 +531,6 @@ func (svr *Server) MvccGetByStartTs(context.Context, *kvrpcpb.MvccGetByStartTsRe
 func (svr *Server) UnsafeDestroyRange(context.Context, *kvrpcpb.UnsafeDestroyRangeRequest) (*kvrpcpb.UnsafeDestroyRangeResponse, error) {
 	// TODO
 	return &kvrpcpb.UnsafeDestroyRangeResponse{}, nil
-}
-
-func (svr *Server) KvPessimisticLock(context.Context, *kvrpcpb.PessimisticLockRequest) (*kvrpcpb.PessimisticLockResponse, error) {
-	return nil, nil
-}
-
-func (svr *Server) KVPessimisticRollback(context.Context, *kvrpcpb.PessimisticRollbackRequest) (*kvrpcpb.PessimisticRollbackResponse, error) {
-	return nil, nil
-}
-
-func (svr *Server) ReadIndex(context.Context, *kvrpcpb.ReadIndexRequest) (*kvrpcpb.ReadIndexResponse, error) {
-	return nil, nil
 }
 
 func convertToKeyError(err error) *kvrpcpb.KeyError {
@@ -515,6 +558,23 @@ func convertToKeyError(err error) *kvrpcpb.KeyError {
 				Key: x.Key,
 			},
 		}
+	case *ErrConflict:
+		return &kvrpcpb.KeyError{
+			Conflict: &kvrpcpb.WriteConflict{
+				StartTs:          x.StartTS,
+				ConflictTs:       x.ConflictTS,
+				ConflictCommitTs: x.ConflictCommitTS,
+				Key:              x.Key,
+			},
+		}
+	case *ErrDeadlock:
+		return &kvrpcpb.KeyError{
+			Deadlock: &kvrpcpb.Deadlock{
+				LockKey:         x.LockKey,
+				LockTs:          x.LockTS,
+				DeadlockKeyHash: x.DeadlockKeyHash,
+			},
+		}
 	default:
 		return &kvrpcpb.KeyError{
 			Abort: err.Error(),
@@ -529,17 +589,14 @@ func convertToPBError(err error) (*kvrpcpb.KeyError, *errorpb.Error) {
 	return convertToKeyError(err), nil
 }
 
-func convertToPBErrors(errs []error) ([]*kvrpcpb.KeyError, *errorpb.Error) {
-	var keyErrs []*kvrpcpb.KeyError
-	for _, err := range errs {
-		if err != nil {
-			if regErr := extractRegionError(err); regErr != nil {
-				return nil, regErr
-			}
-			keyErrs = append(keyErrs, convertToKeyError(err))
+func convertToPBErrors(err error) ([]*kvrpcpb.KeyError, *errorpb.Error) {
+	if err != nil {
+		if regErr := extractRegionError(err); regErr != nil {
+			return nil, regErr
 		}
+		return []*kvrpcpb.KeyError{convertToKeyError(err)}, nil
 	}
-	return keyErrs, nil
+	return nil, nil
 }
 
 func extractRegionError(err error) *errorpb.Error {

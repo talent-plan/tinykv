@@ -38,11 +38,12 @@ func DecodeLock(data []byte) (l MvccLock) {
 
 // MvccLockHdr holds fixed size fields for MvccLock.
 type MvccLockHdr struct {
-	StartTS    uint64
-	TTL        uint32
-	Op         uint8
-	HasOldVer  bool
-	PrimaryLen uint16
+	StartTS     uint64
+	ForUpdateTS uint64
+	TTL         uint32
+	Op          uint8
+	HasOldVer   bool
+	PrimaryLen  uint16
 }
 
 const mvccLockHdrSize = int(unsafe.Sizeof(MvccLockHdr{}))
