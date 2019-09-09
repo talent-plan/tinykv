@@ -516,7 +516,7 @@ func (bs *raftBatchSystem) startSystem(
 	balancer := &balancer{
 		router: router,
 	}
-	for i := uint64(0); i < builder.cfg.RaftWorkerCnt; i++ {
+	for i := 0; i < builder.cfg.RaftWorkerCnt; i++ {
 		rw := newRaftWorker(builder, router.workerSenders[i], router)
 		balancer.workers = append(balancer.workers, rw)
 		bs.wg.Add(1)
@@ -574,7 +574,7 @@ func (bs *raftBatchSystem) shutDown() {
 
 func createRaftBatchSystem(cfg *Config) (*router, *raftBatchSystem) {
 	storeSender, storeFsm := newStoreFsm(cfg)
-	router := newRouter(int(cfg.RaftWorkerCnt), storeSender, storeFsm)
+	router := newRouter(cfg.RaftWorkerCnt, storeSender, storeFsm)
 	raftBatchSystem := &raftBatchSystem{
 		router:     router,
 		tickDriver: newTickDriver(cfg.RaftBaseTickInterval, router, storeFsm.ticker),

@@ -117,7 +117,7 @@ type Config struct {
 	ApplyPoolSize     uint64
 
 	StoreMaxBatchSize uint64
-	RaftWorkerCnt     uint64
+	RaftWorkerCnt     int
 
 	ConcurrentSendSnapLimit uint64
 	ConcurrentRecvSnapLimit uint64
