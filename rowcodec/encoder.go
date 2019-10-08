@@ -337,11 +337,11 @@ func RowToOldRow(rowData, buf []byte) ([]byte, error) {
 				buf = append(buf, CompactBytesFlag)
 				buf = codec.EncodeCompactBytes(buf, val)
 			case IntFlag:
-				buf = append(buf, IntFlag)
-				buf = codec.EncodeInt(buf, decodeInt(val))
+				buf = append(buf, VarintFlag)
+				buf = codec.EncodeVarint(buf, decodeInt(val))
 			case UintFlag:
-				buf = append(buf, UintFlag)
-				buf = codec.EncodeUint(buf, decodeUint(val))
+				buf = append(buf, VaruintFlag)
+				buf = codec.EncodeUvarint(buf, decodeUint(val))
 			default:
 				buf = append(buf, r.valFlags[i])
 				buf = append(buf, val...)

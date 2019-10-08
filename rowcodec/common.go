@@ -23,6 +23,7 @@ const (
 	IntFlag          byte = 3
 	UintFlag         byte = 4
 	VarintFlag       byte = 8
+	VaruintFlag      byte = 9
 )
 
 // row is the struct type used to access the a row.
