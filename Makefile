@@ -5,8 +5,10 @@ ifeq "$(GOPATH)" ""
   $(error Please set the environment variable GOPATH before running `make`)
 endif
 
-GO      := GO111MODULE=on go
-GOBUILD := $(GO) build $(BUILD_FLAG)
+GOBUILD := go build $(BUILD_FLAG)
 
 default:
-	$(GOBUILD) -ldflags "-X main.gitHash=`git rev-parse HEAD`" -o node/node node/main.go
+	$(GOBUILD) -ldflags "-X main.gitHash=`git rev-parse HEAD`" -o bin/unistore-server unistore-server/main.go
+
+linux:
+	GOOS=linux $(GOBUILD) -ldflags "-X main.gitHash=`git rev-parse HEAD`" -o bin/unistore-server-linux unistore-server/main.go
