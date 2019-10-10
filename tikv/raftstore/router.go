@@ -62,6 +62,7 @@ func (pr *router) close(regionID uint64) {
 }
 
 func (pr *router) send(regionID uint64, msg Msg) error {
+	msg.RegionID = regionID
 	p := pr.get(regionID)
 	if p == nil {
 		return errPeerNotFound
@@ -76,7 +77,10 @@ func (pr *router) sendRaftCommand(cmd *MsgRaftCmd) error {
 
 func (pr *router) sendRaftMessage(msg *raft_serverpb.RaftMessage) error {
 	regionID := msg.RegionId
-	return pr.send(regionID, NewPeerMsg(MsgTypeRaftMessage, regionID, msg))
+	if pr.send(regionID, NewPeerMsg(MsgTypeRaftMessage, regionID, msg)) != nil {
+		pr.sendStore(NewPeerMsg(MsgTypeStoreRaftMessage, regionID, msg))
+	}
+	return nil
 }
 
 func (pr *router) sendStore(msg Msg) {

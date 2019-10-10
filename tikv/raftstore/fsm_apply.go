@@ -1064,14 +1064,16 @@ func convertPrewriteToLock(op prewriteOp, txn *badger.Txn) (key, value []byte) {
 	if err != nil {
 		panic(op.putLock.Value)
 	}
-	if item, err := txn.Get(rawKey); err == nil {
-		val, err1 := item.Value()
-		if err1 != nil {
-			panic(err1)
+	if lock.Op != uint8(kvrpcpb.Op_Lock) {
+		if item, err := txn.Get(rawKey); err == nil {
+			val, err1 := item.Value()
+			if err1 != nil {
+				panic(err1)
+			}
+			lock.HasOldVer = true
+			lock.OldMeta = item.UserMeta()
+			lock.OldVal = val
 		}
-		lock.HasOldVer = true
-		lock.OldMeta = item.UserMeta()
-		lock.OldVal = val
 	}
 	if op.putDefault != nil {
 		lock.Value = op.putDefault.Value

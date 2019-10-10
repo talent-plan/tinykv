@@ -383,7 +383,7 @@ func (store *MVCCStore) buildPrewriteLock(reqCtx *requestCtx, m *kvrpcpb.Mutatio
 		Value:   m.Value,
 	}
 	var err error
-	if item != nil {
+	if item != nil && m.Op != kvrpcpb.Op_Lock {
 		lock.HasOldVer = true
 		lock.OldMeta = mvcc.DBUserMeta(item.UserMeta())
 		lock.OldVal, err = item.Value()
