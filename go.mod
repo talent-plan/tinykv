@@ -17,7 +17,7 @@ require (
 	github.com/pingcap/kvproto v0.0.0-20190821201150-798d27658fae
 	github.com/pingcap/parser v0.0.0-20190903084634-0daf3f706c76
 	github.com/pingcap/tidb v1.1.0-beta.0.20190904060835-0872b65ff1f9
-	github.com/pingcap/tipb v0.0.0-20190806070524-16909e03435e
+	github.com/pingcap/tipb v0.0.0-20191008064422-018b2fadf414
 	github.com/prometheus/client_golang v0.9.0
 	github.com/shirou/gopsutil v2.18.10+incompatible
 	github.com/stretchr/testify v1.3.0
