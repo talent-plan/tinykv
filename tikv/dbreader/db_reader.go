@@ -21,7 +21,6 @@ func NewDBReader(startKey, endKey []byte, txn *badger.Txn, safePoint uint64) *DB
 
 func NewIterator(txn *badger.Txn, reverse bool, startKey, endKey []byte) *badger.Iterator {
 	opts := badger.DefaultIteratorOptions
-	opts.PrefetchValues = false
 	opts.Reverse = reverse
 	opts.StartKey = y.KeyWithTs(startKey, math.MaxUint64)
 	opts.EndKey = y.KeyWithTs(endKey, math.MaxUint64)

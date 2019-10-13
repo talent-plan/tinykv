@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"io/ioutil"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"github.com/ngaut/unistore/tikv/mvcc"
 
 	"github.com/coocood/badger"
+	"github.com/coocood/badger/table"
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/lockstore"
@@ -487,26 +490,27 @@ func (snapCtx *snapContext) cleanUpOriginData(regionState *rspb.RegionLocalState
 }
 
 // applySnap applies snapshot data of the Region.
-func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus) error {
+func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus, builder, oldBuilder *table.Builder) (ApplyResult, error) {
 	log.Infof("begin apply snap data. [regionId: %d]", regionId)
+	var result ApplyResult
 	if err := checkAbort(status); err != nil {
-		return err
+		return result, err
 	}
 
 	regionKey := RegionStateKey(regionId)
 	regionState, err := getRegionLocalState(snapCtx.engiens.kv.DB, regionId)
 	if err != nil {
-		return errors.New(fmt.Sprintf("failed to get regionState from %v", regionKey))
+		return result, errors.New(fmt.Sprintf("failed to get regionState from %v", regionKey))
 	}
 
 	// Clean up origin data
 	if err := snapCtx.cleanUpOriginData(regionState, status); err != nil {
-		return err
+		return result, err
 	}
 
 	applyState, err := getApplyState(snapCtx.engiens.kv.DB, regionId)
 	if err != nil {
-		return errors.New(fmt.Sprintf("failed to get raftState from %v", ApplyStateKey(regionId)))
+		return result, errors.New(fmt.Sprintf("failed to get raftState from %v", ApplyStateKey(regionId)))
 	}
 	snapKey := SnapKey{RegionID: regionId, Index: applyState.truncatedIndex, Term: applyState.truncatedTerm}
 	snapCtx.mgr.Register(snapKey, SnapEntryApplying)
@@ -514,33 +518,26 @@ func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus) error 
 
 	snap, err := snapCtx.mgr.GetSnapshotForApplying(snapKey)
 	if err != nil {
-		return errors.New(fmt.Sprintf("missing snapshot file %s", snap.Path()))
+		return result, errors.New(fmt.Sprintf("missing snapshot file %s", snap.Path()))
 	}
 
 	t := time.Now()
-	applyOptions := newApplyOptions(snapCtx.engiens.kv, regionState.GetRegion(), status, int(snapCtx.batchSize))
-	if err := snap.Apply(*applyOptions); err != nil {
-		return err
+	applyOptions := newApplyOptions(snapCtx.engiens.kv, regionState.GetRegion(), status, builder, oldBuilder)
+	if result, err = snap.Apply(*applyOptions); err != nil {
+		return result, err
 	}
 
-	wb := new(WriteBatch)
 	regionState.State = rspb.PeerState_Normal
-	if err := wb.SetMsg(regionKey, regionState); err != nil {
-		return err
-	}
-	wb.Delete(SnapshotRaftStateKey(regionId))
-	if err := wb.WriteToKV(snapCtx.engiens.kv); err != nil {
-		panic(fmt.Sprintf("Region %d faile to save applySnap result: %v", regionId, err))
-	}
+	result.RegionState = regionState
 
 	log.Infof("applying new data. [regionId: %d, timeTakes: %v]", regionId, time.Now().Sub(t))
-	return nil
+	return result, nil
 }
 
 // handleApply tries to apply the snapshot of the specified Region. It calls `applySnap` to do the actual work.
-func (snapCtx *snapContext) handleApply(regionId uint64, status *JobStatus) {
+func (snapCtx *snapContext) handleApply(regionId uint64, status *JobStatus, builder, oldBuilder *table.Builder) (ApplyResult, error) {
 	atomic.CompareAndSwapUint32(status, JobStatus_Pending, JobStatus_Running)
-	err := snapCtx.applySnap(regionId, status)
+	result, err := snapCtx.applySnap(regionId, status, builder, oldBuilder)
 	switch err.(type) {
 	case nil:
 		atomic.SwapUint32(status, JobStatus_Finished)
@@ -551,6 +548,7 @@ func (snapCtx *snapContext) handleApply(regionId uint64, status *JobStatus) {
 		log.Errorf("failed to apply snap!!!. err: %v", err)
 		atomic.SwapUint32(status, JobStatus_Failed)
 	}
+	return result, err
 }
 
 /// ingestMaybeStall checks the number of files at level 0 to avoid write stall after ingesting sst.
@@ -605,11 +603,24 @@ func (snapCtx *snapContext) cleanUpRange(regionId uint64, startKey, endKey []byt
 	}
 }
 
+type regionApplyState struct {
+	localState *rspb.RegionLocalState
+	tableCount int
+}
+
 type regionRunner struct {
 	ctx *snapContext
 	// we may delay some apply tasks if level 0 files to write stall threshold,
 	// pending_applies records all delayed apply task, and will check again later
 	pendingApplies []task
+
+	builderFile    *os.File
+	builder        *table.Builder
+	oldBuilderFile *os.File
+	oldBuilder     *table.Builder
+
+	tableFiles  []*os.File
+	applyStates []regionApplyState
 }
 
 func newRegionRunner(engines *Engines, mgr *SnapManager, batchSize uint64, cleanStalePeerDelay time.Duration) *regionRunner {
@@ -626,17 +637,124 @@ func newRegionRunner(engines *Engines, mgr *SnapManager, batchSize uint64, clean
 	}
 }
 
+func (r *regionRunner) tempFile() (*os.File, error) {
+	return ioutil.TempFile(r.ctx.engiens.kvPath, "ingest_convert_*.sst")
+}
+
+func (r *regionRunner) resetBuilder() error {
+	var err error
+	if r.builderFile, err = r.tempFile(); err != nil {
+		return err
+	}
+	if r.builder == nil {
+		r.builder = r.ctx.engiens.kv.DB.NewExternalTableBuilder(r.builderFile, r.ctx.mgr.limiter)
+	} else {
+		r.builder.Reset(r.builderFile)
+	}
+
+	if r.oldBuilderFile, err = r.tempFile(); err != nil {
+		return err
+	}
+	if r.oldBuilder == nil {
+		r.oldBuilder = r.ctx.engiens.kv.DB.NewExternalTableBuilder(r.oldBuilderFile, r.ctx.mgr.limiter)
+	} else {
+		r.oldBuilder.Reset(r.oldBuilderFile)
+	}
+
+	return nil
+}
+
+func (r *regionRunner) handleApplyResult(result ApplyResult) error {
+	if result.HasPut {
+		if err := r.builder.Finish(); err != nil {
+			return err
+		}
+	} else {
+		os.Remove(r.builderFile.Name())
+	}
+
+	if result.HasOldPut {
+		if err := r.oldBuilder.Finish(); err != nil {
+			return err
+		}
+	} else {
+		os.Remove(r.oldBuilderFile.Name())
+	}
+
+	state := regionApplyState{localState: result.RegionState}
+	if result.HasPut {
+		state.tableCount++
+		r.tableFiles = append(r.tableFiles, r.builderFile)
+	}
+	if result.HasOldPut {
+		state.tableCount++
+		r.tableFiles = append(r.tableFiles, r.oldBuilderFile)
+	}
+	r.applyStates = append(r.applyStates, state)
+
+	return nil
+}
+
+func (r *regionRunner) finishApply() error {
+	log.Infof("apply snapshot ingesting %d tables", len(r.tableFiles))
+	n, err := r.ctx.engiens.kv.DB.IngestExternalFiles(r.tableFiles)
+	if err != nil {
+		log.Errorf("ingest sst failed (first %d files succeeded): %s", n, err)
+	}
+
+	wb := new(WriteBatch)
+	var cnt int
+	for _, state := range r.applyStates {
+		if cnt >= n {
+			break
+		}
+		cnt += state.tableCount
+		rs := state.localState
+		regionID := rs.Region.Id
+		wb.SetMsg(RegionStateKey(regionID), rs)
+		wb.Delete(SnapshotRaftStateKey(regionID))
+	}
+
+	if err := wb.WriteToKV(r.ctx.engiens.kv); err != nil {
+		log.Errorf("update region status failed: %s", err)
+	}
+
+	log.Infof("apply snapshot ingested %d tables", len(r.tableFiles))
+
+	for _, f := range r.tableFiles {
+		os.Remove(f.Name())
+	}
+	r.tableFiles = nil
+	r.applyStates = nil
+	return nil
+}
+
 // handlePendingApplies tries to apply pending tasks if there is some.
 func (r *regionRunner) handlePendingApplies() {
-	for len(r.pendingApplies) != 0 {
+	for _, apply := range r.pendingApplies {
 		// Should not handle too many applies than the number of files that can be ingested.
 		// Check level 0 every time because we can not make sure how does the number of level 0 files change.
 		if r.ctx.ingestMaybeStall() {
 			break
 		}
-		task := r.pendingApplies[0].data.(*regionTask)
-		r.pendingApplies = r.pendingApplies[1:]
-		r.ctx.handleApply(task.regionId, task.status)
+
+		if err := r.resetBuilder(); err != nil {
+			log.Error(err)
+			continue
+		}
+
+		task := apply.data.(*regionTask)
+		result, err := r.ctx.handleApply(task.regionId, task.status, r.builder, r.oldBuilder)
+		if err != nil {
+			log.Error(err)
+			continue
+		}
+		if err := r.handleApplyResult(result); err != nil {
+			log.Error(err)
+		}
+	}
+	if err := r.finishApply(); err != nil {
+		log.Error(err)
 	}
 }
 

@@ -360,7 +360,6 @@ func NewStandAloneRegionManager(db *badger.DB, opts RegionOptions, pdc pd.Client
 		}
 		// load region meta
 		opts := badger.DefaultIteratorOptions
-		opts.PrefetchValues = false
 		it := txn.NewIterator(opts)
 		defer it.Close()
 		prefix := InternalRegionMetaPrefix
@@ -615,7 +614,7 @@ func (rm *StandAloneRegionManager) saveSize(regionsToSave []*regionCtx) {
 func (rm *StandAloneRegionManager) splitCheckRegion(region *regionCtx) error {
 	s := newSampler()
 	err := rm.db.View(func(txn *badger.Txn) error {
-		iter := txn.NewIterator(badger.IteratorOptions{PrefetchValues: false})
+		iter := txn.NewIterator(badger.IteratorOptions{})
 		defer iter.Close()
 		for iter.Seek(region.startKey); iter.Valid(); iter.Next() {
 			item := iter.Item()

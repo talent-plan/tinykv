@@ -184,5 +184,10 @@ func rawDataStartKey(key []byte) []byte {
 	if len(startKey) == 0 || startKey[0] == LocalPrefix {
 		startKey = []byte{LocalPrefix + 1}
 	}
+	// Skip range contains old versions.
+	// Data of 'u' and 'n' is managed by 't' and 'm' regions.
+	if len(startKey) != 0 && (startKey[0] == 'u' || startKey[0] == 'n') {
+		startKey = []byte{startKey[0] + 1}
+	}
 	return startKey
 }

@@ -351,6 +351,7 @@ func (smb *SnapManagerBuilder) Build(path string, router *router) *SnapManager {
 		snapSize:     new(int64),
 		registry:     map[SnapKey][]SnapEntry{},
 		router:       router,
+		limiter:      NewInfLimiter(),
 		MaxTotalSize: maxTotalSize,
 	}
 }

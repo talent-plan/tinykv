@@ -3,7 +3,6 @@ package raftstore
 import (
 	"bytes"
 	"fmt"
-	"github.com/ngaut/unistore/tikv/mvcc"
 	"hash"
 	"hash/crc32"
 	"io"
@@ -12,6 +11,10 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/coocood/badger/table"
+	"github.com/coocood/badger/y"
+	"github.com/ngaut/unistore/tikv/mvcc"
 
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/rocksdb"
@@ -89,19 +92,27 @@ type SnapStatistics struct {
 }
 
 type ApplyOptions struct {
-	DBBundle  *mvcc.DBBundle
-	Region    *metapb.Region
-	Abort     *uint32
-	BatchSize int
+	DBBundle   *mvcc.DBBundle
+	Region     *metapb.Region
+	Abort      *uint32
+	Builder    *table.Builder
+	OldBuilder *table.Builder
 }
 
-func newApplyOptions(db *mvcc.DBBundle, region *metapb.Region, abort *uint32, batchSize int) *ApplyOptions {
+func newApplyOptions(db *mvcc.DBBundle, region *metapb.Region, abort *uint32, builder, oldBuilder *table.Builder) *ApplyOptions {
 	return &ApplyOptions{
-		DBBundle:  db,
-		Region:    region,
-		Abort:     abort,
-		BatchSize: batchSize,
+		DBBundle:   db,
+		Region:     region,
+		Abort:      abort,
+		Builder:    builder,
+		OldBuilder: oldBuilder,
 	}
+}
+
+type ApplyResult struct {
+	HasPut      bool
+	HasOldPut   bool
+	RegionState *rspb.RegionLocalState
 }
 
 // `Snapshot` is an interface for snapshot.
@@ -121,7 +132,7 @@ type Snapshot interface {
 	Meta() (os.FileInfo, error)
 	TotalSize() uint64
 	Save() error
-	Apply(option ApplyOptions) error
+	Apply(option ApplyOptions) (ApplyResult, error)
 }
 
 // copySnapshot is a helper function to copy snapshot.
@@ -711,46 +722,51 @@ func (s *Snap) Save() error {
 	return nil
 }
 
-func (s *Snap) Apply(opts ApplyOptions) error {
+func (s *Snap) Apply(opts ApplyOptions) (ApplyResult, error) {
+	var result ApplyResult
 	err := s.validate()
 	if err != nil {
-		return err
+		return result, err
 	}
 	err = checkAbort(opts.Abort)
 	if err != nil {
-		return err
+		return result, err
 	}
 	applier, err := newSnapApplier(s.CFFiles)
 	if err != nil {
-		return err
+		return result, err
 	}
 	defer applier.close()
-	batch := new(WriteBatch)
+
 	for {
 		item, err1 := applier.next()
 		if err1 != nil {
-			return err1
+			return result, err1
 		}
 		if item == nil {
 			break
 		}
 		switch item.applySnapType {
 		case applySnapTypePut:
-			batch.SetWithUserMeta(item.key, item.val, item.useMeta)
-			if batch.size >= opts.BatchSize {
-				err = batch.WriteToKV(opts.DBBundle)
-				if err != nil {
-					return err
-				}
-				batch = new(WriteBatch)
-			}
+			result.HasPut = true
+			opts.Builder.Add(item.key, y.ValueStruct{
+				Value:    item.val,
+				UserMeta: item.userMeta,
+			})
+		case applySnapTypePutOld:
+			result.HasOldPut = true
+			opts.OldBuilder.Add(item.key, y.ValueStruct{
+				Value:    item.val,
+				UserMeta: item.userMeta,
+			})
 		case applySnapTypeLock:
 			opts.DBBundle.LockStore.Insert(item.key, item.val)
 		case applySnapTypeRollback:
 			opts.DBBundle.RollbackStore.Insert(item.key, item.val)
 		}
 	}
-	return batch.WriteToKV(opts.DBBundle)
+
+	return result, nil
 }
 
 func checkAbort(status *uint32) error {

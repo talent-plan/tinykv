@@ -1,8 +1,19 @@
 package raftstore
 
-import "io"
+import (
+	"io"
 
-type IOLimiter struct {
+	"golang.org/x/time/rate"
+)
+
+type IOLimiter = rate.Limiter
+
+func NewIOLimiter(rateLimit int) *IOLimiter {
+	return rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
+}
+
+func NewInfLimiter() *IOLimiter {
+	return rate.NewLimiter(rate.Inf, 0)
 }
 
 type LimitWriter struct {

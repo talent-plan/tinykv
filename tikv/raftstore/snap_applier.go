@@ -16,14 +16,15 @@ import (
 type applySnapItem struct {
 	key           []byte
 	val           []byte
-	useMeta       []byte
+	userMeta      []byte
 	applySnapType byte
 }
 
 const (
-	applySnapTypePut      = 0
-	applySnapTypeLock     = 1
-	applySnapTypeRollback = 2
+	applySnapTypePut = iota
+	applySnapTypePutOld
+	applySnapTypeLock
+	applySnapTypeRollback
 )
 
 // snapApplier iteratos all the CFs and returns the entries to write to badger.
@@ -109,7 +110,7 @@ func (ai *snapApplier) nextLock() (*applySnapItem, error) {
 	item := new(applySnapItem)
 	item.key = ai.curLockKey
 	item.applySnapType = applySnapTypeLock
-	item.useMeta = mvcc.LockUserMetaNone
+	item.userMeta = mvcc.LockUserMetaNone
 	lv, err := decodeLockCFValue(ai.curLockValue)
 	if err != nil {
 		return nil, err
@@ -207,11 +208,13 @@ func (ai *snapApplier) nextWrite() (*applySnapItem, error) {
 		return item, nil
 	}
 	if bytes.Equal(ai.lastWriteKey, ai.curWriteKey) {
+		item.applySnapType = applySnapTypePutOld
 		item.key = mvcc.EncodeOldKey(ai.curWriteKey, ai.curWriteCommitTS)
-		item.useMeta = mvcc.NewDBUserMeta(writeVal.startTS, ai.curWriteCommitTS).ToOldUserMeta(ai.lastCommitTS)
+		item.userMeta = mvcc.NewDBUserMeta(writeVal.startTS, ai.curWriteCommitTS).ToOldUserMeta(ai.lastCommitTS)
 	} else {
+		item.applySnapType = applySnapTypePut
 		item.key = ai.curWriteKey
-		item.useMeta = mvcc.NewDBUserMeta(writeVal.startTS, ai.curWriteCommitTS)
+		item.userMeta = mvcc.NewDBUserMeta(writeVal.startTS, ai.curWriteCommitTS)
 	}
 	val, err := ai.popFullValue(ai.curWriteKey, writeVal.startTS, writeVal.shortValue, writeVal.writeType)
 	if err != nil {
