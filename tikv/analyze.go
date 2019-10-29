@@ -1,10 +1,14 @@
 package tikv
 
 import (
+	"math"
 	"time"
 
+	"github.com/coocood/badger/y"
 	"github.com/golang/protobuf/proto"
 	"github.com/juju/errors"
+	"github.com/ngaut/unistore/rowcodec"
+	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
 	"github.com/pingcap/parser/ast"
 	"github.com/pingcap/parser/charset"
@@ -12,6 +16,7 @@ import (
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/statistics"
+	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/codec"
@@ -38,10 +43,11 @@ func (svr *Server) handleCopAnalyzeRequest(reqCtx *requestCtx, req *coprocessor.
 		resp.OtherError = err.Error()
 		return resp
 	}
+	y.Assert(len(ranges) == 1)
 	if analyzeReq.Tp == tipb.AnalyzeType_TypeIndex {
-		resp, err = svr.handleAnalyzeIndexReq(reqCtx, ranges, analyzeReq)
+		resp, err = svr.handleAnalyzeIndexReq(reqCtx, ranges[0], analyzeReq)
 	} else {
-		resp, err = svr.handleAnalyzeColumnsReq(reqCtx, ranges, analyzeReq)
+		resp, err = svr.handleAnalyzeColumnsReq(reqCtx, ranges[0], analyzeReq)
 	}
 	if err != nil {
 		resp = &coprocessor.Response{
@@ -51,46 +57,23 @@ func (svr *Server) handleCopAnalyzeRequest(reqCtx *requestCtx, req *coprocessor.
 	return resp
 }
 
-func (svr *Server) handleAnalyzeIndexReq(reqCtx *requestCtx, ranges []kv.KeyRange, analyzeReq *tipb.AnalyzeReq) (*coprocessor.Response, error) {
-	e := &indexScanExec{
-		colsLen:    int(analyzeReq.IdxReq.NumColumns),
-		kvRanges:   ranges,
-		startTS:    analyzeReq.StartTs,
-		mvccStore:  svr.mvccStore,
-		reqCtx:     reqCtx,
-		IndexScan:  &tipb.IndexScan{Desc: false},
-		ignoreLock: true,
+func (svr *Server) handleAnalyzeIndexReq(reqCtx *requestCtx, ran kv.KeyRange, analyzeReq *tipb.AnalyzeReq) (*coprocessor.Response, error) {
+	dbReader := reqCtx.getDBReader()
+	processor := &analyzeIndexProcessor{
+		colLen:       int(analyzeReq.IdxReq.NumColumns),
+		statsBuilder: statistics.NewSortedBuilder(flagsToStatementContext(analyzeReq.Flags), analyzeReq.IdxReq.BucketSize, 0, types.NewFieldType(mysql.TypeBlob)),
 	}
-	statsBuilder := statistics.NewSortedBuilder(flagsToStatementContext(analyzeReq.Flags), analyzeReq.IdxReq.BucketSize, 0, types.NewFieldType(mysql.TypeBlob))
-	var cms *statistics.CMSketch
 	if analyzeReq.IdxReq.CmsketchDepth != nil && analyzeReq.IdxReq.CmsketchWidth != nil {
-		cms = statistics.NewCMSketch(*analyzeReq.IdxReq.CmsketchDepth, *analyzeReq.IdxReq.CmsketchWidth)
+		processor.cms = statistics.NewCMSketch(*analyzeReq.IdxReq.CmsketchDepth, *analyzeReq.IdxReq.CmsketchWidth)
 	}
-	ctx := context.TODO()
-	for {
-		values, err := e.Next(ctx)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		if values == nil {
-			break
-		}
-		var value []byte
-		for _, val := range values {
-			value = append(value, val...)
-		}
-		err = statsBuilder.Iterate(types.NewBytesDatum(value))
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		if cms != nil {
-			cms.InsertBytes(value)
-		}
+	err := dbReader.Scan(ran.StartKey, ran.EndKey, math.MaxInt64, analyzeReq.StartTs, processor)
+	if err != nil {
+		return nil, err
 	}
-	hg := statistics.HistogramToProto(statsBuilder.Hist())
+	hg := statistics.HistogramToProto(processor.statsBuilder.Hist())
 	var cm *tipb.CMSketch
-	if cms != nil {
-		cm = statistics.CMSketchToProto(cms)
+	if processor.cms != nil {
+		cm = statistics.CMSketchToProto(processor.cms)
 	}
 	data, err := proto.Marshal(&tipb.AnalyzeIndexResp{Hist: hg, Cms: cm})
 	if err != nil {
@@ -99,27 +82,67 @@ func (svr *Server) handleAnalyzeIndexReq(reqCtx *requestCtx, ranges []kv.KeyRang
 	return &coprocessor.Response{Data: data}, nil
 }
 
+type analyzeIndexProcessor struct {
+	skipVal
+
+	colLen       int
+	statsBuilder *statistics.SortedBuilder
+	cms          *statistics.CMSketch
+	rowBuf       []byte
+}
+
+func (p *analyzeIndexProcessor) Process(key, value []byte) error {
+	values, _, err := tablecodec.CutIndexKeyNew(key, p.colLen)
+	if err != nil {
+		return err
+	}
+	p.rowBuf = p.rowBuf[:0]
+	for _, val := range values {
+		p.rowBuf = append(p.rowBuf, val...)
+	}
+	rowData := safeCopy(p.rowBuf)
+	err = p.statsBuilder.Iterate(types.NewBytesDatum(rowData))
+	if err != nil {
+		return err
+	}
+	if p.cms != nil {
+		p.cms.InsertBytes(rowData)
+	}
+	return nil
+}
+
 type analyzeColumnsExec struct {
-	tblExec *tableScanExec
+	skipVal
+	reader  *dbreader.DBReader
+	seekKey []byte
+	endKey  []byte
+	startTS uint64
+
+	chk     *chunk.Chunk
+	decoder *rowcodec.Decoder
+	req     *chunk.Chunk
+	evalCtx *evalContext
 	fields  []*ast.ResultField
 }
 
-func (svr *Server) handleAnalyzeColumnsReq(reqCtx *requestCtx, ranges []kv.KeyRange, analyzeReq *tipb.AnalyzeReq) (*coprocessor.Response, error) {
+func (svr *Server) handleAnalyzeColumnsReq(reqCtx *requestCtx, ran kv.KeyRange, analyzeReq *tipb.AnalyzeReq) (*coprocessor.Response, error) {
 	sc := flagsToStatementContext(analyzeReq.Flags)
 	sc.TimeZone = time.FixedZone("UTC", int(analyzeReq.TimeZoneOffset))
 	evalCtx := &evalContext{sc: sc}
 	columns := analyzeReq.ColReq.ColumnsInfo
 	evalCtx.setColumnInfo(columns)
+	decoder, err := evalCtx.newRowDecoder()
+	if err != nil {
+		return nil, err
+	}
 	e := &analyzeColumnsExec{
-		tblExec: &tableScanExec{
-			TableScan:  &tipb.TableScan{Columns: columns},
-			kvRanges:   ranges,
-			colIDs:     evalCtx.colIDs,
-			startTS:    analyzeReq.GetStartTs(),
-			mvccStore:  svr.mvccStore,
-			reqCtx:     reqCtx,
-			ignoreLock: true,
-		},
+		reader:  reqCtx.getDBReader(),
+		seekKey: ran.StartKey,
+		endKey:  ran.EndKey,
+		startTS: analyzeReq.StartTs,
+		chk:     chunk.NewChunkWithCapacity(evalCtx.fieldTps, 1),
+		decoder: decoder,
+		evalCtx: evalCtx,
 	}
 	e.fields = make([]*ast.ResultField, len(columns))
 	for i := range e.fields {
@@ -174,33 +197,41 @@ func (e *analyzeColumnsExec) Fields() []*ast.ResultField {
 	return e.fields
 }
 
-func (e *analyzeColumnsExec) getNext(ctx context.Context) ([]types.Datum, error) {
-	values, err := e.tblExec.Next(ctx)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	if values == nil {
-		return nil, nil
-	}
-	datumRow := make([]types.Datum, 0, len(values))
-	for _, val := range values {
-		d := types.NewBytesDatum(val)
-		if len(val) == 1 && val[0] == codec.NilFlag {
-			d.SetNull()
-		}
-		datumRow = append(datumRow, d)
-	}
-	return datumRow, nil
-}
-
 func (e *analyzeColumnsExec) Next(ctx context.Context, req *chunk.Chunk) error {
 	req.Reset()
-	row, err := e.getNext(ctx)
-	if row == nil || err != nil {
+	e.req = req
+	err := e.reader.Scan(e.seekKey, e.endKey, math.MaxInt64, e.startTS, e)
+	if err != nil {
+		return err
+	}
+	if req.NumRows() < req.Capacity() {
+		e.seekKey = e.endKey
+	}
+	return nil
+}
+
+func (e *analyzeColumnsExec) Process(key, value []byte) error {
+	handle, err := tablecodec.DecodeRowKey(key)
+	if err != nil {
 		return errors.Trace(err)
 	}
-	for i := 0; i < len(row); i++ {
-		req.AppendDatum(i, &row[i])
+	err = e.decoder.Decode(value, handle, e.chk)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	row := e.chk.GetRow(0)
+	for i, tp := range e.evalCtx.fieldTps {
+		d := row.GetDatum(i, tp)
+		value, err := codec.EncodeValue(e.evalCtx.sc, nil, d)
+		if err != nil {
+			return err
+		}
+		e.req.AppendBytes(i, value)
+	}
+	e.chk.Reset()
+	if e.req.NumRows() == e.req.Capacity() {
+		e.seekKey = kv.Key(key).PrefixNext()
+		return dbreader.ScanBreak
 	}
 	return nil
 }
@@ -210,7 +241,7 @@ func (e *analyzeColumnsExec) NewChunk() *chunk.Chunk {
 	for _, field := range e.fields {
 		fields = append(fields, &field.Column.FieldType)
 	}
-	return chunk.NewChunkWithCapacity(fields, 1)
+	return chunk.NewChunkWithCapacity(fields, 1024)
 }
 
 // Close implements the sqlexec.RecordSet Close interface.
