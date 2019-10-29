@@ -250,7 +250,7 @@ func newDagContext(store *testStore, keyRanges []kv.KeyRange, dagReq *tipb.DAGRe
 // return the result chunk data, rows count and err if occurs.
 func (store *testStore) buildExecutorsAndExecute(dagRequest *tipb.DAGRequest,
 	dagCtx *dagContext) ([]tipb.Chunk, int, error) {
-	closureExec, err := store.svr.tryBuildClosureExecutor(dagCtx, dagRequest)
+	closureExec, err := store.svr.buildClosureExecutor(dagCtx, dagRequest)
 	if err != nil {
 		return nil, 0, err
 	}

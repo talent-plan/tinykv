@@ -158,8 +158,6 @@ func (e *tableScanExec) checkRangeLock() error {
 	return nil
 }
 
-const chunkMaxRows = 1024
-
 func (e *tableScanExec) nextRange() {
 	e.rangeCursor++
 	e.seekKey = nil
@@ -261,12 +259,6 @@ func (e *tableScanExecProcessor) Process(key, value []byte) error {
 	e.rows = append(e.rows, row)
 	return nil
 }
-
-const (
-	pkColNotExists = iota
-	pkColIsSigned
-	pkColIsUnsigned
-)
 
 type indexScanExec struct {
 	*tipb.IndexScan
@@ -790,18 +782,6 @@ func getRowData(columns []*tipb.ColumnInfo, colIDs map[int64]int, handle int64, 
 	}
 
 	return values, nil
-}
-
-func convertToExprs(sc *stmtctx.StatementContext, fieldTps []*types.FieldType, pbExprs []*tipb.Expr) ([]expression.Expression, error) {
-	exprs := make([]expression.Expression, 0, len(pbExprs))
-	for _, expr := range pbExprs {
-		e, err := expression.PBToExpr(expr, fieldTps, sc)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		exprs = append(exprs, e)
-	}
-	return exprs, nil
 }
 
 func decodeHandle(data []byte) (int64, error) {

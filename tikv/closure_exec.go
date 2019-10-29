@@ -1,11 +1,10 @@
 package tikv
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math"
 	"sort"
-
-	"github.com/pingcap/tidb/tablecodec"
 
 	"github.com/juju/errors"
 	"github.com/ngaut/unistore/rowcodec"
@@ -13,8 +12,11 @@ import (
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/expression"
+	"github.com/pingcap/tidb/expression/aggregation"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/sessionctx"
+	"github.com/pingcap/tidb/sessionctx/stmtctx"
+	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/codec"
@@ -22,9 +24,19 @@ import (
 	"github.com/pingcap/tipb/go-tipb"
 )
 
-// tryBuildClosureExecutor tries to build a closureExecutor for the DAGRequest.
+const chunkMaxRows = 1024
+
+const (
+	pkColNotExists = iota
+	pkColIsSigned
+	pkColIsUnsigned
+)
+
+// buildClosureExecutor build a closureExecutor for the DAGRequest.
 // currently, only 'count(*)' is supported, but we can support all kinds of requests in the future.
-func (svr *Server) tryBuildClosureExecutor(dagCtx *dagContext, dagReq *tipb.DAGRequest) (*closureExecutor, error) {
+// Currently the composition of executors are:
+// 	tableScan|indexScan [selection] [topN | limit | agg]
+func (svr *Server) buildClosureExecutor(dagCtx *dagContext, dagReq *tipb.DAGRequest) (*closureExecutor, error) {
 	ce, err := svr.newClosureExecutor(dagCtx, dagReq)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -32,39 +44,50 @@ func (svr *Server) tryBuildClosureExecutor(dagCtx *dagContext, dagReq *tipb.DAGR
 	executors := dagReq.Executors
 	scanExec := executors[0]
 	if scanExec.Tp == tipb.ExecType_TypeTableScan {
-		ce.processFunc = &tableScanProcessor{closureExecutor: ce}
+		ce.processor = &tableScanProcessor{closureExecutor: ce}
 	} else {
-		ce.processFunc = &indexScanProcessor{closureExecutor: ce}
+		ce.processor = &indexScanProcessor{closureExecutor: ce}
 	}
-	ce.finishFunc = ce.scanFinish
 	if len(executors) == 1 {
 		return ce, nil
 	}
-	secondExec := executors[1]
-	switch secondExec.Tp {
-	case tipb.ExecType_TypeStreamAgg:
-		return svr.tryBuildAggClosureExecutor(ce, executors)
-	case tipb.ExecType_TypeLimit:
-		ce.limit = int(secondExec.Limit.Limit)
-		return ce, nil
-	case tipb.ExecType_TypeSelection:
+	if secondExec := executors[1]; secondExec.Tp == tipb.ExecType_TypeSelection {
 		ce.selectionCtx.conditions, err = convertToExprs(ce.sc, ce.fieldTps, secondExec.Selection.Conditions)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		if len(executors) > 2 {
-			if executors[2].Tp != tipb.ExecType_TypeLimit {
-				return nil, nil
-			}
-			ce.limit = int(executors[2].Limit.Limit)
-		}
-		ce.processFunc = &selectionProcessor{closureExecutor: ce}
-		return ce, nil
-	case tipb.ExecType_TypeTopN:
-		return svr.tryBuildTopNClosureExecutor(ce, executors)
-	default:
-		return nil, nil
 	}
+	lastExecutor := executors[len(executors)-1]
+	switch lastExecutor.Tp {
+	case tipb.ExecType_TypeLimit:
+		ce.limit = int(lastExecutor.Limit.Limit)
+	case tipb.ExecType_TypeTopN:
+		err = svr.buildTopNProcessor(ce, lastExecutor.TopN)
+	case tipb.ExecType_TypeAggregation:
+		err = svr.buildHashAggProcessor(ce, dagCtx, lastExecutor.Aggregation)
+	case tipb.ExecType_TypeStreamAgg:
+		err = svr.buildStreamAggProcessor(ce, dagCtx, executors)
+	case tipb.ExecType_TypeSelection:
+		ce.processor = &selectionProcessor{closureExecutor: ce}
+	default:
+		panic("unknown executor type " + lastExecutor.Tp.String())
+	}
+	if err != nil {
+		return nil, err
+	}
+	return ce, nil
+}
+
+func convertToExprs(sc *stmtctx.StatementContext, fieldTps []*types.FieldType, pbExprs []*tipb.Expr) ([]expression.Expression, error) {
+	exprs := make([]expression.Expression, 0, len(pbExprs))
+	for _, expr := range pbExprs {
+		e, err := expression.PBToExpr(expr, fieldTps, sc)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		exprs = append(exprs, e)
+	}
+	return exprs, nil
 }
 
 func (svr *Server) newClosureExecutor(dagCtx *dagContext, dagReq *tipb.DAGRequest) (*closureExecutor, error) {
@@ -138,40 +161,39 @@ func (svr *Server) isCountAgg(pbAgg *tipb.Aggregation) bool {
 	return false
 }
 
-func (svr *Server) tryBuildAggClosureExecutor(e *closureExecutor, executors []*tipb.Executor) (*closureExecutor, error) {
+func (svr *Server) tryBuildCountProcessor(e *closureExecutor, executors []*tipb.Executor) (bool, error) {
 	if len(executors) > 2 {
-		return nil, nil
+		return false, nil
 	}
 	agg := executors[1].Aggregation
 	if !svr.isCountAgg(agg) {
-		return nil, nil
+		return false, nil
 	}
 	child := agg.AggFunc[0].Children[0]
 	switch child.Tp {
 	case tipb.ExprType_ColumnRef:
 		_, idx, err := codec.DecodeInt(child.Val)
 		if err != nil {
-			return nil, errors.Trace(err)
+			return false, errors.Trace(err)
 		}
 		e.aggCtx.col = e.columnInfos[idx]
-		e.processFunc = &countColumnProcessor{closureExecutor: e}
+		if e.aggCtx.col.PkHandle {
+			e.processor = &countStarProcessor{skipVal: skipVal(true), closureExecutor: e}
+		} else {
+			e.processor = &countColumnProcessor{closureExecutor: e}
+		}
 	case tipb.ExprType_Null, tipb.ExprType_ScalarFunc:
-		return nil, nil
+		return false, nil
 	default:
-		e.processFunc = &countStarProcessor{skipVal: skipVal(true), closureExecutor: e}
+		e.processor = &countStarProcessor{skipVal: skipVal(true), closureExecutor: e}
 	}
-	e.finishFunc = e.countFinish
-	return e, nil
+	return true, nil
 }
 
-func (svr *Server) tryBuildTopNClosureExecutor(e *closureExecutor, executors []*tipb.Executor) (*closureExecutor, error) {
-	if len(executors) > 2 || executors[0].Tp != tipb.ExecType_TypeTableScan {
-		return nil, nil
-	}
-
-	heap, _, conds, err := svr.getTopNInfo(e.evalContext, executors[1].TopN)
+func (svr *Server) buildTopNProcessor(e *closureExecutor, topN *tipb.TopN) error {
+	heap, _, conds, err := svr.getTopNInfo(e.evalContext, topN)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
 
 	ctx := &topNCtx{
@@ -181,13 +203,36 @@ func (svr *Server) tryBuildTopNClosureExecutor(e *closureExecutor, executors []*
 	}
 
 	e.topNCtx = ctx
-	e.processFunc = &topNProcessor{closureExecutor: e}
-	e.finishFunc = e.topNFinish
-
-	return e, nil
+	e.processor = &topNProcessor{closureExecutor: e}
+	return nil
 }
 
-// closureExecutor is an execution engine that flatten the DAGRequest.Executors to a single closure `processFunc` that
+func (svr *Server) buildHashAggProcessor(e *closureExecutor, ctx *dagContext, agg *tipb.Aggregation) error {
+	aggs, groupBys, relatedColOffsets, err := svr.getAggInfo(ctx, agg)
+	if err != nil {
+		return err
+	}
+	e.processor = &hashAggProcessor{
+		closureExecutor:   e,
+		aggExprs:          aggs,
+		groupByExprs:      groupBys,
+		relatedColOffsets: relatedColOffsets,
+		groups:            map[string]struct{}{},
+		groupKeys:         nil,
+		aggCtxsMap:        map[string][]*aggregation.AggEvaluateContext{},
+	}
+	return nil
+}
+
+func (svr *Server) buildStreamAggProcessor(e *closureExecutor, ctx *dagContext, executors []*tipb.Executor) error {
+	ok, err := svr.tryBuildCountProcessor(e, executors)
+	if err != nil || ok {
+		return err
+	}
+	return svr.buildHashAggProcessor(e, ctx, executors[len(executors)-1].Aggregation)
+}
+
+// closureExecutor is an execution engine that flatten the DAGRequest.Executors to a single closure `processor` that
 // process key/value pairs. We can define many closures for different kinds of requests, try to use the specially
 // optimized one for some frequently used query.
 type closureExecutor struct {
@@ -210,10 +255,14 @@ type closureExecutor struct {
 	unique   bool
 	limit    int
 
-	oldChunks   []tipb.Chunk
-	oldRowBuf   []byte
-	processFunc dbreader.ScanProcessor
-	finishFunc  func() error
+	oldChunks []tipb.Chunk
+	oldRowBuf []byte
+	processor closureProcessor
+}
+
+type closureProcessor interface {
+	dbreader.ScanProcessor
+	Finish() error
 }
 
 type scanCtx struct {
@@ -258,15 +307,15 @@ func (e *closureExecutor) execute() ([]tipb.Chunk, error) {
 			if len(val) == 0 {
 				continue
 			}
-			err = e.processFunc.Process(ran.StartKey, val)
+			err = e.processor.Process(ran.StartKey, val)
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
 		} else {
 			if e.scanCtx.desc {
-				err = dbReader.ReverseScan(ran.StartKey, ran.EndKey, math.MaxInt64, e.startTS, e.processFunc)
+				err = dbReader.ReverseScan(ran.StartKey, ran.EndKey, math.MaxInt64, e.startTS, e.processor)
 			} else {
-				err = dbReader.Scan(ran.StartKey, ran.EndKey, math.MaxInt64, e.startTS, e.processFunc)
+				err = dbReader.Scan(ran.StartKey, ran.EndKey, math.MaxInt64, e.startTS, e.processor)
 			}
 			if err != nil {
 				return nil, errors.Trace(err)
@@ -276,7 +325,7 @@ func (e *closureExecutor) execute() ([]tipb.Chunk, error) {
 			break
 		}
 	}
-	err = e.finishFunc()
+	err = e.processor.Finish()
 	return e.oldChunks, err
 }
 
@@ -302,6 +351,10 @@ type countStarProcessor struct {
 func (e *countStarProcessor) Process(key, value []byte) error {
 	e.rowCount++
 	return nil
+}
+
+func (e *countStarProcessor) Finish() error {
+	return e.countFinish()
 }
 
 // countFinish is used for `count(*)`.
@@ -342,6 +395,10 @@ func (e *countColumnProcessor) Process(key, value []byte) error {
 	return nil
 }
 
+func (e *countColumnProcessor) Finish() error {
+	return e.countFinish()
+}
+
 type skipVal bool
 
 func (s skipVal) SkipValue() bool {
@@ -363,6 +420,48 @@ func (e *tableScanProcessor) Process(key, value []byte) error {
 		err = e.chunkToOldChunk(e.scanCtx.chk)
 	}
 	return err
+}
+
+func (e *tableScanProcessor) Finish() error {
+	return e.scanFinish()
+}
+
+func (e *closureExecutor) processCore(key, value []byte) error {
+	if e.idxScanCtx != nil {
+		return e.indexScanProcessCore(key, value)
+	} else {
+		return e.tableScanProcessCore(key, value)
+	}
+}
+
+func (e *closureExecutor) hasSelection() bool {
+	return len(e.selectionCtx.conditions) > 0
+}
+
+func (e *closureExecutor) processSelection() (gotRow bool, err error) {
+	chk := e.scanCtx.chk
+	row := chk.GetRow(chk.NumRows() - 1)
+	gotRow = true
+	for _, expr := range e.selectionCtx.conditions {
+		d, err := expr.Eval(row)
+		if err != nil {
+			return false, errors.Trace(err)
+		}
+		if d.IsNull() {
+			gotRow = false
+		} else {
+			i, err := d.ToBool(e.sc)
+			if err != nil {
+				return false, errors.Trace(err)
+			}
+			gotRow = i != 0
+		}
+		if !gotRow {
+			chk.TruncateTo(chk.NumRows() - 1)
+			break
+		}
+	}
+	return
 }
 
 func (e *closureExecutor) tableScanProcessCore(key, value []byte) error {
@@ -398,6 +497,10 @@ func (e *indexScanProcessor) Process(key, value []byte) error {
 	return err
 }
 
+func (e *indexScanProcessor) Finish() error {
+	return e.scanFinish()
+}
+
 func (e *closureExecutor) indexScanProcessCore(key, value []byte) error {
 	colLen := e.idxScanCtx.columnLen
 	pkStatus := e.idxScanCtx.pkStatus
@@ -421,11 +524,7 @@ func (e *closureExecutor) indexScanProcessCore(key, value []byte) error {
 			}
 		}
 	} else if pkStatus != pkColNotExists {
-		handle, err := decodeHandle(value)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		chk.AppendInt64(colLen, handle)
+		chk.AppendInt64(colLen, int64(binary.BigEndian.Uint64(value)))
 	}
 	return nil
 }
@@ -458,38 +557,15 @@ func (e *selectionProcessor) Process(key, value []byte) error {
 	if e.rowCount == e.limit {
 		return dbreader.ScanBreak
 	}
-	var err error
-	if e.idxScanCtx != nil {
-		err = e.indexScanProcessCore(key, value)
-	} else {
-		err = e.tableScanProcessCore(key, value)
-	}
+	err := e.processCore(key, value)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	chk := e.scanCtx.chk
-	row := chk.GetRow(chk.NumRows() - 1)
-	ok := true
-	for _, expr := range e.selectionCtx.conditions {
-		d, err := expr.Eval(row)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		if d.IsNull() {
-			ok = false
-		} else {
-			i, err := d.ToBool(e.sc)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			ok = i != 0
-		}
-		if !ok {
-			chk.TruncateTo(chk.NumRows() - 1)
-			break
-		}
+	gotRow, err := e.processSelection()
+	if err != nil {
+		return err
 	}
-	if ok {
+	if gotRow {
 		e.rowCount++
 		if e.scanCtx.chk.NumRows() == chunkMaxRows {
 			err = e.chunkToOldChunk(e.scanCtx.chk)
@@ -498,32 +574,8 @@ func (e *selectionProcessor) Process(key, value []byte) error {
 	return err
 }
 
-func (e *closureExecutor) topNFinish() error {
-	ctx := e.topNCtx
-	decoder, err := e.evalContext.newRowDecoder()
-	if err != nil {
-		return errors.Trace(err)
-	}
-	sort.Sort(&ctx.heap.topNSorter)
-	chk := e.scanCtx.chk
-
-	for _, row := range ctx.heap.rows {
-		h, err := tablecodec.DecodeRowKey(row.data[0])
-		if err != nil {
-			return errors.Trace(err)
-		}
-		err = decoder.Decode(row.data[1], h, chk)
-		if err != nil {
-			return err
-		}
-
-		if chk.NumRows() == chunkMaxRows {
-			if err := e.chunkToOldChunk(chk); err != nil {
-				return errors.Trace(err)
-			}
-		}
-	}
-	return e.chunkToOldChunk(chk)
+func (e *selectionProcessor) Finish() error {
+	return e.scanFinish()
 }
 
 type topNProcessor struct {
@@ -532,8 +584,14 @@ type topNProcessor struct {
 }
 
 func (e *topNProcessor) Process(key, value []byte) (err error) {
-	if err = e.tableScanProcessCore(key, value); err != nil {
+	if err = e.processCore(key, value); err != nil {
 		return err
+	}
+	if e.hasSelection() {
+		gotRow, err1 := e.processSelection()
+		if err1 != nil || !gotRow {
+			return err1
+		}
 	}
 
 	ctx := e.topNCtx
@@ -559,4 +617,113 @@ func (e *closureExecutor) newTopNSortRow() *sortRow {
 		key:  make([]types.Datum, len(e.evalContext.columnInfos)),
 		data: make([][]byte, 2),
 	}
+}
+
+func (e *topNProcessor) Finish() error {
+	ctx := e.topNCtx
+	sort.Sort(&ctx.heap.topNSorter)
+	chk := e.scanCtx.chk
+	for _, row := range ctx.heap.rows {
+		err := e.processCore(row.data[0], row.data[1])
+		if err != nil {
+			return err
+		}
+		if chk.NumRows() == chunkMaxRows {
+			if err = e.chunkToOldChunk(chk); err != nil {
+				return errors.Trace(err)
+			}
+		}
+	}
+	return e.chunkToOldChunk(chk)
+}
+
+type hashAggProcessor struct {
+	skipVal
+	*closureExecutor
+
+	aggExprs          []aggregation.Aggregation
+	groupByExprs      []expression.Expression
+	relatedColOffsets []int
+	groups            map[string]struct{}
+	groupKeys         [][]byte
+	aggCtxsMap        map[string][]*aggregation.AggEvaluateContext
+}
+
+func (e *hashAggProcessor) Process(key, value []byte) (err error) {
+	err = e.processCore(key, value)
+	if err != nil {
+		return err
+	}
+	if e.hasSelection() {
+		gotRow, err1 := e.processSelection()
+		if err1 != nil || !gotRow {
+			return err1
+		}
+	}
+	row := e.scanCtx.chk.GetRow(e.scanCtx.chk.NumRows() - 1)
+	gk, err := e.getGroupKey(row)
+	if _, ok := e.groups[string(gk)]; !ok {
+		e.groups[string(gk)] = struct{}{}
+		e.groupKeys = append(e.groupKeys, gk)
+	}
+	// Update aggregate expressions.
+	aggCtxs := e.getContexts(gk)
+	for i, agg := range e.aggExprs {
+		err = agg.Update(aggCtxs[i], e.sc, row)
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
+	e.scanCtx.chk.Reset()
+	return nil
+}
+
+func (e *hashAggProcessor) getGroupKey(row chunk.Row) ([]byte, error) {
+	length := len(e.groupByExprs)
+	if length == 0 {
+		return nil, nil
+	}
+	key := make([]byte, 0, 32)
+	for _, item := range e.groupByExprs {
+		v, err := item.Eval(row)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		b, err := codec.EncodeValue(e.sc, nil, v)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		key = append(key, b...)
+	}
+	return key, nil
+}
+
+func (e *hashAggProcessor) getContexts(groupKey []byte) []*aggregation.AggEvaluateContext {
+	aggCtxs, ok := e.aggCtxsMap[string(groupKey)]
+	if !ok {
+		aggCtxs = make([]*aggregation.AggEvaluateContext, 0, len(e.aggExprs))
+		for _, agg := range e.aggExprs {
+			aggCtxs = append(aggCtxs, agg.CreateContext(e.sc))
+		}
+		e.aggCtxsMap[string(groupKey)] = aggCtxs
+	}
+	return aggCtxs
+}
+
+func (e *hashAggProcessor) Finish() error {
+	for i, gk := range e.groupKeys {
+		aggCtxs := e.getContexts(gk)
+		e.oldRowBuf = e.oldRowBuf[:0]
+		for i, agg := range e.aggExprs {
+			partialResults := agg.GetPartialResult(aggCtxs[i])
+			var err error
+			e.oldRowBuf, err = codec.EncodeValue(e.sc, e.oldRowBuf, partialResults...)
+			if err != nil {
+				return err
+			}
+		}
+		e.oldRowBuf = append(e.oldRowBuf, gk...)
+		e.oldChunks = appendRow(e.oldChunks, e.oldRowBuf, i)
+	}
+	return nil
 }

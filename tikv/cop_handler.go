@@ -49,38 +49,12 @@ func (svr *Server) handleCopDAGRequest(reqCtx *requestCtx, req *coprocessor.Requ
 		resp.OtherError = err.Error()
 		return resp
 	}
-	var (
-		chunks []tipb.Chunk
-		rowCnt int
-	)
-	closureExec, err := svr.tryBuildClosureExecutor(dagCtx, dagReq)
+	closureExec, err := svr.buildClosureExecutor(dagCtx, dagReq)
 	if err != nil {
-		return buildResp(chunks, nil, err, dagCtx.evalCtx.sc.GetWarnings(), time.Since(startTime))
+		return buildResp(nil, nil, err, dagCtx.evalCtx.sc.GetWarnings(), time.Since(startTime))
 	}
-	if closureExec != nil {
-		chunks, err = closureExec.execute()
-		return buildResp(chunks, nil, err, dagCtx.evalCtx.sc.GetWarnings(), time.Since(startTime))
-	}
-	e, err := svr.buildDAGExecutor(dagCtx, dagReq.Executors)
-	ctx := context.TODO()
-	for {
-		var row [][]byte
-		row, err = e.Next(ctx)
-		if err != nil {
-			break
-		}
-		if row == nil {
-			break
-		}
-		data := dummySlice
-		for _, offset := range dagReq.OutputOffsets {
-			data = append(data, row[offset]...)
-		}
-		chunks = appendRow(chunks, data, rowCnt)
-		rowCnt++
-	}
-	warnings := dagCtx.evalCtx.sc.GetWarnings()
-	return buildResp(chunks, e.Counts(), err, warnings, time.Since(startTime))
+	chunks, err := closureExec.execute()
+	return buildResp(chunks, nil, err, dagCtx.evalCtx.sc.GetWarnings(), time.Since(startTime))
 }
 
 func (svr *Server) buildDAG(reqCtx *requestCtx, req *coprocessor.Request) (*dagContext, *tipb.DAGRequest, error) {
