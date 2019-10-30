@@ -2,34 +2,22 @@ package tikv
 
 import (
 	"bytes"
-	"io"
 	"time"
-
-	"github.com/pingcap/tidb/util/chunk"
-
-	"github.com/pingcap/tidb/tablecodec"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/juju/errors"
 	"github.com/ngaut/unistore/rowcodec"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
-	"github.com/pingcap/kvproto/pkg/errorpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
-	"github.com/pingcap/kvproto/pkg/tikvpb"
-	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/parser/terror"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/expression/aggregation"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
+	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/types"
-	"github.com/pingcap/tidb/util/codec"
-	mockpkg "github.com/pingcap/tidb/util/mock"
 	"github.com/pingcap/tipb/go-tipb"
-	"golang.org/x/net/context"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 )
 
 var dummySlice = make([]byte, 0)
@@ -87,227 +75,29 @@ func (svr *Server) buildDAG(reqCtx *requestCtx, req *coprocessor.Request) (*dagC
 	return ctx, dagReq, err
 }
 
-func (svr *Server) handleCopStream(ctx context.Context, reqCtx *requestCtx, req *coprocessor.Request) (tikvpb.Tikv_CoprocessorStreamClient, error) {
-	dagCtx, dagReq, err := svr.buildDAG(reqCtx, req)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	e, err := svr.buildDAGExecutor(dagCtx, dagReq.Executors)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	return &mockCopStreamClient{
-		exec: e,
-		req:  dagReq,
-		ctx:  ctx,
-	}, nil
-}
-
-func (svr *Server) buildExec(ctx *dagContext, curr *tipb.Executor) (executor, error) {
-	var currExec executor
-	var err error
-	switch curr.GetTp() {
-	case tipb.ExecType_TypeTableScan:
-		currExec, err = svr.buildTableScan(ctx, curr)
-	case tipb.ExecType_TypeIndexScan:
-		currExec, err = svr.buildIndexScan(ctx, curr)
-	case tipb.ExecType_TypeSelection:
-		currExec, err = svr.buildSelection(ctx, curr)
-	case tipb.ExecType_TypeAggregation:
-		currExec, err = svr.buildHashAgg(ctx, curr)
-	case tipb.ExecType_TypeStreamAgg:
-		currExec, err = svr.buildStreamAgg(ctx, curr)
-	case tipb.ExecType_TypeTopN:
-		currExec, err = svr.buildTopN(ctx, curr)
-	case tipb.ExecType_TypeLimit:
-		currExec = &limitExec{limit: curr.Limit.GetLimit()}
-	default:
-		// TODO: Support other types.
-		err = errors.Errorf("this exec type %v doesn't support yet.", curr.GetTp())
-	}
-
-	return currExec, errors.Trace(err)
-}
-
-func (svr *Server) buildDAGExecutor(ctx *dagContext, executors []*tipb.Executor) (executor, error) {
-	var src executor
-	for i := 0; i < len(executors); i++ {
-		curr, err := svr.buildExec(ctx, executors[i])
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		curr.SetSrcExec(src)
-		src = curr
-	}
-	return src, nil
-}
-
-func (svr *Server) buildTableScan(ctx *dagContext, executor *tipb.Executor) (*tableScanExec, error) {
-	ranges, err := svr.extractKVRanges(ctx.reqCtx.regCtx, ctx.keyRanges, executor.TblScan.Desc)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	e := &tableScanExec{
-		TableScan: executor.TblScan,
-		kvRanges:  ranges,
-		colIDs:    ctx.evalCtx.colIDs,
-		startTS:   ctx.dagReq.GetStartTs(),
-		mvccStore: svr.mvccStore,
-		reqCtx:    ctx.reqCtx,
-	}
-	if ctx.dagReq.CollectRangeCounts != nil && *ctx.dagReq.CollectRangeCounts {
-		e.counts = make([]int64, len(ranges))
-	}
-	return e, nil
-}
-
-func (svr *Server) buildIndexScan(ctx *dagContext, executor *tipb.Executor) (*indexScanExec, error) {
-	columns := ctx.evalCtx.columnInfos
-	length := len(columns)
-	pkStatus := pkColNotExists
-	// The PKHandle column info has been collected in ctx.
-	if columns[length-1].GetPkHandle() {
-		if mysql.HasUnsignedFlag(uint(columns[length-1].GetFlag())) {
-			pkStatus = pkColIsUnsigned
-		} else {
-			pkStatus = pkColIsSigned
-		}
-		columns = columns[:length-1]
-	} else if columns[length-1].ColumnId == model.ExtraHandleID {
-		pkStatus = pkColIsSigned
-		columns = columns[:length-1]
-	}
-	ranges, err := svr.extractKVRanges(ctx.reqCtx.regCtx, ctx.keyRanges, executor.IdxScan.Desc)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	e := &indexScanExec{
-		IndexScan: executor.IdxScan,
-		kvRanges:  ranges,
-		colsLen:   len(columns),
-		startTS:   ctx.dagReq.GetStartTs(),
-		mvccStore: svr.mvccStore,
-		reqCtx:    ctx.reqCtx,
-		pkStatus:  pkStatus,
-		tps:       ctx.evalCtx.fieldTps,
-		loc:       ctx.evalCtx.sc.TimeZone,
-	}
-	if ctx.dagReq.CollectRangeCounts != nil && *ctx.dagReq.CollectRangeCounts {
-		e.counts = make([]int64, len(ranges))
-	}
-	return e, nil
-}
-
-func (svr *Server) buildSelection(ctx *dagContext, executor *tipb.Executor) (*selectionExec, error) {
-	var err error
-	var relatedColOffsets []int
-	pbConds := executor.Selection.Conditions
-	for _, cond := range pbConds {
-		relatedColOffsets, err = extractOffsetsInExpr(cond, ctx.evalCtx.columnInfos, relatedColOffsets)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-	}
-	conds, err := convertToExprs(ctx.evalCtx.sc, ctx.evalCtx.fieldTps, pbConds)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	seCtx := mockpkg.NewContext()
-	seCtx.GetSessionVars().StmtCtx = ctx.evalCtx.sc
-	return &selectionExec{
-		evalCtx:           ctx.evalCtx,
-		relatedColOffsets: relatedColOffsets,
-		conditions:        conds,
-		row:               make([]types.Datum, len(ctx.evalCtx.columnInfos)),
-		seCtx:             seCtx,
-		chkRow:            chunk.MutRowFromTypes(ctx.evalCtx.fieldTps),
-	}, nil
-}
-
-func (svr *Server) getAggInfo(ctx *dagContext, pbAgg *tipb.Aggregation) ([]aggregation.Aggregation, []expression.Expression, []int, error) {
+func (svr *Server) getAggInfo(ctx *dagContext, pbAgg *tipb.Aggregation) ([]aggregation.Aggregation, []expression.Expression, error) {
 	length := len(pbAgg.AggFunc)
 	aggs := make([]aggregation.Aggregation, 0, length)
 	var err error
-	var relatedColOffsets []int
 	for _, expr := range pbAgg.AggFunc {
 		var aggExpr aggregation.Aggregation
 		aggExpr, err = aggregation.NewDistAggFunc(expr, ctx.evalCtx.fieldTps, ctx.evalCtx.sc)
 		if err != nil {
-			return nil, nil, nil, errors.Trace(err)
+			return nil, nil, errors.Trace(err)
 		}
 		aggs = append(aggs, aggExpr)
-		relatedColOffsets, err = extractOffsetsInExpr(expr, ctx.evalCtx.columnInfos, relatedColOffsets)
-		if err != nil {
-			return nil, nil, nil, errors.Trace(err)
-		}
-	}
-	for _, item := range pbAgg.GroupBy {
-		relatedColOffsets, err = extractOffsetsInExpr(item, ctx.evalCtx.columnInfos, relatedColOffsets)
-		if err != nil {
-			return nil, nil, nil, errors.Trace(err)
-		}
 	}
 	groupBys, err := convertToExprs(ctx.evalCtx.sc, ctx.evalCtx.fieldTps, pbAgg.GetGroupBy())
 	if err != nil {
-		return nil, nil, nil, errors.Trace(err)
+		return nil, nil, errors.Trace(err)
 	}
 
-	return aggs, groupBys, relatedColOffsets, nil
+	return aggs, groupBys, nil
 }
 
-func (svr *Server) buildHashAgg(ctx *dagContext, executor *tipb.Executor) (*hashAggExec, error) {
-	pbAgg := executor.Aggregation
-	aggs, groupBys, relatedColOffsets, err := svr.getAggInfo(ctx, pbAgg)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	return &hashAggExec{
-		evalCtx:           ctx.evalCtx,
-		aggExprs:          aggs,
-		groupByExprs:      groupBys,
-		groups:            make(map[string]struct{}),
-		groupKeys:         make([][]byte, 0),
-		relatedColOffsets: relatedColOffsets,
-		row:               make([]types.Datum, len(ctx.evalCtx.columnInfos)),
-		chkRow:            chunk.MutRowFromTypes(ctx.evalCtx.fieldTps),
-	}, nil
-}
-
-func (svr *Server) buildStreamAgg(ctx *dagContext, executor *tipb.Executor) (*streamAggExec, error) {
-	pbAgg := executor.Aggregation
-	aggs, groupBys, relatedColOffsets, err := svr.getAggInfo(ctx, pbAgg)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	aggCtxs := make([]*aggregation.AggEvaluateContext, len(aggs))
-	for i, agg := range aggs {
-		aggCtxs[i] = agg.CreateContext(ctx.evalCtx.sc)
-	}
-	seCtx := mockpkg.NewContext()
-	seCtx.GetSessionVars().StmtCtx = ctx.evalCtx.sc
-	e := &streamAggExec{
-		evalCtx:           ctx.evalCtx,
-		aggExprs:          aggs,
-		aggCtxs:           aggCtxs,
-		groupByExprs:      groupBys,
-		currGroupByValues: make([][]byte, 0),
-		relatedColOffsets: relatedColOffsets,
-		row:               make([]types.Datum, len(ctx.evalCtx.columnInfos)),
-		chkRow:            chunk.MutRowFromTypes(ctx.evalCtx.fieldTps),
-	}
-	return e, nil
-}
-
-func (svr *Server) getTopNInfo(ctx *evalContext, topN *tipb.TopN) (heap *topNHeap, relatedColOffsets []int, conds []expression.Expression, err error) {
+func (svr *Server) getTopNInfo(ctx *evalContext, topN *tipb.TopN) (heap *topNHeap, conds []expression.Expression, err error) {
 	pbConds := make([]*tipb.Expr, len(topN.OrderBy))
 	for i, item := range topN.OrderBy {
-		relatedColOffsets, err = extractOffsetsInExpr(item.Expr, ctx.columnInfos, relatedColOffsets)
-		if err != nil {
-			return nil, nil, nil, errors.Trace(err)
-		}
 		pbConds[i] = item.Expr
 	}
 	heap = &topNHeap{
@@ -318,27 +108,10 @@ func (svr *Server) getTopNInfo(ctx *evalContext, topN *tipb.TopN) (heap *topNHea
 		},
 	}
 	if conds, err = convertToExprs(ctx.sc, ctx.fieldTps, pbConds); err != nil {
-		return nil, nil, nil, errors.Trace(err)
+		return nil, nil, errors.Trace(err)
 	}
 
-	return heap, relatedColOffsets, conds, nil
-}
-
-func (svr *Server) buildTopN(ctx *dagContext, executor *tipb.Executor) (*topNExec, error) {
-	topN := executor.TopN
-	heap, relatedColOffsets, conds, err := svr.getTopNInfo(ctx.evalCtx, topN)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	return &topNExec{
-		heap:              heap,
-		evalCtx:           ctx.evalCtx,
-		relatedColOffsets: relatedColOffsets,
-		orderByExprs:      conds,
-		row:               make([]types.Datum, len(ctx.evalCtx.columnInfos)),
-		chkRow:            chunk.MutRowFromTypes(ctx.evalCtx.fieldTps),
-	}, nil
+	return heap, conds, nil
 }
 
 type evalContext struct {
@@ -429,133 +202,6 @@ func flagsToStatementContext(flags uint64) *stmtctx.StatementContext {
 		PadCharToFullLength: (flags & FlagPadCharToFullLength) > 0,
 	}
 	return sc
-}
-
-// MockGRPCClientStream is exported for testing purpose.
-func MockGRPCClientStream() grpc.ClientStream {
-	return mockClientStream{}
-}
-
-// mockClientStream implements grpc ClientStream interface, its methods are never called.
-type mockClientStream struct{}
-
-func (mockClientStream) Header() (metadata.MD, error) { return nil, nil }
-func (mockClientStream) Trailer() metadata.MD         { return nil }
-func (mockClientStream) CloseSend() error             { return nil }
-func (mockClientStream) Context() context.Context     { return nil }
-func (mockClientStream) SendMsg(m interface{}) error  { return nil }
-func (mockClientStream) RecvMsg(m interface{}) error  { return nil }
-
-type mockCopStreamClient struct {
-	mockClientStream
-
-	req      *tipb.DAGRequest
-	exec     executor
-	ctx      context.Context
-	finished bool
-}
-
-type mockCopStreamErrClient struct {
-	mockClientStream
-
-	*errorpb.Error
-}
-
-func (mock *mockCopStreamErrClient) Recv() (*coprocessor.Response, error) {
-	return &coprocessor.Response{
-		RegionError: mock.Error,
-	}, nil
-}
-
-func (mock *mockCopStreamClient) Recv() (*coprocessor.Response, error) {
-	select {
-	case <-mock.ctx.Done():
-		return nil, mock.ctx.Err()
-	default:
-	}
-
-	if mock.finished {
-		return nil, io.EOF
-	}
-
-	if hook := mock.ctx.Value(mockpkg.HookKeyForTest("mockTiKVStreamRecvHook")); hook != nil {
-		hook.(func(context.Context))(mock.ctx)
-	}
-
-	var resp coprocessor.Response
-	counts := make([]int64, len(mock.req.Executors))
-	chunk, finish, ran, counts, err := mock.readBlockFromExecutor()
-	resp.Range = ran
-	if err != nil {
-		if locked, ok := errors.Cause(err).(*ErrLocked); ok {
-			resp.Locked = &kvrpcpb.LockInfo{
-				Key:         locked.Key,
-				PrimaryLock: locked.Primary,
-				LockVersion: locked.StartTS,
-				LockTtl:     locked.TTL,
-			}
-		} else {
-			resp.OtherError = err.Error()
-		}
-		return &resp, nil
-	}
-	if finish {
-		// Just mark it, need to handle the last chunk.
-		mock.finished = true
-	}
-
-	data, err := chunk.Marshal()
-	if err != nil {
-		resp.OtherError = err.Error()
-		return &resp, nil
-	}
-	streamResponse := tipb.StreamResponse{
-		Error: toPBError(err),
-		Data:  data,
-	}
-	// The counts was the output count of each executor, but now it is the scan count of each range,
-	// so we need a flag to tell them apart.
-	if counts != nil {
-		streamResponse.OutputCounts = make([]int64, 1+len(counts))
-		copy(streamResponse.OutputCounts, counts)
-		streamResponse.OutputCounts[len(counts)] = -1
-	}
-	resp.Data, err = proto.Marshal(&streamResponse)
-	if err != nil {
-		resp.OtherError = err.Error()
-	}
-	return &resp, nil
-}
-
-func (mock *mockCopStreamClient) readBlockFromExecutor() (tipb.Chunk, bool, *coprocessor.KeyRange, []int64, error) {
-	var (
-		chunk  tipb.Chunk
-		ran    coprocessor.KeyRange
-		finish bool
-		desc   bool
-	)
-	mock.exec.ResetCounts()
-	ran.Start, desc = mock.exec.Cursor()
-	for count := 0; count < rowsPerChunk; count++ {
-		row, err := mock.exec.Next(mock.ctx)
-		if err != nil {
-			ran.End, _ = mock.exec.Cursor()
-			return chunk, false, &ran, nil, errors.Trace(err)
-		}
-		if row == nil {
-			finish = true
-			break
-		}
-		for _, offset := range mock.req.OutputOffsets {
-			chunk.RowsData = append(chunk.RowsData, row[offset]...)
-		}
-	}
-
-	ran.End, _ = mock.exec.Cursor()
-	if desc {
-		ran.Start, ran.End = ran.End, ran.Start
-	}
-	return chunk, finish, &ran, mock.exec.Counts(), nil
 }
 
 func buildResp(chunks []tipb.Chunk, counts []int64, err error, warnings []stmtctx.SQLWarn, dur time.Duration) *coprocessor.Response {
@@ -675,39 +321,6 @@ func minEndKey(rangeEndKey kv.Key, regionEndKey []byte) []byte {
 	return regionEndKey
 }
 
-func isDuplicated(offsets []int, offset int) bool {
-	for _, idx := range offsets {
-		if idx == offset {
-			return true
-		}
-	}
-	return false
-}
-
-func extractOffsetsInExpr(expr *tipb.Expr, columns []*tipb.ColumnInfo, collector []int) ([]int, error) {
-	if expr == nil {
-		return nil, nil
-	}
-	if expr.GetTp() == tipb.ExprType_ColumnRef {
-		_, idx, err := codec.DecodeInt(expr.Val)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		if !isDuplicated(collector, int(idx)) {
-			collector = append(collector, int(idx))
-		}
-		return collector, nil
-	}
-	var err error
-	for _, child := range expr.Children {
-		collector, err = extractOffsetsInExpr(child, columns, collector)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-	}
-	return collector, nil
-}
-
 // fieldTypeFromPBColumn creates a types.FieldType from tipb.ColumnInfo.
 func fieldTypeFromPBColumn(col *tipb.ColumnInfo) *types.FieldType {
 	return &types.FieldType{
@@ -717,20 +330,5 @@ func fieldTypeFromPBColumn(col *tipb.ColumnInfo) *types.FieldType {
 		Decimal: int(col.GetDecimal()),
 		Elems:   col.Elems,
 		Collate: mysql.Collations[uint8(col.GetCollation())],
-	}
-}
-
-// fieldTypeFromPBFieldType creates a types.FieldType from tipb.FieldType.
-func fieldTypeFromPBFieldType(ft *tipb.FieldType) *types.FieldType {
-	if ft == nil {
-		return nil
-	}
-	return &types.FieldType{
-		Tp:      byte(ft.Tp),
-		Flag:    uint(ft.Flag),
-		Flen:    int(ft.Flen),
-		Decimal: int(ft.Decimal),
-		Collate: mysql.Collations[uint8(ft.Collate)],
-		Charset: ft.Charset,
 	}
 }

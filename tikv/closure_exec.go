@@ -33,7 +33,6 @@ const (
 )
 
 // buildClosureExecutor build a closureExecutor for the DAGRequest.
-// currently, only 'count(*)' is supported, but we can support all kinds of requests in the future.
 // Currently the composition of executors are:
 // 	tableScan|indexScan [selection] [topN | limit | agg]
 func (svr *Server) buildClosureExecutor(dagCtx *dagContext, dagReq *tipb.DAGRequest) (*closureExecutor, error) {
@@ -191,7 +190,7 @@ func (svr *Server) tryBuildCountProcessor(e *closureExecutor, executors []*tipb.
 }
 
 func (svr *Server) buildTopNProcessor(e *closureExecutor, topN *tipb.TopN) error {
-	heap, _, conds, err := svr.getTopNInfo(e.evalContext, topN)
+	heap, conds, err := svr.getTopNInfo(e.evalContext, topN)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -208,18 +207,17 @@ func (svr *Server) buildTopNProcessor(e *closureExecutor, topN *tipb.TopN) error
 }
 
 func (svr *Server) buildHashAggProcessor(e *closureExecutor, ctx *dagContext, agg *tipb.Aggregation) error {
-	aggs, groupBys, relatedColOffsets, err := svr.getAggInfo(ctx, agg)
+	aggs, groupBys, err := svr.getAggInfo(ctx, agg)
 	if err != nil {
 		return err
 	}
 	e.processor = &hashAggProcessor{
-		closureExecutor:   e,
-		aggExprs:          aggs,
-		groupByExprs:      groupBys,
-		relatedColOffsets: relatedColOffsets,
-		groups:            map[string]struct{}{},
-		groupKeys:         nil,
-		aggCtxsMap:        map[string][]*aggregation.AggEvaluateContext{},
+		closureExecutor: e,
+		aggExprs:        aggs,
+		groupByExprs:    groupBys,
+		groups:          map[string]struct{}{},
+		groupKeys:       nil,
+		aggCtxsMap:      map[string][]*aggregation.AggEvaluateContext{},
 	}
 	return nil
 }
@@ -641,12 +639,11 @@ type hashAggProcessor struct {
 	skipVal
 	*closureExecutor
 
-	aggExprs          []aggregation.Aggregation
-	groupByExprs      []expression.Expression
-	relatedColOffsets []int
-	groups            map[string]struct{}
-	groupKeys         [][]byte
-	aggCtxsMap        map[string][]*aggregation.AggEvaluateContext
+	aggExprs     []aggregation.Aggregation
+	groupByExprs []expression.Expression
+	groups       map[string]struct{}
+	groupKeys    [][]byte
+	aggCtxsMap   map[string][]*aggregation.AggEvaluateContext
 }
 
 func (e *hashAggProcessor) Process(key, value []byte) (err error) {
