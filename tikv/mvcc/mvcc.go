@@ -40,6 +40,7 @@ func DecodeLock(data []byte) (l MvccLock) {
 type MvccLockHdr struct {
 	StartTS     uint64
 	ForUpdateTS uint64
+	MinCommitTS uint64
 	TTL         uint32
 	Op          uint8
 	HasOldVer   bool

@@ -212,13 +212,18 @@ func (rm *regionManager) GetRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *er
 			StoreNotMatch: &errorpb.StoreNotMatch{},
 		}
 	}
+	var epoch *metapb.RegionEpoch
 	rm.mu.RLock()
 	ri := rm.regions[ctx.RegionId]
 	if ri != nil {
-		ri.refCount.Add(1)
+		epoch = ri.getRegionEpoch()
+		// When region is about to be split, region epoch is set to nil to prevent future requests.
+		if epoch != nil {
+			ri.refCount.Add(1)
+		}
 	}
 	rm.mu.RUnlock()
-	if ri == nil {
+	if epoch == nil {
 		return nil, &errorpb.Error{
 			Message: "region not found",
 			RegionNotFound: &errorpb.RegionNotFound{
@@ -227,7 +232,7 @@ func (rm *regionManager) GetRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *er
 		}
 	}
 	// Region epoch does not match.
-	if rm.isEpochStale(ri.getRegionEpoch(), ctx.GetRegionEpoch()) {
+	if rm.isEpochStale(epoch, ctx.GetRegionEpoch()) {
 		ri.refCount.Done()
 		return nil, &errorpb.Error{
 			Message: "stale epoch",
@@ -236,7 +241,7 @@ func (rm *regionManager) GetRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *er
 					Id:          ri.meta.Id,
 					StartKey:    ri.meta.StartKey,
 					EndKey:      ri.meta.EndKey,
-					RegionEpoch: ri.getRegionEpoch(),
+					RegionEpoch: epoch,
 					Peers:       ri.meta.Peers,
 				}},
 			},
@@ -272,29 +277,33 @@ func (rm *RaftRegionManager) OnPeerCreate(ctx *raftstore.PeerEventContext, regio
 }
 
 func (rm *RaftRegionManager) OnPeerApplySnap(ctx *raftstore.PeerEventContext, region *metapb.Region) {
-	rm.mu.Lock()
-	rm.regions[ctx.RegionId] = newRegionCtx(region, nil, ctx.LeaderChecker)
-	rm.mu.Unlock()
 }
 
 func (rm *RaftRegionManager) OnPeerDestroy(ctx *raftstore.PeerEventContext) {
 	rm.mu.Lock()
 	region := rm.regions[ctx.RegionId]
-	region.waitParent()
 	delete(rm.regions, ctx.RegionId)
 	rm.mu.Unlock()
+	// We don't need to wait for parent for a destroyed peer.
 	region.refCount.Done()
 }
 
 func (rm *RaftRegionManager) OnSplitRegion(derived *metapb.Region, regions []*metapb.Region, peers []*raftstore.PeerEventContext) {
-	rm.mu.Lock()
+	rm.mu.RLock()
 	oldRegion := rm.regions[derived.Id]
-	oldRegion.waitParent()
-	for i, region := range regions {
-		rm.regions[region.Id] = newRegionCtx(region, oldRegion, peers[i].LeaderChecker)
-	}
-	rm.mu.Unlock()
-	oldRegion.refCount.Done()
+	rm.mu.RUnlock()
+	// The old region is about to be replaced, update the epoch to nil to prevent accept new requests.
+	oldRegion.updateRegionEpoch(nil)
+	// Run in another goroutine to avoid deadlock.
+	go func() {
+		oldRegion.waitParent()
+		rm.mu.Lock()
+		for i, region := range regions {
+			rm.regions[region.Id] = newRegionCtx(region, oldRegion, peers[i].LeaderChecker)
+		}
+		rm.mu.Unlock()
+		oldRegion.refCount.Done()
+	}()
 }
 
 func (rm *RaftRegionManager) OnRegionConfChange(ctx *raftstore.PeerEventContext, epoch *metapb.RegionEpoch) {

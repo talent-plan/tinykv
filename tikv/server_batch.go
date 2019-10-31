@@ -137,6 +137,18 @@ func (svr *Server) handleBatchRequest(ctx context.Context, req *tikvpb.BatchComm
 			return nil, err
 		}
 		return &tikvpb.BatchCommandsResponse_Response{Cmd: &tikvpb.BatchCommandsResponse_Response_PessimisticRollback{PessimisticRollback: res}}, nil
+	case *tikvpb.BatchCommandsRequest_Request_TxnHeartBeat:
+		res, err := svr.KvTxnHeartBeat(ctx, req.TxnHeartBeat)
+		if err != nil {
+			return nil, err
+		}
+		return &tikvpb.BatchCommandsResponse_Response{Cmd: &tikvpb.BatchCommandsResponse_Response_TxnHeartBeat{TxnHeartBeat: res}}, nil
+	case *tikvpb.BatchCommandsRequest_Request_CheckTxnStatus:
+		res, err := svr.KvCheckTxnStatus(ctx, req.CheckTxnStatus)
+		if err != nil {
+			return nil, err
+		}
+		return &tikvpb.BatchCommandsResponse_Response{Cmd: &tikvpb.BatchCommandsResponse_Response_CheckTxnStatus{CheckTxnStatus: res}}, nil
 	case *tikvpb.BatchCommandsRequest_Request_Prewrite:
 		res, err := svr.KvPrewrite(ctx, req.Prewrite)
 		if err != nil {

@@ -244,6 +244,36 @@ func (svr *Server) KVPessimisticRollback(ctx context.Context, req *kvrpcpb.Pessi
 	return resp, nil
 }
 
+func (svr *Server) KvTxnHeartBeat(ctx context.Context, req *kvrpcpb.TxnHeartBeatRequest) (*kvrpcpb.TxnHeartBeatResponse, error) {
+	reqCtx, err := newRequestCtx(svr, req.Context, "TxnHeartBeat")
+	if err != nil {
+		return &kvrpcpb.TxnHeartBeatResponse{Error: convertToKeyError(err)}, nil
+	}
+	defer reqCtx.finish()
+	if reqCtx.regErr != nil {
+		return &kvrpcpb.TxnHeartBeatResponse{RegionError: reqCtx.regErr}, nil
+	}
+	lockTTL, err := svr.mvccStore.TxnHeartBeat(reqCtx, req)
+	resp := &kvrpcpb.TxnHeartBeatResponse{LockTtl: lockTTL}
+	resp.Error, resp.RegionError = convertToPBError(err)
+	return resp, nil
+}
+
+func (svr *Server) KvCheckTxnStatus(ctx context.Context, req *kvrpcpb.CheckTxnStatusRequest) (*kvrpcpb.CheckTxnStatusResponse, error) {
+	reqCtx, err := newRequestCtx(svr, req.Context, "TxnHeartBeat")
+	if err != nil {
+		return &kvrpcpb.CheckTxnStatusResponse{Error: convertToKeyError(err)}, nil
+	}
+	defer reqCtx.finish()
+	if reqCtx.regErr != nil {
+		return &kvrpcpb.CheckTxnStatusResponse{RegionError: reqCtx.regErr}, nil
+	}
+	lockTTL, commitTS, err := svr.mvccStore.CheckTxnStatus(reqCtx, req)
+	resp := &kvrpcpb.CheckTxnStatusResponse{LockTtl: lockTTL, CommitVersion: commitTS}
+	resp.Error, resp.RegionError = convertToPBError(err)
+	return resp, nil
+}
+
 func (svr *Server) KvPrewrite(ctx context.Context, req *kvrpcpb.PrewriteRequest) (*kvrpcpb.PrewriteResponse, error) {
 	reqCtx, err := newRequestCtx(svr, req.Context, "KvPrewrite")
 	if err != nil {

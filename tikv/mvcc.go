@@ -17,9 +17,11 @@ import (
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/lockstore"
 	"github.com/ngaut/unistore/rowcodec"
+	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/ngaut/unistore/util/lockwaiter"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
+	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/deadlock"
 )
@@ -216,6 +218,74 @@ func (store *MVCCStore) PessimisticRollback(reqCtx *requestCtx, req *kvrpcpb.Pes
 	store.lockWaiterManager.WakeUp(startTS, 0, hashVals)
 	store.deadlockDetector.CleanUp(startTS)
 	return err
+}
+
+func (store *MVCCStore) TxnHeartBeat(reqCtx *requestCtx, req *kvrpcpb.TxnHeartBeatRequest) (lockTTL uint64, err error) {
+	hashVals := keysToHashVals(req.PrimaryLock)
+	regCtx := reqCtx.regCtx
+	regCtx.AcquireLatches(hashVals)
+	defer regCtx.ReleaseLatches(hashVals)
+	lock := store.getLock(reqCtx, req.PrimaryLock)
+	if lock != nil && lock.StartTS == req.StartVersion {
+		if !bytes.Equal(lock.Primary, req.PrimaryLock) {
+			return 0, errors.New("heartbeat on non-primary key")
+		}
+		if lock.TTL < uint32(req.AdviseLockTtl) {
+			lock.TTL = uint32(req.AdviseLockTtl)
+			batch := store.dbWriter.NewWriteBatch(req.StartVersion, 0, reqCtx.rpcCtx)
+			batch.PessimisticLock(req.PrimaryLock, lock)
+			err = store.dbWriter.Write(batch)
+			if err != nil {
+				return 0, err
+			}
+		}
+		return uint64(lock.TTL), nil
+	}
+	return 0, errors.New("lock doesn't exists")
+}
+
+func (store *MVCCStore) CheckTxnStatus(reqCtx *requestCtx,
+	req *kvrpcpb.CheckTxnStatusRequest) (ttl, commitTS uint64, err error) {
+	hashVals := keysToHashVals(req.PrimaryKey)
+	regCtx := reqCtx.regCtx
+	regCtx.AcquireLatches(hashVals)
+	defer regCtx.ReleaseLatches(hashVals)
+	lock := store.getLock(reqCtx, req.PrimaryKey)
+	batch := store.dbWriter.NewWriteBatch(req.LockTs, 0, reqCtx.rpcCtx)
+	if lock != nil && lock.StartTS == req.LockTs {
+		// If the lock has already outdated, clean up it.
+		if uint64(oracle.ExtractPhysical(lock.StartTS))+uint64(lock.TTL) < uint64(oracle.ExtractPhysical(req.CurrentTs)) {
+			batch.Rollback(req.PrimaryKey, true)
+			return 0, 0, store.dbWriter.Write(batch)
+		}
+		// If this is a large transaction and the lock is active, push forward the minCommitTS.
+		// lock.minCommitTS == 0 may be a secondary lock, or not a large transaction.
+		if lock.MinCommitTS > 0 {
+			// We *must* guarantee the invariance lock.minCommitTS >= callerStartTS + 1
+			if lock.MinCommitTS < req.CallerStartTs+1 {
+				lock.MinCommitTS = req.CallerStartTs + 1
+
+				// Remove this condition should not affect correctness.
+				// We do it because pushing forward minCommitTS as far as possible could avoid
+				// the lock been pushed again several times, and thus reduce write operations.
+				if lock.MinCommitTS < req.CurrentTs {
+					lock.MinCommitTS = req.CurrentTs
+				}
+				batch.PessimisticLock(req.PrimaryKey, lock)
+				if err = store.dbWriter.Write(batch); err != nil {
+					return 0, 0, err
+				}
+			}
+		}
+		return uint64(lock.TTL), 0, nil
+	}
+	commitTS, err = store.checkCommitted(reqCtx.getDBReader(), req.PrimaryKey, req.LockTs)
+	if commitTS == 0 {
+		// TODO: this is temporary solution. we should be able to check the status without rollback.
+		batch.Rollback(req.PrimaryKey, false)
+		err = store.dbWriter.Write(batch)
+	}
+	return
 }
 
 func (store *MVCCStore) handleCheckPessimisticErr(startTS uint64, err error, isFirstLock bool) (*lockwaiter.Waiter, error) {
@@ -578,25 +648,29 @@ func (store *MVCCStore) rollbackKeyReadLock(reqCtx *requestCtx, batch mvcc.Write
 }
 
 func (store *MVCCStore) rollbackKeyReadDB(req *requestCtx, batch mvcc.WriteBatch, key []byte, startTS uint64, hasLock bool) error {
-	reader := req.getDBReader()
+	commitTS, err := store.checkCommitted(req.getDBReader(), key, startTS)
+	if err != nil {
+		return err
+	}
+	if commitTS != 0 {
+		return ErrAlreadyCommitted(commitTS)
+	}
+	// commit not found, rollback this key
+	batch.Rollback(key, false)
+	return nil
+}
+
+func (store *MVCCStore) checkCommitted(reader *dbreader.DBReader, key []byte, startTS uint64) (uint64, error) {
 	item, err := reader.GetTxn().Get(key)
 	if err != nil && err != badger.ErrKeyNotFound {
-		return errors.Trace(err)
+		return 0, errors.Trace(err)
 	}
-	hasVal := item != nil
-	if !hasVal && !hasLock {
-		// The prewrite request is not arrived, we write a rollback lock to prevent the future prewrite.
-		batch.Rollback(key, false)
-		return nil
-	}
-
-	if !hasVal {
-		// Not committed.
-		return nil
+	if item == nil {
+		return 0, nil
 	}
 	userMeta := mvcc.DBUserMeta(item.UserMeta())
 	if userMeta.StartTS() == startTS {
-		return ErrAlreadyCommitted(userMeta.CommitTS())
+		return userMeta.CommitTS(), nil
 	}
 	// look for the key in the old version to check if the key is committed.
 	it := reader.GetOldIter()
@@ -610,15 +684,13 @@ func (store *MVCCStore) rollbackKeyReadDB(req *requestCtx, batch mvcc.WriteBatch
 		}
 		_, ts, err := codec.DecodeUintDesc(foundKey[len(foundKey)-8:])
 		if err != nil {
-			return errors.Trace(err)
+			return 0, errors.Trace(err)
 		}
 		if mvcc.OldUserMeta(item.UserMeta()).StartTS() == startTS {
-			return ErrAlreadyCommitted(ts)
+			return ts, nil
 		}
 	}
-	// commit not found, rollback this key
-	batch.Rollback(key, false)
-	return nil
+	return 0, nil
 }
 
 func isVisibleKey(key []byte, startTS uint64) bool {
