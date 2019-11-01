@@ -320,12 +320,8 @@ func (r *splitCheckRunner) scanSplitKeys(spCheckerHost *splitCheckerHost, region
 		if exceedEndKey(key, endKey) {
 			break
 		}
-		if value, err := item.Value(); err == nil {
-			if (spCheckerHost.onKv(region, splitCheckKeyEntry{key: key, valueSize: uint64(len(value))})) {
-				break
-			}
-		} else {
-			return nil, errors.Trace(err)
+		if spCheckerHost.onKv(region, splitCheckKeyEntry{key: key, valueSize: uint64(item.ValueSize())}) {
+			break
 		}
 	}
 	return spCheckerHost.splitKeys(), nil

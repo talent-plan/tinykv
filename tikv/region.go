@@ -630,7 +630,7 @@ func (rm *StandAloneRegionManager) splitCheckRegion(region *regionCtx) error {
 			if region.greaterEqualEndKey(item.Key()) {
 				break
 			}
-			s.scanKey(item.Key(), item.EstimatedSize())
+			s.scanKey(item.Key(), int64(len(item.Key())+item.ValueSize()))
 		}
 		return nil
 	})

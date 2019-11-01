@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/binary"
 	"flag"
-	"fmt"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -38,6 +37,9 @@ var (
 const (
 	grpcInitialWindowSize     = 1 << 30
 	grpcInitialConnWindowSize = 1 << 30
+
+	subPathRaft = "raft"
+	subPathKV   = "kv"
 )
 
 func main() {
@@ -56,7 +58,7 @@ func main() {
 	}()
 
 	safePoint := &tikv.SafePoint{}
-	db := createDB("kv", safePoint, &conf.Engine)
+	db := createDB(subPathKV, safePoint, &conf.Engine)
 	bundle := &mvcc.DBBundle{
 		DB:            db,
 		LockStore:     lockstore.NewMemStore(8 << 20),
@@ -141,7 +143,7 @@ func setupRaftInnerServer(bundle *mvcc.DBBundle, safePoint *tikv.SafePoint, pdCl
 	config.SnapPath = snapPath
 	config.RaftWorkerCnt = conf.RaftWorkers
 
-	raftDB := createDB("raft", nil, &conf.Engine)
+	raftDB := createDB(subPathRaft, nil, &conf.Engine)
 	meta, err := bundle.LockStore.LoadFromFile(filepath.Join(kvPath, raftstore.LockstoreFileName))
 	if err != nil {
 		log.Fatal(err)
@@ -195,11 +197,14 @@ func createDB(subPath string, safePoint *tikv.SafePoint, conf *config.Engine) *b
 	opts := badger.DefaultOptions
 	opts.NumCompactors = conf.NumCompactors
 	opts.ValueThreshold = conf.ValueThreshold
+	if subPath == subPathRaft {
+		// Do not need to write blob for raft engine because it will be deleted soon.
+		opts.ValueThreshold = 0
+	}
 	opts.ValueLogWriteOptions.WriteBufferSize = 4 * 1024 * 1024
 	opts.Dir = filepath.Join(conf.DBPath, subPath)
 	opts.ValueDir = opts.Dir
 	opts.TableLoadingMode = options.MemoryMap
-	fmt.Println("vlog file size", conf.VlogFileSize)
 	opts.ValueLogFileSize = conf.VlogFileSize
 	opts.ValueLogLoadingMode = options.FileIO
 	opts.MaxTableSize = conf.MaxTableSize

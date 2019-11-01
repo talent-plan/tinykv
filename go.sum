@@ -30,6 +30,10 @@ github.com/coocood/badger v1.5.1-0.20191008032332-d23da1a7b493 h1:Ofi7PwLqHJQ28P
 github.com/coocood/badger v1.5.1-0.20191008032332-d23da1a7b493/go.mod h1:hq8j8kv7HdQ+fzrBdHfhjJflRjg1GQxl316HxI/MXxk=
 github.com/coocood/badger v1.5.1-0.20191012080148-eb04821fee7e h1:ahRvmnSppwGhHAZUngIwF7n5alyqKh/U2EFPyQh16hI=
 github.com/coocood/badger v1.5.1-0.20191012080148-eb04821fee7e/go.mod h1:hq8j8kv7HdQ+fzrBdHfhjJflRjg1GQxl316HxI/MXxk=
+github.com/coocood/badger v1.5.1-0.20191028075537-f6c0fc4937a5 h1:2yt1B9ns+Ztf2/0v7FLHejVAVvdobiVQW/CCknSzPYc=
+github.com/coocood/badger v1.5.1-0.20191028075537-f6c0fc4937a5/go.mod h1:hq8j8kv7HdQ+fzrBdHfhjJflRjg1GQxl316HxI/MXxk=
+github.com/coocood/badger v1.5.1-0.20191031155124-64a2ad772588 h1:/2QfTGh5H6zSF0PJmmD/OKk91sTEcHC2vwSNgiqURdM=
+github.com/coocood/badger v1.5.1-0.20191031155124-64a2ad772588/go.mod h1:hq8j8kv7HdQ+fzrBdHfhjJflRjg1GQxl316HxI/MXxk=
 github.com/coocood/bbloom v0.0.0-20180518162752-7774d68761e5 h1:A9dUQP3gNU5GjLMe8by8QM3mn+sHLRAlwquACitTHb0=
 github.com/coocood/bbloom v0.0.0-20180518162752-7774d68761e5/go.mod h1:aXF5GNK2jkah+VKjINjpMxB29d5XlAKk4Yo1oX0q9wk=
 github.com/coocood/bbloom v0.0.0-20190830030839-58deb6228d64 h1:W1SHiII3e0jVwvaQFglwu3kS9NLxOeTpvik7MbKCyuQ=
