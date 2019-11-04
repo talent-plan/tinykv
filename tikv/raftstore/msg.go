@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/pingcap/kvproto/pkg/metapb"
-	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
 	"github.com/zhangjinpeng1987/raft"
 )
@@ -146,7 +145,6 @@ type MsgComputeHashResult struct {
 
 type MsgHalfSplitRegion struct {
 	RegionEpoch *metapb.RegionEpoch
-	Policy      pdpb.CheckPolicy
 }
 
 type MsgMergeResult struct {

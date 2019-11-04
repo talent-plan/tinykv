@@ -111,7 +111,7 @@ func newRaftWorker(b *raftPollerBuilder, ch chan Msg, pm *router) *raftWorker {
 		raftCtx:  pollCtx,
 		pr:       pm,
 		applyCh:  make(chan *applyBatch, 1),
-		applyCtx: newApplyContext("", b.coprocessorHost, b.regionScheduler, b.engines, ch, b.cfg),
+		applyCtx: newApplyContext("", b.regionScheduler, b.engines, ch, b.cfg),
 	}
 }
 

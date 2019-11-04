@@ -134,6 +134,32 @@ type Config struct {
 	splitCheck *splitCheckConfig
 }
 
+type splitCheckConfig struct {
+
+	// When it is true, it will try to split a region with table prefix if
+	// that region crosses tables.
+	splitRegionOnTable bool
+
+	// For once split check, there are several splitKey produced for batch.
+	// batchSplitLimit limits the number of produced split-key for one batch.
+	batchSplitLimit uint64
+
+	// When region [a,e) size meets regionMaxSize, it will be split into
+	// several regions [a,b), [b,c), [c,d), [d,e). And the size of [a,b),
+	// [b,c), [c,d) will be regionSplitSize (maybe a little larger).
+	regionMaxSize   uint64
+	regionSplitSize uint64
+
+	// When the number of keys in region [a,e) meets the region_max_keys,
+	// it will be split into two several regions [a,b), [b,c), [c,d), [d,e).
+	// And the number of keys in [a,b), [b,c), [c,d) will be region_split_keys.
+	regionMaxKeys   uint64
+	regionSplitKeys uint64
+
+	// number of rows per sample key for half split.
+	rowsPerSample int
+}
+
 type StoreLabel struct {
 	LabelKey, LabelValue string
 }
@@ -162,13 +188,13 @@ func NewDefaultConfig() *Config {
 		RaftEntryCacheLifeTime:           30 * time.Second,
 		RaftRejectTransferLeaderDuration: 3 * time.Second,
 		SplitRegionCheckTickInterval:     10 * time.Second,
-		RegionSplitCheckDiff:             splitSize / 16,
+		RegionSplitCheckDiff:             splitSize / 8,
 		CleanStalePeerDelay:              10 * time.Minute,
 		RegionCompactCheckInterval:       5 * time.Minute,
 		RegionCompactCheckStep:           100,
 		RegionCompactMinTombstones:       10000,
 		RegionCompactTombstonesPencent:   30,
-		PdHeartbeatTickInterval:          1 * time.Minute,
+		PdHeartbeatTickInterval:          20 * time.Second,
 		PdStoreHeartbeatTickInterval:     10 * time.Second,
 		NotifyCapacity:                   40960,
 		SnapMgrGcTickInterval:            1 * time.Minute,
@@ -202,6 +228,28 @@ func NewDefaultConfig() *Config {
 		GrpcRaftConnNum:          1,
 		Addr:                     "127.0.0.1:20160",
 		splitCheck:               newDefaultSplitCheckConfig(),
+	}
+}
+
+const (
+	// Default region split size.
+	splitSizeMB uint64 = 96
+	// Default region split keys.
+	splitKeys uint64 = 960000
+	// Default batch split limit.
+	batchSplitLimit uint64 = 10
+)
+
+func newDefaultSplitCheckConfig() *splitCheckConfig {
+	splitSize := splitSizeMB * MB
+	return &splitCheckConfig{
+		splitRegionOnTable: true,
+		batchSplitLimit:    batchSplitLimit,
+		regionSplitSize:    splitSize,
+		regionMaxSize:      splitSize / 2 * 3,
+		regionSplitKeys:    splitKeys,
+		regionMaxKeys:      splitKeys / 2 * 3,
+		rowsPerSample:      1024,
 	}
 }
 

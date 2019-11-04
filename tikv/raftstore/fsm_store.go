@@ -19,7 +19,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
-	"github.com/zhangjinpeng1987/raft"
 )
 
 type storeMeta struct {
@@ -55,9 +54,9 @@ func newStoreMeta() *storeMeta {
 	}
 }
 
-func (m *storeMeta) setRegion(host *CoprocessorHost, region *metapb.Region, peer *Peer) {
+func (m *storeMeta) setRegion(region *metapb.Region, peer *Peer) {
 	m.regions[region.Id] = region
-	peer.SetRegion(host, region)
+	peer.SetRegion(region)
 }
 
 type mergeLock struct {
@@ -65,7 +64,6 @@ type mergeLock struct {
 
 type PollContext struct {
 	cfg                  *Config
-	coprocessorHost      *CoprocessorHost
 	engine               *Engines
 	applyMsgs            *applyMsgs
 	needFlushTrans       bool
@@ -264,7 +262,6 @@ type raftPollerBuilder struct {
 	storeMetaLock        *sync.RWMutex
 	storeMeta            *storeMeta
 	snapMgr              *SnapManager
-	coprocessorHost      *CoprocessorHost
 	trans                Transport
 	pdClient             pd.Client
 	engines              *Engines
@@ -348,7 +345,6 @@ func (b *raftPollerBuilder) init() ([]*peerFsm, error) {
 			// No need to check duplicated here, because we use region id as the key
 			// in DB.
 			regionPeers = append(regionPeers, peer)
-			b.coprocessorHost.OnRegionChanged(region, RegionChangeEvent_Create, raft.StateFollower)
 		}
 		return nil
 	})
@@ -415,7 +411,6 @@ func (b *raftPollerBuilder) build() *PollContext {
 		storeMetaLock:        b.storeMetaLock,
 		snapMgr:              b.snapMgr,
 		applyingSnapCount:    b.applyingSnapCount,
-		coprocessorHost:      b.coprocessorHost,
 		trans:                b.trans,
 		queuedSnaps:          make(map[uint64]struct{}),
 		pdClient:             b.pdClient,
@@ -436,7 +431,6 @@ type workers struct {
 	splitCheckWorker  *worker
 	regionWorker      *worker
 	compactWorker     *worker
-	coprocessorHost   *CoprocessorHost
 	wg                *sync.WaitGroup
 }
 
@@ -456,7 +450,6 @@ func (bs *raftBatchSystem) start(
 	pdClinet pd.Client,
 	snapMgr *SnapManager,
 	pdWorker *worker,
-	coprocessorHost *CoprocessorHost,
 	observer PeerEventObserver) error {
 	y.Assert(bs.workers == nil)
 	// TODO: we can get cluster meta regularly too later.
@@ -471,7 +464,6 @@ func (bs *raftBatchSystem) start(
 		compactWorker:     newWorker("compact-worker", wg),
 		pdWorker:          pdWorker,
 		computeHashWorker: newWorker("compute-hash", wg),
-		coprocessorHost:   coprocessorHost,
 		wg:                wg,
 	}
 	builder := &raftPollerBuilder{
@@ -487,7 +479,6 @@ func (bs *raftBatchSystem) start(
 		computeHashScheduler: workers.computeHashWorker.scheduler,
 		trans:                trans,
 		pdClient:             pdClinet,
-		coprocessorHost:      coprocessorHost,
 		snapMgr:              snapMgr,
 		storeMetaLock:        new(sync.RWMutex),
 		storeMeta:            newStoreMeta(),
@@ -535,12 +526,8 @@ func (bs *raftBatchSystem) startSystem(
 		_ = router.send(regionID, Msg{RegionID: regionID, Type: MsgTypeStart})
 	}
 	engines := builder.engines
-	workers.splitCheckWorker.start(&splitCheckRunner{
-		engine:          engines.kv.DB,
-		router:          bs.router,
-		coprocessorHost: workers.coprocessorHost,
-	})
 	cfg := builder.cfg
+	workers.splitCheckWorker.start(newSplitCheckRunner(engines.kv.DB, router, cfg.splitCheck))
 	workers.regionWorker.start(newRegionRunner(engines, snapMgr, cfg.SnapApplyBatchSize, cfg.CleanStalePeerDelay))
 	workers.raftLogGCWorker.start(&raftLogGCRunner{})
 	workers.compactWorker.start(&compactRunner{engine: engines.kv.DB})
@@ -569,7 +556,6 @@ func (bs *raftBatchSystem) shutDown() {
 	workers.pdWorker.scheduler <- stopTask
 	workers.compactWorker.scheduler <- stopTask
 	workers.wg.Wait()
-	workers.coprocessorHost.shutdown()
 }
 
 func createRaftBatchSystem(cfg *Config) (*router, *raftBatchSystem) {

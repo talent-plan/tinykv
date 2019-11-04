@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/pingcap/tidb/tablecodec"
+
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/eraftpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
-	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
 	"github.com/zhangjinpeng1987/raft"
@@ -168,7 +169,7 @@ func (d *peerFsmDelegate) handleMsgs(msgs []Msg) {
 			d.onCompactionDeclinedBytes(msg.Data.(uint64))
 		case MsgTypeHalfSplitRegion:
 			half := msg.Data.(*MsgHalfSplitRegion)
-			d.onScheduleHalfSplitRegion(half.RegionEpoch, half.Policy)
+			d.onScheduleHalfSplitRegion(half.RegionEpoch)
 		case MsgTypeMergeResult:
 			result := msg.Data.(*MsgMergeResult)
 			d.onMergeResult(result.TargetPeer, result.Stale)
@@ -653,8 +654,6 @@ func (d *peerFsmDelegate) destroyPeer(mergeByTarget bool) {
 		d.ctx.storeMetaLock.Unlock()
 		// Send messages out of store meta lock.
 		d.ctx.applyMsgs.appendMsg(regionID, NewPeerMsg(MsgTypeApplyDestroy, regionID, nil))
-		// Trigger region change observer
-		d.ctx.coprocessorHost.OnRegionChanged(d.region(), RegionChangeEvent_Destroy, d.peer.GetRole())
 		d.ctx.pdScheduler <- task{
 			tp: taskTypePDDestroyPeer,
 			data: &pdDestroyPeerTask{
@@ -704,7 +703,7 @@ func (d *peerFsmDelegate) onReadyChangePeer(cp changePeer) {
 		return
 	}
 	d.ctx.storeMetaLock.Lock()
-	d.ctx.storeMeta.setRegion(d.ctx.coprocessorHost, cp.region, d.peer)
+	d.ctx.storeMeta.setRegion(cp.region, d.peer)
 	d.ctx.storeMetaLock.Unlock()
 	d.ctx.peerEventObserver.OnRegionConfChange(d.peer.getEventContext(), &metapb.RegionEpoch{
 		ConfVer: cp.region.RegionEpoch.ConfVer,
@@ -780,7 +779,7 @@ func (d *peerFsmDelegate) onReadySplitRegion(derived *metapb.Region, regions []*
 	defer d.ctx.storeMetaLock.Unlock()
 	meta := d.ctx.storeMeta
 	regionID := derived.Id
-	meta.setRegion(d.ctx.coprocessorHost, derived, d.getPeer())
+	meta.setRegion(derived, d.getPeer())
 	d.peer.PostSplit()
 	isLeader := d.peer.IsLeader()
 	if isLeader {
@@ -1167,7 +1166,6 @@ func (d *peerFsmDelegate) onSplitRegionCheckTick() {
 	d.ticker.schedule(PeerTickSplitRegionCheck)
 	// To avoid frequent scan, we only add new scan tasks if all previous tasks
 	// have finished.
-	// TODO: check whether a gc progress has been started.
 	if len(d.ctx.splitCheckScheduler) > 0 {
 		return
 	}
@@ -1175,28 +1173,29 @@ func (d *peerFsmDelegate) onSplitRegionCheckTick() {
 	if !d.peer.IsLeader() {
 		return
 	}
-
-	// When restart, the approximate size will be None. The
-	// split check will first check the region size, and then
-	// check whether the region should split.  This should
-	// work even if we change the region max size.
-	// If peer says should update approximate size, update region
-	// size and check whether the region should split.
-	if d.peer.ApproximateSize != nil &&
-		d.peer.CompactionDeclinedBytes < d.ctx.cfg.RegionSplitCheckDiff &&
-		d.peer.SizeDiffHint < d.ctx.cfg.RegionSplitCheckDiff {
+	if d.peer.SizeDiffHint < d.ctx.cfg.RegionSplitCheckDiff {
 		return
 	}
 	d.ctx.splitCheckScheduler <- task{
 		tp: taskTypeSplitCheck,
 		data: &splitCheckTask{
-			region:    d.region(),
-			autoSplit: true,
-			policy:    pdpb.CheckPolicy_SCAN,
+			region: d.region(),
 		},
 	}
 	d.peer.SizeDiffHint = 0
 	d.peer.CompactionDeclinedBytes = 0
+}
+
+func isTableKey(key []byte) bool {
+	return bytes.HasPrefix(key, tablecodec.TablePrefix())
+}
+
+func isSameTable(leftKey, rightKey []byte) bool {
+	return bytes.HasPrefix(leftKey, tablecodec.TablePrefix()) &&
+		bytes.HasPrefix(rightKey, tablecodec.TablePrefix()) &&
+		len(leftKey) >= tablecodec.TableSplitKeyLen &&
+		len(rightKey) >= tablecodec.TableSplitKeyLen &&
+		bytes.Compare(leftKey[:tablecodec.TableSplitKeyLen], rightKey[:tablecodec.TableSplitKeyLen]) == 0
 }
 
 func (d *peerFsmDelegate) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, splitKeys [][]byte, cb *Callback) {
@@ -1268,7 +1267,7 @@ func (d *peerFsmDelegate) onCompactionDeclinedBytes(declinedBytes uint64) {
 	d.peer.CompactionDeclinedBytes += declinedBytes
 }
 
-func (d *peerFsmDelegate) onScheduleHalfSplitRegion(regionEpoch *metapb.RegionEpoch, policy pdpb.CheckPolicy) {
+func (d *peerFsmDelegate) onScheduleHalfSplitRegion(regionEpoch *metapb.RegionEpoch) {
 	if !d.peer.IsLeader() {
 		log.Warnf("%s not leader, skip", d.tag())
 		return
@@ -1279,10 +1278,9 @@ func (d *peerFsmDelegate) onScheduleHalfSplitRegion(regionEpoch *metapb.RegionEp
 		return
 	}
 	d.ctx.splitCheckScheduler <- task{
-		tp: taskTypeSplitCheck,
+		tp: taskTypeHalfSplitCheck,
 		data: &splitCheckTask{
 			region: region,
-			policy: policy,
 		},
 	}
 }

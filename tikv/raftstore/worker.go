@@ -32,10 +32,11 @@ import (
 type taskType int64
 
 const (
-	taskTypeStop        taskType = 0
-	taskTypeRaftLogGC   taskType = 1
-	taskTypeSplitCheck  taskType = 2
-	taskTypeComputeHash taskType = 3
+	taskTypeStop           taskType = 0
+	taskTypeRaftLogGC      taskType = 1
+	taskTypeSplitCheck     taskType = 2
+	taskTypeComputeHash    taskType = 3
+	taskTypeHalfSplitCheck taskType = 4
 
 	taskTypePDAskSplit         taskType = 101
 	taskTypePDAskBatchSplit    taskType = 102
@@ -84,9 +85,7 @@ type raftLogGCTask struct {
 }
 
 type splitCheckTask struct {
-	region    *metapb.Region
-	autoSplit bool
-	policy    pdpb.CheckPolicy
+	region *metapb.Region
 }
 
 type computeHashTask struct {
@@ -227,27 +226,19 @@ func newWorker(name string, wg *sync.WaitGroup) *worker {
 	}
 }
 
-type splitCheckKeyEntry struct {
-	key       []byte
-	valueSize uint64
-}
-
-func (keyEntry *splitCheckKeyEntry) entrySize() uint64 {
-	return uint64(len(keyEntry.key)) + keyEntry.valueSize
-}
-
 type splitCheckRunner struct {
-	engine          *badger.DB
-	router          *router
-	coprocessorHost *CoprocessorHost
+	engine *badger.DB
+	router *router
+	config *splitCheckConfig
 }
 
-func newSplitCheckRunner(engine *badger.DB, router *router, host *CoprocessorHost) *splitCheckRunner {
-	return &splitCheckRunner{
-		engine:          engine,
-		router:          router,
-		coprocessorHost: host,
+func newSplitCheckRunner(engine *badger.DB, router *router, config *splitCheckConfig) *splitCheckRunner {
+	runner := &splitCheckRunner{
+		engine: engine,
+		router: router,
+		config: config,
 	}
+	return runner
 }
 
 /// run checks a region with split checkers to produce split keys and generates split admin command.
@@ -255,30 +246,27 @@ func (r *splitCheckRunner) run(t task) {
 	spCheckTask := t.data.(*splitCheckTask)
 	region := spCheckTask.region
 	regionId := region.Id
-	startKey := region.StartKey
-	endKey := region.EndKey
-	log.Debugf("executing split check task: [regionId: %d, startKey: %s, endKey: %s]", regionId,
-		hex.EncodeToString(startKey), hex.EncodeToString(endKey))
-	host := r.coprocessorHost.newSplitCheckerHost(region, r.engine, spCheckTask.autoSplit,
-		spCheckTask.policy)
-	if host.skip() {
-		log.Debugf("skip split check, [regionId : %d]", regionId)
+	_, startKey, err := codec.DecodeBytes(region.StartKey, nil)
+	if err != nil {
+		log.Errorf("failed to decode region key %x, err:%v", region.StartKey, err)
 		return
 	}
+	_, endKey, err := codec.DecodeBytes(region.EndKey, nil)
+	if err != nil {
+		log.Errorf("failed to decode region key %x, err:%v", region.EndKey, err)
+		return
+	}
+	log.Debugf("executing split check task: [regionId: %d, startKey: %s, endKey: %s]", regionId,
+		hex.EncodeToString(startKey), hex.EncodeToString(endKey))
+	txn := r.engine.NewTransaction(false)
+	reader := dbreader.NewDBReader(startKey, endKey, txn, 0)
+	defer reader.Close()
 	var keys [][]byte
-	var err error
-	switch host.policy() {
-	case pdpb.CheckPolicy_SCAN:
-		if keys, err = r.scanSplitKeys(host, region, startKey, endKey); err != nil {
-			log.Errorf("failed to scan split key: [regionId: %d, err: %v]", regionId, err)
-			return
-		}
-	case pdpb.CheckPolicy_APPROXIMATE:
-		// todo, currently, use scan split keys as place holder.
-		if keys, err = r.scanSplitKeys(host, region, startKey, endKey); err != nil {
-			log.Errorf("failed to scan split key: [regionId: %d, err: %v]", regionId, err)
-			return
-		}
+	switch t.tp {
+	case taskTypeHalfSplitCheck:
+		keys = r.halfSplitCheck(startKey, endKey, reader)
+	case taskTypeSplitCheck:
+		keys = r.splitCheck(startKey, endKey, reader)
 	}
 	if len(keys) != 0 {
 		regionEpoch := region.GetRegionEpoch()
@@ -307,24 +295,133 @@ func exceedEndKey(current, endKey []byte) bool {
 	return bytes.Compare(current, endKey) >= 0
 }
 
-/// scanSplitKeys gets the split keys by scanning the range.
-func (r *splitCheckRunner) scanSplitKeys(spCheckerHost *splitCheckerHost, region *metapb.Region,
-	startKey []byte, endKey []byte) ([][]byte, error) {
-	txn := r.engine.NewTransaction(false)
-	reader := dbreader.NewDBReader(startKey, endKey, txn, 0)
+/// splitCheck gets the split keys by scanning the range.
+func (r *splitCheckRunner) splitCheck(startKey, endKey []byte, reader *dbreader.DBReader) [][]byte {
 	ite := reader.GetIter()
-	defer reader.Close()
+	splitKeys := r.tryTableSplit(startKey, endKey, ite)
+	if len(splitKeys) > 0 {
+		return splitKeys
+	}
+	checker := newSizeSplitChecker(r.config.regionMaxSize, r.config.regionSplitSize, r.config.batchSplitLimit)
 	for ite.Seek(startKey); ite.Valid(); ite.Next() {
 		item := ite.Item()
 		key := item.Key()
 		if exceedEndKey(key, endKey) {
 			break
 		}
-		if spCheckerHost.onKv(region, splitCheckKeyEntry{key: key, valueSize: uint64(item.ValueSize())}) {
+		if checker.onKv(key, uint64(item.ValueSize())) {
 			break
 		}
 	}
-	return spCheckerHost.splitKeys(), nil
+	return checker.getSplitKeys()
+}
+
+func (r *splitCheckRunner) tryTableSplit(startKey, endKey []byte, it *badger.Iterator) [][]byte {
+	if !isTableKey(startKey) || isSameTable(startKey, endKey) {
+		return nil
+	}
+	var splitKeys [][]byte
+	prevKey := startKey
+	for {
+		it.Seek(nextTableKey(prevKey))
+		if !it.Valid() {
+			break
+		}
+		key := it.Item().Key()
+		if exceedEndKey(key, endKey) {
+			break
+		}
+		splitKey := safeCopy(key)
+		splitKeys = append(splitKeys, splitKey)
+		prevKey = splitKey
+	}
+	return splitKeys
+}
+
+func nextTableKey(key []byte) []byte {
+	result := make([]byte, 9)
+	result[0] = 't'
+	if len(key) >= 9 {
+		curTableID := binary.BigEndian.Uint64(key[1:])
+		binary.BigEndian.PutUint64(result[1:], curTableID+1)
+	}
+	return result
+}
+
+type sizeSplitChecker struct {
+	maxSize         uint64
+	splitSize       uint64
+	currentSize     uint64
+	splitKeys       [][]byte
+	batchSplitLimit uint64
+}
+
+func newSizeSplitChecker(maxSize, splitSize, batchSplitLimit uint64) *sizeSplitChecker {
+	return &sizeSplitChecker{
+		maxSize:         maxSize,
+		splitSize:       splitSize,
+		batchSplitLimit: batchSplitLimit,
+	}
+}
+
+func safeCopy(b []byte) []byte {
+	return append([]byte{}, b...)
+}
+
+func (checker *sizeSplitChecker) onKv(key []byte, valueSize uint64) bool {
+	size := uint64(len(key)) + valueSize
+	checker.currentSize += size
+	overLimit := uint64(len(checker.splitKeys)) >= checker.batchSplitLimit
+	if checker.currentSize > checker.splitSize && !overLimit {
+		checker.splitKeys = append(checker.splitKeys, safeCopy(key))
+		// If for previous onKv(), checker.current_size == checker.split_size,
+		// the split key would be pushed this time, but the entry size for this time should not be ignored.
+		if checker.currentSize-size == checker.splitSize {
+			checker.currentSize = size
+		} else {
+			checker.currentSize = 0
+		}
+		overLimit = uint64(len(checker.splitKeys)) >= checker.batchSplitLimit
+	}
+	// For a large region, scan over the range maybe cost too much time,
+	// so limit the number of produced splitKeys for one batch.
+	// Also need to scan over checker.maxSize for last part.
+	return overLimit && checker.currentSize+checker.splitSize >= checker.maxSize
+}
+
+func (checker *sizeSplitChecker) getSplitKeys() [][]byte {
+	// Make sure not to split when less than maxSize for last part
+	if checker.currentSize+checker.splitSize < checker.maxSize {
+		splitKeyLen := len(checker.splitKeys)
+		if splitKeyLen != 0 {
+			checker.splitKeys = checker.splitKeys[:splitKeyLen-1]
+		}
+	}
+	keys := checker.splitKeys
+	checker.splitKeys = nil
+	return keys
+}
+
+func (r *splitCheckRunner) halfSplitCheck(startKey, endKey []byte, reader *dbreader.DBReader) [][]byte {
+	var sampleKeys [][]byte
+	cnt := 0
+	ite := reader.GetIter()
+	for ite.Seek(startKey); ite.Valid(); ite.Next() {
+		cnt++
+		key := ite.Item().Key()
+		if exceedEndKey(key, endKey) {
+			break
+		}
+		if cnt%r.config.rowsPerSample == 0 {
+			sampleKeys = append(sampleKeys, safeCopy(key))
+		}
+	}
+	mid := len(sampleKeys) / 2
+	if len(sampleKeys) > mid {
+		splitKey := sampleKeys[mid]
+		return [][]byte{splitKey}
+	}
+	return nil
 }
 
 type pendingDeleteRanges struct {

@@ -19,15 +19,14 @@ type RaftInnerServer struct {
 	storeMeta     metapb.Store
 	eventObserver PeerEventObserver
 
-	node            *Node
-	snapManager     *SnapManager
-	coprocessorHost *CoprocessorHost
-	raftRouter      *RaftstoreRouter
-	batchSystem     *raftBatchSystem
-	pdWorker        *worker
-	resolveWorker   *worker
-	snapWorker      *worker
-	lsDumper        *lockStoreDumper
+	node          *Node
+	snapManager   *SnapManager
+	raftRouter    *RaftstoreRouter
+	batchSystem   *raftBatchSystem
+	pdWorker      *worker
+	resolveWorker *worker
+	snapWorker    *worker
+	lsDumper      *lockStoreDumper
 }
 
 func (ris *RaftInnerServer) Raft(stream tikvpb.Tikv_RaftServer) error {
@@ -90,7 +89,6 @@ func (ris *RaftInnerServer) Setup(pdClient pd.Client) {
 	ris.raftRouter = NewRaftstoreRouter(router) // TODO: init with local reader
 	ris.snapManager = NewSnapManager(cfg.SnapPath, router)
 	ris.batchSystem = batchSystem
-	ris.coprocessorHost = newCoprocessorHost(cfg.splitCheck, router)
 	ris.lsDumper = &lockStoreDumper{
 		stopCh:      make(chan struct{}),
 		engines:     ris.engines,
@@ -119,7 +117,7 @@ func (ris *RaftInnerServer) Start(pdClient pd.Client) error {
 
 	resolveRunner := newResolverRunner(pdClient)
 	ris.resolveWorker.start(resolveRunner)
-	err := ris.node.Start(context.TODO(), ris.engines, trans, ris.snapManager, ris.pdWorker, ris.coprocessorHost, ris.raftRouter)
+	err := ris.node.Start(context.TODO(), ris.engines, trans, ris.snapManager, ris.pdWorker, ris.raftRouter)
 	if err != nil {
 		return err
 	}

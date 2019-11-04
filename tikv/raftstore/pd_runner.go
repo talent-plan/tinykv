@@ -86,7 +86,6 @@ func (r *pdRunner) onRegionHeartbeatResponse(resp *pdpb.RegionHeartbeatResponse)
 			RegionID: resp.RegionId,
 			Data: &MsgHalfSplitRegion{
 				RegionEpoch: resp.RegionEpoch,
-				Policy:      splitRegion.Policy,
 			},
 		})
 	} else if merge := resp.GetMerge(); merge != nil {

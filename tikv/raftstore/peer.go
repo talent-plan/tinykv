@@ -378,7 +378,6 @@ func (p *Peer) getPeerFromCache(peerID uint64) *metapb.Peer {
 /// Also trigger `RegionChangeEvent::Create` here.
 func (p *Peer) Activate(ctx *PollContext) {
 	ctx.applyMsgs.appendMsg(p.regionId, NewMsg(MsgTypeApplyRegistration, newRegistration(p)))
-	ctx.coprocessorHost.OnRegionChanged(p.Region(), RegionChangeEvent_Create, p.GetRole())
 }
 
 func (p *Peer) nextProposalIndex() uint64 {
@@ -480,7 +479,7 @@ func (p *Peer) Region() *metapb.Region {
 ///
 /// This will update the region of the peer, caller must ensure the region
 /// has been preserved in a durable device.
-func (p *Peer) SetRegion(host *CoprocessorHost, region *metapb.Region) {
+func (p *Peer) SetRegion(region *metapb.Region) {
 	if p.Region().GetRegionEpoch().GetVersion() < region.GetRegionEpoch().GetVersion() {
 		// Epoch version changed, disable read on the localreader for this region.
 		p.leaderLease.ExpireRemoteLease()
@@ -491,7 +490,6 @@ func (p *Peer) SetRegion(host *CoprocessorHost, region *metapb.Region) {
 	// becoming a leader.
 	if !p.PendingRemove {
 		atomic.StorePointer(&p.leaderChecker.region, unsafe.Pointer(region))
-		host.OnRegionChanged(p.Region(), RegionChangeEvent_Update, p.GetRole())
 	}
 }
 
@@ -721,7 +719,6 @@ func (p *Peer) OnRoleChanged(ctx *PollContext, ready *raft.Ready) {
 		} else if ss.RaftState == raft.StateFollower {
 			p.leaderLease.Expire()
 		}
-		ctx.coprocessorHost.OnRoleChanged(p.Region(), ss.RaftState)
 	}
 }
 
@@ -1501,9 +1498,6 @@ func (p *Peer) preProposePrepareMerge(ctx *PollContext, req *raft_cmdpb.RaftCmdR
 }
 
 func (p *Peer) PrePropose(pollCtx *PollContext, req *raft_cmdpb.RaftCmdRequest) (*ProposalContext, error) {
-	if err := pollCtx.coprocessorHost.PrePropose(p.Region(), req); err != nil {
-		return nil, err
-	}
 	ctx := new(ProposalContext)
 
 	if getSyncLogFromRequest(req) {

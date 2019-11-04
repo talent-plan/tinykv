@@ -175,10 +175,9 @@ type applyCallback struct {
 	cbs    []*Callback
 }
 
-func (c *applyCallback) invokeAll(host *CoprocessorHost, doneApplyTime time.Time) {
+func (c *applyCallback) invokeAll(doneApplyTime time.Time) {
 	for _, cb := range c.cbs {
 		if cb != nil {
-			host.postApply(c.region, cb.resp)
 			cb.applyDoneTime = doneApplyTime
 			cb.wg.Done()
 		}
@@ -272,7 +271,6 @@ func (r *applyMsgs) appendMsg(regionID uint64, msg Msg) {
 type applyContext struct {
 	tag              string
 	timer            *time.Time
-	host             *CoprocessorHost
 	regionScheduler  chan<- task
 	notifier         chan<- Msg
 	engines          *Engines
@@ -294,11 +292,10 @@ type applyContext struct {
 	useDeleteRange bool
 }
 
-func newApplyContext(tag string, host *CoprocessorHost, regionScheduler chan<- task, engines *Engines,
+func newApplyContext(tag string, regionScheduler chan<- task, engines *Engines,
 	notifier chan<- Msg, cfg *Config) *applyContext {
 	return &applyContext{
 		tag:             tag,
-		host:            host,
 		regionScheduler: regionScheduler,
 		engines:         engines,
 		notifier:        notifier,
@@ -353,10 +350,12 @@ func (ac *applyContext) writeToDB() {
 			panic(err)
 		}
 		ac.wb.Reset()
+		ac.wbLastBytes = 0
+		ac.wbLastKeys = 0
 	}
 	doneApply := time.Now()
 	for _, cb := range ac.cbs {
-		cb.invokeAll(ac.host, doneApply)
+		cb.invokeAll(doneApply)
 	}
 	ac.cbs = ac.cbs[:0]
 }
@@ -733,7 +732,6 @@ func (d *applyDelegate) processRaftCmd(aCtx *applyContext, index, term uint64, c
 		aCtx.syncLogHint = true
 	}
 	isConfChange := GetChangePeerCmd(cmd) != nil
-	aCtx.host.preApply(d.region, cmd)
 	resp, result := d.applyRaftCmd(aCtx, index, term, cmd)
 	if result.tp == applyResultTypeWaitMergeResource {
 		return result
@@ -1093,13 +1091,19 @@ func (d *applyDelegate) execCommit(aCtx *applyContext, op commitOp) {
 	val := d.getLock(aCtx, rawKey)
 	y.Assert(len(val) > 0)
 	lock := mvcc.DecodeLock(val)
+	var sizeDiff int64
 	if lock.Op != uint8(kvrpcpb.Op_Lock) {
 		userMeta := mvcc.NewDBUserMeta(lock.StartTS, commitTS)
 		aCtx.wb.SetWithUserMeta(rawKey, lock.Value, userMeta)
+		sizeDiff = int64(len(rawKey) + len(lock.Value))
 	}
 	if lock.HasOldVer {
 		oldKey := mvcc.EncodeOldKey(rawKey, lock.OldMeta.CommitTS())
 		aCtx.wb.SetWithUserMeta(oldKey, lock.OldVal, lock.OldMeta.ToOldUserMeta(commitTS))
+		sizeDiff -= int64(len(rawKey) + len(lock.OldVal))
+	}
+	if sizeDiff > 0 {
+		d.metrics.sizeDiffHint += uint64(sizeDiff)
 	}
 	if op.delLock != nil {
 		aCtx.wb.DeleteLock(rawKey, val)
