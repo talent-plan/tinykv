@@ -16,7 +16,7 @@ import (
 type peerState struct {
 	handle unsafe.Pointer
 	peer   *peerFsm
-	apply  *applyFsm
+	apply  *applier
 }
 
 // changeWorker changes the worker binding.

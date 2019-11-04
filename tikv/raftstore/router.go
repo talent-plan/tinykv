@@ -40,7 +40,7 @@ func (pr *router) get(regionID uint64) *peerState {
 func (pr *router) register(peer *peerFsm) {
 	id := peer.peer.regionId
 	idx := int(id) % len(pr.workerSenders)
-	_, apply := newApplyFsmFromPeer(peer)
+	apply := newApplierFromPeer(peer)
 	handle := &workerHandle{
 		msgCh: pr.workerSenders[idx],
 	}

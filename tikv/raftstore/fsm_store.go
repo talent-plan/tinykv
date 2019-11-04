@@ -185,10 +185,6 @@ func newStoreFsm(cfg *Config) (chan<- Msg, *storeFsm) {
 	return (chan<- Msg)(ch), fsm
 }
 
-func (s *storeFsm) isStopped() bool {
-	return s.stopped
-}
-
 type storeFsmDelegate struct {
 	*storeFsm
 	ctx *PollContext

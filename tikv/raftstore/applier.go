@@ -191,11 +191,6 @@ func (c *applyCallback) push(cb *Callback, resp *raft_cmdpb.RaftCmdResponse) {
 	c.cbs = append(c.cbs, cb)
 }
 
-type callBackResponsePair struct {
-	callBack *Callback
-	response *raft_cmdpb.RaftCmdResponse
-}
-
 type proposal struct {
 	isConfChange bool
 	index        uint64
@@ -305,12 +300,12 @@ func newApplyContext(tag string, regionScheduler chan<- task, engines *Engines,
 	}
 }
 
-/// Prepares for applying entries for `delegate`.
+/// Prepares for applying entries for `applier`.
 ///
-/// A general apply progress for a delegate is:
+/// A general apply progress for an applier is:
 /// `prepare_for` -> `commit` [-> `commit` ...] -> `finish_for`.
-/// After all delegates are handled, `write_to_db` method should be called.
-func (ac *applyContext) prepareFor(d *applyDelegate) {
+/// After all appliers are handled, `write_to_db` method should be called.
+func (ac *applyContext) prepareFor(d *applier) {
 	if ac.wb == nil {
 		ac.wb = new(WriteBatch)
 		ac.wbLastBytes = 0
@@ -320,11 +315,11 @@ func (ac *applyContext) prepareFor(d *applyDelegate) {
 	ac.lastAppliedIndex = d.applyState.appliedIndex
 }
 
-/// Commits all changes have done for delegate. `persistent` indicates whether
+/// Commits all changes have done for applier. `persistent` indicates whether
 /// write the changes into rocksdb.
 ///
 /// This call is valid only when it's between a `prepare_for` and `finish_for`.
-func (ac *applyContext) commit(d *applyDelegate) {
+func (ac *applyContext) commit(d *applier) {
 	if ac.lastAppliedIndex < d.applyState.appliedIndex {
 		d.writeApplyState(ac.wb)
 	}
@@ -333,7 +328,7 @@ func (ac *applyContext) commit(d *applyDelegate) {
 	ac.commitOpt(d, true)
 }
 
-func (ac *applyContext) commitOpt(d *applyDelegate, persistent bool) {
+func (ac *applyContext) commitOpt(d *applier, persistent bool) {
 	d.updateMetrics(ac)
 	if persistent {
 		ac.writeToDB()
@@ -360,8 +355,8 @@ func (ac *applyContext) writeToDB() {
 	ac.cbs = ac.cbs[:0]
 }
 
-/// Finishes `Apply`s for the delegate.
-func (ac *applyContext) finishFor(d *applyDelegate, results []execResult) {
+/// Finishes `Apply`s for the applier.
+func (ac *applyContext) finishFor(d *applier, results []execResult) {
 	if !d.pendingRemove {
 		d.writeApplyState(ac.wb)
 	}
@@ -503,7 +498,7 @@ func (s *waitSourceMergeState) String() string {
 		len(s.pendingEntries), len(s.pendingMsgs), s.readyToMerge.Load(), s.catchUpLogs != nil)
 }
 
-/// The apply delegate of a Region which is responsible for handling committed
+/// The applier of a Region which is responsible for handling committed
 /// raft log entries of a Region.
 ///
 /// `Apply` is a term of Raft, which means executing the actual commands.
@@ -512,18 +507,17 @@ func (s *waitSourceMergeState) String() string {
 /// delete to local engine; for admin commands, it does some meta change of the
 /// Raft group.
 ///
-/// `Delegate` is just a structure to congregate all apply related fields of a
-/// Region. The apply worker receives all the apply tasks of different Regions
-/// located at this store, and it will get the corresponding apply delegate to
+/// The raft worker receives all the apply tasks of different Regions
+/// located at this store, and it will get the corresponding applier to
 /// handle the apply task to make the code logic more clear.
-type applyDelegate struct {
+type applier struct {
 	id     uint64
 	term   uint64
 	region *metapb.Region
 	tag    string
 
-	/// If the delegate should be stopped from polling.
-	/// A delegate can be stopped in conf change, merge or requested by destroy message.
+	/// If the applier should be stopped from polling.
+	/// A applier can be stopped in conf change, merge or requested by destroy message.
 	stopped bool
 	/// Set to true when removing itself because of `ConfChangeType::RemoveNode`, and then
 	/// any following committed logs in same Ready should be applied failed.
@@ -532,7 +526,7 @@ type applyDelegate struct {
 	/// The commands waiting to be committed and applied
 	pendingCmds pendingCmdQueue
 
-	/// Marks the delegate as merged by CommitMerge.
+	/// Marks the applier as merged by CommitMerge.
 	merged bool
 
 	/// Indicates the peer is in merging, if that compact log won't be performed.
@@ -561,8 +555,8 @@ type applyDelegate struct {
 	metrics applyMetrics
 }
 
-func newApplyDelegate(reg *registration) *applyDelegate {
-	return &applyDelegate{
+func newApplier(reg *registration) *applier {
+	return &applier{
 		id:               reg.id,
 		tag:              fmt.Sprintf("[region %d] %d", reg.region.Id, reg.id),
 		region:           reg.region,
@@ -573,11 +567,11 @@ func newApplyDelegate(reg *registration) *applyDelegate {
 }
 
 /// Handles all the committed_entries, namely, applies the committed entries.
-func (d *applyDelegate) handleRaftCommittedEntries(aCtx *applyContext, committedEntries []eraftpb.Entry) {
+func (a *applier) handleRaftCommittedEntries(aCtx *applyContext, committedEntries []eraftpb.Entry) {
 	if len(committedEntries) == 0 {
 		return
 	}
-	aCtx.prepareFor(d)
+	aCtx.prepareFor(a)
 	aCtx.committedCount += len(committedEntries)
 	// If we send multiple ConfChange commands, only first one will be proposed correctly,
 	// others will be saved as a normal entry with no data, so we must re-propose these
@@ -586,26 +580,26 @@ func (d *applyDelegate) handleRaftCommittedEntries(aCtx *applyContext, committed
 	var results []execResult
 	for i := range committedEntries {
 		entry := &committedEntries[i]
-		if d.pendingRemove {
+		if a.pendingRemove {
 			// This peer is about to be destroyed, skip everything.
 			break
 		}
-		expectedIndex := d.applyState.appliedIndex + 1
+		expectedIndex := a.applyState.appliedIndex + 1
 		if expectedIndex != entry.Index {
 			// Msg::CatchUpLogs may have arrived before Msg::Apply.
-			if expectedIndex > entry.GetIndex() && d.isMerging {
+			if expectedIndex > entry.GetIndex() && a.isMerging {
 				log.Infof("skip log as it's already applied. region_id %d, peer_id %d, index %d",
-					d.region.Id, d.id, entry.Index)
+					a.region.Id, a.id, entry.Index)
 				continue
 			}
-			panic(fmt.Sprintf("%s expect index %d, but got %d", d.tag, expectedIndex, entry.Index))
+			panic(fmt.Sprintf("%s expect index %d, but got %d", a.tag, expectedIndex, entry.Index))
 		}
 		var res applyResult
 		switch entry.EntryType {
 		case eraftpb.EntryType_EntryNormal:
-			res = d.handleRaftEntryNormal(aCtx, entry)
+			res = a.handleRaftEntryNormal(aCtx, entry)
 		case eraftpb.EntryType_EntryConfChange:
-			res = d.handleRaftEntryConfChange(aCtx, entry)
+			res = a.handleRaftEntryConfChange(aCtx, entry)
 		}
 		switch res.tp {
 		case applyResultTypeNone:
@@ -618,27 +612,27 @@ func (d *applyDelegate) handleRaftCommittedEntries(aCtx *applyContext, committed
 			// Note that CommitMerge is skipped when `WaitMergeSource` is returned.
 			// So we need to enqueue it again and execute it again when resuming.
 			pendingEntries = append(pendingEntries, committedEntries[i:]...)
-			aCtx.finishFor(d, results)
-			d.waitMergeState = &waitSourceMergeState{
+			aCtx.finishFor(a, results)
+			a.waitMergeState = &waitSourceMergeState{
 				pendingEntries: pendingEntries,
 				readyToMerge:   readyToMerge,
 			}
 			return
 		}
 	}
-	aCtx.finishFor(d, results)
+	aCtx.finishFor(a, results)
 }
 
-func (d *applyDelegate) updateMetrics(aCtx *applyContext) {
-	d.metrics.writtenBytes += aCtx.deltaBytes()
-	d.metrics.writtenKeys += aCtx.deltaKeys()
+func (a *applier) updateMetrics(aCtx *applyContext) {
+	a.metrics.writtenBytes += aCtx.deltaBytes()
+	a.metrics.writtenKeys += aCtx.deltaKeys()
 }
 
-func (d *applyDelegate) writeApplyState(wb *WriteBatch) {
-	wb.Set(ApplyStateKey(d.region.Id), d.applyState.Marshal())
+func (a *applier) writeApplyState(wb *WriteBatch) {
+	wb.Set(ApplyStateKey(a.region.Id), a.applyState.Marshal())
 }
 
-func (d *applyDelegate) handleRaftEntryNormal(aCtx *applyContext, entry *eraftpb.Entry) applyResult {
+func (a *applier) handleRaftEntryNormal(aCtx *applyContext, entry *eraftpb.Entry) applyResult {
 	index := entry.Index
 	term := entry.Term
 	if len(entry.Data) > 0 {
@@ -648,17 +642,17 @@ func (d *applyDelegate) handleRaftEntryNormal(aCtx *applyContext, entry *eraftpb
 			panic(err)
 		}
 		if shouldWriteToEngine(cmd, len(aCtx.wb.entries)) {
-			aCtx.commit(d)
+			aCtx.commit(a)
 		}
-		return d.processRaftCmd(aCtx, index, term, cmd)
+		return a.processRaftCmd(aCtx, index, term, cmd)
 	}
 
 	// when a peer become leader, it will send an empty entry.
-	d.applyState.appliedIndex = index
-	d.appliedIndexTerm = term
+	a.applyState.appliedIndex = index
+	a.appliedIndexTerm = term
 	y.Assert(term > 0)
 	for {
-		cmd := d.pendingCmds.popNormal(term - 1)
+		cmd := a.pendingCmds.popNormal(term - 1)
 		if cmd == nil {
 			break
 		}
@@ -670,7 +664,7 @@ func (d *applyDelegate) handleRaftEntryNormal(aCtx *applyContext, entry *eraftpb
 	return applyResult{}
 }
 
-func (d *applyDelegate) handleRaftEntryConfChange(aCtx *applyContext, entry *eraftpb.Entry) applyResult {
+func (a *applier) handleRaftEntryConfChange(aCtx *applyContext, entry *eraftpb.Entry) applyResult {
 	index := entry.Index
 	term := entry.Term
 	confChange := new(eraftpb.ConfChange)
@@ -681,7 +675,7 @@ func (d *applyDelegate) handleRaftEntryConfChange(aCtx *applyContext, entry *era
 	if err := cmd.Unmarshal(confChange.Context); err != nil {
 		panic(err)
 	}
-	result := d.processRaftCmd(aCtx, index, term, cmd)
+	result := a.processRaftCmd(aCtx, index, term, cmd)
 	switch result.tp {
 	case applyResultTypeNone:
 		// If failed, tell Raft that the `ConfChange` was aborted.
@@ -695,11 +689,11 @@ func (d *applyDelegate) handleRaftEntryConfChange(aCtx *applyContext, entry *era
 	}
 }
 
-func (d *applyDelegate) findCallback(index, term uint64, isConfChange bool) *Callback {
-	regionID := d.region.Id
-	peerID := d.id
+func (a *applier) findCallback(index, term uint64, isConfChange bool) *Callback {
+	regionID := a.region.Id
+	peerID := a.id
 	if isConfChange {
-		cmd := d.pendingCmds.takeConfChange()
+		cmd := a.pendingCmds.takeConfChange()
 		if cmd == nil {
 			return nil
 		}
@@ -710,7 +704,7 @@ func (d *applyDelegate) findCallback(index, term uint64, isConfChange bool) *Cal
 		return nil
 	}
 	for {
-		head := d.pendingCmds.popNormal(term)
+		head := a.pendingCmds.popNormal(term)
 		if head == nil {
 			break
 		}
@@ -724,24 +718,24 @@ func (d *applyDelegate) findCallback(index, term uint64, isConfChange bool) *Cal
 	return nil
 }
 
-func (d *applyDelegate) processRaftCmd(aCtx *applyContext, index, term uint64, cmd *raft_cmdpb.RaftCmdRequest) applyResult {
+func (a *applier) processRaftCmd(aCtx *applyContext, index, term uint64, cmd *raft_cmdpb.RaftCmdRequest) applyResult {
 	if index == 0 {
-		panic(fmt.Sprintf("%s process raft cmd need a none zero index", d.tag))
+		panic(fmt.Sprintf("%s process raft cmd need a none zero index", a.tag))
 	}
 	if cmd.AdminRequest != nil {
 		aCtx.syncLogHint = true
 	}
 	isConfChange := GetChangePeerCmd(cmd) != nil
-	resp, result := d.applyRaftCmd(aCtx, index, term, cmd)
+	resp, result := a.applyRaftCmd(aCtx, index, term, cmd)
 	if result.tp == applyResultTypeWaitMergeResource {
 		return result
 	}
-	log.Debugf("applied command. region_id %d, peer_id %d, index %d", d.region.Id, d.id, index)
+	log.Debugf("applied command. region_id %d, peer_id %d, index %d", a.region.Id, a.id, index)
 
 	// TODO: if we have exec_result, maybe we should return this callback too. Outer
 	// store will call it after handing exec result.
 	BindRespTerm(resp, term)
-	cmdCB := d.findCallback(index, term, isConfChange)
+	cmdCB := a.findCallback(index, term, isConfChange)
 	aCtx.cbs[len(aCtx.cbs)-1].push(cmdCB, resp)
 	return result
 }
@@ -754,129 +748,118 @@ func (d *applyDelegate) processRaftCmd(aCtx *applyContext, index, term uint64, c
 ///   2. it encounters an error that may not occur on all stores, in this case
 /// we should try to apply the entry again or panic. Considering that this
 /// usually due to disk operation fail, which is rare, so just panic is ok.
-func (d *applyDelegate) applyRaftCmd(aCtx *applyContext, index, term uint64,
+func (a *applier) applyRaftCmd(aCtx *applyContext, index, term uint64,
 	req *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.RaftCmdResponse, applyResult) {
 	// if pending remove, apply should be aborted already.
-	y.Assert(!d.pendingRemove)
+	y.Assert(!a.pendingRemove)
 
-	aCtx.execCtx = d.newCtx(index, term)
+	aCtx.execCtx = a.newCtx(index, term)
 	aCtx.wb.SetSafePoint()
-	resp, applyResult, err := d.execRaftCmd(aCtx, req)
+	resp, applyResult, err := a.execRaftCmd(aCtx, req)
 	if err != nil {
 		// clear dirty values.
 		aCtx.wb.RollbackToSafePoint()
 		if _, ok := err.(*ErrEpochNotMatch); ok {
-			log.Debugf("epoch not match region_id %d, peer_id %d, err %v", d.region.Id, d.id, err)
+			log.Debugf("epoch not match region_id %d, peer_id %d, err %v", a.region.Id, a.id, err)
 		} else {
-			log.Errorf("execute raft command region_id %d, peer_id %d, err %v", d.region.Id, d.id, err)
+			log.Errorf("execute raft command region_id %d, peer_id %d, err %v", a.region.Id, a.id, err)
 		}
 		resp = ErrResp(err)
 	}
 	if applyResult.tp == applyResultTypeWaitMergeResource {
 		return resp, applyResult
 	}
-	d.applyState = aCtx.execCtx.applyState
+	a.applyState = aCtx.execCtx.applyState
 	aCtx.execCtx = nil
-	d.applyState.appliedIndex = index
-	d.appliedIndexTerm = term
+	a.applyState.appliedIndex = index
+	a.appliedIndexTerm = term
 
 	if applyResult.tp == applyResultTypeExecResult {
 		switch x := applyResult.data.(type) {
 		case *execResultChangePeer:
-			d.region = x.cp.region
+			a.region = x.cp.region
 		case *execResultSplitRegion:
-			d.region = x.derived
-			d.metrics.sizeDiffHint = 0
-			d.metrics.deleteKeysHint = 0
+			a.region = x.derived
+			a.metrics.sizeDiffHint = 0
+			a.metrics.deleteKeysHint = 0
 		case *execResultPrepareMerge:
-			d.region = x.region
-			d.isMerging = true
+			a.region = x.region
+			a.isMerging = true
 		case *execResultCommitMerge:
-			d.region = x.region
-			d.lastMergeVersion = x.region.RegionEpoch.Version
+			a.region = x.region
+			a.lastMergeVersion = x.region.RegionEpoch.Version
 		case *execResultRollbackMerge:
-			d.region = x.region
-			d.isMerging = false
+			a.region = x.region
+			a.isMerging = false
 		default:
 		}
 	}
 	return resp, applyResult
 }
 
-func (d *applyDelegate) destroy(aCtx *applyContext) {
-	d.stopped = true
-	for _, cmd := range d.pendingCmds.normals {
-		notifyRegionRemoved(d.region.Id, d.id, cmd)
+func (a *applier) clearAllCommandsAsStale() {
+	for _, cmd := range a.pendingCmds.normals {
+		notifyStaleCommand(a.region.Id, a.id, a.term, cmd)
 	}
-	d.pendingCmds.normals = nil
-	if cmd := d.pendingCmds.takeConfChange(); cmd != nil {
-		notifyRegionRemoved(d.region.Id, d.id, *cmd)
-	}
-}
-
-func (d *applyDelegate) clearAllCommandsAsStale() {
-	for _, cmd := range d.pendingCmds.normals {
-		notifyStaleCommand(d.region.Id, d.id, d.term, cmd)
-	}
-	d.pendingCmds.normals = d.pendingCmds.normals[:0]
-	if cmd := d.pendingCmds.takeConfChange(); cmd != nil {
-		notifyStaleCommand(d.region.Id, d.id, d.term, *cmd)
+	a.pendingCmds.normals = a.pendingCmds.normals[:0]
+	if cmd := a.pendingCmds.takeConfChange(); cmd != nil {
+		notifyStaleCommand(a.region.Id, a.id, a.term, *cmd)
 	}
 }
 
-func (d *applyDelegate) newCtx(index, term uint64) *applyExecContext {
+func (a *applier) newCtx(index, term uint64) *applyExecContext {
 	return &applyExecContext{
 		index:      index,
 		term:       term,
-		applyState: d.applyState,
+		applyState: a.applyState,
 	}
 }
 
 // Only errors that will also occur on all other stores should be returned.
-func (d *applyDelegate) execRaftCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdRequest) (
+func (a *applier) execRaftCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdRequest) (
 	resp *raft_cmdpb.RaftCmdResponse, result applyResult, err error) {
 	// Include region for epoch not match after merge may cause key not in range.
-	includeRegion := req.Header.GetRegionEpoch().GetVersion() >= d.lastMergeVersion
-	err = checkRegionEpoch(req, d.region, includeRegion)
+	includeRegion := req.Header.GetRegionEpoch().GetVersion() >= a.lastMergeVersion
+	err = checkRegionEpoch(req, a.region, includeRegion)
 	if err != nil {
 		return
 	}
 	if req.AdminRequest != nil {
-		return d.execAdminCmd(aCtx, req)
+		return a.execAdminCmd(aCtx, req)
 	}
-	return d.execWriteCmd(aCtx, req)
+	return a.execWriteCmd(aCtx, req)
 }
 
-func (d *applyDelegate) execAdminCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdRequest) (
+func (a *applier) execAdminCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdRequest) (
 	resp *raft_cmdpb.RaftCmdResponse, result applyResult, err error) {
 	adminReq := req.AdminRequest
 	cmdType := adminReq.CmdType
 	if cmdType != raft_cmdpb.AdminCmdType_CompactLog && cmdType != raft_cmdpb.AdminCmdType_CommitMerge {
 		log.Infof("%s execute admin command. term %d, index %d, command %s",
-			d.tag, aCtx.execCtx.term, aCtx.execCtx.index, adminReq)
+			a.tag, aCtx.execCtx.term, aCtx.execCtx.index, adminReq)
 	}
 	var adminResp *raft_cmdpb.AdminResponse
 	switch cmdType {
 	case raft_cmdpb.AdminCmdType_ChangePeer:
-		adminResp, result, err = d.execChangePeer(aCtx, adminReq)
+		adminResp, result, err = a.execChangePeer(aCtx, adminReq)
 	case raft_cmdpb.AdminCmdType_Split:
-		adminResp, result, err = d.execSplit(aCtx, adminReq)
+		adminResp, result, err = a.execSplit(aCtx, adminReq)
 	case raft_cmdpb.AdminCmdType_BatchSplit:
-		adminResp, result, err = d.execBatchSplit(aCtx, adminReq)
+		adminResp, result, err = a.execBatchSplit(aCtx, adminReq)
 	case raft_cmdpb.AdminCmdType_CompactLog:
-		adminResp, result, err = d.execCompactLog(aCtx, adminReq)
+		adminResp, result, err = a.execCompactLog(aCtx, adminReq)
 	case raft_cmdpb.AdminCmdType_TransferLeader:
 		err = errors.New("transfer leader won't execute")
 	case raft_cmdpb.AdminCmdType_ComputeHash:
-		adminResp, result, err = d.execComputeHash(aCtx, adminReq)
+		adminResp, result, err = a.execComputeHash(aCtx, adminReq)
 	case raft_cmdpb.AdminCmdType_VerifyHash:
-		adminResp, result, err = d.execVerifyHash(aCtx, adminReq)
+		adminResp, result, err = a.execVerifyHash(aCtx, adminReq)
 	case raft_cmdpb.AdminCmdType_PrepareMerge:
-		adminResp, result, err = d.execPrepareMerge(aCtx, adminReq)
+		adminResp, result, err = a.execPrepareMerge(aCtx, adminReq)
 	case raft_cmdpb.AdminCmdType_CommitMerge:
-		adminResp, result, err = d.execCommitMerge(aCtx, adminReq)
+		adminResp, result, err = a.execCommitMerge(aCtx, adminReq)
 	case raft_cmdpb.AdminCmdType_RollbackMerge:
-		adminResp, result, err = d.execRollbackMerge(aCtx, adminReq)
+		adminResp, result, err = a.execRollbackMerge(aCtx, adminReq)
 	case raft_cmdpb.AdminCmdType_InvalidAdmin:
 		err = errors.New("unsupported command type")
 	}
@@ -889,21 +872,21 @@ func (d *applyDelegate) execAdminCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmd
 	return
 }
 
-func (d *applyDelegate) execWriteCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdRequest) (
+func (a *applier) execWriteCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdRequest) (
 	resp *raft_cmdpb.RaftCmdResponse, result applyResult, err error) {
 	requests := req.GetRequests()
 	writeCmdOps := createWriteCmdOps(requests)
 	for _, op := range writeCmdOps.prewrites {
-		d.execPrewrite(aCtx, op)
+		a.execPrewrite(aCtx, op)
 	}
 	for _, op := range writeCmdOps.commits {
-		d.execCommit(aCtx, op)
+		a.execCommit(aCtx, op)
 	}
 	for _, op := range writeCmdOps.rollbacks {
-		d.execRollback(aCtx, op)
+		a.execRollback(aCtx, op)
 	}
 	for _, op := range writeCmdOps.delRanges {
-		d.execDeleteRange(aCtx, op)
+		a.execDeleteRange(aCtx, op)
 	}
 	resps := make([]raft_cmdpb.Response, len(requests))
 	respPtrs := make([]*raft_cmdpb.Response, len(requests))
@@ -1047,7 +1030,7 @@ func createWriteCmdOps(requests []*raft_cmdpb.Request) (ops writeCmdOps) {
 	return
 }
 
-func (d *applyDelegate) execPrewrite(aCtx *applyContext, op prewriteOp) {
+func (a *applier) execPrewrite(aCtx *applyContext, op prewriteOp) {
 	key, value := convertPrewriteToLock(op, aCtx.getTxn())
 	aCtx.wb.SetLock(key, value)
 	return
@@ -1079,7 +1062,7 @@ func convertPrewriteToLock(op prewriteOp, txn *badger.Txn) (key, value []byte) {
 	return rawKey, lock.MarshalBinary()
 }
 
-func (d *applyDelegate) execCommit(aCtx *applyContext, op commitOp) {
+func (a *applier) execCommit(aCtx *applyContext, op commitOp) {
 	remain, rawKey, err := codec.DecodeBytes(op.putWrite.Key, nil)
 	if err != nil {
 		panic(op.putWrite.Key)
@@ -1088,7 +1071,7 @@ func (d *applyDelegate) execCommit(aCtx *applyContext, op commitOp) {
 	if err != nil {
 		panic(remain)
 	}
-	val := d.getLock(aCtx, rawKey)
+	val := a.getLock(aCtx, rawKey)
 	y.Assert(len(val) > 0)
 	lock := mvcc.DecodeLock(val)
 	var sizeDiff int64
@@ -1103,7 +1086,7 @@ func (d *applyDelegate) execCommit(aCtx *applyContext, op commitOp) {
 		sizeDiff -= int64(len(rawKey) + len(lock.OldVal))
 	}
 	if sizeDiff > 0 {
-		d.metrics.sizeDiffHint += uint64(sizeDiff)
+		a.metrics.sizeDiffHint += uint64(sizeDiff)
 	}
 	if op.delLock != nil {
 		aCtx.wb.DeleteLock(rawKey, val)
@@ -1111,7 +1094,7 @@ func (d *applyDelegate) execCommit(aCtx *applyContext, op commitOp) {
 	return
 }
 
-func (d *applyDelegate) getLock(aCtx *applyContext, rawKey []byte) []byte {
+func (a *applier) getLock(aCtx *applyContext, rawKey []byte) []byte {
 	if val := aCtx.engines.kv.LockStore.Get(rawKey, nil); len(val) > 0 {
 		return val
 	}
@@ -1124,19 +1107,19 @@ func (d *applyDelegate) getLock(aCtx *applyContext, rawKey []byte) []byte {
 	return nil
 }
 
-func (d *applyDelegate) execRollback(aCtx *applyContext, op rollbackOp) {
+func (a *applier) execRollback(aCtx *applyContext, op rollbackOp) {
 	remain, rawKey, err := codec.DecodeBytes(op.putWrite.Key, nil)
 	if err != nil {
 		panic(op.putWrite.Key)
 	}
 	aCtx.wb.Rollback(append(rawKey, remain...))
 	if op.delLock != nil {
-		aCtx.wb.DeleteLock(rawKey, d.getLock(aCtx, rawKey))
+		aCtx.wb.DeleteLock(rawKey, a.getLock(aCtx, rawKey))
 	}
 	return
 }
 
-func (d *applyDelegate) execDeleteRange(aCtx *applyContext, req *raft_cmdpb.DeleteRangeRequest) {
+func (a *applier) execDeleteRange(aCtx *applyContext, req *raft_cmdpb.DeleteRangeRequest) {
 	_, startKey, err := codec.DecodeBytes(req.StartKey, nil)
 	if err != nil {
 		panic(req.StartKey)
@@ -1176,19 +1159,19 @@ func (d *applyDelegate) execDeleteRange(aCtx *applyContext, req *raft_cmdpb.Dele
 	return
 }
 
-func (d *applyDelegate) execChangePeer(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
+func (a *applier) execChangePeer(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
 	resp *raft_cmdpb.AdminResponse, result applyResult, err error) {
 	request := req.ChangePeer
 	peer := request.Peer
 	storeID := peer.StoreId
 	changeType := request.ChangeType
 	region := new(metapb.Region)
-	err = CloneMsg(d.region, region)
+	err = CloneMsg(a.region, region)
 	if err != nil {
 		return
 	}
 	log.Infof("%s exec ConfChange, peer_id %d, type %s, epoch %s",
-		d.tag, peer.Id, changeType, region.RegionEpoch)
+		a.tag, peer.Id, changeType, region.RegionEpoch)
 
 	// TODO: we should need more check, like peer validation, duplicated id, etc.
 	region.RegionEpoch.ConfVer++
@@ -1200,7 +1183,7 @@ func (d *applyDelegate) execChangePeer(aCtx *applyContext, req *raft_cmdpb.Admin
 			exist = true
 			if !p.IsLearner || p.Id != peer.Id {
 				errMsg := fmt.Sprintf("%s can't add duplicated peer, peer %s, region %s",
-					d.tag, p, d.region)
+					a.tag, p, a.region)
 				log.Error(errMsg)
 				err = errors.New(errMsg)
 				return
@@ -1211,43 +1194,43 @@ func (d *applyDelegate) execChangePeer(aCtx *applyContext, req *raft_cmdpb.Admin
 			// TODO: Do we allow adding peer in same node?
 			region.Peers = append(region.Peers, peer)
 		}
-		log.Infof("%s add peer successfully, peer %s, region %s", d.tag, peer, d.region)
+		log.Infof("%s add peer successfully, peer %s, region %s", a.tag, peer, a.region)
 	case eraftpb.ConfChangeType_RemoveNode:
 		if p := removePeer(region, storeID); p != nil {
 			if !PeerEqual(p, peer) {
 				errMsg := fmt.Sprintf("%s ignore remove unmatched peer, expected_peer %s, got_peer %s",
-					d.tag, peer, p)
+					a.tag, peer, p)
 				log.Error(errMsg)
 				err = errors.New(errMsg)
 				return
 			}
-			if d.id == peer.Id {
+			if a.id == peer.Id {
 				// Remove ourself, we will destroy all region data later.
 				// So we need not to apply following logs.
-				d.stopped = true
-				d.pendingRemove = true
+				a.stopped = true
+				a.pendingRemove = true
 			}
 		} else {
 			errMsg := fmt.Sprintf("%s removing missing peers, peer %s, region %s",
-				d.tag, peer, d.region)
+				a.tag, peer, a.region)
 			log.Error(errMsg)
 			err = errors.New(errMsg)
 			return
 		}
-		log.Infof("%s remove peer successfully, peer %s, region %s", d.tag, peer, d.region)
+		log.Infof("%s remove peer successfully, peer %s, region %s", a.tag, peer, a.region)
 	case eraftpb.ConfChangeType_AddLearnerNode:
 		if findPeer(region, storeID) != nil {
 			errMsg := fmt.Sprintf("%s can't add duplicated learner, peer %s, region %s",
-				d.tag, peer, d.region)
+				a.tag, peer, a.region)
 			log.Error(errMsg)
 			err = errors.New(errMsg)
 			return
 		}
 		region.Peers = append(region.Peers, peer)
-		log.Infof("%s add learner successfully, peer %s, region %s", d.tag, peer, d.region)
+		log.Infof("%s add learner successfully, peer %s, region %s", a.tag, peer, a.region)
 	}
 	state := rspb.PeerState_Normal
-	if d.pendingRemove {
+	if a.pendingRemove {
 		state = rspb.PeerState_Tombstone
 	}
 	WritePeerState(aCtx.wb, region, state, nil)
@@ -1269,7 +1252,7 @@ func (d *applyDelegate) execChangePeer(aCtx *applyContext, req *raft_cmdpb.Admin
 	return
 }
 
-func (d *applyDelegate) execSplit(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
+func (a *applier) execSplit(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
 	resp *raft_cmdpb.AdminResponse, result applyResult, err error) {
 	split := req.Split
 	adminReq := &raft_cmdpb.AdminRequest{
@@ -1281,10 +1264,10 @@ func (d *applyDelegate) execSplit(aCtx *applyContext, req *raft_cmdpb.AdminReque
 	// This method is executed only when there are unapplied entries after being restarted.
 	// So there will be no callback, it's OK to return a response that does not matched
 	// with its request.
-	return d.execBatchSplit(aCtx, adminReq)
+	return a.execBatchSplit(aCtx, adminReq)
 }
 
-func (d *applyDelegate) execBatchSplit(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
+func (a *applier) execBatchSplit(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
 	resp *raft_cmdpb.AdminResponse, result applyResult, err error) {
 	splitReqs := req.Splits
 	rightDerive := splitReqs.RightDerive
@@ -1293,7 +1276,7 @@ func (d *applyDelegate) execBatchSplit(aCtx *applyContext, req *raft_cmdpb.Admin
 		return
 	}
 	derived := new(metapb.Region)
-	if err := CloneMsg(d.region, derived); err != nil {
+	if err := CloneMsg(a.region, derived); err != nil {
 		panic(err)
 	}
 	newRegionCnt := len(splitReqs.Requests)
@@ -1318,11 +1301,11 @@ func (d *applyDelegate) execBatchSplit(aCtx *applyContext, req *raft_cmdpb.Admin
 		keys = append(keys, splitKey)
 	}
 	keys = append(keys, derived.EndKey)
-	err = CheckKeyInRegion(keys[len(keys)-2], d.region)
+	err = CheckKeyInRegion(keys[len(keys)-2], a.region)
 	if err != nil {
 		return
 	}
-	log.Infof("%s split region %s, keys %v", d.tag, d.region, keys)
+	log.Infof("%s split region %s, keys %v", a.tag, a.region, keys)
 	derived.RegionEpoch.Version += uint64(newRegionCnt)
 	// Note that the split requests only contain ids for new regions, so we need
 	// to handle new regions and old region separately.
@@ -1368,45 +1351,45 @@ func (d *applyDelegate) execBatchSplit(aCtx *applyContext, req *raft_cmdpb.Admin
 	return
 }
 
-func (d *applyDelegate) execPrepareMerge(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
+func (a *applier) execPrepareMerge(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
 	resp *raft_cmdpb.AdminResponse, result applyResult, err error) {
 	return // TODO: merge
 }
 
-func (d *applyDelegate) execCommitMerge(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
+func (a *applier) execCommitMerge(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
 	resp *raft_cmdpb.AdminResponse, result applyResult, err error) {
 	return // TODO: merge
 }
 
-func (d *applyDelegate) execRollbackMerge(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
+func (a *applier) execRollbackMerge(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
 	resp *raft_cmdpb.AdminResponse, result applyResult, err error) {
 	return // TODO: merge
 }
 
-func (d *applyDelegate) execCompactLog(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
+func (a *applier) execCompactLog(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
 	resp *raft_cmdpb.AdminResponse, result applyResult, err error) {
 	compactIndex := req.CompactLog.CompactIndex
 	resp = new(raft_cmdpb.AdminResponse)
 	applyState := &aCtx.execCtx.applyState
 	firstIndex := firstIndex(*applyState)
 	if compactIndex <= firstIndex {
-		log.Debugf("%s compact index <= first index, no need to compact", d.tag)
+		log.Debugf("%s compact index <= first index, no need to compact", a.tag)
 		return
 	}
-	if d.isMerging {
-		log.Debugf("%s in merging mode, skip compact", d.tag)
+	if a.isMerging {
+		log.Debugf("%s in merging mode, skip compact", a.tag)
 		return
 	}
 	compactTerm := req.CompactLog.CompactTerm
 	if compactTerm == 0 {
-		log.Infof("%s compact term missing, skip", d.tag)
+		log.Infof("%s compact term missing, skip", a.tag)
 		// old format compact log command, safe to ignore.
 		err = errors.New("command format is outdated, please upgrade leader")
 		return
 	}
 
 	// compact failure is safe to be omitted, no need to assert.
-	err = CompactRaftLog(d.tag, applyState, compactIndex, compactTerm)
+	err = CompactRaftLog(a.tag, applyState, compactIndex, compactTerm)
 	if err != nil {
 		return
 	}
@@ -1417,11 +1400,11 @@ func (d *applyDelegate) execCompactLog(aCtx *applyContext, req *raft_cmdpb.Admin
 	return
 }
 
-func (d *applyDelegate) execComputeHash(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
+func (a *applier) execComputeHash(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
 	resp *raft_cmdpb.AdminResponse, result applyResult, err error) {
 	resp = new(raft_cmdpb.AdminResponse)
 	result = applyResult{tp: applyResultTypeExecResult, data: &execResultComputeHash{
-		region: d.region,
+		region: a.region,
 		index:  aCtx.execCtx.index,
 		// This snapshot may be held for a long time, which may cause too many
 		// open files in rocksdb.
@@ -1432,7 +1415,7 @@ func (d *applyDelegate) execComputeHash(aCtx *applyContext, req *raft_cmdpb.Admi
 	return
 }
 
-func (d *applyDelegate) execVerifyHash(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
+func (a *applier) execVerifyHash(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
 	resp *raft_cmdpb.AdminResponse, result applyResult, err error) {
 	verifyReq := req.VerifyHash
 	resp = new(raft_cmdpb.AdminResponse)
@@ -1448,37 +1431,22 @@ type catchUpLogs struct {
 	readyToMerge *atomic.Uint64
 }
 
-type applyFsm struct {
-	applyDelegate
-	receiver <-chan Msg
-}
-
-func newApplyFsmFromPeer(peer *peerFsm) (chan<- Msg, *applyFsm) {
+func newApplierFromPeer(peer *peerFsm) *applier {
 	reg := newRegistration(peer.peer)
-	return newApplyFsmFromRegistration(reg)
+	return newApplier(reg)
 }
 
-func newApplyFsmFromRegistration(reg *registration) (chan<- Msg, *applyFsm) {
-	ch := make(chan Msg, msgDefaultChanSize)
-	delegate := newApplyDelegate(reg)
-	aFsm := &applyFsm{
-		applyDelegate: *delegate,
-		receiver:      ch,
-	}
-	return ch, aFsm
-}
-
-/// Handles peer registration. When a peer is created, it will register an apply delegate.
-func (a *applyFsm) handleRegistration(reg *registration) {
-	log.Infof("%s re-register to apply delegate, term %d", a.tag, reg.term)
+/// Handles peer registration. When a peer is created, it will register an applier.
+func (a *applier) handleRegistration(reg *registration) {
+	log.Infof("%s re-register to applier, term %d", a.tag, reg.term)
 	y.Assert(a.id == reg.id)
 	a.term = reg.term
 	a.clearAllCommandsAsStale()
-	a.applyDelegate = *newApplyDelegate(reg)
+	*a = *newApplier(reg)
 }
 
-/// Handles apply tasks, and uses the apply delegate to handle the committed entries.
-func (a *applyFsm) handleApply(aCtx *applyContext, apply *apply) {
+/// Handles apply tasks, and uses the applier to handle the committed entries.
+func (a *applier) handleApply(aCtx *applyContext, apply *apply) {
 	if aCtx.timer == nil {
 		now := time.Now()
 		aCtx.timer = &now
@@ -1498,8 +1466,8 @@ func (a *applyFsm) handleApply(aCtx *applyContext, apply *apply) {
 	}
 }
 
-/// Handles proposals, and appends the commands to the apply delegate.
-func (a *applyFsm) handleProposal(regionProposal *regionProposal) {
+/// Handles proposals, and appends the commands to the applier.
+func (a *applier) handleProposal(regionProposal *regionProposal) {
 	regionID, peerID := a.region.Id, a.id
 	y.Assert(a.id == regionProposal.Id)
 	if a.stopped {
@@ -1526,7 +1494,7 @@ func (a *applyFsm) handleProposal(regionProposal *regionProposal) {
 	}
 }
 
-func (a *applyFsm) destroy(aCtx *applyContext) {
+func (a *applier) destroy(aCtx *applyContext) {
 	regionID := a.region.Id
 	for _, res := range aCtx.applyTaskResList {
 		if res.regionID == regionID {
@@ -1534,12 +1502,19 @@ func (a *applyFsm) destroy(aCtx *applyContext) {
 			aCtx.flush()
 		}
 	}
-	log.Infof("%s remove delegate from apply delegate", a.tag)
-	a.applyDelegate.destroy(aCtx)
+	log.Infof("%s remove applier", a.tag)
+	a.stopped = true
+	for _, cmd := range a.pendingCmds.normals {
+		notifyRegionRemoved(a.region.Id, a.id, cmd)
+	}
+	a.pendingCmds.normals = nil
+	if cmd := a.pendingCmds.takeConfChange(); cmd != nil {
+		notifyRegionRemoved(a.region.Id, a.id, *cmd)
+	}
 }
 
-/// Handles peer destroy. When a peer is destroyed, the corresponding apply delegate should be removed too.
-func (a *applyFsm) handleDestroy(aCtx *applyContext, regionID uint64) {
+/// Handles peer destroy. When a peer is destroyed, the corresponding applier should be removed too.
+func (a *applier) handleDestroy(aCtx *applyContext, regionID uint64) {
 	if !a.stopped {
 		a.destroy(aCtx)
 		aCtx.notifier <- NewPeerMsg(MsgTypeApplyRes, a.region.Id, &applyTaskRes{
@@ -1549,19 +1524,19 @@ func (a *applyFsm) handleDestroy(aCtx *applyContext, regionID uint64) {
 	}
 }
 
-func (a *applyFsm) resumePendingMerge(aCtx *applyContext) bool {
+func (a *applier) resumePendingMerge(aCtx *applyContext) bool {
 	return false // TODO: merge
 }
 
-func (a *applyFsm) catchUpLogsForMerge(aCtx *applyContext, logs *catchUpLogs) {
+func (a *applier) catchUpLogsForMerge(aCtx *applyContext, logs *catchUpLogs) {
 	// TODO: merge
 }
 
-func (a *applyFsm) handleGenSnapshot(aCtx *applyContext, snapTask *GenSnapTask) {
-	if a.applyDelegate.pendingRemove || a.applyDelegate.stopped {
+func (a *applier) handleGenSnapshot(aCtx *applyContext, snapTask *GenSnapTask) {
+	if a.pendingRemove || a.stopped {
 		return
 	}
-	regionID := a.applyDelegate.region.GetId()
+	regionID := a.region.GetId()
 	for _, res := range aCtx.applyTaskResList {
 		if res.regionID == regionID {
 			aCtx.flush()
@@ -1571,7 +1546,7 @@ func (a *applyFsm) handleGenSnapshot(aCtx *applyContext, snapTask *GenSnapTask) 
 	snapTask.generateAndScheduleSnapshot(aCtx.regionScheduler, a.redoIndex)
 }
 
-func (a *applyFsm) handleTask(aCtx *applyContext, msg Msg) {
+func (a *applier) handleTask(aCtx *applyContext, msg Msg) {
 	switch msg.Type {
 	case MsgTypeApply:
 		a.handleApply(aCtx, msg.Data.(*apply))
@@ -1587,8 +1562,4 @@ func (a *applyFsm) handleTask(aCtx *applyContext, msg Msg) {
 	case MsgTypeApplySnapshot:
 		a.handleGenSnapshot(aCtx, msg.Data.(*GenSnapTask))
 	}
-}
-
-func (a *applyFsm) isStopped() bool {
-	return a.stopped
 }
