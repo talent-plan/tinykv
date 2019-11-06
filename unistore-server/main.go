@@ -49,14 +49,6 @@ func main() {
 	log.Info("gitHash:", gitHash)
 	log.SetLevelByString(conf.LogLevel)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
-	go func() {
-		log.Infof("listening on %v", conf.HttpAddr)
-		err := http.ListenAndServe(conf.HttpAddr, nil)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}()
-
 	safePoint := &tikv.SafePoint{}
 	db := createDB(subPathKV, safePoint, &conf.Engine)
 	bundle := &mvcc.DBBundle{
@@ -94,6 +86,16 @@ func main() {
 		log.Fatal(err)
 	}
 	handleSignal(grpcServer)
+	go func() {
+		log.Infof("listening on %v", conf.HttpAddr)
+		http.HandleFunc("/status", func(writer http.ResponseWriter, request *http.Request) {
+			writer.WriteHeader(http.StatusOK)
+		})
+		err := http.ListenAndServe(conf.HttpAddr, nil)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
 	err = grpcServer.Serve(l)
 	if err != nil {
 		log.Fatal(err)
