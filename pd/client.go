@@ -15,7 +15,7 @@ package pd
 
 import (
 	"context"
-	"strings"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -52,7 +52,9 @@ type Client interface {
 
 const (
 	pdTimeout             = time.Second
+	retryInterval         = time.Second
 	maxInitClusterRetries = 100
+	maxRetryCount         = 10
 )
 
 var (
@@ -61,13 +63,20 @@ var (
 )
 
 type client struct {
-	url        string
-	tag        string
-	clusterID  uint64
-	clientConn *grpc.ClientConn
+	urls      []string
+	clusterID uint64
+	tag       string
+
+	connMu struct {
+		sync.RWMutex
+		clientConns map[string]*grpc.ClientConn
+		leader      string
+	}
+	checkLeaderCh chan struct{}
 
 	receiveRegionHeartbeatCh chan *pdpb.RegionHeartbeatResponse
 	regionCh                 chan *pdpb.RegionHeartbeatRequest
+	pendingRequest           *pdpb.RegionHeartbeatRequest
 
 	wg     sync.WaitGroup
 	ctx    context.Context
@@ -77,120 +86,230 @@ type client struct {
 }
 
 // NewClient creates a PD client.
-func NewClient(pdAddr string, tag string) (Client, error) {
-	log.Infof("[%s][pd] create pd client with endpoints %v", tag, pdAddr)
+func NewClient(pdAddrs []string, tag string) (Client, error) {
+	log.Infof("[%s][pd] create pd client with endpoints %v", tag, pdAddrs)
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &client{
-		url:                      pdAddr,
+		urls:                     pdAddrs,
 		receiveRegionHeartbeatCh: make(chan *pdpb.RegionHeartbeatResponse, 1),
+		checkLeaderCh:            make(chan struct{}, 1),
 		ctx:                      ctx,
 		cancel:                   cancel,
 		tag:                      tag,
 		regionCh:                 make(chan *pdpb.RegionHeartbeatRequest, 64),
 	}
-	cc, err := c.createConn()
+	c.connMu.clientConns = make(map[string]*grpc.ClientConn)
+
+	var (
+		err     error
+		members *pdpb.GetMembersResponse
+	)
+	for i := 0; i < maxRetryCount; i++ {
+		if members, err = c.updateLeader(); err == nil {
+			break
+		}
+		time.Sleep(retryInterval)
+	}
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
-	c.clientConn = cc
-	if err := c.initClusterID(); err != nil {
-		return nil, errors.Trace(err)
-	}
+
+	c.clusterID = members.GetHeader().GetClusterId()
 	log.Infof("[%s][pd] init cluster id %v", tag, c.clusterID)
-	c.wg.Add(1)
+	c.wg.Add(2)
+	go c.checkLeaderLoop()
 	go c.heartbeatStreamLoop()
 
 	return c, nil
 }
 
-func (c *client) pdClient() pdpb.PDClient {
-	return pdpb.NewPDClient(c.clientConn)
+func (c *client) schedulerUpdateLeader() {
+	select {
+	case c.checkLeaderCh <- struct{}{}:
+	default:
+	}
 }
 
-func (c *client) initClusterID() error {
+func (c *client) checkLeaderLoop() {
+	defer c.wg.Done()
+
 	ctx, cancel := context.WithCancel(c.ctx)
 	defer cancel()
-	for i := 0; i < maxInitClusterRetries; i++ {
-		members, err := c.getMembers(ctx)
-		if err != nil || members.GetHeader() == nil {
-			log.Errorf("[%s][pd] failed to get cluster id: %v", c.tag, err)
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-c.checkLeaderCh:
+		case <-ticker.C:
+		case <-ctx.Done():
+			return
+		}
+
+		if _, err := c.updateLeader(); err != nil {
+			log.Errorf("[pd] failed updateLeader, err: %s", err)
+		}
+	}
+}
+
+func (c *client) updateLeader() (*pdpb.GetMembersResponse, error) {
+	for _, u := range c.urls {
+		ctx, cancel := context.WithTimeout(c.ctx, pdTimeout)
+		members, err := c.getMembers(ctx, u)
+		cancel()
+		if err != nil || members.GetLeader() == nil || len(members.GetLeader().GetClientUrls()) == 0 {
+			select {
+			case <-c.ctx.Done():
+				return nil, err
+			default:
+				continue
+			}
+		}
+
+		c.updateURLs(members.GetMembers(), members.GetLeader())
+		return members, c.switchLeader(members.GetLeader().GetClientUrls())
+	}
+	return nil, errors.Errorf("failed to get leader from %v", c.urls)
+}
+
+func (c *client) updateURLs(members []*pdpb.Member, leader *pdpb.Member) {
+	urls := make([]string, 0, len(members))
+	for _, m := range members {
+		if m.GetMemberId() == leader.GetMemberId() {
 			continue
 		}
-		c.clusterID = members.GetHeader().GetClusterId()
+		urls = append(urls, m.GetClientUrls()...)
+	}
+	c.urls = append(urls, leader.GetClientUrls()...)
+}
+
+func (c *client) switchLeader(addrs []string) error {
+	addr := addrs[0]
+
+	c.connMu.RLock()
+	oldLeader := c.connMu.leader
+	c.connMu.RUnlock()
+
+	if addr == oldLeader {
 		return nil
 	}
 
-	return errors.Trace(errFailInitClusterID)
+	log.Infof("[pd] switch leader, new-leader: %s, old-leader: %s", addr, oldLeader)
+	if _, err := c.getOrCreateConn(addr); err != nil {
+		return err
+	}
+
+	c.connMu.Lock()
+	c.connMu.leader = addr
+	c.connMu.Unlock()
+	return nil
 }
 
-func (c *client) getMembers(ctx context.Context) (*pdpb.GetMembersResponse, error) {
-	members, err := c.pdClient().GetMembers(ctx, &pdpb.GetMembersRequest{})
+func (c *client) getMembers(ctx context.Context, url string) (*pdpb.GetMembersResponse, error) {
+	cc, err := c.getOrCreateConn(url)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
-	return members, nil
+	return pdpb.NewPDClient(cc).GetMembers(ctx, new(pdpb.GetMembersRequest))
 }
 
-func (c *client) createConn() (*grpc.ClientConn, error) {
-	cc, err := grpc.Dial(strings.TrimPrefix(c.url, "http://"), grpc.WithInsecure())
-	if err != nil {
-		return nil, errors.Trace(err)
+func (c *client) getOrCreateConn(addr string) (*grpc.ClientConn, error) {
+	c.connMu.RLock()
+	conn, ok := c.connMu.clientConns[addr]
+	c.connMu.RUnlock()
+	if ok {
+		return conn, nil
 	}
+
+	u, err := url.Parse(addr)
+	if err != nil {
+		return nil, err
+	}
+	cc, err := grpc.Dial(u.Host, grpc.WithInsecure())
+	if err != nil {
+		return nil, err
+	}
+	c.connMu.Lock()
+	defer c.connMu.Unlock()
+	if old, ok := c.connMu.clientConns[addr]; ok {
+		cc.Close()
+		return old, nil
+	}
+	c.connMu.clientConns[addr] = cc
 	return cc, nil
 }
 
-func (c *client) createHeartbeatStream() (pdpb.PD_RegionHeartbeatClient, context.Context, context.CancelFunc) {
-	var (
-		stream pdpb.PD_RegionHeartbeatClient
-		err    error
-		cancel context.CancelFunc
-		ctx    context.Context
-	)
-	for {
-		ctx, cancel = context.WithCancel(c.ctx)
-		stream, err = c.pdClient().RegionHeartbeat(ctx)
-		if err != nil {
-			log.Errorf("[%s][pd] create region heartbeat stream error: %v", c.tag, err)
-			cancel()
-			select {
-			case <-time.After(time.Second):
-				continue
-			case <-c.ctx.Done():
-				log.Info("cancel create stream loop")
-				return nil, ctx, cancel
-			}
+func (c *client) leaderClient() pdpb.PDClient {
+	c.connMu.RLock()
+	defer c.connMu.RUnlock()
+
+	return pdpb.NewPDClient(c.connMu.clientConns[c.connMu.leader])
+}
+
+func (c *client) doRequest(ctx context.Context, f func(context.Context, pdpb.PDClient) error) error {
+	var err error
+	for i := 0; i < maxRetryCount; i++ {
+		ctx, cancel := context.WithTimeout(ctx, pdTimeout)
+		err = f(ctx, c.leaderClient())
+		cancel()
+		if err == nil {
+			return nil
 		}
-		break
+
+		c.schedulerUpdateLeader()
+		select {
+		case <-time.After(retryInterval):
+			continue
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
-	return stream, ctx, cancel
+	return errors.New("failed too many times")
 }
 
 func (c *client) heartbeatStreamLoop() {
 	defer c.wg.Done()
+
 	for {
-		stream, ctx, cancel := c.createHeartbeatStream()
-		if stream == nil {
+		select {
+		case <-c.ctx.Done():
 			return
+		default:
 		}
+
+		ctx, cancel := context.WithCancel(c.ctx)
+		c.connMu.RLock()
+		stream, err := c.leaderClient().RegionHeartbeat(ctx)
+		c.connMu.RUnlock()
+		if err != nil {
+			cancel()
+			c.schedulerUpdateLeader()
+			time.Sleep(retryInterval)
+			continue
+		}
+
 		errCh := make(chan error, 1)
 		wg := &sync.WaitGroup{}
 		wg.Add(2)
+
 		go c.reportRegionHeartbeat(ctx, stream, errCh, wg)
-		go c.receiveRegionHeartbeat(ctx, stream, errCh, wg)
+		go c.receiveRegionHeartbeat(stream, errCh, wg)
 		select {
 		case err := <-errCh:
 			log.Warnf("[%s][pd] heartbeat stream get error: %s ", c.tag, err)
 			cancel()
-			time.Sleep(time.Second)
+			c.schedulerUpdateLeader()
+			time.Sleep(retryInterval)
+			wg.Wait()
 		case <-c.ctx.Done():
 			log.Info("cancel heartbeat stream loop")
+			cancel()
 			return
 		}
-		wg.Wait()
 	}
 }
 
-func (c *client) receiveRegionHeartbeat(ctx context.Context, stream pdpb.PD_RegionHeartbeatClient, errCh chan error, wg *sync.WaitGroup) {
+func (c *client) receiveRegionHeartbeat(stream pdpb.PD_RegionHeartbeatClient, errCh chan error, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
 		resp, err := stream.Recv()
@@ -208,28 +327,46 @@ func (c *client) receiveRegionHeartbeat(ctx context.Context, stream pdpb.PD_Regi
 func (c *client) reportRegionHeartbeat(ctx context.Context, stream pdpb.PD_RegionHeartbeatClient, errCh chan error, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
-		select {
-		case <-ctx.Done():
+		request, ok := c.getNextHeartbeatRequest(ctx)
+		if !ok {
 			return
-		case request, ok := <-c.regionCh:
-			if !ok {
-				return
-			}
-			request.Header = c.requestHeader()
-			err := stream.Send(request)
-			if err != nil {
-				errCh <- err
-			}
 		}
+
+		request.Header = c.requestHeader()
+		err := stream.Send(request)
+		if err != nil {
+			c.pendingRequest = request
+			errCh <- err
+			return
+		}
+	}
+}
+
+func (c *client) getNextHeartbeatRequest(ctx context.Context) (*pdpb.RegionHeartbeatRequest, bool) {
+	if c.pendingRequest != nil {
+		req := c.pendingRequest
+		c.pendingRequest = nil
+		return req, true
+	}
+
+	select {
+	case <-ctx.Done():
+		return nil, false
+	case request, ok := <-c.regionCh:
+		if !ok {
+			return nil, false
+		}
+		return request, true
 	}
 }
 
 func (c *client) Close() {
 	c.cancel()
 	c.wg.Wait()
-
-	if err := c.clientConn.Close(); err != nil {
-		log.Errorf("[%s][pd] failed close grpc clientConn: %v", c.tag, err)
+	c.connMu.Lock()
+	defer c.connMu.Unlock()
+	for _, cc := range c.connMu.clientConns {
+		cc.Close()
 	}
 }
 
@@ -238,32 +375,40 @@ func (c *client) GetClusterID(context.Context) uint64 {
 }
 
 func (c *client) AllocID(ctx context.Context) (uint64, error) {
-	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	resp, err := c.pdClient().AllocID(ctx, &pdpb.AllocIDRequest{
-		Header: c.requestHeader(),
+	var resp *pdpb.AllocIDResponse
+	err := c.doRequest(ctx, func(ctx context.Context, client pdpb.PDClient) error {
+		var err1 error
+		resp, err1 = client.AllocID(ctx, &pdpb.AllocIDRequest{
+			Header: c.requestHeader(),
+		})
+		return err1
 	})
-	cancel()
 	if err != nil {
 		return 0, err
 	}
 	return resp.GetId(), nil
 }
 
-func (c *client) Bootstrap(ctx context.Context, store *metapb.Store, region *metapb.Region) (*pdpb.BootstrapResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	res, err := c.pdClient().Bootstrap(ctx, &pdpb.BootstrapRequest{
-		Header: c.requestHeader(),
-		Store:  store,
-		Region: region,
+func (c *client) Bootstrap(ctx context.Context, store *metapb.Store, region *metapb.Region) (resp *pdpb.BootstrapResponse, err error) {
+	err = c.doRequest(ctx, func(ctx context.Context, client pdpb.PDClient) error {
+		var err1 error
+		resp, err1 = client.Bootstrap(ctx, &pdpb.BootstrapRequest{
+			Header: c.requestHeader(),
+			Store:  store,
+			Region: region,
+		})
+		return err1
 	})
-	cancel()
-	return res, err
+	return resp, err
 }
 
 func (c *client) IsBootstrapped(ctx context.Context) (bool, error) {
-	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	resp, err := c.pdClient().IsBootstrapped(ctx, &pdpb.IsBootstrappedRequest{Header: c.requestHeader()})
-	cancel()
+	var resp *pdpb.IsBootstrappedResponse
+	err := c.doRequest(ctx, func(ctx context.Context, client pdpb.PDClient) error {
+		var err1 error
+		resp, err1 = client.IsBootstrapped(ctx, &pdpb.IsBootstrappedRequest{Header: c.requestHeader()})
+		return err1
+	})
 	if err != nil {
 		return false, err
 	}
@@ -274,12 +419,15 @@ func (c *client) IsBootstrapped(ctx context.Context) (bool, error) {
 }
 
 func (c *client) PutStore(ctx context.Context, store *metapb.Store) error {
-	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	resp, err := c.pdClient().PutStore(ctx, &pdpb.PutStoreRequest{
-		Header: c.requestHeader(),
-		Store:  store,
+	var resp *pdpb.PutStoreResponse
+	err := c.doRequest(ctx, func(ctx context.Context, client pdpb.PDClient) error {
+		var err1 error
+		resp, err1 = client.PutStore(ctx, &pdpb.PutStoreRequest{
+			Header: c.requestHeader(),
+			Store:  store,
+		})
+		return err1
 	})
-	cancel()
 	if err != nil {
 		return err
 	}
@@ -290,12 +438,15 @@ func (c *client) PutStore(ctx context.Context, store *metapb.Store) error {
 }
 
 func (c *client) GetStore(ctx context.Context, storeID uint64) (*metapb.Store, error) {
-	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	resp, err := c.pdClient().GetStore(ctx, &pdpb.GetStoreRequest{
-		Header:  c.requestHeader(),
-		StoreId: storeID,
+	var resp *pdpb.GetStoreResponse
+	err := c.doRequest(ctx, func(ctx context.Context, client pdpb.PDClient) error {
+		var err1 error
+		resp, err1 = client.GetStore(ctx, &pdpb.GetStoreRequest{
+			Header:  c.requestHeader(),
+			StoreId: storeID,
+		})
+		return err1
 	})
-	cancel()
 	if err != nil {
 		return nil, err
 	}
@@ -306,12 +457,15 @@ func (c *client) GetStore(ctx context.Context, storeID uint64) (*metapb.Store, e
 }
 
 func (c *client) GetAllStores(ctx context.Context, excludeTombstone bool) ([]*metapb.Store, error) {
-	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	resp, err := c.pdClient().GetAllStores(ctx, &pdpb.GetAllStoresRequest{
-		Header:                 c.requestHeader(),
-		ExcludeTombstoneStores: excludeTombstone,
+	var resp *pdpb.GetAllStoresResponse
+	err := c.doRequest(ctx, func(ctx context.Context, client pdpb.PDClient) error {
+		var err1 error
+		resp, err1 = client.GetAllStores(ctx, &pdpb.GetAllStoresRequest{
+			Header:                 c.requestHeader(),
+			ExcludeTombstoneStores: excludeTombstone,
+		})
+		return err1
 	})
-	cancel()
 	if err != nil {
 		return nil, err
 	}
@@ -322,11 +476,14 @@ func (c *client) GetAllStores(ctx context.Context, excludeTombstone bool) ([]*me
 }
 
 func (c *client) GetClusterConfig(ctx context.Context) (*metapb.Cluster, error) {
-	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	resp, err := c.pdClient().GetClusterConfig(ctx, &pdpb.GetClusterConfigRequest{
-		Header: c.requestHeader(),
+	var resp *pdpb.GetClusterConfigResponse
+	err := c.doRequest(ctx, func(ctx context.Context, client pdpb.PDClient) error {
+		var err1 error
+		resp, err1 = client.GetClusterConfig(ctx, &pdpb.GetClusterConfigRequest{
+			Header: c.requestHeader(),
+		})
+		return err1
 	})
-	cancel()
 	if err != nil {
 		return nil, err
 	}
@@ -337,12 +494,15 @@ func (c *client) GetClusterConfig(ctx context.Context) (*metapb.Cluster, error) 
 }
 
 func (c *client) GetRegion(ctx context.Context, key []byte) (*metapb.Region, error) {
-	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	resp, err := c.pdClient().GetRegion(ctx, &pdpb.GetRegionRequest{
-		Header:    c.requestHeader(),
-		RegionKey: key,
+	var resp *pdpb.GetRegionResponse
+	err := c.doRequest(ctx, func(ctx context.Context, client pdpb.PDClient) error {
+		var err1 error
+		resp, err1 = client.GetRegion(ctx, &pdpb.GetRegionRequest{
+			Header:    c.requestHeader(),
+			RegionKey: key,
+		})
+		return err1
 	})
-	cancel()
 	if err != nil {
 		return nil, err
 	}
@@ -353,12 +513,15 @@ func (c *client) GetRegion(ctx context.Context, key []byte) (*metapb.Region, err
 }
 
 func (c *client) GetRegionByID(ctx context.Context, regionID uint64) (*metapb.Region, error) {
-	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	resp, err := c.pdClient().GetRegionByID(ctx, &pdpb.GetRegionByIDRequest{
-		Header:   c.requestHeader(),
-		RegionId: regionID,
+	var resp *pdpb.GetRegionResponse
+	err := c.doRequest(ctx, func(ctx context.Context, client pdpb.PDClient) error {
+		var err1 error
+		resp, err1 = client.GetRegionByID(ctx, &pdpb.GetRegionByIDRequest{
+			Header:   c.requestHeader(),
+			RegionId: regionID,
+		})
+		return err1
 	})
-	cancel()
 	if err != nil {
 		return nil, err
 	}
@@ -368,13 +531,15 @@ func (c *client) GetRegionByID(ctx context.Context, regionID uint64) (*metapb.Re
 	return resp.Region, nil
 }
 
-func (c *client) AskSplit(ctx context.Context, region *metapb.Region) (*pdpb.AskSplitResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	resp, err := c.pdClient().AskSplit(ctx, &pdpb.AskSplitRequest{
-		Header: c.requestHeader(),
-		Region: region,
+func (c *client) AskSplit(ctx context.Context, region *metapb.Region) (resp *pdpb.AskSplitResponse, err error) {
+	err = c.doRequest(ctx, func(ctx context.Context, client pdpb.PDClient) error {
+		var err1 error
+		resp, err1 = client.AskSplit(ctx, &pdpb.AskSplitRequest{
+			Header: c.requestHeader(),
+			Region: region,
+		})
+		return err1
 	})
-	cancel()
 	if err != nil {
 		return nil, err
 	}
@@ -384,14 +549,16 @@ func (c *client) AskSplit(ctx context.Context, region *metapb.Region) (*pdpb.Ask
 	return resp, nil
 }
 
-func (c *client) AskBatchSplit(ctx context.Context, region *metapb.Region, count int) (*pdpb.AskBatchSplitResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	resp, err := c.pdClient().AskBatchSplit(ctx, &pdpb.AskBatchSplitRequest{
-		Header:     c.requestHeader(),
-		Region:     region,
-		SplitCount: uint32(count),
+func (c *client) AskBatchSplit(ctx context.Context, region *metapb.Region, count int) (resp *pdpb.AskBatchSplitResponse, err error) {
+	err = c.doRequest(ctx, func(ctx context.Context, client pdpb.PDClient) error {
+		var err1 error
+		resp, err1 = client.AskBatchSplit(ctx, &pdpb.AskBatchSplitRequest{
+			Header:     c.requestHeader(),
+			Region:     region,
+			SplitCount: uint32(count),
+		})
+		return err1
 	})
-	cancel()
 	if err != nil {
 		return nil, err
 	}
@@ -402,12 +569,15 @@ func (c *client) AskBatchSplit(ctx context.Context, region *metapb.Region, count
 }
 
 func (c *client) ReportBatchSplit(ctx context.Context, regions []*metapb.Region) error {
-	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	resp, err := c.pdClient().ReportBatchSplit(ctx, &pdpb.ReportBatchSplitRequest{
-		Header:  c.requestHeader(),
-		Regions: regions,
+	var resp *pdpb.ReportBatchSplitResponse
+	err := c.doRequest(ctx, func(ctx context.Context, client pdpb.PDClient) error {
+		var err1 error
+		resp, err1 = client.ReportBatchSplit(ctx, &pdpb.ReportBatchSplitRequest{
+			Header:  c.requestHeader(),
+			Regions: regions,
+		})
+		return err1
 	})
-	cancel()
 	if err != nil {
 		return err
 	}
@@ -418,11 +588,14 @@ func (c *client) ReportBatchSplit(ctx context.Context, regions []*metapb.Region)
 }
 
 func (c *client) GetGCSafePoint(ctx context.Context) (uint64, error) {
-	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	resp, err := c.pdClient().GetGCSafePoint(ctx, &pdpb.GetGCSafePointRequest{
-		Header: c.requestHeader(),
+	var resp *pdpb.GetGCSafePointResponse
+	err := c.doRequest(ctx, func(ctx context.Context, client pdpb.PDClient) error {
+		var err1 error
+		resp, err1 = client.GetGCSafePoint(ctx, &pdpb.GetGCSafePointRequest{
+			Header: c.requestHeader(),
+		})
+		return err1
 	})
-	cancel()
 	if err != nil {
 		return 0, err
 	}
@@ -433,12 +606,15 @@ func (c *client) GetGCSafePoint(ctx context.Context) (uint64, error) {
 }
 
 func (c *client) StoreHeartbeat(ctx context.Context, stats *pdpb.StoreStats) error {
-	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	resp, err := c.pdClient().StoreHeartbeat(ctx, &pdpb.StoreHeartbeatRequest{
-		Header: c.requestHeader(),
-		Stats:  stats,
+	var resp *pdpb.StoreHeartbeatResponse
+	err := c.doRequest(ctx, func(ctx context.Context, client pdpb.PDClient) error {
+		var err1 error
+		resp, err1 = client.StoreHeartbeat(ctx, &pdpb.StoreHeartbeatRequest{
+			Header: c.requestHeader(),
+			Stats:  stats,
+		})
+		return err1
 	})
-	cancel()
 	if err != nil {
 		return err
 	}

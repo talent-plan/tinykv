@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 
 	"github.com/BurntSushi/toml"
@@ -57,7 +58,7 @@ func main() {
 		RollbackStore: lockstore.NewMemStore(256 << 10),
 	}
 
-	pdClient, err := pd.NewClient(conf.PDAddr, "")
+	pdClient, err := pd.NewClient(strings.Split(conf.PDAddr, ","), "")
 	if err != nil {
 		log.Fatal(err)
 	}

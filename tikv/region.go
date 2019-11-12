@@ -507,7 +507,9 @@ func (rm *StandAloneRegionManager) storeHeartBeatLoop() {
 		storeStats.RegionCount = uint32(len(rm.regions))
 		rm.mu.RUnlock()
 		storeStats.Capacity = 2048 * 1024 * 1024
-		rm.pdc.StoreHeartbeat(context.Background(), storeStats)
+		if err := rm.pdc.StoreHeartbeat(context.Background(), storeStats); err != nil {
+			log.Warnf("store heartbeat error: %s", err)
+		}
 	}
 }
 
