@@ -16,6 +16,7 @@ package pd
 import (
 	"context"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -87,10 +88,19 @@ type client struct {
 
 // NewClient creates a PD client.
 func NewClient(pdAddrs []string, tag string) (Client, error) {
-	log.Infof("[%s][pd] create pd client with endpoints %v", tag, pdAddrs)
 	ctx, cancel := context.WithCancel(context.Background())
+	urls := make([]string, 0, len(pdAddrs))
+	for _, addr := range pdAddrs {
+		if strings.Contains(addr, "://") {
+			urls = append(urls, addr)
+		} else {
+			urls = append(urls, "http://"+addr)
+		}
+	}
+	log.Infof("[%s][pd] create pd client with endpoints %v", tag, urls)
+
 	c := &client{
-		urls:                     pdAddrs,
+		urls:                     urls,
 		receiveRegionHeartbeatCh: make(chan *pdpb.RegionHeartbeatResponse, 1),
 		checkLeaderCh:            make(chan struct{}, 1),
 		ctx:                      ctx,
