@@ -727,6 +727,7 @@ func (d *storeFsmDelegate) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessag
 	meta.regions[regionID] = peer.peer.Region()
 	d.ctx.router.register(peer)
 	_ = d.ctx.router.send(regionID, Msg{Type: MsgTypeStart})
+	d.ctx.peerEventObserver.OnPeerCreate(peer.peer.getEventContext(), peer.peer.Region())
 	return true, nil
 }
 
