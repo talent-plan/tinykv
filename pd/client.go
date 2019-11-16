@@ -259,8 +259,8 @@ func (c *client) leaderClient() pdpb.PDClient {
 func (c *client) doRequest(ctx context.Context, f func(context.Context, pdpb.PDClient) error) error {
 	var err error
 	for i := 0; i < maxRetryCount; i++ {
-		ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-		err = f(ctx, c.leaderClient())
+		ctx1, cancel := context.WithTimeout(ctx, pdTimeout)
+		err = f(ctx1, c.leaderClient())
 		cancel()
 		if err == nil {
 			return nil
