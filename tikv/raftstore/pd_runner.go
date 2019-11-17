@@ -222,7 +222,7 @@ func (r *pdRunner) onReportBatchSplit(t *pdReportBatchSplitTask) {
 }
 
 func (r *pdRunner) onValidatePeer(t *pdValidatePeerTask) {
-	resp, err := r.pdClient.GetRegionByID(context.TODO(), t.region.GetId())
+	resp, _, err := r.pdClient.GetRegionByID(context.TODO(), t.region.GetId())
 	if err != nil {
 		log.Error("get region failed:", err)
 		return

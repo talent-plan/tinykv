@@ -39,8 +39,8 @@ type Client interface {
 	GetStore(ctx context.Context, storeID uint64) (*metapb.Store, error)
 	GetAllStores(ctx context.Context, excludeTombstone bool) ([]*metapb.Store, error)
 	GetClusterConfig(ctx context.Context) (*metapb.Cluster, error)
-	GetRegion(ctx context.Context, key []byte) (*metapb.Region, error)
-	GetRegionByID(ctx context.Context, regionID uint64) (*metapb.Region, error)
+	GetRegion(ctx context.Context, key []byte) (*metapb.Region, *metapb.Peer, error)
+	GetRegionByID(ctx context.Context, regionID uint64) (*metapb.Region, *metapb.Peer, error)
 	ReportRegion(*pdpb.RegionHeartbeatRequest)
 	AskSplit(ctx context.Context, region *metapb.Region) (*pdpb.AskSplitResponse, error)
 	AskBatchSplit(ctx context.Context, region *metapb.Region, count int) (*pdpb.AskBatchSplitResponse, error)
@@ -503,7 +503,7 @@ func (c *client) GetClusterConfig(ctx context.Context) (*metapb.Cluster, error) 
 	return resp.Cluster, nil
 }
 
-func (c *client) GetRegion(ctx context.Context, key []byte) (*metapb.Region, error) {
+func (c *client) GetRegion(ctx context.Context, key []byte) (*metapb.Region, *metapb.Peer, error) {
 	var resp *pdpb.GetRegionResponse
 	err := c.doRequest(ctx, func(ctx context.Context, client pdpb.PDClient) error {
 		var err1 error
@@ -514,15 +514,15 @@ func (c *client) GetRegion(ctx context.Context, key []byte) (*metapb.Region, err
 		return err1
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if herr := resp.Header.GetError(); herr != nil {
-		return nil, errors.New(herr.String())
+		return nil, nil, errors.New(herr.String())
 	}
-	return resp.Region, nil
+	return resp.Region, resp.Leader, nil
 }
 
-func (c *client) GetRegionByID(ctx context.Context, regionID uint64) (*metapb.Region, error) {
+func (c *client) GetRegionByID(ctx context.Context, regionID uint64) (*metapb.Region, *metapb.Peer, error) {
 	var resp *pdpb.GetRegionResponse
 	err := c.doRequest(ctx, func(ctx context.Context, client pdpb.PDClient) error {
 		var err1 error
@@ -533,12 +533,12 @@ func (c *client) GetRegionByID(ctx context.Context, regionID uint64) (*metapb.Re
 		return err1
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if herr := resp.Header.GetError(); herr != nil {
-		return nil, errors.New(herr.String())
+		return nil, nil, errors.New(herr.String())
 	}
-	return resp.Region, nil
+	return resp.Region, resp.Leader, nil
 }
 
 func (c *client) AskSplit(ctx context.Context, region *metapb.Region) (resp *pdpb.AskSplitResponse, err error) {
