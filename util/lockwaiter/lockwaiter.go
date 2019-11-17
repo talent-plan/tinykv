@@ -139,7 +139,7 @@ func (lw *Manager) WakeUp(txn, commitTS uint64, keyHashes []uint64) {
 // CleanUp removes a waiter from waitingQueues when wait timeout.
 func (lw *Manager) CleanUp(w *Waiter) {
 	lw.mu.Lock()
-	q := lw.waitingQueues[w.startTS]
+	q := lw.waitingQueues[w.LockTS]
 	lw.mu.Unlock()
 	if q != nil {
 		q.removeWaiter(w)
