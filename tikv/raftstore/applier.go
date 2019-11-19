@@ -1555,7 +1555,7 @@ func (a *applier) handleTask(aCtx *applyContext, msg Msg) {
 	case MsgTypeApplyRegistration:
 		a.handleRegistration(msg.Data.(*registration))
 	case MsgTypeApplyDestroy:
-		a.handleDestroy(aCtx, msg.Data.(uint64))
+		a.handleDestroy(aCtx, msg.RegionID)
 	case MsgTypeApplyCatchUpLogs:
 		a.catchUpLogsForMerge(aCtx, msg.Data.(*catchUpLogs))
 	case MsgTypeApplyLogsUpToDate:
