@@ -219,18 +219,13 @@ func (rm *regionManager) GetRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *er
 			StoreNotMatch: &errorpb.StoreNotMatch{},
 		}
 	}
-	var epoch *metapb.RegionEpoch
 	rm.mu.RLock()
 	ri := rm.regions[ctx.RegionId]
 	if ri != nil {
-		epoch = ri.getRegionEpoch()
-		// When region is about to be split, region epoch is set to nil to prevent future requests.
-		if epoch != nil {
-			ri.refCount.Add(1)
-		}
+		ri.refCount.Add(1)
 	}
 	rm.mu.RUnlock()
-	if epoch == nil {
+	if ri == nil {
 		return nil, &errorpb.Error{
 			Message: "region not found",
 			RegionNotFound: &errorpb.RegionNotFound{
@@ -239,7 +234,7 @@ func (rm *regionManager) GetRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *er
 		}
 	}
 	// Region epoch does not match.
-	if rm.isEpochStale(epoch, ctx.GetRegionEpoch()) {
+	if rm.isEpochStale(ri.getRegionEpoch(), ctx.GetRegionEpoch()) {
 		ri.refCount.Done()
 		return nil, &errorpb.Error{
 			Message: "stale epoch",
@@ -248,7 +243,7 @@ func (rm *regionManager) GetRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *er
 					Id:          ri.meta.Id,
 					StartKey:    ri.meta.StartKey,
 					EndKey:      ri.meta.EndKey,
-					RegionEpoch: epoch,
+					RegionEpoch: ri.getRegionEpoch(),
 					Peers:       ri.meta.Peers,
 				}},
 			},
@@ -264,73 +259,79 @@ func (rm *regionManager) isEpochStale(lhs, rhs *metapb.RegionEpoch) bool {
 
 type RaftRegionManager struct {
 	regionManager
-	router *raftstore.RaftstoreRouter
+	router  *raftstore.RaftstoreRouter
+	eventCh chan interface{}
 }
 
 func NewRaftRegionManager(store *metapb.Store, router *raftstore.RaftstoreRouter) *RaftRegionManager {
-	return &RaftRegionManager{
+	m := &RaftRegionManager{
 		router: router,
 		regionManager: regionManager{
 			storeMeta: store,
 			regions:   make(map[uint64]*regionCtx),
 		},
+		eventCh: make(chan interface{}, 1024),
 	}
+	go m.runEventHandler()
+	return m
+}
+
+type peerCreateEvent struct {
+	ctx    *raftstore.PeerEventContext
+	region *metapb.Region
 }
 
 func (rm *RaftRegionManager) OnPeerCreate(ctx *raftstore.PeerEventContext, region *metapb.Region) {
-	rm.mu.Lock()
-	rm.regions[ctx.RegionId] = newRegionCtx(region, nil, ctx.LeaderChecker)
-	rm.mu.Unlock()
+	rm.eventCh <- &peerCreateEvent{
+		ctx:    ctx,
+		region: region,
+	}
+}
+
+type peerApplySnapEvent struct {
+	ctx    *raftstore.PeerEventContext
+	region *metapb.Region
 }
 
 func (rm *RaftRegionManager) OnPeerApplySnap(ctx *raftstore.PeerEventContext, region *metapb.Region) {
-	rm.mu.RLock()
-	oldRegion := rm.regions[ctx.RegionId]
-	rm.mu.RUnlock()
-	// The old region is about to be replaced, update the epoch to nil to prevent accept new requests.
-	oldRegion.updateRegionEpoch(nil)
-	// Run in another goroutine to avoid deadlock.
-	go func() {
-		oldRegion.waitParent()
-		rm.mu.Lock()
-		rm.regions[ctx.RegionId] = newRegionCtx(region, oldRegion, ctx.LeaderChecker)
-		rm.mu.Unlock()
-		oldRegion.refCount.Done()
-	}()
+	rm.eventCh <- &peerApplySnapEvent{
+		ctx:    ctx,
+		region: region,
+	}
+}
+
+type peerDestroyEvent struct {
+	regionID uint64
 }
 
 func (rm *RaftRegionManager) OnPeerDestroy(ctx *raftstore.PeerEventContext) {
-	rm.mu.Lock()
-	region := rm.regions[ctx.RegionId]
-	delete(rm.regions, ctx.RegionId)
-	rm.mu.Unlock()
-	// We don't need to wait for parent for a destroyed peer.
-	region.refCount.Done()
+	rm.eventCh <- &peerDestroyEvent{regionID: ctx.RegionId}
+}
+
+type splitRegionEvent struct {
+	derived *metapb.Region
+	regions []*metapb.Region
+	peers   []*raftstore.PeerEventContext
 }
 
 func (rm *RaftRegionManager) OnSplitRegion(derived *metapb.Region, regions []*metapb.Region, peers []*raftstore.PeerEventContext) {
-	rm.mu.RLock()
-	oldRegion := rm.regions[derived.Id]
-	rm.mu.RUnlock()
-	// The old region is about to be replaced, update the epoch to nil to prevent accept new requests.
-	oldRegion.updateRegionEpoch(nil)
-	// Run in another goroutine to avoid deadlock.
-	go func() {
-		oldRegion.waitParent()
-		rm.mu.Lock()
-		for i, region := range regions {
-			rm.regions[region.Id] = newRegionCtx(region, oldRegion, peers[i].LeaderChecker)
-		}
-		rm.mu.Unlock()
-		oldRegion.refCount.Done()
-	}()
+	rm.eventCh <- &splitRegionEvent{
+		derived: derived,
+		regions: regions,
+		peers:   peers,
+	}
+}
+
+type regionConfChangeEvent struct {
+	ctx   *raftstore.PeerEventContext
+	epoch *metapb.RegionEpoch
 }
 
 func (rm *RaftRegionManager) OnRegionConfChange(ctx *raftstore.PeerEventContext, epoch *metapb.RegionEpoch) {
-	rm.mu.RLock()
-	region := rm.regions[ctx.RegionId]
-	rm.mu.RUnlock()
-	region.updateRegionEpoch(epoch)
+	rm.eventCh <- &regionConfChangeEvent{
+		ctx:   ctx,
+		epoch: epoch,
+	}
 }
 
 func (rm *RaftRegionManager) GetRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *errorpb.Error) {
@@ -347,6 +348,50 @@ func (rm *RaftRegionManager) GetRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx,
 
 func (rm *RaftRegionManager) Close() error {
 	return nil
+}
+
+func (rm *RaftRegionManager) runEventHandler() {
+	for event := range rm.eventCh {
+		switch x := event.(type) {
+		case *peerCreateEvent:
+			regCtx := newRegionCtx(x.region, nil, x.ctx.LeaderChecker)
+			rm.mu.Lock()
+			rm.regions[x.ctx.RegionId] = regCtx
+			rm.mu.Unlock()
+		case *splitRegionEvent:
+			rm.mu.RLock()
+			oldRegion := rm.regions[x.derived.Id]
+			rm.mu.RUnlock()
+			oldRegion.waitParent()
+			rm.mu.Lock()
+			for i, region := range x.regions {
+				rm.regions[region.Id] = newRegionCtx(region, oldRegion, x.peers[i].LeaderChecker)
+			}
+			rm.mu.Unlock()
+			oldRegion.refCount.Done()
+		case *regionConfChangeEvent:
+			rm.mu.RLock()
+			region := rm.regions[x.ctx.RegionId]
+			rm.mu.RUnlock()
+			region.updateRegionEpoch(x.epoch)
+		case *peerDestroyEvent:
+			rm.mu.Lock()
+			region := rm.regions[x.regionID]
+			delete(rm.regions, x.regionID)
+			rm.mu.Unlock()
+			// We don't need to wait for parent for a destroyed peer.
+			region.refCount.Done()
+		case *peerApplySnapEvent:
+			rm.mu.RLock()
+			oldRegion := rm.regions[x.region.Id]
+			rm.mu.RUnlock()
+			oldRegion.waitParent()
+			rm.mu.Lock()
+			rm.regions[x.region.Id] = newRegionCtx(x.region, oldRegion, x.ctx.LeaderChecker)
+			rm.mu.Unlock()
+			oldRegion.refCount.Done()
+		}
+	}
 }
 
 type StandAloneRegionManager struct {
