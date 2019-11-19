@@ -29,6 +29,8 @@ import (
 
 var (
 	configPath = flag.String("config", "", "config file path")
+	pdAddr     = flag.String("pd", "", "pd address")
+	storeAddr  = flag.String("addr", "", "store address")
 )
 
 var (
@@ -46,6 +48,12 @@ const (
 func main() {
 	flag.Parse()
 	conf := loadConfig()
+	if *pdAddr != "" {
+		conf.PDAddr = *pdAddr
+	}
+	if *storeAddr != "" {
+		conf.StoreAddr = *storeAddr
+	}
 	runtime.GOMAXPROCS(conf.MaxProcs)
 	log.Info("gitHash:", gitHash)
 	log.SetLevelByString(conf.LogLevel)
@@ -82,7 +90,8 @@ func main() {
 		grpc.MaxRecvMsgSize(10*1024*1024),
 	)
 	tikvpb.RegisterTikvServer(grpcServer, tikvServer)
-	l, err := net.Listen("tcp", conf.StoreAddr)
+	listenAddr := conf.StoreAddr[strings.IndexByte(conf.StoreAddr, ':'):]
+	l, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		log.Fatal(err)
 	}
