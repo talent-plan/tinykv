@@ -2,6 +2,7 @@ package tikv
 
 import (
 	"fmt"
+	"io"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/ngaut/unistore/tikv/raftstore"
 	"github.com/ngaut/unistore/util/lockwaiter"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
+	deadlockPb "github.com/pingcap/kvproto/pkg/deadlock"
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/tikvpb"
@@ -206,9 +208,19 @@ func (svr *Server) KvPessimisticLock(ctx context.Context, req *kvrpcpb.Pessimist
 		return resp, nil
 	}
 	result := waiter.Wait()
-	svr.mvccStore.deadlockDetector.CleanUpWaitFor(req.StartVersion, waiter.LockTS, waiter.KeyHash)
+	svr.mvccStore.DeadlockDetectCli.CleanUpWaitFor(req.StartVersion, waiter.LockTS, waiter.KeyHash)
 	if result.Position == lockwaiter.WaitTimeout {
 		svr.mvccStore.lockWaiterManager.CleanUp(waiter)
+		return resp, nil
+	} else if result.DeadlockResp != nil {
+		log.Errorf("deadlock found for entry=%v", result.DeadlockResp.Entry)
+		errLocked := err.(*ErrLocked)
+		deadlockErr := &ErrDeadlock{
+			LockKey:         errLocked.Key,
+			LockTS:          errLocked.StartTS,
+			DeadlockKeyHash: result.DeadlockResp.DeadlockKeyHash,
+		}
+		resp.Errors, resp.RegionError = convertToPBErrors(deadlockErr)
 		return resp, nil
 	}
 	if result.Position > 0 {
@@ -560,6 +572,49 @@ func (svr *Server) MvccGetByStartTs(context.Context, *kvrpcpb.MvccGetByStartTsRe
 func (svr *Server) UnsafeDestroyRange(context.Context, *kvrpcpb.UnsafeDestroyRangeRequest) (*kvrpcpb.UnsafeDestroyRangeResponse, error) {
 	// TODO
 	return &kvrpcpb.UnsafeDestroyRangeResponse{}, nil
+}
+
+// deadlock detection related services
+// GetWaitForEntries tries to get the waitFor entries
+func (svr *Server) GetWaitForEntries(ctx context.Context,
+	req *deadlockPb.WaitForEntriesRequest) (*deadlockPb.WaitForEntriesResponse, error) {
+	// TODO
+	return &deadlockPb.WaitForEntriesResponse{}, nil
+}
+
+// Detect will handle detection rpc from other nodes
+func (svr *Server) Detect(stream deadlockPb.Deadlock_DetectServer) error {
+	for {
+		req, err := stream.Recv()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return err
+		}
+		if !svr.mvccStore.DeadlockDetectSvr.IsLeader() {
+			log.Warnf("detection requests received on non leader node")
+			break
+		}
+		switch req.Tp {
+		case deadlockPb.DeadlockRequestType_Detect:
+			err := svr.mvccStore.DeadlockDetectSvr.Detector.Detect(req.Entry.Txn, req.Entry.WaitForTxn, req.Entry.KeyHash)
+			if err != nil {
+				resp := convertErrToResp(err, req.Entry.Txn,
+					req.Entry.WaitForTxn, req.Entry.KeyHash)
+				sendErr := stream.Send(resp)
+				if sendErr != nil {
+					log.Errorf("send deadlock response failed, error=%v", sendErr)
+					break
+				}
+			}
+		case deadlockPb.DeadlockRequestType_CleanUpWaitFor:
+			svr.mvccStore.DeadlockDetectSvr.Detector.CleanUpWaitFor(req.Entry.Txn, req.Entry.WaitForTxn, req.Entry.KeyHash)
+		case deadlockPb.DeadlockRequestType_CleanUp:
+			svr.mvccStore.DeadlockDetectSvr.Detector.CleanUp(req.Entry.Txn)
+		}
+	}
+	return nil
 }
 
 func convertToKeyError(err error) *kvrpcpb.KeyError {

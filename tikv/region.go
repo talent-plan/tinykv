@@ -20,6 +20,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/tidb/util/codec"
+	"github.com/zhangjinpeng1987/raft"
 	"golang.org/x/net/context"
 )
 
@@ -259,18 +260,20 @@ func (rm *regionManager) isEpochStale(lhs, rhs *metapb.RegionEpoch) bool {
 
 type RaftRegionManager struct {
 	regionManager
-	router  *raftstore.RaftstoreRouter
-	eventCh chan interface{}
+	router   *raftstore.RaftstoreRouter
+	eventCh  chan interface{}
+	detector *DetectorServer
 }
 
-func NewRaftRegionManager(store *metapb.Store, router *raftstore.RaftstoreRouter) *RaftRegionManager {
+func NewRaftRegionManager(store *metapb.Store, router *raftstore.RaftstoreRouter, detector *DetectorServer) *RaftRegionManager {
 	m := &RaftRegionManager{
 		router: router,
 		regionManager: regionManager{
 			storeMeta: store,
 			regions:   make(map[uint64]*regionCtx),
 		},
-		eventCh: make(chan interface{}, 1024),
+		eventCh:  make(chan interface{}, 1024),
+		detector: detector,
 	}
 	go m.runEventHandler()
 	return m
@@ -334,6 +337,15 @@ func (rm *RaftRegionManager) OnRegionConfChange(ctx *raftstore.PeerEventContext,
 	}
 }
 
+type regionRoleChangeEvent struct {
+	regionId uint64
+	newState raft.StateType
+}
+
+func (rm *RaftRegionManager) OnRoleChange(regionId uint64, newState raft.StateType) {
+	rm.eventCh <- &regionRoleChangeEvent{regionId: regionId, newState: newState}
+}
+
 func (rm *RaftRegionManager) GetRegionFromCtx(ctx *kvrpcpb.Context) (*regionCtx, *errorpb.Error) {
 	regionCtx, err := rm.regionManager.GetRegionFromCtx(ctx)
 	if err != nil {
@@ -390,6 +402,18 @@ func (rm *RaftRegionManager) runEventHandler() {
 			rm.regions[x.region.Id] = newRegionCtx(x.region, oldRegion, x.ctx.LeaderChecker)
 			rm.mu.Unlock()
 			oldRegion.refCount.Done()
+		case *regionRoleChangeEvent:
+			rm.mu.RLock()
+			region := rm.regions[x.regionId]
+			rm.mu.RUnlock()
+			if bytes.Compare(region.startKey, []byte{}) == 0 {
+				newRole := Follower
+				if x.newState == raft.StateLeader {
+					newRole = Leader
+				}
+				log.Infof("first region role change to newRole=%v", newRole)
+				rm.detector.ChangeRole(int32(newRole))
+			}
 		}
 	}
 }

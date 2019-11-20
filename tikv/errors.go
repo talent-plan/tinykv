@@ -47,6 +47,7 @@ func (e ErrKeyAlreadyExists) Error() string {
 	return "key already exists"
 }
 
+// ErrDeadlock is returned when deadlock is detected.
 type ErrDeadlock struct {
 	LockKey         []byte
 	LockTS          uint64

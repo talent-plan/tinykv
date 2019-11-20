@@ -41,6 +41,8 @@ type PeerEventObserver interface {
 	OnSplitRegion(derived *metapb.Region, regions []*metapb.Region, peers []*PeerEventContext)
 	// OnRegionConfChange will be invoked after conf change updated region's epoch.
 	OnRegionConfChange(ctx *PeerEventContext, epoch *metapb.RegionEpoch)
+	// OnRoleChange will be invoked after peer state has changed
+	OnRoleChange(regionId uint64, newState raft.StateType)
 }
 
 // If we create the peer actively, like bootstrap/split/merge region, we should
@@ -652,7 +654,7 @@ func (d *peerFsmDelegate) destroyPeer(mergeByTarget bool) {
 	d.ctx.storeMetaLock.Lock()
 	defer func() {
 		d.ctx.storeMetaLock.Unlock()
-		// Send messages out of store meta lock.
+		// send messages out of store meta lock.
 		d.ctx.applyMsgs.appendMsg(regionID, NewPeerMsg(MsgTypeApplyDestroy, regionID, nil))
 		d.ctx.pdScheduler <- task{
 			tp: taskTypePDDestroyPeer,

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
 	"flag"
 	"net"
@@ -23,6 +24,7 @@ import (
 	"github.com/ngaut/unistore/tikv"
 	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/ngaut/unistore/tikv/raftstore"
+	"github.com/pingcap/kvproto/pkg/deadlock"
 	"github.com/pingcap/kvproto/pkg/tikvpb"
 	"google.golang.org/grpc"
 )
@@ -59,6 +61,7 @@ func main() {
 	log.SetLevelByString(conf.LogLevel)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 	safePoint := &tikv.SafePoint{}
+	log.Infof("conf %v", conf)
 	db := createDB(subPathKV, safePoint, &conf.Engine)
 	bundle := &mvcc.DBBundle{
 		DB:            db,
@@ -81,6 +84,10 @@ func main() {
 	} else {
 		innerServer, store, regionManager = setupStandAlongInnerServer(bundle, safePoint, pdClient, conf)
 	}
+	err = store.StartDeadlockDetection(context.Background(), pdClient, innerServer, conf.Raft)
+	if err != nil {
+		log.Fatal("StartDeadlockDetection error=%v", err)
+	}
 
 	tikvServer := tikv.NewServer(regionManager, store, innerServer)
 
@@ -92,6 +99,7 @@ func main() {
 	tikvpb.RegisterTikvServer(grpcServer, tikvServer)
 	listenAddr := conf.StoreAddr[strings.IndexByte(conf.StoreAddr, ':'):]
 	l, err := net.Listen("tcp", listenAddr)
+	deadlock.RegisterDeadlockServer(grpcServer, tikvServer)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -175,8 +183,8 @@ func setupRaftInnerServer(bundle *mvcc.DBBundle, safePoint *tikv.SafePoint, pdCl
 	innerServer.Setup(pdClient)
 	router := innerServer.GetRaftstoreRouter()
 	storeMeta := innerServer.GetStoreMeta()
-	store := tikv.NewMVCCStore(bundle, dbPath, safePoint, raftstore.NewDBWriter(router))
-	rm := tikv.NewRaftRegionManager(storeMeta, router)
+	store := tikv.NewMVCCStore(bundle, dbPath, safePoint, raftstore.NewDBWriter(router), pdClient)
+	rm := tikv.NewRaftRegionManager(storeMeta, router, store.DeadlockDetectSvr)
 	innerServer.SetPeerEventObserver(rm)
 
 	if err := innerServer.Start(pdClient); err != nil {
@@ -195,7 +203,7 @@ func setupStandAlongInnerServer(bundle *mvcc.DBBundle, safePoint *tikv.SafePoint
 
 	innerServer := tikv.NewStandAlongInnerServer(bundle)
 	innerServer.Setup(pdClient)
-	store := tikv.NewMVCCStore(bundle, conf.Engine.DBPath, safePoint, tikv.NewDBWriter(bundle, safePoint))
+	store := tikv.NewMVCCStore(bundle, conf.Engine.DBPath, safePoint, tikv.NewDBWriter(bundle, safePoint), pdClient)
 	rm := tikv.NewStandAloneRegionManager(bundle.DB, regionOpts, pdClient)
 
 	if err := innerServer.Start(pdClient); err != nil {

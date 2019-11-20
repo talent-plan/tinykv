@@ -719,6 +719,7 @@ func (p *Peer) OnRoleChanged(ctx *PollContext, ready *raft.Ready) {
 		} else if ss.RaftState == raft.StateFollower {
 			p.leaderLease.Expire()
 		}
+		ctx.peerEventObserver.OnRoleChange(p.getEventContext().RegionId, ss.RaftState)
 	}
 }
 

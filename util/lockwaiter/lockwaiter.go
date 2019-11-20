@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ngaut/log"
+	"github.com/pingcap/kvproto/pkg/deadlock"
 )
 
 type Manager struct {
@@ -20,13 +21,13 @@ func NewManager() *Manager {
 }
 
 type queue struct {
-	mu      sync.Mutex
 	waiters []*Waiter
 }
 
+// getReadyWaiters returns the ready waiters array, and left waiter size in this queue,
+// it should be used under map lock protection
 func (q *queue) getReadyWaiters(keyHashes []uint64) (readyWaiters []*Waiter, remainSize int) {
 	readyWaiters = make([]*Waiter, 0, 8)
-	q.mu.Lock()
 	remainedWaiters := q.waiters[:0]
 	for _, w := range q.waiters {
 		if w.inKeys(keyHashes) {
@@ -37,24 +38,23 @@ func (q *queue) getReadyWaiters(keyHashes []uint64) (readyWaiters []*Waiter, rem
 	}
 	remainSize = len(remainedWaiters)
 	q.waiters = remainedWaiters
-	q.mu.Unlock()
 	return
 }
 
+// removeWaiter removes the correspond waiter from pending array
+// it should be used under map lock protection
 func (q *queue) removeWaiter(w *Waiter) {
-	q.mu.Lock()
 	for i, waiter := range q.waiters {
 		if waiter == w {
 			q.waiters = append(q.waiters[:i], q.waiters[i+1:]...)
 			break
 		}
 	}
-	q.mu.Unlock()
 }
 
 type Waiter struct {
 	timeout time.Duration
-	ch      chan Result
+	ch      chan WaitResult
 	startTS uint64
 	LockTS  uint64
 	KeyHash uint64
@@ -62,17 +62,18 @@ type Waiter struct {
 
 type Position int
 
-type Result struct {
-	Position Position
-	CommitTS uint64
+type WaitResult struct {
+	Position     Position
+	CommitTS     uint64
+	DeadlockResp *deadlock.DeadlockResponse
 }
 
 const WaitTimeout Position = -1
 
-func (w *Waiter) Wait() Result {
+func (w *Waiter) Wait() WaitResult {
 	select {
 	case <-time.After(w.timeout):
-		return Result{Position: WaitTimeout}
+		return WaitResult{Position: WaitTimeout}
 	case result := <-w.ch:
 		return result
 	}
@@ -95,7 +96,7 @@ func (lw *Manager) NewWaiter(startTS, lockTS, keyHash uint64, timeout time.Durat
 	q.waiters = make([]*Waiter, 0, 8)
 	waiter := &Waiter{
 		timeout: timeout,
-		ch:      make(chan Result, 1),
+		ch:      make(chan WaitResult, 1),
 		startTS: startTS,
 		LockTS:  lockTS,
 		KeyHash: keyHash,
@@ -113,26 +114,29 @@ func (lw *Manager) NewWaiter(startTS, lockTS, keyHash uint64, timeout time.Durat
 
 // WakeUp wakes up waiters that waiting on the transaction.
 func (lw *Manager) WakeUp(txn, commitTS uint64, keyHashes []uint64) {
+	var (
+		waiters    []*Waiter
+		remainSize int
+	)
 	lw.mu.Lock()
 	q := lw.waitingQueues[txn]
-	lw.mu.Unlock()
 	if q != nil {
 		sort.Slice(keyHashes, func(i, j int) bool {
 			return keyHashes[i] < keyHashes[j]
 		})
-		waiters, remainSize := q.getReadyWaiters(keyHashes)
+		waiters, remainSize = q.getReadyWaiters(keyHashes)
 		if remainSize == 0 {
-			lw.mu.Lock()
 			delete(lw.waitingQueues, txn)
-			lw.mu.Unlock()
 		}
-		sort.Slice(waiters, func(i, j int) bool {
-			return waiters[i].startTS < waiters[j].startTS
-		})
+	}
+	lw.mu.Unlock()
+
+	// wake up waiters
+	if len(waiters) > 0 {
 		for i, w := range waiters {
-			w.ch <- Result{Position: Position(i), CommitTS: commitTS}
+			w.ch <- WaitResult{Position: Position(i), CommitTS: commitTS}
 		}
-		log.Info("wakeup", len(waiters), "txns blocked by", txn, keyHashes)
+		log.Info("wakeup", len(waiters), "txns blocked by txn", txn, " keyHashes=", keyHashes)
 	}
 }
 
@@ -140,8 +144,42 @@ func (lw *Manager) WakeUp(txn, commitTS uint64, keyHashes []uint64) {
 func (lw *Manager) CleanUp(w *Waiter) {
 	lw.mu.Lock()
 	q := lw.waitingQueues[w.LockTS]
-	lw.mu.Unlock()
 	if q != nil {
 		q.removeWaiter(w)
+		if len(q.waiters) == 0 {
+			delete(lw.waitingQueues, w.LockTS)
+		}
+	}
+	lw.mu.Unlock()
+}
+
+// WakeUpDetection wakes up waiters waiting for deadlock detection results
+func (lw *Manager) WakeUpForDeadlock(resp *deadlock.DeadlockResponse) {
+	var (
+		waiter     *Waiter
+		waitForTxn uint64
+	)
+	waitForTxn = resp.Entry.WaitForTxn
+	lw.mu.Lock()
+	q := lw.waitingQueues[waitForTxn]
+	if q != nil {
+		for i, curWaiter := range q.waiters {
+			// there should be no duplicated waiters
+			if curWaiter.startTS == resp.Entry.Txn && curWaiter.KeyHash == resp.Entry.KeyHash {
+				log.Infof("deadlock detection response got for entry=%v", resp.Entry)
+				waiter = curWaiter
+				q.waiters = append(q.waiters[:i], q.waiters[i+1:]...)
+				break
+			}
+		}
+		if len(q.waiters) == 0 {
+			delete(lw.waitingQueues, waitForTxn)
+		}
+	}
+	lw.mu.Unlock()
+	if waiter != nil {
+		waiter.ch <- WaitResult{DeadlockResp: resp}
+		log.Infof("wakeup txn=%v blocked by txn=%v because of deadlock, keyHash=%v, deadlockKeyHash=%v",
+			resp.Entry.Txn, waitForTxn, resp.Entry.KeyHash, resp.DeadlockKeyHash)
 	}
 }

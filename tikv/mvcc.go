@@ -3,6 +3,7 @@ package tikv
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"math"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/lockstore"
+	"github.com/ngaut/unistore/pd"
 	"github.com/ngaut/unistore/rowcodec"
 	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/ngaut/unistore/tikv/mvcc"
@@ -23,7 +25,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/util/codec"
-	"github.com/pingcap/tidb/util/deadlock"
 )
 
 // MVCCStore is a wrapper of badger.DB to provide MVCC functions.
@@ -38,12 +39,14 @@ type MVCCStore struct {
 	gcLock    sync.Mutex
 
 	latestTS          uint64
-	deadlockDetector  *deadlock.Detector
 	lockWaiterManager *lockwaiter.Manager
+	DeadlockDetectCli *DetectorClient
+	DeadlockDetectSvr *DetectorServer
 }
 
 // NewMVCCStore creates a new MVCCStore
-func NewMVCCStore(bundle *mvcc.DBBundle, dataDir string, safePoint *SafePoint, writer mvcc.DBWriter) *MVCCStore {
+func NewMVCCStore(bundle *mvcc.DBBundle, dataDir string, safePoint *SafePoint,
+	writer mvcc.DBWriter, pdClinet pd.Client) *MVCCStore {
 	store := &MVCCStore{
 		db:                bundle.DB,
 		dir:               dataDir,
@@ -51,9 +54,10 @@ func NewMVCCStore(bundle *mvcc.DBBundle, dataDir string, safePoint *SafePoint, w
 		rollbackStore:     bundle.RollbackStore,
 		safePoint:         safePoint,
 		dbWriter:          writer,
-		deadlockDetector:  deadlock.NewDetector(),
 		lockWaiterManager: lockwaiter.NewManager(),
 	}
+	store.DeadlockDetectSvr = NewDetectorServer()
+	store.DeadlockDetectCli = NewDetectorClient(store.lockWaiterManager, pdClinet)
 	store.loadSafePoint()
 	writer.Open()
 	return store
@@ -216,7 +220,7 @@ func (store *MVCCStore) PessimisticRollback(reqCtx *requestCtx, req *kvrpcpb.Pes
 		err = store.dbWriter.Write(batch)
 	}
 	store.lockWaiterManager.WakeUp(startTS, 0, hashVals)
-	store.deadlockDetector.CleanUp(startTS)
+	store.DeadlockDetectCli.CleanUp(startTS)
 	return err
 }
 
@@ -291,17 +295,15 @@ func (store *MVCCStore) CheckTxnStatus(reqCtx *requestCtx,
 func (store *MVCCStore) handleCheckPessimisticErr(startTS uint64, err error, isFirstLock bool) (*lockwaiter.Waiter, error) {
 	if lock, ok := err.(*ErrLocked); ok {
 		keyHash := farm.Fingerprint64(lock.Key)
+		waitTime := time.Second
 		if !isFirstLock { // No need to detect deadlock if it's first lock.
-			if err1 := store.deadlockDetector.Detect(startTS, lock.StartTS, keyHash); err1 != nil {
-				return nil, &ErrDeadlock{
-					LockKey:         lock.Key,
-					LockTS:          lock.StartTS,
-					DeadlockKeyHash: *(*uint64)(unsafe.Pointer(err1)), // TODO: update here when keyHash is exported.
-				}
-			}
+			waitTime = 3 * time.Second
 		}
 		log.Infof("%d blocked by %d on key %d", startTS, lock.StartTS, keyHash)
-		waiter := store.lockWaiterManager.NewWaiter(startTS, lock.StartTS, farm.Fingerprint64(lock.Key), time.Second)
+		waiter := store.lockWaiterManager.NewWaiter(startTS, lock.StartTS, keyHash, waitTime)
+		if !isFirstLock {
+			store.DeadlockDetectCli.Detect(startTS, lock.StartTS, keyHash)
+		}
 		return waiter, err
 	}
 	return nil, err
@@ -547,7 +549,7 @@ func (store *MVCCStore) Commit(req *requestCtx, keys [][]byte, startTS, commitTS
 	err := store.dbWriter.Write(batch)
 	store.lockWaiterManager.WakeUp(startTS, commitTS, hashVals)
 	if isPessimisticTxn {
-		store.deadlockDetector.CleanUp(startTS)
+		store.DeadlockDetectCli.CleanUp(startTS)
 	}
 	return err
 }
@@ -608,7 +610,7 @@ func (store *MVCCStore) Rollback(reqCtx *requestCtx, keys [][]byte, startTS uint
 			return err
 		}
 	}
-	store.deadlockDetector.CleanUp(startTS)
+	store.DeadlockDetectCli.CleanUp(startTS)
 	err := store.dbWriter.Write(batch)
 	return errors.Trace(err)
 }
@@ -856,6 +858,12 @@ func (store *MVCCStore) GC(reqCtx *requestCtx, safePoint uint64) error {
 		}
 		atomic.StoreUint64(&store.safePoint.timestamp, safePoint)
 	}
+	return nil
+}
+
+func (store *MVCCStore) StartDeadlockDetection(ctx context.Context, pdClient pd.Client,
+	innerSrv InnerServer, isRaft bool) error {
+	store.DeadlockDetectCli.Start()
 	return nil
 }
 
