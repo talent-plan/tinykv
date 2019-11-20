@@ -62,7 +62,7 @@ func getMetaKeyCount(t *testing.T, peerStore *PeerStorage) int {
 	count := 0
 	metaStart := RegionMetaPrefixKey(regionID)
 	metaEnd := RegionMetaPrefixKey(regionID + 1)
-	err := peerStore.Engines.kv.db.View(func(txn *badger.Txn) error {
+	err := peerStore.Engines.kv.DB.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
 		for it.Seek(metaStart); it.Valid(); it.Next() {
@@ -76,7 +76,7 @@ func getMetaKeyCount(t *testing.T, peerStore *PeerStorage) int {
 	require.Nil(t, err)
 	raftStart := RegionRaftPrefixKey(regionID)
 	raftEnd := RegionRaftPrefixKey(regionID + 1)
-	err = peerStore.Engines.kv.db.View(func(txn *badger.Txn) error {
+	err = peerStore.Engines.kv.DB.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
 		for it.Seek(metaStart); it.Valid(); it.Next() {

@@ -1,6 +1,7 @@
 package raftstore
 
 import (
+	"github.com/ngaut/unistore/tikv/mvcc"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -39,7 +40,7 @@ func (rc *readyContext) SetSyncLog(b bool) {
 
 func newTestEngines(t *testing.T) *Engines {
 	engines := new(Engines)
-	engines.kv = new(DBBundle)
+	engines.kv = new(mvcc.DBBundle)
 	var err error
 	engines.kvPath, err = ioutil.TempDir("", "unistore_kv")
 	require.Nil(t, err)
@@ -47,9 +48,9 @@ func newTestEngines(t *testing.T) *Engines {
 	kvOpts.Dir = engines.kvPath
 	kvOpts.ValueDir = engines.kvPath
 	kvOpts.ValueThreshold = 256
-	engines.kv.db, err = badger.Open(kvOpts)
-	engines.kv.lockStore = lockstore.NewMemStore(16 * 1024)
-	engines.kv.rollbackStore = lockstore.NewMemStore(16 * 1024)
+	engines.kv.DB, err = badger.Open(kvOpts)
+	engines.kv.LockStore = lockstore.NewMemStore(16 * 1024)
+	engines.kv.RollbackStore = lockstore.NewMemStore(16 * 1024)
 	require.Nil(t, err)
 	engines.raftPath, err = ioutil.TempDir("", "unistore_raft")
 	require.Nil(t, err)
@@ -68,7 +69,7 @@ func newTestPeerStorage(t *testing.T) *PeerStorage {
 	require.Nil(t, err)
 	region, err := PrepareBootstrap(engines, 1, 1, 1)
 	require.Nil(t, err)
-	peerStore, err := NewPeerStorage(engines, region, nil, "")
+	peerStore, err := NewPeerStorage(engines, region, nil, 1, "")
 	require.Nil(t, err)
 	return peerStore
 }
