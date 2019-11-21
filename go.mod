@@ -23,11 +23,11 @@ require (
 	github.com/stretchr/testify v1.3.0
 	github.com/uber-go/atomic v1.3.2
 	github.com/zhangjinpeng1987/raft v0.0.0-20190624145930-deeb32d6553d
-	go.etcd.io/etcd v0.0.0-20190320044326-77d4b742cdbf
 	golang.org/x/net v0.0.0-20190108225652-1e06a53dbb7e
 	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4
 	google.golang.org/grpc v1.17.0
 	gopkg.in/mgo.v2 v2.0.0-20180705113604-9856a29383ce // indirect
+	gopkg.in/stretchr/testify.v1 v1.2.2 // indirect
 )
 
 replace go.etcd.io/etcd => github.com/zhangjinpeng1987/etcd v0.0.0-20190226085253-137eac022b64

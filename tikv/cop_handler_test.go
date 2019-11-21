@@ -1,9 +1,10 @@
 package tikv
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
-	_ "math"
+	"math"
 	"os"
 	"sync"
 	"testing"
@@ -19,10 +20,9 @@ import (
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/types"
-	_ "github.com/pingcap/tidb/util/codec"
+	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tipb/go-tipb"
 	"github.com/stretchr/testify/require"
-	_ "golang.org/x/net/context"
 )
 
 const (
@@ -248,7 +248,6 @@ func newDagContext(store *testStore, keyRanges []kv.KeyRange, dagReq *tipb.DAGRe
 
 // build and execute the executors according to the dagRequest and dagContext,
 // return the result chunk data, rows count and err if occurs.
-/*
 func (store *testStore) buildExecutorsAndExecute(dagRequest *tipb.DAGRequest,
 	dagCtx *dagContext) ([]tipb.Chunk, int, error) {
 	closureExec, err := store.svr.buildClosureExecutor(dagCtx, dagRequest)
@@ -262,33 +261,8 @@ func (store *testStore) buildExecutorsAndExecute(dagRequest *tipb.DAGRequest,
 		}
 		return chunks, closureExec.rowCount, nil
 	}
-	e, err := store.svr.buildDAGExecutor(dagCtx, dagRequest.Executors)
-	if err != nil {
-		return nil, 0, err
-	}
-	rowCnt := 0
-	ctx := context.TODO()
-	var chunks []tipb.Chunk
-	for {
-		var row [][]byte
-		e.Counts()
-		row, err = e.Next(ctx)
-		if err != nil {
-			break
-		}
-		if row == nil {
-			break
-		}
-		data := dummySlice
-		for _, offset := range dagRequest.OutputOffsets {
-			data = append(data, row[offset]...)
-		}
-		chunks = appendRow(chunks, data, rowCnt)
-		rowCnt++
-	}
-	return chunks, rowCnt, nil
+	return nil, 0, errors.New("closureExec creation failed")
 }
-*/
 
 // dagBuilder is used to build dag request
 type dagBuilder struct {
@@ -356,42 +330,43 @@ func TestPointGet(t *testing.T) {
 	require.Nil(t, err)
 	errors := store.initTestData(data.encodedTestKVDatas)
 	require.Nil(t, errors)
-	/*
-		handle := int64(math.MinInt64)
-		// point get should return nothing when handle is math.MinInt64
-		dagRequest := newDagBuilder().
-			setStartTs(DagRequestStartTs).
-			addTableScan(data.colInfos, TableId).
-			setOutputOffsets([]uint32{0, 1}).
-			build()
-		dagCtx := newDagContext(store, []kv.KeyRange{getTestPointRange(TableId, handle)},
-			dagRequest)
-		chunks, rowCount, err := store.buildExecutorsAndExecute(dagRequest, dagCtx)
-		require.Nil(t, err)
-		require.Equal(t, rowCount, 0)
-		// point get should return one row when handle = 0
-		handle = 0
-		dagRequest = newDagBuilder().
-			setStartTs(DagRequestStartTs).
-			addTableScan(data.colInfos, TableId).
-			setOutputOffsets([]uint32{0, 1}).
-			build()
-		dagCtx = newDagContext(store, []kv.KeyRange{getTestPointRange(TableId, handle)},
-			dagRequest)
-		chunks, rowCount, err = store.buildExecutorsAndExecute(dagRequest, dagCtx)
-		require.Nil(t, err)
-		require.Equal(t, 1, rowCount)
-		returnedRow, err := codec.Decode(chunks[0].RowsData, 2)
-		require.Nil(t, err)
-		// returned row should has 2 cols
-		require.Equal(t, len(returnedRow), 2)
 
-		expectedRow := data.rows[handle]
-		eq, err := returnedRow[0].CompareDatum(nil, &expectedRow[0])
-		require.Nil(t, err)
-		require.Equal(t, eq, 0)
-		eq, err = returnedRow[1].CompareDatum(nil, &expectedRow[1])
-		require.Nil(t, err)
-		require.Equal(t, eq, 0)
-	*/
+	// point get should return nothing when handle is math.MinInt64
+	handle := int64(math.MinInt64)
+	dagRequest := newDagBuilder().
+		setStartTs(DagRequestStartTs).
+		addTableScan(data.colInfos, TableId).
+		setOutputOffsets([]uint32{0, 1}).
+		build()
+	dagCtx := newDagContext(store, []kv.KeyRange{getTestPointRange(TableId, handle)},
+		dagRequest)
+	chunks, rowCount, err := store.buildExecutorsAndExecute(dagRequest, dagCtx)
+	require.Nil(t, err)
+	require.Equal(t, rowCount, 0)
+
+	// point get should return one row when handle = 0
+	handle = 0
+	dagRequest = newDagBuilder().
+		setStartTs(DagRequestStartTs).
+		addTableScan(data.colInfos, TableId).
+		setOutputOffsets([]uint32{0, 1}).
+		build()
+	dagCtx = newDagContext(store, []kv.KeyRange{getTestPointRange(TableId, handle)},
+		dagRequest)
+	chunks, rowCount, err = store.buildExecutorsAndExecute(dagRequest, dagCtx)
+	require.Nil(t, err)
+	require.Equal(t, 1, rowCount)
+	returnedRow, err := codec.Decode(chunks[0].RowsData, 2)
+	require.Nil(t, err)
+	// returned row should has 2 cols
+	require.Equal(t, len(returnedRow), 2)
+
+	// verify the returned rows value as input
+	expectedRow := data.rows[handle]
+	eq, err := returnedRow[0].CompareDatum(nil, &expectedRow[0])
+	require.Nil(t, err)
+	require.Equal(t, eq, 0)
+	eq, err = returnedRow[1].CompareDatum(nil, &expectedRow[1])
+	require.Nil(t, err)
+	require.Equal(t, eq, 0)
 }
