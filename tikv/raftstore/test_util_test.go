@@ -1,10 +1,11 @@
 package raftstore
 
 import (
-	"github.com/ngaut/unistore/tikv/mvcc"
 	"io/ioutil"
 	"os"
 	"testing"
+
+	"github.com/ngaut/unistore/tikv/mvcc"
 
 	"github.com/ngaut/unistore/lockstore"
 
@@ -13,30 +14,6 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/stretchr/testify/require"
 )
-
-var _ HandleRaftReadyContext = new(readyContext)
-
-type readyContext struct {
-	kvWB    WriteBatch
-	raftWB  WriteBatch
-	syncLog bool
-}
-
-func (rc *readyContext) KVWB() *WriteBatch {
-	return &rc.kvWB
-}
-
-func (rc *readyContext) RaftWB() *WriteBatch {
-	return &rc.raftWB
-}
-
-func (rc *readyContext) SyncLog() bool {
-	return rc.syncLog
-}
-
-func (rc *readyContext) SetSyncLog(b bool) {
-	rc.syncLog = b
-}
 
 func newTestEngines(t *testing.T) *Engines {
 	engines := new(Engines)
@@ -78,13 +55,13 @@ func newTestPeerStorageFromEnts(t *testing.T, ents []eraftpb.Entry) *PeerStorage
 	peerStore := newTestPeerStorage(t)
 	kvWB := new(WriteBatch)
 	ctx := NewInvokeContext(peerStore)
-	readyCtx := new(readyContext)
-	require.Nil(t, peerStore.Append(ctx, ents[1:], readyCtx))
+	raftWB := new(WriteBatch)
+	require.Nil(t, peerStore.Append(ctx, ents[1:], raftWB))
 	ctx.ApplyState.truncatedIndex = ents[0].Index
 	ctx.ApplyState.truncatedTerm = ents[0].Term
 	ctx.ApplyState.appliedIndex = ents[len(ents)-1].Index
 	ctx.saveApplyStateTo(kvWB)
-	require.Nil(t, peerStore.Engines.WriteRaft(readyCtx.RaftWB()))
+	require.Nil(t, peerStore.Engines.WriteRaft(raftWB))
 	peerStore.Engines.WriteKV(kvWB)
 	peerStore.raftState = ctx.RaftState
 	peerStore.applyState = ctx.ApplyState

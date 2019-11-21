@@ -66,8 +66,7 @@ type PollContext struct {
 	cfg                  *Config
 	engine               *Engines
 	applyMsgs            *applyMsgs
-	needFlushTrans       bool
-	ReadyRes             []ReadyICPair
+	ReadyRes             []*ReadyICPair
 	kvWB                 *WriteBatch
 	raftWB               *WriteBatch
 	syncLog              bool

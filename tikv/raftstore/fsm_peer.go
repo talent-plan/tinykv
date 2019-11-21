@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pingcap/tidb/tablecodec"
-
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/tikv/mvcc"
@@ -15,6 +13,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
+	"github.com/pingcap/tidb/tablecodec"
 	"github.com/zhangjinpeng1987/raft"
 )
 
@@ -99,7 +98,7 @@ func (pf *peerFsm) getPeer() *Peer {
 }
 
 func (pf *peerFsm) peerID() uint64 {
-	return pf.peer.Peer.Id
+	return pf.peer.Meta.Id
 }
 
 func (pf *peerFsm) stop() {
@@ -308,10 +307,12 @@ func (d *peerFsmDelegate) collectReady(proposals []*regionProposal) []*regionPro
 	if p := d.peer.TakeApplyProposals(); p != nil {
 		proposals = append(proposals, p)
 	}
-	if d.peer.HandleRaftReadyAppend(d.ctx) {
-		ss := d.ctx.ReadyRes[len(d.ctx.ReadyRes)-1].Ready.SoftState
+	readyRes := d.peer.HandleRaftReadyAppend(d.ctx.trans, d.ctx.applyMsgs, d.ctx.kvWB, d.ctx.raftWB, d.ctx.peerEventObserver)
+	if readyRes != nil {
+		d.ctx.ReadyRes = append(d.ctx.ReadyRes, readyRes)
+		ss := readyRes.Ready.SoftState
 		if ss != nil && ss.RaftState == raft.StateLeader {
-			d.peer.HeartbeatPd(d.ctx)
+			d.peer.HeartbeatPd(d.ctx.pdScheduler)
 		}
 	}
 	return proposals
@@ -319,8 +320,8 @@ func (d *peerFsmDelegate) collectReady(proposals []*regionProposal) []*regionPro
 
 func (d *peerFsmDelegate) postRaftReadyAppend(ready *raft.Ready, invokeCtx *InvokeContext) {
 	isMerging := d.peer.PendingMergeState != nil
-	res := d.peer.PostRaftReadyAppend(d.ctx, ready, invokeCtx)
-	d.peer.HandleRaftReadyApply(d.ctx, ready)
+	res := d.peer.PostRaftReadyAppend(d.ctx.trans, d.ctx.applyMsgs, ready, invokeCtx)
+	d.peer.HandleRaftReadyApply(d.ctx.engine.kv, d.ctx.applyMsgs, ready)
 	hasSnapshot := false
 	if res != nil {
 		d.onReadyApplySnapshot(res)
@@ -341,7 +342,7 @@ func (d *peerFsmDelegate) region() *metapb.Region {
 }
 
 func (d *peerFsmDelegate) storeID() uint64 {
-	return d.peer.Peer.StoreId
+	return d.peer.Meta.StoreId
 }
 
 func (d *peerFsmDelegate) onRaftBaseTick() {
@@ -382,7 +383,7 @@ func (d *peerFsmDelegate) onApplyResult(res *applyTaskRes) {
 		if d.stopped {
 			return
 		}
-		if d.peer.PostApply(d.ctx, res.applyState, res.appliedIndexTerm, res.merged, res.metrics) {
+		if d.peer.PostApply(d.ctx.engine.kv, res.applyState, res.appliedIndexTerm, res.merged, res.metrics) {
 			d.hasReady = true
 		}
 	}
@@ -437,7 +438,7 @@ func (d *peerFsmDelegate) onRaftMsg(msg *rspb.RaftMessage) error {
 		return err
 	}
 	if d.peer.AnyNewPeerCatchUp(msg.FromPeer.Id) {
-		d.peer.HeartbeatPd(d.ctx)
+		d.peer.HeartbeatPd(d.ctx.pdScheduler)
 	}
 	d.hasReady = true
 	return nil
@@ -519,7 +520,7 @@ func (d *peerFsmDelegate) handleGCPeerMsg(msg *rspb.RaftMessage) {
 	if !IsEpochStale(d.peer.Region().RegionEpoch, fromEpoch) {
 		return
 	}
-	if !PeerEqual(d.peer.Peer, msg.ToPeer) {
+	if !PeerEqual(d.peer.Meta, msg.ToPeer) {
 		log.Infof("%s receive stale gc msg, ignore", d.tag())
 		return
 	}
@@ -562,7 +563,7 @@ func (d *peerFsmDelegate) checkSnapshot(msg *rspb.RaftMessage) (*SnapKey, error)
 	defer func() {
 		d.ctx.storeMetaLock.Unlock()
 		// destroy regions out of lock to avoid dead lock.
-		destroyRegions(d.ctx.router, regionsToDestroy, d.getPeer().Peer)
+		destroyRegions(d.ctx.router, regionsToDestroy, d.getPeer().Meta)
 	}()
 	meta := d.ctx.storeMeta
 	if !RegionEqual(meta.regions[d.regionID()], d.region()) {
@@ -678,7 +679,7 @@ func (d *peerFsmDelegate) destroyPeer(mergeByTarget bool) {
 	}
 	delete(meta.mergeLocks, regionID)
 	isInitialized := d.peer.isInitialized()
-	if err := d.peer.Destroy(d.ctx, mergeByTarget); err != nil {
+	if err := d.peer.Destroy(d.ctx.engine, mergeByTarget); err != nil {
 		// If not panic here, the peer will be recreated in the next restart,
 		// then it will be gc again. But if some overlap region is created
 		// before restarting, the gc action will delete the overlap region's
@@ -714,8 +715,8 @@ func (d *peerFsmDelegate) onReadyChangePeer(cp changePeer) {
 	peerID := cp.peer.Id
 	switch changeType {
 	case eraftpb.ConfChangeType_AddNode, eraftpb.ConfChangeType_AddLearnerNode:
-		if d.peerID() == peerID && d.peer.Peer.IsLearner {
-			d.peer.Peer = cp.peer
+		if d.peerID() == peerID && d.peer.Meta.IsLearner {
+			d.peer.Meta = cp.peer
 		}
 
 		// Add this peer to cache and heartbeats.
@@ -743,7 +744,7 @@ func (d *peerFsmDelegate) onReadyChangePeer(cp changePeer) {
 	if d.peer.IsLeader() {
 		// Notify pd immediately.
 		log.Infof("%s notify pd with change peer region %s", d.tag(), d.region())
-		d.peer.HeartbeatPd(d.ctx)
+		d.peer.HeartbeatPd(d.ctx.pdScheduler)
 	}
 	myPeerID := d.peerID()
 
@@ -785,7 +786,7 @@ func (d *peerFsmDelegate) onReadySplitRegion(derived *metapb.Region, regions []*
 	d.peer.PostSplit()
 	isLeader := d.peer.IsLeader()
 	if isLeader {
-		d.peer.HeartbeatPd(d.ctx)
+		d.peer.HeartbeatPd(d.ctx.pdScheduler)
 		// Notify pd immediately to let it update the region meta.
 		log.Infof("%s notify pd with split count %d", d.tag(), len(regions))
 		// Now pd only uses ReportBatchSplit for history operation show,
@@ -836,7 +837,7 @@ func (d *peerFsmDelegate) onReadySplitRegion(derived *metapb.Region, regions []*
 			// there is probably a bug.
 			panic(fmt.Sprintf("create new split region %s error %v", newRegion, err))
 		}
-		metaPeer := newPeer.peer.Peer
+		metaPeer := newPeer.peer.Meta
 		newPeers = append(newPeers, newPeer.peer.getEventContext())
 
 		for _, p := range newRegion.GetPeers() {
@@ -852,10 +853,10 @@ func (d *peerFsmDelegate) onReadySplitRegion(derived *metapb.Region, regions []*
 		if isLeader {
 			// The new peer is likely to become leader, send a heartbeat immediately to reduce
 			// client query miss.
-			newPeer.peer.HeartbeatPd(d.ctx)
+			newPeer.peer.HeartbeatPd(d.ctx.pdScheduler)
 		}
 
-		newPeer.peer.Activate(d.ctx)
+		newPeer.peer.Activate(d.ctx.applyMsgs)
 		meta.regions[newRegionID] = newRegion
 		if lastRegionID == newRegionID {
 			// To prevent from big region, the right region needs run split
@@ -1043,7 +1044,7 @@ func (d *peerFsmDelegate) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb 
 
 	resp = &raft_cmdpb.RaftCmdResponse{}
 	BindRespTerm(resp, d.peer.Term())
-	if d.peer.Propose(d.ctx, cb, msg, resp) {
+	if d.peer.Propose(d.ctx.engine.kv, d.ctx.cfg, cb, msg, resp) {
 		d.hasReady = true
 	}
 
@@ -1160,7 +1161,7 @@ func (d *peerFsmDelegate) onRaftGCLogTick() {
 
 	// Create a compact log request and notify directly.
 	regionID := d.regionID()
-	request := newCompactLogRequest(regionID, d.peer.Peer, compactIdx, term)
+	request := newCompactLogRequest(regionID, d.peer.Meta, compactIdx, term)
 	d.proposeRaftCommand(request, nil)
 }
 
@@ -1211,7 +1212,7 @@ func (d *peerFsmDelegate) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, 
 		data: &pdAskBatchSplitTask{
 			region:      region,
 			splitKeys:   splitKeys,
-			peer:        d.peer.Peer,
+			peer:        d.peer.Meta,
 			rightDerive: d.ctx.cfg.RightDeriveWhenSplit,
 			callback:    cb,
 		},
@@ -1294,7 +1295,7 @@ func (d *peerFsmDelegate) onPDHeartbeatTick() {
 	if !d.peer.IsLeader() {
 		return
 	}
-	d.peer.HeartbeatPd(d.ctx)
+	d.peer.HeartbeatPd(d.ctx.pdScheduler)
 }
 
 func (d *peerFsmDelegate) onCheckPeerStaleStateTick() {
@@ -1322,7 +1323,7 @@ func (d *peerFsmDelegate) onCheckPeerStaleStateTick() {
 	// In this case, peer B would notice that the leader is missing for a long time,
 	// and it would check with pd to confirm whether it's still a member of the cluster.
 	// If not, it destroys itself as a stale peer which is removed out already.
-	state := d.peer.CheckStaleState(d.ctx)
+	state := d.peer.CheckStaleState(d.ctx.cfg)
 	switch state {
 	case StaleStateValid:
 	case StaleStateLeaderMissing:
@@ -1336,7 +1337,7 @@ func (d *peerFsmDelegate) onCheckPeerStaleStateTick() {
 			tp: taskTypePDValidatePeer,
 			data: &pdValidatePeerTask{
 				region: d.region(),
-				peer:   d.peer.Peer,
+				peer:   d.peer.Meta,
 			},
 		}
 	}
@@ -1363,7 +1364,7 @@ func (d *peerFsmDelegate) onHashComputed(index uint64, hash []byte) {
 	if !d.verifyAndStoreHash(index, hash) {
 		return
 	}
-	req := newVerifyHashRequest(d.regionID(), d.peer.Peer, d.peer.ConsistencyState)
+	req := newVerifyHashRequest(d.regionID(), d.peer.Meta, d.peer.ConsistencyState)
 	d.proposeRaftCommand(req, nil)
 }
 

@@ -229,13 +229,6 @@ func recoverFromApplyingState(engines *Engines, raftWB *WriteBatch, regionID uin
 	return nil
 }
 
-type HandleRaftReadyContext interface {
-	KVWB() *WriteBatch
-	RaftWB() *WriteBatch
-	SyncLog() bool
-	SetSyncLog(sync bool)
-}
-
 var _ raft.Storage = new(PeerStorage)
 
 type PeerStorage struct {
@@ -624,7 +617,7 @@ func (ps *PeerStorage) Snapshot() (eraftpb.Snapshot, error) {
 // Append the given entries to the raft log using previous last index or self.last_index.
 // Return the new last index for later update. After we commit in engine, we can set last_index
 // to the return one.
-func (ps *PeerStorage) Append(invokeCtx *InvokeContext, entries []eraftpb.Entry, readyCtx HandleRaftReadyContext) error {
+func (ps *PeerStorage) Append(invokeCtx *InvokeContext, entries []eraftpb.Entry, raftWB *WriteBatch) error {
 	log.Debugf("%s append %d entries", ps.Tag, len(entries))
 	prevLastIndex := invokeCtx.RaftState.lastIndex
 	if len(entries) == 0 {
@@ -634,17 +627,14 @@ func (ps *PeerStorage) Append(invokeCtx *InvokeContext, entries []eraftpb.Entry,
 	lastIndex := lastEntry.Index
 	lastTerm := lastEntry.Term
 	for _, entry := range entries {
-		if !readyCtx.SyncLog() {
-			readyCtx.SetSyncLog(getSyncLogFromEntry(entry))
-		}
-		err := readyCtx.RaftWB().SetMsg(RaftLogKey(ps.region.Id, entry.Index), &entry)
+		err := raftWB.SetMsg(RaftLogKey(ps.region.Id, entry.Index), &entry)
 		if err != nil {
 			return err
 		}
 	}
 	// Delete any previously appended log entries which never committed.
 	for i := lastIndex + 1; i <= prevLastIndex; i++ {
-		readyCtx.RaftWB().Delete(RaftLogKey(ps.region.Id, i))
+		raftWB.Delete(RaftLogKey(ps.region.Id, i))
 	}
 	invokeCtx.RaftState.lastIndex = lastIndex
 	invokeCtx.lastTerm = lastTerm
@@ -895,21 +885,18 @@ func (ps *PeerStorage) ApplySnapshot(ctx *InvokeContext, snap *eraftpb.Snapshot,
 /// it explicitly to disk. If it's flushed to disk successfully, `post_ready` should be called
 /// to update the memory states properly.
 /// Do not modify ready in this function, this is a requirement to advance the ready object properly later.
-func (ps *PeerStorage) HandleRaftReady(readyCtx HandleRaftReadyContext, ready *raft.Ready) (*InvokeContext, error) {
+func (ps *PeerStorage) SaveReadyState(kvWB, raftWB *WriteBatch, ready *raft.Ready) (*InvokeContext, error) {
 	ctx := NewInvokeContext(ps)
 	var snapshotIdx uint64 = 0
 	if !raft.IsEmptySnap(&ready.Snapshot) {
-		if err := ps.ApplySnapshot(ctx, &ready.Snapshot, readyCtx.KVWB(), readyCtx.RaftWB()); err != nil {
+		if err := ps.ApplySnapshot(ctx, &ready.Snapshot, kvWB, raftWB); err != nil {
 			return nil, err
 		}
 		snapshotIdx = ctx.RaftState.lastIndex
 	}
-	if ready.MustSync {
-		readyCtx.SetSyncLog(true)
-	}
 
 	if len(ready.Entries) != 0 {
-		if err := ps.Append(ctx, ready.Entries, readyCtx); err != nil {
+		if err := ps.Append(ctx, ready.Entries, raftWB); err != nil {
 			return nil, err
 		}
 	}
@@ -925,19 +912,19 @@ func (ps *PeerStorage) HandleRaftReady(readyCtx HandleRaftReadyContext, ready *r
 	}
 
 	if ctx.RaftState != ps.raftState {
-		ctx.saveRaftStateTo(readyCtx.RaftWB())
+		ctx.saveRaftStateTo(raftWB)
 		if snapshotIdx > 0 {
 			// in case of restart happen when we just write region state to Applying,
 			// but not write raft_local_state to raft rocksdb in time.
 			// we write raft state to default rocksdb, with last index set to snap index,
 			// in case of recv raft log after snapshot.
-			ctx.saveSnapshotRaftStateTo(snapshotIdx, readyCtx.KVWB())
+			ctx.saveSnapshotRaftStateTo(snapshotIdx, kvWB)
 		}
 	}
 
 	// only when apply snapshot
 	if ctx.ApplyState != ps.applyState {
-		ctx.saveApplyStateTo(readyCtx.KVWB())
+		ctx.saveApplyStateTo(kvWB)
 	}
 
 	return ctx, nil

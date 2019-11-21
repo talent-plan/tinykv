@@ -40,10 +40,10 @@ func TestPeerStorageTerm(t *testing.T) {
 
 func appendEnts(t *testing.T, peerStore *PeerStorage, ents []eraftpb.Entry) {
 	ctx := NewInvokeContext(peerStore)
-	readyCtx := new(readyContext)
-	require.Nil(t, peerStore.Append(ctx, ents, readyCtx))
-	ctx.saveRaftStateTo(readyCtx.RaftWB())
-	require.Nil(t, peerStore.Engines.WriteRaft(readyCtx.RaftWB()))
+	raftWB := new(WriteBatch)
+	require.Nil(t, peerStore.Append(ctx, ents, raftWB))
+	ctx.saveRaftStateTo(raftWB)
+	require.Nil(t, peerStore.Engines.WriteRaft(raftWB))
 	peerStore.raftState = ctx.RaftState
 }
 

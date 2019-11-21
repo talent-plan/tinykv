@@ -73,7 +73,7 @@ func newTestStore() (*testStore, error) {
 		RollbackStore: lockstore.NewMemStore(4096),
 	}
 	writer := NewDBWriter(dbBundle, safePoint)
-	store := NewMVCCStore(dbBundle, dbPath, safePoint, writer)
+	store := NewMVCCStore(dbBundle, dbPath, safePoint, writer, nil)
 	svr := &Server{mvccStore: store}
 	return &testStore{
 		mvccStore: store,
