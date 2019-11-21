@@ -1,16 +1,17 @@
 package raftstore
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 
+	"github.com/coocood/badger"
 	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	rfpb "github.com/pingcap/kvproto/pkg/raft_cmdpb"
 	"github.com/stretchr/testify/assert"
 )
 
-/* TODO not stable sometimes failed on line 94
 func TestRaftWriteBatch_PrewriteAndCommit(t *testing.T) {
 	engines := newTestEngines(t)
 	defer cleanUpTestEngineData(engines)
@@ -43,11 +44,12 @@ func TestRaftWriteBatch_PrewriteAndCommit(t *testing.T) {
 			Value:   values[i],
 		}
 		wb.Prewrite(primary, &expectLock, false)
-		apply.execWriteCmd(applyCtx, &rfpb.RaftCmdRequest{
+		_, _, err := apply.execWriteCmd(applyCtx, &rfpb.RaftCmdRequest{
 			Header:   new(rfpb.RaftRequestHeader),
 			Requests: wb.requests,
 		})
-		err := applyCtx.wb.WriteToKV(engines.kv)
+		assert.Nil(t, err)
+		err = applyCtx.wb.WriteToKV(engines.kv)
 		assert.Nil(t, err)
 		applyCtx.wb.Reset()
 		wb.requests = nil
@@ -83,20 +85,18 @@ func TestRaftWriteBatch_PrewriteAndCommit(t *testing.T) {
 		wb.requests = nil
 		engines.kv.DB.View(func(txn *badger.Txn) error {
 			item, err := txn.Get(primary)
-			if len(values[i]) != 0 {
-				assert.Nil(t, err)
-				assert.NotNil(t, item)
-				userMeta := mvcc.DBUserMeta(item.UserMeta())
-				assert.Equal(t, userMeta.StartTS(), expectLock.StartTS)
-				assert.Equal(t, userMeta.CommitTS(), wb.commitTS)
-			} else {
-				assert.NotNil(t, err)
-			}
+			assert.Nil(t, err)
+			curVal, err := item.Value()
+			assert.Nil(t, err)
+			assert.NotNil(t, item)
+			userMeta := mvcc.DBUserMeta(item.UserMeta())
+			assert.Equal(t, userMeta.StartTS(), expectLock.StartTS)
+			assert.Equal(t, userMeta.CommitTS(), wb.commitTS)
+			assert.Equal(t, 0, bytes.Compare(curVal, expectLock.Value))
 			return nil
 		})
 	}
 }
-*/
 
 func TestRaftWriteBatch_Rollback(t *testing.T) {
 	engines := newTestEngines(t)
