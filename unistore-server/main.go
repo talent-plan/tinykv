@@ -204,6 +204,7 @@ func setupStandAlongInnerServer(bundle *mvcc.DBBundle, safePoint *tikv.SafePoint
 	innerServer := tikv.NewStandAlongInnerServer(bundle)
 	innerServer.Setup(pdClient)
 	store := tikv.NewMVCCStore(bundle, conf.Engine.DBPath, safePoint, tikv.NewDBWriter(bundle, safePoint), pdClient)
+	store.DeadlockDetectSvr.ChangeRole(tikv.Leader)
 	rm := tikv.NewStandAloneRegionManager(bundle.DB, regionOpts, pdClient)
 
 	if err := innerServer.Start(pdClient); err != nil {

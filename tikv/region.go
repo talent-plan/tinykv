@@ -473,6 +473,12 @@ func NewStandAloneRegionManager(db *badger.DB, opts RegionOptions, pdc pd.Client
 				return errors.Trace(err)
 			}
 			rm.regions[r.meta.Id] = r
+			req := &pdpb.RegionHeartbeatRequest{
+				Region:          r.meta,
+				Leader:          r.meta.Peers[0],
+				ApproximateSize: uint64(r.approximateSize),
+			}
+			rm.pdc.ReportRegion(req)
 		}
 		return nil
 	})

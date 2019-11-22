@@ -2,9 +2,10 @@ package tikv
 
 import (
 	"context"
-	"google.golang.org/grpc"
 	"sync/atomic"
 	"time"
+
+	"google.golang.org/grpc"
 
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/pd"
@@ -25,10 +26,12 @@ type DetectorServer struct {
 
 // DetectorClient is a util used for distributed deadlock detection
 type DetectorClient struct {
-	pdClient  pd.Client
-	sendCh    chan *deadlockPb.DeadlockRequest
-	waitMgr   *lockwaiter.Manager
-	streamCli deadlockPb.Deadlock_DetectClient
+	pdClient     pd.Client
+	sendCh       chan *deadlockPb.DeadlockRequest
+	waitMgr      *lockwaiter.Manager
+	streamCli    deadlockPb.Deadlock_DetectClient
+	streamCancel context.CancelFunc
+	streamConn   *grpc.ClientConn
 }
 
 // getLeaderAddr will send request to pd to find out the
@@ -61,6 +64,10 @@ func (dt *DetectorClient) rebuildStreamClient() error {
 	if err != nil {
 		return err
 	}
+	if dt.streamConn != nil {
+		dt.streamConn.Close()
+	}
+	dt.streamConn = cc
 	ctx, cancel := context.WithCancel(context.Background())
 	stream, err := deadlockPb.NewDeadlockClient(cc).Detect(ctx)
 	if err != nil {
@@ -69,6 +76,7 @@ func (dt *DetectorClient) rebuildStreamClient() error {
 	}
 	log.Infof("build stream client successfully, leaderAddr=%s", leaderArr)
 	dt.streamCli = stream
+	dt.streamCancel = cancel
 	go dt.recvLoop(dt.streamCli)
 	return nil
 }
@@ -112,6 +120,7 @@ func (dt *DetectorClient) sendReqLoop() {
 		err = dt.streamCli.Send(req)
 		if err != nil {
 			log.Warnf("send err=%v, invalid current stream and try to rebuild connection", err)
+			dt.streamCancel()
 			dt.streamCli = nil
 		}
 	}
