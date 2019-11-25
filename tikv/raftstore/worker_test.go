@@ -1,14 +1,19 @@
 package raftstore
 
 import (
+	"io/ioutil"
+	"os"
+	"sync"
+	"testing"
+	"time"
+
 	"github.com/coocood/badger"
 	"github.com/ngaut/unistore/lockstore"
 	"github.com/ngaut/unistore/tikv/mvcc"
+	"github.com/pingcap/kvproto/pkg/eraftpb"
+	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"io/ioutil"
-	"testing"
-	"time"
 )
 
 func TestStalePeerInfo(t *testing.T) {
@@ -111,8 +116,6 @@ func newEnginesWithKVDb(t *testing.T, kv *mvcc.DBBundle) *Engines {
 	return engines
 }
 
-// TODO this case not passed, seems dead loop
-/*
 func TestPendingApplies(t *testing.T) {
 	kvPath, err := ioutil.TempDir("", "testPendingApplies")
 	require.Nil(t, err)
@@ -142,13 +145,20 @@ func TestPendingApplies(t *testing.T) {
 	worker.start(regionRunner)
 	genAndApplySnap := func(regionId uint64) {
 		tx := make(chan *eraftpb.Snapshot, 1)
-		worker.scheduler <- task{
+		tsk := &task{
 			tp: taskTypeRegionGen,
-			data: &regionTask{
-				regionId: regionId,
-				notifier: tx,
-			},
 		}
+		rgTsk := &regionTask{
+			regionId: regionId,
+			notifier: tx,
+		}
+		txn := engines.kv.DB.NewTransaction(false)
+		// TODO [fix this] the new regionTask need "redoIdx" as input param
+		index, _, err := getAppliedIdxTermForSnapshot(engines.raft, txn, regionId)
+		rgTsk.redoIdx = index + 1
+		tsk.data = rgTsk
+		require.Nil(t, err)
+		worker.scheduler <- *tsk
 		s1 := <-tx
 		data := s1.Data
 		key := SnapKeyFromRegionSnap(regionId, s1)
@@ -168,14 +178,15 @@ func TestPendingApplies(t *testing.T) {
 		require.Nil(t, wb.WriteToKV(engines.kv))
 
 		// apply snapshot
-		var status JobStatus = JobStatus_Pending
-		worker.scheduler <- task{
+		var status = JobStatus_Pending
+		tsk2 := &task{
 			tp: taskTypeRegionApply,
 			data: &regionTask{
 				regionId: regionId,
 				status:   &status,
 			},
 		}
+		worker.scheduler <- *tsk2
 	}
 
 	waitApplyFinish := func(regionId uint64) {
@@ -195,7 +206,6 @@ func TestPendingApplies(t *testing.T) {
 
 	// compact all files to the bottomest level
 	// todo, compact files and then check that cf num files at level 0 should be 0.
-
 	waitApplyFinish(1)
 
 	// the pending apply task should be finished and snapshots are ingested.
@@ -209,32 +219,36 @@ func TestPendingApplies(t *testing.T) {
 	// todo, check cf num files at level 0 is 4.
 
 	// snapshot will not ingest cause it may cause write stall
+	// TODO now this does not cause write stall, since `snapShotContext`.`ingestMaybeStall` not
+	// implemented yet
 	genAndApplySnap(3)
-	// todo, check cf num files at level 0 is 4.
-	waitApplyFinish(4)
-	// todo, check cf num files at level 0 is 4.
-	genAndApplySnap(5)
-	// todo, check cf num files at level 0 is 4.
+	waitApplyFinish(3)
+	/*
+		// todo, check cf num files at level 0 is 4.
+		waitApplyFinish(4)
+		// todo, check cf num files at level 0 is 4.
+		genAndApplySnap(5)
+		// todo, check cf num files at level 0 is 4.
 
-	// compact all files to the bottomest level
-	// todo compact files in range and then check cf num files at level 0 is 0.
+		// compact all files to the bottomest level
+		// todo compact files in range and then check cf num files at level 0 is 0.
 
-	// make sure have checked pending applies
-	waitApplyFinish(4)
+		// make sure have checked pending applies
+		waitApplyFinish(4)
 
-	// before two pending apply tasks should be finished and snapshots are ingested
-	// and one still in pending.
-	// todo, check cf num files at level 0 is 4.
+		// before two pending apply tasks should be finished and snapshots are ingested
+		// and one still in pending.
+		// todo, check cf num files at level 0 is 4.
 
-	// make sure have checked pending applies
-	// todo compact files in range and then check cf num files at level 0 is 0.
+		// make sure have checked pending applies
+		// todo compact files in range and then check cf num files at level 0 is 0.
 
-	waitApplyFinish(5)
+		waitApplyFinish(5)
+	*/
 
 	// the last one pending task finished
 	// todo, check cf num files at level 0 is 2
 }
-*/
 
 func TestGcRaftLog(t *testing.T) {
 	engines := newTestEngines(t)

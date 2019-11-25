@@ -824,13 +824,15 @@ func (r *regionRunner) finishApply() error {
 
 // handlePendingApplies tries to apply pending tasks if there is some.
 func (r *regionRunner) handlePendingApplies() {
-	for _, apply := range r.pendingApplies {
+	for len(r.pendingApplies) > 0 {
 		// Should not handle too many applies than the number of files that can be ingested.
 		// Check level 0 every time because we can not make sure how does the number of level 0 files change.
 		if r.ctx.ingestMaybeStall() {
 			break
 		}
-
+		// Try to apply task, if apply failed, throw away this task and let sender retry
+		apply := r.pendingApplies[0]
+		r.pendingApplies = r.pendingApplies[1:]
 		if err := r.resetBuilder(); err != nil {
 			log.Error(err)
 			continue
