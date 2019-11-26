@@ -45,7 +45,9 @@ func RestoreLockStore(offset uint64, bundle *mvcc.DBBundle, raftDB *badger.DB) e
 			return
 		}
 	})
-	log.Info("restore lock store iterated", iterCnt, "entries")
+	if iterCnt > 0 {
+		log.Info("restore lock store iterated", iterCnt, "entries fromm offset", offset)
+	}
 	if err != nil {
 		return err
 	}

@@ -168,13 +168,13 @@ func setupRaftInnerServer(bundle *mvcc.DBBundle, safePoint *tikv.SafePoint, pdCl
 	if err != nil {
 		log.Fatal(err)
 	}
+	var offset uint64
 	if meta != nil {
-		offset := binary.LittleEndian.Uint64(meta)
-		err = raftstore.RestoreLockStore(offset, bundle, raftDB)
-		if err != nil {
-			log.Fatal(err)
-		}
-		log.Info("restored lock store from offset", offset)
+		offset = binary.LittleEndian.Uint64(meta)
+	}
+	err = raftstore.RestoreLockStore(offset, bundle, raftDB)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	engines := raftstore.NewEngines(bundle, raftDB, kvPath, raftPath)
