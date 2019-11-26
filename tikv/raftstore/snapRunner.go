@@ -31,7 +31,7 @@ func newSnapRunner(snapManager *SnapManager, config *Config, router RaftRouter) 
 	}
 }
 
-func (r *snapRunner) run(t task) {
+func (r *snapRunner) handle(t task) {
 	switch t.tp {
 	case taskTypeSnapSend:
 		r.send(t.data.(sendSnapTask))

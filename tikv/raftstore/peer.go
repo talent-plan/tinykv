@@ -826,13 +826,13 @@ func (p *Peer) HandleRaftReadyAppend(trans Transport, applyMsgs *applyMsgs, kvWB
 	return &ReadyICPair{Ready: ready, IC: invokeCtx}
 }
 
-func (p *Peer) PostRaftReadyAppend(trans Transport, applyMsgs *applyMsgs, ready *raft.Ready, invokeCtx *InvokeContext) *ApplySnapResult {
+func (p *Peer) PostRaftReadyPersistent(trans Transport, applyMsgs *applyMsgs, ready *raft.Ready, invokeCtx *InvokeContext) *ApplySnapResult {
 	if invokeCtx.hasSnapshot() {
 		// When apply snapshot, there is no log applied and not compacted yet.
 		p.RaftLogSizeHint = 0
 	}
 
-	applySnapResult := p.Store().PostReady(invokeCtx)
+	applySnapResult := p.Store().PostReadyPersistent(invokeCtx)
 	if applySnapResult != nil && p.Meta.GetIsLearner() {
 		// The peer may change from learner to voter after snapshot applied.
 		var pr *metapb.Peer

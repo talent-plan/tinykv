@@ -141,7 +141,7 @@ func TestPendingApplies(t *testing.T) {
 	mgr := NewSnapManager(snapPath, nil)
 	wg := new(sync.WaitGroup)
 	worker := newWorker("snap-manager", wg)
-	regionRunner := newRegionRunner(engines, mgr, 0, time.Duration(time.Second*0))
+	regionRunner := newRegionTaskHandler(engines, mgr, 0, time.Duration(time.Second*0))
 	worker.start(regionRunner)
 	genAndApplySnap := func(regionId uint64) {
 		tx := make(chan *eraftpb.Snapshot, 1)
@@ -158,7 +158,7 @@ func TestPendingApplies(t *testing.T) {
 		rgTsk.redoIdx = index + 1
 		tsk.data = rgTsk
 		require.Nil(t, err)
-		worker.scheduler <- *tsk
+		worker.sender <- *tsk
 		s1 := <-tx
 		data := s1.Data
 		key := SnapKeyFromRegionSnap(regionId, s1)
@@ -186,7 +186,7 @@ func TestPendingApplies(t *testing.T) {
 				status:   &status,
 			},
 		}
-		worker.scheduler <- *tsk2
+		worker.sender <- *tsk2
 	}
 
 	waitApplyFinish := func(regionId uint64) {
@@ -255,7 +255,7 @@ func TestGcRaftLog(t *testing.T) {
 	defer cleanUpTestEngineData(engines)
 	raftDb := engines.raft
 	taskResCh := make(chan raftLogGcTaskRes, 1)
-	runner := raftLogGCRunner{taskResCh: taskResCh}
+	runner := raftLogGCTaskHandler{taskResCh: taskResCh}
 
 	//  generate raft logs
 	regionId := uint64(1)
@@ -336,7 +336,7 @@ func TestGcRaftLog(t *testing.T) {
 	}
 
 	for _, h := range tbls {
-		runner.run(h.raftLogGcTask)
+		runner.handle(h.raftLogGcTask)
 		res := <-taskResCh
 		assert.Equal(t, h.expectedCollected, uint64(res))
 		raftLogMustNotExist(t, raftDb, 1, h.nonExistRange[0], h.nonExistRange[1])

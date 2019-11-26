@@ -57,7 +57,7 @@ func (ris *RaftInnerServer) BatchRaft(stream tikvpb.Tikv_BatchRaftServer) error 
 func (ris *RaftInnerServer) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
 	var err error
 	done := make(chan struct{})
-	ris.snapWorker.scheduler <- task{
+	ris.snapWorker.sender <- task{
 		tp: taskTypeSnapRecv,
 		data: recvSnapTask{
 			stream: stream,
@@ -135,8 +135,8 @@ func (ris *RaftInnerServer) Start(pdClient pd.Client) error {
 	ris.node = NewNode(ris.batchSystem, &ris.storeMeta, ris.raftConfig, pdClient, ris.eventObserver)
 
 	raftClient := newRaftClient(ris.raftConfig)
-	resolveSender := ris.resolveWorker.scheduler
-	trans := NewServerTransport(raftClient, ris.snapWorker.scheduler, ris.raftRouter, resolveSender)
+	resolveSender := ris.resolveWorker.sender
+	trans := NewServerTransport(raftClient, ris.snapWorker.sender, ris.raftRouter, resolveSender)
 
 	resolveRunner := newResolverRunner(pdClient)
 	ris.resolveWorker.start(resolveRunner)

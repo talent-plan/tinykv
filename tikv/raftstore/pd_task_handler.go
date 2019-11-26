@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/coocood/badger"
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/pd"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -14,30 +13,26 @@ import (
 	"github.com/shirou/gopsutil/disk"
 )
 
-type pdRunner struct {
-	storeID   uint64
-	pdClient  pd.Client
-	router    *router
-	db        *badger.DB
-	scheduler chan<- task
+type pdTaskHandler struct {
+	storeID  uint64
+	pdClient pd.Client
+	router   *router
 
 	// statistics
 	storeStats storeStatistics
 	peerStats  map[uint64]*peerStatistics
 }
 
-func newPDRunner(storeID uint64, pdClient pd.Client, router *router, db *badger.DB, scheduler chan<- task) *pdRunner {
-	return &pdRunner{
+func newPDTaskHandler(storeID uint64, pdClient pd.Client, router *router) *pdTaskHandler {
+	return &pdTaskHandler{
 		storeID:   storeID,
 		pdClient:  pdClient,
 		router:    router,
-		db:        db,
-		scheduler: scheduler,
 		peerStats: make(map[uint64]*peerStatistics),
 	}
 }
 
-func (r *pdRunner) run(t task) {
+func (r *pdTaskHandler) handle(t task) {
 	switch t.tp {
 	case taskTypePDAskSplit:
 		r.onAskSplit(t.data.(*pdAskSplitTask))
@@ -60,11 +55,11 @@ func (r *pdRunner) run(t task) {
 	}
 }
 
-func (r *pdRunner) start() {
+func (r *pdTaskHandler) start() {
 	r.pdClient.SetRegionHeartbeatResponseHandler(r.onRegionHeartbeatResponse)
 }
 
-func (r *pdRunner) onRegionHeartbeatResponse(resp *pdpb.RegionHeartbeatResponse) {
+func (r *pdTaskHandler) onRegionHeartbeatResponse(resp *pdpb.RegionHeartbeatResponse) {
 	if changePeer := resp.GetChangePeer(); changePeer != nil {
 		r.sendAdminRequest(resp.RegionId, resp.RegionEpoch, resp.TargetPeer, &raft_cmdpb.AdminRequest{
 			CmdType: raft_cmdpb.AdminCmdType_ChangePeer,
@@ -98,7 +93,7 @@ func (r *pdRunner) onRegionHeartbeatResponse(resp *pdpb.RegionHeartbeatResponse)
 	}
 }
 
-func (r *pdRunner) onAskSplit(t *pdAskSplitTask) {
+func (r *pdTaskHandler) onAskSplit(t *pdAskSplitTask) {
 	resp, err := r.pdClient.AskSplit(context.TODO(), t.region)
 	if err != nil {
 		log.Error(err)
@@ -116,7 +111,7 @@ func (r *pdRunner) onAskSplit(t *pdAskSplitTask) {
 	r.sendAdminRequest(t.region.GetId(), t.region.GetRegionEpoch(), t.peer, aq, t.callback)
 }
 
-func (r *pdRunner) onAskBatchSplit(t *pdAskBatchSplitTask) {
+func (r *pdTaskHandler) onAskBatchSplit(t *pdAskBatchSplitTask) {
 	resp, err := r.pdClient.AskBatchSplit(context.TODO(), t.region, len(t.splitKeys))
 	if err != nil {
 		log.Error(err)
@@ -140,7 +135,7 @@ func (r *pdRunner) onAskBatchSplit(t *pdAskBatchSplitTask) {
 	r.sendAdminRequest(t.region.GetId(), t.region.GetRegionEpoch(), t.peer, aq, t.callback)
 }
 
-func (r *pdRunner) onHeartbeat(t *pdRegionHeartbeatTask) {
+func (r *pdTaskHandler) onHeartbeat(t *pdRegionHeartbeatTask) {
 	var size, keys int64
 	if t.approximateSize != nil {
 		size = int64(*t.approximateSize)
@@ -181,7 +176,7 @@ func (r *pdRunner) onHeartbeat(t *pdRegionHeartbeatTask) {
 	r.pdClient.ReportRegion(req)
 }
 
-func (r *pdRunner) onStoreHeartbeat(t *pdStoreHeartbeatTask) {
+func (r *pdTaskHandler) onStoreHeartbeat(t *pdStoreHeartbeatTask) {
 	diskStat, err := disk.Usage(t.path)
 	if err != nil {
 		log.Error(err)
@@ -217,11 +212,11 @@ func (r *pdRunner) onStoreHeartbeat(t *pdStoreHeartbeatTask) {
 	r.pdClient.StoreHeartbeat(context.TODO(), t.stats)
 }
 
-func (r *pdRunner) onReportBatchSplit(t *pdReportBatchSplitTask) {
+func (r *pdTaskHandler) onReportBatchSplit(t *pdReportBatchSplitTask) {
 	r.pdClient.ReportBatchSplit(context.TODO(), t.regions)
 }
 
-func (r *pdRunner) onValidatePeer(t *pdValidatePeerTask) {
+func (r *pdTaskHandler) onValidatePeer(t *pdValidatePeerTask) {
 	resp, _, err := r.pdClient.GetRegionByID(context.TODO(), t.region.GetId())
 	if err != nil {
 		log.Error("get region failed:", err)
@@ -245,7 +240,7 @@ func (r *pdRunner) onValidatePeer(t *pdValidatePeerTask) {
 	}
 }
 
-func (r *pdRunner) onReadStats(t readStats) {
+func (r *pdTaskHandler) onReadStats(t readStats) {
 	for id, stats := range t {
 		s, ok := r.peerStats[id]
 		if !ok {
@@ -260,11 +255,11 @@ func (r *pdRunner) onReadStats(t readStats) {
 	}
 }
 
-func (r *pdRunner) onDestroyPeer(t *pdDestroyPeerTask) {
+func (r *pdTaskHandler) onDestroyPeer(t *pdDestroyPeerTask) {
 	delete(r.peerStats, t.regionID)
 }
 
-func (r *pdRunner) sendAdminRequest(regionID uint64, epoch *metapb.RegionEpoch, peer *metapb.Peer, req *raft_cmdpb.AdminRequest, callback *Callback) {
+func (r *pdTaskHandler) sendAdminRequest(regionID uint64, epoch *metapb.RegionEpoch, peer *metapb.Peer, req *raft_cmdpb.AdminRequest, callback *Callback) {
 	cmd := &MsgRaftCmd{
 		SendTime: time.Now(),
 		Request: &raft_cmdpb.RaftCmdRequest{
@@ -280,7 +275,7 @@ func (r *pdRunner) sendAdminRequest(regionID uint64, epoch *metapb.RegionEpoch, 
 	r.router.sendRaftCommand(cmd)
 }
 
-func (r *pdRunner) sendMergeFail(source uint64, target *metapb.Peer) {
+func (r *pdTaskHandler) sendMergeFail(source uint64, target *metapb.Peer) {
 	r.router.send(source, Msg{
 		Type:     MsgTypeMergeResult,
 		RegionID: source,
@@ -291,7 +286,7 @@ func (r *pdRunner) sendMergeFail(source uint64, target *metapb.Peer) {
 	})
 }
 
-func (r *pdRunner) sendDestroyPeer(local *metapb.Region, peer *metapb.Peer, pdRegion *metapb.Region) {
+func (r *pdTaskHandler) sendDestroyPeer(local *metapb.Region, peer *metapb.Peer, pdRegion *metapb.Region) {
 	r.router.send(local.GetId(), Msg{
 		Type:     MsgTypeRaftMessage,
 		RegionID: local.GetId(),

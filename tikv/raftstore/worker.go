@@ -178,26 +178,26 @@ type recvSnapTask struct {
 }
 
 type worker struct {
-	name      string
-	scheduler chan<- task
-	receiver  <-chan task
-	closeCh   chan struct{}
-	wg        *sync.WaitGroup
+	name     string
+	sender   chan<- task
+	receiver <-chan task
+	closeCh  chan struct{}
+	wg       *sync.WaitGroup
 }
 
-type taskRunner interface {
-	run(t task)
+type taskHandler interface {
+	handle(t task)
 }
 
 type starter interface {
 	start()
 }
 
-func (w *worker) start(runner taskRunner) {
+func (w *worker) start(handler taskHandler) {
 	w.wg.Add(1)
 	go func() {
 		defer w.wg.Done()
-		if s, ok := runner.(starter); ok {
+		if s, ok := handler.(starter); ok {
 			s.start()
 		}
 		for {
@@ -205,13 +205,13 @@ func (w *worker) start(runner taskRunner) {
 			if task.tp == taskTypeStop {
 				return
 			}
-			runner.run(task)
+			handler.handle(task)
 		}
 	}()
 }
 
 func (w *worker) stop() {
-	w.scheduler <- task{tp: taskTypeStop}
+	w.sender <- task{tp: taskTypeStop}
 }
 
 const defaultWorkerCapacity = 128
@@ -219,21 +219,21 @@ const defaultWorkerCapacity = 128
 func newWorker(name string, wg *sync.WaitGroup) *worker {
 	ch := make(chan task, defaultWorkerCapacity)
 	return &worker{
-		scheduler: (chan<- task)(ch),
-		receiver:  (<-chan task)(ch),
-		name:      name,
-		wg:        wg,
+		sender:   (chan<- task)(ch),
+		receiver: (<-chan task)(ch),
+		name:     name,
+		wg:       wg,
 	}
 }
 
-type splitCheckRunner struct {
+type splitCheckHandler struct {
 	engine *badger.DB
 	router *router
 	config *splitCheckConfig
 }
 
-func newSplitCheckRunner(engine *badger.DB, router *router, config *splitCheckConfig) *splitCheckRunner {
-	runner := &splitCheckRunner{
+func newSplitCheckRunner(engine *badger.DB, router *router, config *splitCheckConfig) *splitCheckHandler {
+	runner := &splitCheckHandler{
 		engine: engine,
 		router: router,
 		config: config,
@@ -242,7 +242,7 @@ func newSplitCheckRunner(engine *badger.DB, router *router, config *splitCheckCo
 }
 
 /// run checks a region with split checkers to produce split keys and generates split admin command.
-func (r *splitCheckRunner) run(t task) {
+func (r *splitCheckHandler) handle(t task) {
 	spCheckTask := t.data.(*splitCheckTask)
 	region := spCheckTask.region
 	regionId := region.Id
@@ -296,7 +296,7 @@ func exceedEndKey(current, endKey []byte) bool {
 }
 
 /// splitCheck gets the split keys by scanning the range.
-func (r *splitCheckRunner) splitCheck(startKey, endKey []byte, reader *dbreader.DBReader) [][]byte {
+func (r *splitCheckHandler) splitCheck(startKey, endKey []byte, reader *dbreader.DBReader) [][]byte {
 	ite := reader.GetIter()
 	splitKeys := r.tryTableSplit(startKey, endKey, ite)
 	if len(splitKeys) > 0 {
@@ -316,7 +316,7 @@ func (r *splitCheckRunner) splitCheck(startKey, endKey []byte, reader *dbreader.
 	return checker.getSplitKeys()
 }
 
-func (r *splitCheckRunner) tryTableSplit(startKey, endKey []byte, it *badger.Iterator) [][]byte {
+func (r *splitCheckHandler) tryTableSplit(startKey, endKey []byte, it *badger.Iterator) [][]byte {
 	if !isTableKey(startKey) || isSameTable(startKey, endKey) {
 		return nil
 	}
@@ -402,7 +402,7 @@ func (checker *sizeSplitChecker) getSplitKeys() [][]byte {
 	return keys
 }
 
-func (r *splitCheckRunner) halfSplitCheck(startKey, endKey []byte, reader *dbreader.DBReader) [][]byte {
+func (r *splitCheckHandler) halfSplitCheck(startKey, endKey []byte, reader *dbreader.DBReader) [][]byte {
 	var sampleKeys [][]byte
 	cnt := 0
 	ite := reader.GetIter()
@@ -701,7 +701,7 @@ type regionApplyState struct {
 	tableCount int
 }
 
-type regionRunner struct {
+type regionTaskHandler struct {
 	ctx *snapContext
 	// we may delay some apply tasks if level 0 files to write stall threshold,
 	// pending_applies records all delayed apply task, and will check again later
@@ -716,8 +716,8 @@ type regionRunner struct {
 	applyStates []regionApplyState
 }
 
-func newRegionRunner(engines *Engines, mgr *SnapManager, batchSize uint64, cleanStalePeerDelay time.Duration) *regionRunner {
-	return &regionRunner{
+func newRegionTaskHandler(engines *Engines, mgr *SnapManager, batchSize uint64, cleanStalePeerDelay time.Duration) *regionTaskHandler {
+	return &regionTaskHandler{
 		ctx: &snapContext{
 			engiens:             engines,
 			mgr:                 mgr,
@@ -730,11 +730,11 @@ func newRegionRunner(engines *Engines, mgr *SnapManager, batchSize uint64, clean
 	}
 }
 
-func (r *regionRunner) tempFile() (*os.File, error) {
+func (r *regionTaskHandler) tempFile() (*os.File, error) {
 	return ioutil.TempFile(r.ctx.engiens.kvPath, "ingest_convert_*.sst")
 }
 
-func (r *regionRunner) resetBuilder() error {
+func (r *regionTaskHandler) resetBuilder() error {
 	var err error
 	if r.builderFile, err = r.tempFile(); err != nil {
 		return err
@@ -757,7 +757,7 @@ func (r *regionRunner) resetBuilder() error {
 	return nil
 }
 
-func (r *regionRunner) handleApplyResult(result ApplyResult) error {
+func (r *regionTaskHandler) handleApplyResult(result ApplyResult) error {
 	if result.HasPut {
 		if err := r.builder.Finish(); err != nil {
 			return err
@@ -788,7 +788,7 @@ func (r *regionRunner) handleApplyResult(result ApplyResult) error {
 	return nil
 }
 
-func (r *regionRunner) finishApply() error {
+func (r *regionTaskHandler) finishApply() error {
 	log.Infof("apply snapshot ingesting %d tables", len(r.tableFiles))
 	n, err := r.ctx.engiens.kv.DB.IngestExternalFiles(r.tableFiles)
 	if err != nil {
@@ -823,7 +823,7 @@ func (r *regionRunner) finishApply() error {
 }
 
 // handlePendingApplies tries to apply pending tasks if there is some.
-func (r *regionRunner) handlePendingApplies() {
+func (r *regionTaskHandler) handlePendingApplies() {
 	for len(r.pendingApplies) > 0 {
 		// Should not handle too many applies than the number of files that can be ingested.
 		// Check level 0 every time because we can not make sure how does the number of level 0 files change.
@@ -853,7 +853,7 @@ func (r *regionRunner) handlePendingApplies() {
 	}
 }
 
-func (r *regionRunner) run(t task) {
+func (r *regionTaskHandler) handle(t task) {
 	switch t.tp {
 	case taskTypeRegionGen:
 		// It is safe for now to handle generating and applying snapshot concurrently,
@@ -875,13 +875,13 @@ func (r *regionRunner) run(t task) {
 	}
 }
 
-func (r *regionRunner) shutdown() {
+func (r *regionTaskHandler) shutdown() {
 	// todo, currently it is a a place holder.
 }
 
 type raftLogGcTaskRes uint64
 
-type raftLogGCRunner struct {
+type raftLogGCTaskHandler struct {
 	taskResCh chan<- raftLogGcTaskRes
 }
 
@@ -890,7 +890,7 @@ type raftLogGCRunner struct {
 const MaxDeleteBatchSize int = 32 * 1024
 
 // gcRaftLog does the GC job and returns the count of logs collected.
-func (r *raftLogGCRunner) gcRaftLog(raftDb *badger.DB, regionId, startIdx, endIdx uint64) (uint64, error) {
+func (r *raftLogGCTaskHandler) gcRaftLog(raftDb *badger.DB, regionId, startIdx, endIdx uint64) (uint64, error) {
 
 	// Find the raft log idx range needed to be gc.
 	firstIdx := startIdx
@@ -939,14 +939,14 @@ func (r *raftLogGCRunner) gcRaftLog(raftDb *badger.DB, regionId, startIdx, endId
 	return endIdx - firstIdx, nil
 }
 
-func (r *raftLogGCRunner) reportCollected(collected uint64) {
+func (r *raftLogGCTaskHandler) reportCollected(collected uint64) {
 	if r.taskResCh == nil {
 		return
 	}
 	r.taskResCh <- raftLogGcTaskRes(collected)
 }
 
-func (r *raftLogGCRunner) run(t task) {
+func (r *raftLogGCTaskHandler) handle(t task) {
 	logGcTask := t.data.(*raftLogGCTask)
 	log.Debugf("execute gc log. [regionId: %d, endIndex: %d]", logGcTask.regionID, logGcTask.endIdx)
 	collected, err := r.gcRaftLog(logGcTask.raftEngine, logGcTask.regionID, logGcTask.startIdx, logGcTask.endIdx)
@@ -958,18 +958,18 @@ func (r *raftLogGCRunner) run(t task) {
 	r.reportCollected(collected)
 }
 
-type compactRunner struct {
+type compactTaskHandler struct {
 	engine *badger.DB
 }
 
-func (r *compactRunner) run(t task) {
+func (r *compactTaskHandler) handle(t task) {
 	// TODO: stub
 }
 
-type computeHashRunner struct {
+type computeHashTaskHandler struct {
 	router *router
 }
 
-func (r *computeHashRunner) run(t task) {
+func (r *computeHashTaskHandler) handle(t task) {
 	// TODO: stub
 }

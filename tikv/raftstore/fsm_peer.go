@@ -93,8 +93,16 @@ func (pf *peerFsm) regionID() uint64 {
 	return pf.peer.regionId
 }
 
+func (pf *peerFsm) region() *metapb.Region {
+	return pf.peer.Store().region
+}
+
 func (pf *peerFsm) getPeer() *Peer {
 	return pf.peer
+}
+
+func (pf *peerFsm) storeID() uint64 {
+	return pf.peer.Meta.StoreId
 }
 
 func (pf *peerFsm) peerID() uint64 {
@@ -117,23 +125,23 @@ func (pf *peerFsm) hasPendingMergeApplyResult() bool {
 	return pf.peer.PendingMergeApplyResult != nil
 }
 
-type peerFsmDelegate struct {
-	*peerFsm
-	ctx *PollContext
+func (pf *peerFsm) tag() string {
+	return pf.peer.Tag
 }
 
-func newPeerFsmDelegate(fsm *peerFsm, ctx *PollContext) *peerFsmDelegate {
-	return &peerFsmDelegate{
+type peerMsgHandler struct {
+	*peerFsm
+	ctx *RaftContext
+}
+
+func newRaftMsgHandler(fsm *peerFsm, ctx *RaftContext) *peerMsgHandler {
+	return &peerMsgHandler{
 		peerFsm: fsm,
 		ctx:     ctx,
 	}
 }
 
-func (d *peerFsmDelegate) tag() string {
-	return d.peer.Tag
-}
-
-func (d *peerFsmDelegate) handleMsgs(msgs []Msg) {
+func (d *peerMsgHandler) HandleMsgs(msgs ...Msg) {
 	for _, msg := range msgs {
 		switch msg.Type {
 		case MsgTypeRaftMessage:
@@ -180,13 +188,13 @@ func (d *peerFsmDelegate) handleMsgs(msgs []Msg) {
 		case MsgTypeClearRegionSize:
 			d.onClearRegionSize()
 		case MsgTypeStart:
-			d.start()
+			d.startTicker()
 		case MsgTypeNoop:
 		}
 	}
 }
 
-func (d *peerFsmDelegate) onTick() {
+func (d *peerMsgHandler) onTick() {
 	if d.stopped {
 		return
 	}
@@ -209,15 +217,15 @@ func (d *peerFsmDelegate) onTick() {
 	if d.ticker.isOnTick(PeerTickPeerStaleState) {
 		d.onCheckPeerStaleStateTick()
 	}
-	d.ctx.tickDriverCh <- d.regionID()
+	d.ctx.tickDriverSender <- d.regionID()
 }
 
-func (d *peerFsmDelegate) start() {
+func (d *peerMsgHandler) startTicker() {
 	if d.peer.PendingMergeState != nil {
 		d.notifyPrepareMerge()
 	}
 	d.ticker = newTicker(d.regionID(), d.ctx.cfg)
-	d.ctx.tickDriverCh <- d.regionID()
+	d.ctx.tickDriverSender <- d.regionID()
 	d.ticker.schedule(PeerTickRaft)
 	d.ticker.schedule(PeerTickRaftLogGC)
 	d.ticker.schedule(PeerTickSplitRegionCheck)
@@ -226,15 +234,15 @@ func (d *peerFsmDelegate) start() {
 	d.onCheckMerge()
 }
 
-func (d *peerFsmDelegate) notifyPrepareMerge() {
+func (d *peerMsgHandler) notifyPrepareMerge() {
 	// TODO: merge func
 }
 
-func (d *peerFsmDelegate) resumeHandlePendingApplyResult() bool {
+func (d *peerMsgHandler) resumeHandlePendingApplyResult() bool {
 	return false // TODO: merge func
 }
 
-func (d *peerFsmDelegate) onGCSnap(snaps []SnapKeyWithSending) {
+func (d *peerMsgHandler) onGCSnap(snaps []SnapKeyWithSending) {
 	store := d.peer.Store()
 	compactedIdx := store.truncatedIndex()
 	compactedTerm := store.truncatedTerm()
@@ -270,12 +278,12 @@ func (d *peerFsmDelegate) onGCSnap(snaps []SnapKeyWithSending) {
 	}
 }
 
-func (d *peerFsmDelegate) onClearRegionSize() {
+func (d *peerMsgHandler) onClearRegionSize() {
 	d.peer.ApproximateSize = nil
 	d.peer.ApproximateKeys = nil
 }
 
-func (d *peerFsmDelegate) onSignificantMsg(msg *MsgSignificant) {
+func (d *peerMsgHandler) onSignificantMsg(msg *MsgSignificant) {
 	switch msg.Type {
 	case MsgSignificantTypeStatus:
 		// Report snapshot status to the corresponding peer.
@@ -285,7 +293,7 @@ func (d *peerFsmDelegate) onSignificantMsg(msg *MsgSignificant) {
 	}
 }
 
-func (d *peerFsmDelegate) reportSnapshotStatus(toPeerID uint64, status raft.SnapshotStatus) {
+func (d *peerMsgHandler) reportSnapshotStatus(toPeerID uint64, status raft.SnapshotStatus) {
 	toPeer := d.peer.getPeerFromCache(toPeerID)
 	if toPeer == nil {
 		// If to_peer is gone, ignore this snapshot status
@@ -296,7 +304,7 @@ func (d *peerFsmDelegate) reportSnapshotStatus(toPeerID uint64, status raft.Snap
 	d.peer.RaftGroup.ReportSnapshot(toPeerID, status)
 }
 
-func (d *peerFsmDelegate) collectReady(proposals []*regionProposal) []*regionProposal {
+func (d *peerMsgHandler) HandleRaftReadyAppend(proposals []*regionProposal) []*regionProposal {
 	hasReady := d.hasReady
 	d.hasReady = false
 	if !hasReady || d.stopped {
@@ -312,15 +320,15 @@ func (d *peerFsmDelegate) collectReady(proposals []*regionProposal) []*regionPro
 		d.ctx.ReadyRes = append(d.ctx.ReadyRes, readyRes)
 		ss := readyRes.Ready.SoftState
 		if ss != nil && ss.RaftState == raft.StateLeader {
-			d.peer.HeartbeatPd(d.ctx.pdScheduler)
+			d.peer.HeartbeatPd(d.ctx.pdTaskSender)
 		}
 	}
 	return proposals
 }
 
-func (d *peerFsmDelegate) postRaftReadyAppend(ready *raft.Ready, invokeCtx *InvokeContext) {
+func (d *peerMsgHandler) PostRaftReadyPersistent(ready *raft.Ready, invokeCtx *InvokeContext) {
 	isMerging := d.peer.PendingMergeState != nil
-	res := d.peer.PostRaftReadyAppend(d.ctx.trans, d.ctx.applyMsgs, ready, invokeCtx)
+	res := d.peer.PostRaftReadyPersistent(d.ctx.trans, d.ctx.applyMsgs, ready, invokeCtx)
 	d.peer.HandleRaftReadyApply(d.ctx.engine.kv, d.ctx.applyMsgs, ready)
 	hasSnapshot := false
 	if res != nil {
@@ -333,19 +341,7 @@ func (d *peerFsmDelegate) postRaftReadyAppend(ready *raft.Ready, invokeCtx *Invo
 	}
 }
 
-func (d *peerFsmDelegate) regionID() uint64 {
-	return d.peer.regionId
-}
-
-func (d *peerFsmDelegate) region() *metapb.Region {
-	return d.peer.Store().region
-}
-
-func (d *peerFsmDelegate) storeID() uint64 {
-	return d.peer.Meta.StoreId
-}
-
-func (d *peerFsmDelegate) onRaftBaseTick() {
+func (d *peerMsgHandler) onRaftBaseTick() {
 	if d.peer.PendingRemove {
 		return
 	}
@@ -364,7 +360,7 @@ func (d *peerFsmDelegate) onRaftBaseTick() {
 	d.ticker.schedule(PeerTickRaft)
 }
 
-func (d *peerFsmDelegate) onApplyResult(res *applyTaskRes) {
+func (d *peerMsgHandler) onApplyResult(res *applyTaskRes) {
 	if res.destroyPeerID != 0 {
 		y.Assert(res.destroyPeerID == d.peerID())
 		d.destroyPeer(false)
@@ -389,7 +385,7 @@ func (d *peerFsmDelegate) onApplyResult(res *applyTaskRes) {
 	}
 }
 
-func (d *peerFsmDelegate) onRaftMsg(msg *rspb.RaftMessage) error {
+func (d *peerMsgHandler) onRaftMsg(msg *rspb.RaftMessage) error {
 	log.Debugf("%s handle raft message %s from %d to %d",
 		d.tag(), msg.GetMessage().GetMsgType(), msg.GetFromPeer().GetId(), msg.GetToPeer().GetId())
 	if !d.validateRaftMessage(msg) {
@@ -438,14 +434,14 @@ func (d *peerFsmDelegate) onRaftMsg(msg *rspb.RaftMessage) error {
 		return err
 	}
 	if d.peer.AnyNewPeerCatchUp(msg.FromPeer.Id) {
-		d.peer.HeartbeatPd(d.ctx.pdScheduler)
+		d.peer.HeartbeatPd(d.ctx.pdTaskSender)
 	}
 	d.hasReady = true
 	return nil
 }
 
 // return false means the message is invalid, and can be ignored.
-func (d *peerFsmDelegate) validateRaftMessage(msg *rspb.RaftMessage) bool {
+func (d *peerMsgHandler) validateRaftMessage(msg *rspb.RaftMessage) bool {
 	regionID := msg.GetRegionId()
 	from := msg.GetFromPeer()
 	to := msg.GetToPeer()
@@ -465,7 +461,7 @@ func (d *peerFsmDelegate) validateRaftMessage(msg *rspb.RaftMessage) bool {
 /// Checks if the message is sent to the correct peer.
 ///
 /// Returns true means that the message can be dropped silently.
-func (d *peerFsmDelegate) checkMessage(msg *rspb.RaftMessage) bool {
+func (d *peerMsgHandler) checkMessage(msg *rspb.RaftMessage) bool {
 	fromEpoch := msg.GetRegionEpoch()
 	isVoteMsg := isVoteMessage(msg.Message)
 	fromStoreID := msg.FromPeer.GetStoreId()
@@ -491,7 +487,7 @@ func (d *peerFsmDelegate) checkMessage(msg *rspb.RaftMessage) bool {
 	region := d.peer.Region()
 	if IsEpochStale(fromEpoch, region.RegionEpoch) && findPeer(region, fromStoreID) == nil {
 		// The message is stale and not in current region.
-		d.ctx.handleStaleMsg(msg, region.RegionEpoch, isVoteMsg, nil)
+		handleStaleMsg(d.ctx.trans, msg, region.RegionEpoch, isVoteMsg, nil)
 		return true
 	}
 	target := msg.GetToPeer()
@@ -511,11 +507,39 @@ func (d *peerFsmDelegate) checkMessage(msg *rspb.RaftMessage) bool {
 	return false
 }
 
-func (d *peerFsmDelegate) needGCMerge(msg *rspb.RaftMessage) (bool, error) {
+func handleStaleMsg(trans Transport, msg *rspb.RaftMessage, curEpoch *metapb.RegionEpoch,
+	needGC bool, targetRegion *metapb.Region) {
+	regionID := msg.RegionId
+	fromPeer := msg.FromPeer
+	toPeer := msg.ToPeer
+	msgType := msg.Message.GetMsgType()
+
+	if !needGC {
+		log.Infof("[region %d] raft message %s is stale, current %v ignore it",
+			regionID, msgType, curEpoch)
+		return
+	}
+	gcMsg := &rspb.RaftMessage{
+		RegionId:    regionID,
+		FromPeer:    fromPeer,
+		ToPeer:      toPeer,
+		RegionEpoch: curEpoch,
+	}
+	if targetRegion != nil {
+		gcMsg.MergeTarget = targetRegion
+	} else {
+		gcMsg.IsTombstone = true
+	}
+	if err := trans.Send(gcMsg); err != nil {
+		log.Errorf("[region %d] send message failed %v", regionID, err)
+	}
+}
+
+func (d *peerMsgHandler) needGCMerge(msg *rspb.RaftMessage) (bool, error) {
 	return false, nil // TODO: merge func
 }
 
-func (d *peerFsmDelegate) handleGCPeerMsg(msg *rspb.RaftMessage) {
+func (d *peerMsgHandler) handleGCPeerMsg(msg *rspb.RaftMessage) {
 	fromEpoch := msg.RegionEpoch
 	if !IsEpochStale(d.peer.Region().RegionEpoch, fromEpoch) {
 		return
@@ -533,7 +557,7 @@ func (d *peerFsmDelegate) handleGCPeerMsg(msg *rspb.RaftMessage) {
 
 // Returns `None` if the `msg` doesn't contain a snapshot or it contains a snapshot which
 // doesn't conflict with any other snapshots or regions. Otherwise a `SnapKey` is returned.
-func (d *peerFsmDelegate) checkSnapshot(msg *rspb.RaftMessage) (*SnapKey, error) {
+func (d *peerMsgHandler) checkSnapshot(msg *rspb.RaftMessage) (*SnapKey, error) {
 	if msg.Message.Snapshot == nil {
 		return nil, nil
 	}
@@ -616,7 +640,7 @@ func (d *peerFsmDelegate) checkSnapshot(msg *rspb.RaftMessage) (*SnapKey, error)
 	return nil, nil
 }
 
-func (d *peerFsmDelegate) findOverlapRegions(storeMeta *storeMeta, snapRegion *metapb.Region) (result []*metapb.Region) {
+func (d *peerMsgHandler) findOverlapRegions(storeMeta *storeMeta, snapRegion *metapb.Region) (result []*metapb.Region) {
 	it := storeMeta.regionRanges.NewIterator()
 	it.Seek(snapRegion.StartKey)
 	for it.Valid() {
@@ -635,7 +659,7 @@ func (d *peerFsmDelegate) findOverlapRegions(storeMeta *storeMeta, snapRegion *m
 	return
 }
 
-func (d *peerFsmDelegate) handleDestroyPeer(job *DestroyPeerJob) bool {
+func (d *peerMsgHandler) handleDestroyPeer(job *DestroyPeerJob) bool {
 	if job.Initialized {
 		d.ctx.applyMsgs.appendMsg(job.RegionId, NewPeerMsg(MsgTypeApplyDestroy, job.RegionId, nil))
 	}
@@ -647,7 +671,7 @@ func (d *peerFsmDelegate) handleDestroyPeer(job *DestroyPeerJob) bool {
 	return true
 }
 
-func (d *peerFsmDelegate) destroyPeer(mergeByTarget bool) {
+func (d *peerMsgHandler) destroyPeer(mergeByTarget bool) {
 	log.Infof("%s starts destroy [merged_by_target: %v]", d.tag(), mergeByTarget)
 	regionID := d.regionID()
 	// We can't destroy a peer which is applying snapshot.
@@ -657,7 +681,7 @@ func (d *peerFsmDelegate) destroyPeer(mergeByTarget bool) {
 		d.ctx.storeMetaLock.Unlock()
 		// send messages out of store meta lock.
 		d.ctx.applyMsgs.appendMsg(regionID, NewPeerMsg(MsgTypeApplyDestroy, regionID, nil))
-		d.ctx.pdScheduler <- task{
+		d.ctx.pdTaskSender <- task{
 			tp: taskTypePDDestroyPeer,
 			data: &pdDestroyPeerTask{
 				regionID: regionID,
@@ -698,7 +722,7 @@ func (d *peerFsmDelegate) destroyPeer(mergeByTarget bool) {
 	d.ctx.peerEventObserver.OnPeerDestroy(d.peer.getEventContext())
 }
 
-func (d *peerFsmDelegate) onReadyChangePeer(cp changePeer) {
+func (d *peerMsgHandler) onReadyChangePeer(cp changePeer) {
 	changeType := cp.confChange.ChangeType
 	d.peer.RaftGroup.ApplyConfChange(*cp.confChange)
 	if cp.confChange.NodeId == 0 {
@@ -744,7 +768,7 @@ func (d *peerFsmDelegate) onReadyChangePeer(cp changePeer) {
 	if d.peer.IsLeader() {
 		// Notify pd immediately.
 		log.Infof("%s notify pd with change peer region %s", d.tag(), d.region())
-		d.peer.HeartbeatPd(d.ctx.pdScheduler)
+		d.peer.HeartbeatPd(d.ctx.pdTaskSender)
 	}
 	myPeerID := d.peerID()
 
@@ -758,7 +782,7 @@ func (d *peerFsmDelegate) onReadyChangePeer(cp changePeer) {
 	}
 }
 
-func (d *peerFsmDelegate) onReadyCompactLog(firstIndex uint64, truncatedIndex uint64) {
+func (d *peerMsgHandler) onReadyCompactLog(firstIndex uint64, truncatedIndex uint64) {
 	totalCnt := d.peer.LastApplyingIdx - firstIndex
 	// the size of current CompactLog command can be ignored.
 	remainCnt := d.peer.LastApplyingIdx - truncatedIndex - 1
@@ -771,13 +795,13 @@ func (d *peerFsmDelegate) onReadyCompactLog(firstIndex uint64, truncatedIndex ui
 	}
 	d.peer.LastCompactedIdx = raftLogGCTask.endIdx
 	d.peer.Store().CompactTo(raftLogGCTask.endIdx)
-	d.ctx.raftLogGCScheduler <- task{
+	d.ctx.raftLogGCTaskSender <- task{
 		tp:   taskTypeRaftLogGC,
 		data: raftLogGCTask,
 	}
 }
 
-func (d *peerFsmDelegate) onReadySplitRegion(derived *metapb.Region, regions []*metapb.Region) {
+func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*metapb.Region) {
 	d.ctx.storeMetaLock.Lock()
 	defer d.ctx.storeMetaLock.Unlock()
 	meta := d.ctx.storeMeta
@@ -786,12 +810,12 @@ func (d *peerFsmDelegate) onReadySplitRegion(derived *metapb.Region, regions []*
 	d.peer.PostSplit()
 	isLeader := d.peer.IsLeader()
 	if isLeader {
-		d.peer.HeartbeatPd(d.ctx.pdScheduler)
+		d.peer.HeartbeatPd(d.ctx.pdTaskSender)
 		// Notify pd immediately to let it update the region meta.
 		log.Infof("%s notify pd with split count %d", d.tag(), len(regions))
 		// Now pd only uses ReportBatchSplit for history operation show,
 		// so we send it independently here.
-		d.ctx.pdScheduler <- task{
+		d.ctx.pdTaskSender <- task{
 			tp:   taskTypePDReportBatchSplit,
 			data: &pdReportBatchSplitTask{regions: regions},
 		}
@@ -831,7 +855,7 @@ func (d *peerFsmDelegate) onReadySplitRegion(derived *metapb.Region, regions []*
 			d.ctx.router.close(newRegionID)
 		}
 
-		newPeer, err := createPeerFsm(d.ctx.store.Id, d.ctx.cfg, d.ctx.regionScheduler, d.ctx.engine, newRegion)
+		newPeer, err := createPeerFsm(d.ctx.store.Id, d.ctx.cfg, d.ctx.regionTaskSender, d.ctx.engine, newRegion)
 		if err != nil {
 			// peer information is already written into db, can't recover.
 			// there is probably a bug.
@@ -853,7 +877,7 @@ func (d *peerFsmDelegate) onReadySplitRegion(derived *metapb.Region, regions []*
 		if isLeader {
 			// The new peer is likely to become leader, send a heartbeat immediately to reduce
 			// client query miss.
-			newPeer.peer.HeartbeatPd(d.ctx.pdScheduler)
+			newPeer.peer.HeartbeatPd(d.ctx.pdTaskSender)
 		}
 
 		newPeer.peer.Activate(d.ctx.applyMsgs)
@@ -879,43 +903,43 @@ func (d *peerFsmDelegate) onReadySplitRegion(derived *metapb.Region, regions []*
 	d.ctx.peerEventObserver.OnSplitRegion(derived, regions, newPeers)
 }
 
-func (d *peerFsmDelegate) validateMergePeer(targetRegion *metapb.Region) (bool, error) {
+func (d *peerMsgHandler) validateMergePeer(targetRegion *metapb.Region) (bool, error) {
 	return false, nil // TODO: merge func
 }
 
-func (d *peerFsmDelegate) scheduleMerge() error {
+func (d *peerMsgHandler) scheduleMerge() error {
 	return nil // TODO: merge func
 }
 
-func (d *peerFsmDelegate) rollbackMerge() {
+func (d *peerMsgHandler) rollbackMerge() {
 	// TODO: merge func
 }
 
-func (d *peerFsmDelegate) onCheckMerge() {
+func (d *peerMsgHandler) onCheckMerge() {
 	// TODO: merge func
 }
 
-func (d *peerFsmDelegate) onReadyPrepareMerge(region *metapb.Region, state *rspb.MergeState, merged bool) {
+func (d *peerMsgHandler) onReadyPrepareMerge(region *metapb.Region, state *rspb.MergeState, merged bool) {
 	// TODO: merge func
 }
 
-func (d *peerFsmDelegate) onReadyCommitMerge(region, source *metapb.Region) *uint32 {
+func (d *peerMsgHandler) onReadyCommitMerge(region, source *metapb.Region) *uint32 {
 	return nil // TODO: merge func
 }
 
-func (d *peerFsmDelegate) onReadyRollbackMerge(commit uint64, region *metapb.Region) {
+func (d *peerMsgHandler) onReadyRollbackMerge(commit uint64, region *metapb.Region) {
 	// TODO: merge func
 }
 
-func (d *peerFsmDelegate) onMergeResult(target *metapb.Peer, stale bool) {
+func (d *peerMsgHandler) onMergeResult(target *metapb.Peer, stale bool) {
 	// TODO: merge func
 }
 
-func (d *peerFsmDelegate) onStaleMerge() {
+func (d *peerMsgHandler) onStaleMerge() {
 	// TODO: merge func
 }
 
-func (d *peerFsmDelegate) onReadyApplySnapshot(applyResult *ApplySnapResult) {
+func (d *peerMsgHandler) onReadyApplySnapshot(applyResult *ApplySnapResult) {
 	prevRegion := applyResult.PrevRegion
 	region := applyResult.Region
 
@@ -936,7 +960,7 @@ func (d *peerFsmDelegate) onReadyApplySnapshot(applyResult *ApplySnapResult) {
 	d.ctx.peerEventObserver.OnPeerApplySnap(d.peer.getEventContext(), region)
 }
 
-func (d *peerFsmDelegate) onReadyResult(merged bool, execResults []execResult) (*uint32, []execResult) {
+func (d *peerMsgHandler) onReadyResult(merged bool, execResults []execResult) (*uint32, []execResult) {
 	if len(execResults) == 0 {
 		return nil, nil
 	}
@@ -971,11 +995,11 @@ func (d *peerFsmDelegate) onReadyResult(merged bool, execResults []execResult) (
 	return nil, nil
 }
 
-func (d *peerFsmDelegate) checkMergeProposal(msg *raft_cmdpb.RaftCmdRequest) error {
+func (d *peerMsgHandler) checkMergeProposal(msg *raft_cmdpb.RaftCmdRequest) error {
 	return nil // TODO: merge func
 }
 
-func (d *peerFsmDelegate) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.RaftCmdResponse, error) {
+func (d *peerMsgHandler) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.RaftCmdResponse, error) {
 	// Check store_id, make sure that the msg is dispatched to the right place.
 	if err := checkStoreID(req, d.storeID()); err != nil {
 		return nil, err
@@ -1015,7 +1039,7 @@ func (d *peerFsmDelegate) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) 
 	return nil, err
 }
 
-func (d *peerFsmDelegate) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *Callback) {
+func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *Callback) {
 	resp, err := d.preProposeRaftCommand(msg)
 	if err != nil {
 		cb.Done(ErrResp(err))
@@ -1052,7 +1076,7 @@ func (d *peerFsmDelegate) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb 
 	// we will call the callback with timeout error.
 }
 
-func (d *peerFsmDelegate) findSiblingRegion() *metapb.Region {
+func (d *peerMsgHandler) findSiblingRegion() *metapb.Region {
 	var start []byte
 	var skipFirst bool
 	if d.ctx.cfg.RightDeriveWhenSplit {
@@ -1078,7 +1102,7 @@ func (d *peerFsmDelegate) findSiblingRegion() *metapb.Region {
 	return meta.regions[regionID]
 }
 
-func (d *peerFsmDelegate) onRaftGCLogTick() {
+func (d *peerMsgHandler) onRaftGCLogTick() {
 	d.ticker.schedule(PeerTickRaftLogGC)
 
 	// As leader, we would not keep caches for the peers that didn't response heartbeat in the
@@ -1165,11 +1189,11 @@ func (d *peerFsmDelegate) onRaftGCLogTick() {
 	d.proposeRaftCommand(request, nil)
 }
 
-func (d *peerFsmDelegate) onSplitRegionCheckTick() {
+func (d *peerMsgHandler) onSplitRegionCheckTick() {
 	d.ticker.schedule(PeerTickSplitRegionCheck)
 	// To avoid frequent scan, we only add new scan tasks if all previous tasks
 	// have finished.
-	if len(d.ctx.splitCheckScheduler) > 0 {
+	if len(d.ctx.splitCheckTaskSender) > 0 {
 		return
 	}
 
@@ -1179,7 +1203,7 @@ func (d *peerFsmDelegate) onSplitRegionCheckTick() {
 	if d.peer.SizeDiffHint < d.ctx.cfg.RegionSplitCheckDiff {
 		return
 	}
-	d.ctx.splitCheckScheduler <- task{
+	d.ctx.splitCheckTaskSender <- task{
 		tp: taskTypeSplitCheck,
 		data: &splitCheckTask{
 			region: d.region(),
@@ -1201,13 +1225,13 @@ func isSameTable(leftKey, rightKey []byte) bool {
 		bytes.Compare(leftKey[:tablecodec.TableSplitKeyLen], rightKey[:tablecodec.TableSplitKeyLen]) == 0
 }
 
-func (d *peerFsmDelegate) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, splitKeys [][]byte, cb *Callback) {
+func (d *peerMsgHandler) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, splitKeys [][]byte, cb *Callback) {
 	if err := d.validateSplitRegion(regionEpoch, splitKeys); err != nil {
 		cb.Done(ErrResp(err))
 		return
 	}
 	region := d.region()
-	d.ctx.pdScheduler <- task{
+	d.ctx.pdTaskSender <- task{
 		tp: taskTypePDAskBatchSplit,
 		data: &pdAskBatchSplitTask{
 			region:      region,
@@ -1219,7 +1243,7 @@ func (d *peerFsmDelegate) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, 
 	}
 }
 
-func (d *peerFsmDelegate) validateSplitRegion(epoch *metapb.RegionEpoch, splitKeys [][]byte) error {
+func (d *peerMsgHandler) validateSplitRegion(epoch *metapb.RegionEpoch, splitKeys [][]byte) error {
 	if len(splitKeys) == 0 {
 		err := errors.Errorf("%s no split key is specified", d.tag())
 		log.Error(err)
@@ -1258,19 +1282,19 @@ func (d *peerFsmDelegate) validateSplitRegion(epoch *metapb.RegionEpoch, splitKe
 	return nil
 }
 
-func (d *peerFsmDelegate) onApproximateRegionSize(size uint64) {
+func (d *peerMsgHandler) onApproximateRegionSize(size uint64) {
 	d.peer.ApproximateSize = &size
 }
 
-func (d *peerFsmDelegate) onApproximateRegionKeys(keys uint64) {
+func (d *peerMsgHandler) onApproximateRegionKeys(keys uint64) {
 	d.peer.ApproximateKeys = &keys
 }
 
-func (d *peerFsmDelegate) onCompactionDeclinedBytes(declinedBytes uint64) {
+func (d *peerMsgHandler) onCompactionDeclinedBytes(declinedBytes uint64) {
 	d.peer.CompactionDeclinedBytes += declinedBytes
 }
 
-func (d *peerFsmDelegate) onScheduleHalfSplitRegion(regionEpoch *metapb.RegionEpoch) {
+func (d *peerMsgHandler) onScheduleHalfSplitRegion(regionEpoch *metapb.RegionEpoch) {
 	if !d.peer.IsLeader() {
 		log.Warnf("%s not leader, skip", d.tag())
 		return
@@ -1280,7 +1304,7 @@ func (d *peerFsmDelegate) onScheduleHalfSplitRegion(regionEpoch *metapb.RegionEp
 		log.Warnf("%s receive a stale halfsplit message", d.tag())
 		return
 	}
-	d.ctx.splitCheckScheduler <- task{
+	d.ctx.splitCheckTaskSender <- task{
 		tp: taskTypeHalfSplitCheck,
 		data: &splitCheckTask{
 			region: region,
@@ -1288,17 +1312,17 @@ func (d *peerFsmDelegate) onScheduleHalfSplitRegion(regionEpoch *metapb.RegionEp
 	}
 }
 
-func (d *peerFsmDelegate) onPDHeartbeatTick() {
+func (d *peerMsgHandler) onPDHeartbeatTick() {
 	d.ticker.schedule(PeerTickPdHeartbeat)
 	d.peer.CheckPeers()
 
 	if !d.peer.IsLeader() {
 		return
 	}
-	d.peer.HeartbeatPd(d.ctx.pdScheduler)
+	d.peer.HeartbeatPd(d.ctx.pdTaskSender)
 }
 
-func (d *peerFsmDelegate) onCheckPeerStaleStateTick() {
+func (d *peerMsgHandler) onCheckPeerStaleStateTick() {
 	if d.peer.PendingRemove {
 		return
 	}
@@ -1333,7 +1357,7 @@ func (d *peerFsmDelegate) onCheckPeerStaleStateTick() {
 		// for peer B in case 1 above
 		log.Warnf("%s leader missing longer than max_leader_missing_duration %v. To check with pd whether it's still valid",
 			d.tag(), d.ctx.cfg.AbnormalLeaderMissingDuration)
-		d.ctx.pdScheduler <- task{
+		d.ctx.pdTaskSender <- task{
 			tp: taskTypePDValidatePeer,
 			data: &pdValidatePeerTask{
 				region: d.region(),
@@ -1343,10 +1367,10 @@ func (d *peerFsmDelegate) onCheckPeerStaleStateTick() {
 	}
 }
 
-func (d *peerFsmDelegate) onReadyComputeHash(region *metapb.Region, index uint64, snap *mvcc.DBSnapshot) {
+func (d *peerMsgHandler) onReadyComputeHash(region *metapb.Region, index uint64, snap *mvcc.DBSnapshot) {
 	d.peer.ConsistencyState.LastCheckTime = time.Now()
 	log.Infof("%s schedule compute hash task", d.tag())
-	d.ctx.computeHashScheduler <- task{
+	d.ctx.computeHashTaskSender <- task{
 		tp: taskTypeComputeHash,
 		data: &computeHashTask{
 			region: region,
@@ -1356,11 +1380,11 @@ func (d *peerFsmDelegate) onReadyComputeHash(region *metapb.Region, index uint64
 	}
 }
 
-func (d *peerFsmDelegate) onReadyVerifyHash(expectedIndex uint64, expectedHash []byte) {
+func (d *peerMsgHandler) onReadyVerifyHash(expectedIndex uint64, expectedHash []byte) {
 	d.verifyAndStoreHash(expectedIndex, expectedHash)
 }
 
-func (d *peerFsmDelegate) onHashComputed(index uint64, hash []byte) {
+func (d *peerMsgHandler) onHashComputed(index uint64, hash []byte) {
 	if !d.verifyAndStoreHash(index, hash) {
 		return
 	}
@@ -1369,7 +1393,7 @@ func (d *peerFsmDelegate) onHashComputed(index uint64, hash []byte) {
 }
 
 /// Verify and store the hash to state. return true means the hash has been stored successfully.
-func (d *peerFsmDelegate) verifyAndStoreHash(expectedIndex uint64, expectedHash []byte) bool {
+func (d *peerMsgHandler) verifyAndStoreHash(expectedIndex uint64, expectedHash []byte) bool {
 	state := d.peer.ConsistencyState
 	index := state.Index
 	if expectedIndex < index {
@@ -1456,7 +1480,7 @@ func newCompactLogRequest(regionID uint64, peer *metapb.Peer, compactIndex, comp
 // to another file later.
 // Unlike other commands (write or admin), status commands only show current
 // store status, so no need to handle it in raft group.
-func (d *peerFsmDelegate) executeStatusCommand(request *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.RaftCmdResponse, error) {
+func (d *peerMsgHandler) executeStatusCommand(request *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.RaftCmdResponse, error) {
 	cmdType := request.StatusRequest.CmdType
 	var response *raft_cmdpb.StatusResponse
 	switch cmdType {
@@ -1480,7 +1504,7 @@ func (d *peerFsmDelegate) executeStatusCommand(request *raft_cmdpb.RaftCmdReques
 	return resp, nil // TODO: stub
 }
 
-func (d *peerFsmDelegate) executeRegionLeader() *raft_cmdpb.StatusResponse {
+func (d *peerMsgHandler) executeRegionLeader() *raft_cmdpb.StatusResponse {
 	resp := &raft_cmdpb.StatusResponse{}
 	if leader := d.peer.getPeerFromCache(d.peer.LeaderId()); leader != nil {
 		resp.RegionLeader = &raft_cmdpb.RegionLeaderResponse{
@@ -1490,7 +1514,7 @@ func (d *peerFsmDelegate) executeRegionLeader() *raft_cmdpb.StatusResponse {
 	return resp
 }
 
-func (d *peerFsmDelegate) executeRegionDetail(request *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.StatusResponse, error) {
+func (d *peerMsgHandler) executeRegionDetail(request *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.StatusResponse, error) {
 	if !d.peer.isInitialized() {
 		regionID := request.Header.RegionId
 		return nil, errors.Errorf("region %d not initialized", regionID)

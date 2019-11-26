@@ -91,7 +91,7 @@ type raftWorker struct {
 	pr *router
 
 	raftCh        chan Msg
-	raftCtx       *PollContext
+	raftCtx       *RaftContext
 	raftStartTime time.Time
 
 	applyCh  chan *applyBatch
@@ -102,16 +102,21 @@ type raftWorker struct {
 	closeCh           <-chan struct{}
 }
 
-func newRaftWorker(b *raftPollerBuilder, ch chan Msg, pm *router) *raftWorker {
-	pollCtx := b.build()
-	// Make one apply router for each apply context to collect apply Msgs.
-	pollCtx.applyMsgs = &applyMsgs{}
+func newRaftWorker(ctx *GlobalContext, ch chan Msg, pm *router) *raftWorker {
+	raftCtx := &RaftContext{
+		GlobalContext: ctx,
+		applyMsgs:     new(applyMsgs),
+		queuedSnaps:   make(map[uint64]struct{}),
+		kvWB:          new(WriteBatch),
+		raftWB:        new(WriteBatch),
+		localStats:    new(storeStats),
+	}
 	return &raftWorker{
 		raftCh:   ch,
-		raftCtx:  pollCtx,
+		raftCtx:  raftCtx,
 		pr:       pm,
 		applyCh:  make(chan *applyBatch, 1),
-		applyCtx: newApplyContext("", b.regionScheduler, b.engines, ch, b.cfg),
+		applyCtx: newApplyContext("", ctx.regionTaskSender, ctx.engine, ch, ctx.cfg),
 	}
 }
 
@@ -149,20 +154,19 @@ func (rw *raftWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
 				continue
 			}
 			peerState := rw.getPeerState(peerStateMap, msg.RegionID)
-			delegate := &peerFsmDelegate{peerFsm: peerState.peer, ctx: rw.raftCtx}
-			delegate.handleMsgs([]Msg{msg})
+			newRaftMsgHandler(peerState.peer, rw.raftCtx).HandleMsgs(msg)
 		}
 		var movePeer uint64
 		for id, peerState := range peerStateMap {
 			movePeer = id
-			delegate := &peerFsmDelegate{peerFsm: peerState.peer, ctx: rw.raftCtx}
-			batch.proposals = delegate.collectReady(batch.proposals)
+			batch.proposals = newRaftMsgHandler(peerState.peer, rw.raftCtx).HandleRaftReadyAppend(batch.proposals)
 		}
 		// Pick one peer as the candidate to be moved to other workers.
 		atomic.StoreUint64(&rw.movePeerCandidate, movePeer)
 		if rw.raftCtx.hasReady {
 			rw.handleRaftReady(peerStateMap, batch)
 		}
+		rw.raftCtx.flushLocalStats()
 		doneRaftTime := time.Now()
 		batch.iterCallbacks(func(cb *Callback) {
 			cb.raftBeginTime = rw.raftStartTime
@@ -211,7 +215,7 @@ func (rw *raftWorker) handleRaftReady(peers map[uint64]*peerState, batch *applyB
 	if len(readyRes) > 0 {
 		for _, pair := range readyRes {
 			regionID := pair.IC.RegionID
-			newPeerFsmDelegate(peers[regionID].peer, rw.raftCtx).postRaftReadyAppend(&pair.Ready, pair.IC)
+			newRaftMsgHandler(peers[regionID].peer, rw.raftCtx).PostRaftReadyPersistent(&pair.Ready, pair.IC)
 		}
 	}
 	dur := time.Since(rw.raftStartTime)
@@ -271,7 +275,7 @@ func (rw *raftWorker) runApply(wg *sync.WaitGroup) {
 
 // storeWorker runs store commands.
 type storeWorker struct {
-	store *storeFsmDelegate
+	store *storeMsgHandler
 }
 
 func (sw *storeWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
@@ -283,7 +287,7 @@ func (sw *storeWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
 			return
 		case msg = <-sw.store.receiver:
 		}
-		sw.store.handleMessages([]Msg{msg})
+		sw.store.handleMsg(msg)
 	}
 }
 

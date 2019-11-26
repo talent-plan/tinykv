@@ -942,7 +942,7 @@ func RegionEqual(l, r *metapb.Region) bool {
 }
 
 // Update the memory state after ready changes are flushed to disk successfully.
-func (ps *PeerStorage) PostReady(ctx *InvokeContext) *ApplySnapResult {
+func (ps *PeerStorage) PostReadyPersistent(ctx *InvokeContext) *ApplySnapResult {
 	ps.raftState = ctx.RaftState
 	ps.applyState = ctx.ApplyState
 	ps.lastTerm = ctx.lastTerm

@@ -28,7 +28,7 @@ func newResolverRunner(pdClient pd.Client) *resolverRunner {
 	}
 }
 
-func (r *resolverRunner) run(t task) {
+func (r *resolverRunner) handle(t task) {
 	data := t.data.(resolveAddrTask)
 	data.callback(r.getAddr(data.storeID))
 }

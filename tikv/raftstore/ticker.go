@@ -43,7 +43,7 @@ func newStoreTicker(cfg *Config) *ticker {
 	return t
 }
 
-// tickClock should be called when peerFsmDelegate received tick message.
+// tickClock should be called when peerMsgHandler received tick message.
 func (t *ticker) tickClock() {
 	t.tick++
 }
