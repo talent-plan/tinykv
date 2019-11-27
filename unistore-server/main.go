@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"flag"
+	"google.golang.org/grpc/keepalive"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -13,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/coocood/badger"
@@ -91,7 +93,13 @@ func main() {
 
 	tikvServer := tikv.NewServer(regionManager, store, innerServer)
 
+	var alivePolicy = keepalive.EnforcementPolicy{
+		MinTime:             2 * time.Second, // If a client pings more than once every 2 seconds, terminate the connection
+		PermitWithoutStream: true,            // Allow pings even when there are no active streams
+	}
+
 	grpcServer := grpc.NewServer(
+		grpc.KeepaliveEnforcementPolicy(alivePolicy),
 		grpc.InitialWindowSize(grpcInitialWindowSize),
 		grpc.InitialConnWindowSize(grpcInitialConnWindowSize),
 		grpc.MaxRecvMsgSize(10*1024*1024),

@@ -22,8 +22,9 @@ func newRaftConn(addr string, cfg *Config) (*raftConn, error) {
 	cc, err := grpc.Dial(addr, grpc.WithInsecure(),
 		grpc.WithInitialWindowSize(int32(cfg.GrpcInitialWindowSize)),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:    cfg.GrpcKeepAliveTime,
-			Timeout: cfg.GrpcKeepAliveTimeout,
+			Time:                cfg.GrpcKeepAliveTime,
+			Timeout:             cfg.GrpcKeepAliveTimeout,
+			PermitWithoutStream: true,
 		}))
 	if err != nil {
 		return nil, err
