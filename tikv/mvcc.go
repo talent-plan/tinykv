@@ -409,6 +409,10 @@ func (store *MVCCStore) prewritePessimistic(reqCtx *requestCtx, mutations []*kvr
 				// Duplicated command.
 				return nil
 			}
+			// Do not overwrite lock ttl if prewrite ttl smaller than pessimisitc lock ttl
+			if uint64(lock.TTL) > req.LockTtl {
+				req.LockTtl = uint64(lock.TTL)
+			}
 		} else {
 			// non pessimistic lock in pessimistic transaction, e.g. non-unique index.
 			valid := !lockExists || lockMatch
