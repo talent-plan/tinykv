@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 	"unsafe"
+
+	"github.com/ngaut/log"
 )
 
 // MemStore is a skiplist variant used to store lock.
@@ -251,6 +253,7 @@ func (ls *MemStore) Insert(key []byte, v []byte) bool {
 		prev[i], next[i], exists = ls.findSpliceForLevel(ls.getArena(), key, prev[i+1], i)
 		if exists {
 			// The save key already exists.
+			log.Error("the save key already exists key=%v", key)
 			return false
 		}
 	}

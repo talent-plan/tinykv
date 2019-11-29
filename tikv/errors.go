@@ -68,3 +68,25 @@ type ErrConflict struct {
 func (e *ErrConflict) Error() string {
 	return "write conflict"
 }
+
+// ErrCommitExpire is returned when commit key commitTs smaller than lock.MinCommitTs
+type ErrCommitExpire struct {
+	StartTs     uint64
+	CommitTs    uint64
+	MinCommitTs uint64
+	Key         []byte
+}
+
+func (e *ErrCommitExpire) Error() string {
+	return "commit expired"
+}
+
+// ErrTxnNotFound is returned if the required txn info not found on storage
+type ErrTxnNotFound struct {
+	StartTS    uint64
+	PrimaryKey []byte
+}
+
+func (e *ErrTxnNotFound) Error() string {
+	return "txn not found"
+}

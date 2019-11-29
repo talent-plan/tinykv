@@ -248,8 +248,9 @@ func (store *MVCCStore) TxnHeartBeat(reqCtx *requestCtx, req *kvrpcpb.TxnHeartBe
 	return 0, errors.New("lock doesn't exists")
 }
 
+// CheckTxnStatus returns the txn status based on request primary key txn info
 func (store *MVCCStore) CheckTxnStatus(reqCtx *requestCtx,
-	req *kvrpcpb.CheckTxnStatusRequest) (ttl, commitTS uint64, err error) {
+	req *kvrpcpb.CheckTxnStatusRequest) (ttl, commitTS uint64, action kvrpcpb.Action, err error) {
 	hashVals := keysToHashVals(req.PrimaryKey)
 	regCtx := reqCtx.regCtx
 	regCtx.AcquireLatches(hashVals)
@@ -260,11 +261,12 @@ func (store *MVCCStore) CheckTxnStatus(reqCtx *requestCtx,
 		// If the lock has already outdated, clean up it.
 		if uint64(oracle.ExtractPhysical(lock.StartTS))+uint64(lock.TTL) < uint64(oracle.ExtractPhysical(req.CurrentTs)) {
 			batch.Rollback(req.PrimaryKey, true)
-			return 0, 0, store.dbWriter.Write(batch)
+			return 0, 0, kvrpcpb.Action_TTLExpireRollback, store.dbWriter.Write(batch)
 		}
 		// If this is a large transaction and the lock is active, push forward the minCommitTS.
 		// lock.minCommitTS == 0 may be a secondary lock, or not a large transaction.
 		if lock.MinCommitTS > 0 {
+			action = kvrpcpb.Action_MinCommitTSPushed
 			// We *must* guarantee the invariance lock.minCommitTS >= callerStartTS + 1
 			if lock.MinCommitTS < req.CallerStartTs+1 {
 				lock.MinCommitTS = req.CallerStartTs + 1
@@ -275,21 +277,42 @@ func (store *MVCCStore) CheckTxnStatus(reqCtx *requestCtx,
 				if lock.MinCommitTS < req.CurrentTs {
 					lock.MinCommitTS = req.CurrentTs
 				}
+				batch.PessimisticRollback(req.PrimaryKey)
 				batch.PessimisticLock(req.PrimaryKey, lock)
 				if err = store.dbWriter.Write(batch); err != nil {
-					return 0, 0, err
+					return 0, 0, action, err
 				}
 			}
 		}
-		return uint64(lock.TTL), 0, nil
+		return uint64(lock.TTL), 0, action, nil
 	}
+
+	// The current transaction lock not exists, check the transaction commit info
 	commitTS, err = store.checkCommitted(reqCtx.getDBReader(), req.PrimaryKey, req.LockTs)
-	if commitTS == 0 {
-		// TODO: this is temporary solution. we should be able to check the status without rollback.
+	if commitTS > 0 {
+		return
+	}
+	// Check if the transaction already rollbacked
+	if len(store.rollbackStore.Get(req.PrimaryKey, nil)) > 0 {
+		action = kvrpcpb.Action_NoAction
+		return
+	}
+	// If current transaction is not prewritted before, it may be pessimistic lock.
+	// When pessimistic txn rollback statement, it may not leave a 'rollbacked' tombstone.
+	// Or maybe caused by concurrent prewrite operation.
+	// Especially in the non-block reading case, the secondary lock is likely to be
+	// written before the primary lock.
+	// Currently client will always set this flag to true when resolving locks
+	if req.RollbackIfNotExist {
 		batch.Rollback(req.PrimaryKey, false)
 		err = store.dbWriter.Write(batch)
+		action = kvrpcpb.Action_LockNotExistRollback
+		return
 	}
-	return
+	return 0, 0, action, &ErrTxnNotFound{
+		PrimaryKey: req.PrimaryKey,
+		StartTS:    req.LockTs,
+	}
 }
 
 func (store *MVCCStore) handleCheckPessimisticErr(startTS uint64, err error, isFirstLock bool) (*lockwaiter.Waiter, error) {
@@ -451,9 +474,10 @@ func (store *MVCCStore) buildPrewriteLock(reqCtx *requestCtx, m *kvrpcpb.Mutatio
 	req *kvrpcpb.PrewriteRequest) (*mvcc.MvccLock, error) {
 	lock := &mvcc.MvccLock{
 		MvccLockHdr: mvcc.MvccLockHdr{
-			StartTS:    req.StartVersion,
-			TTL:        uint32(req.LockTtl),
-			PrimaryLen: uint16(len(req.PrimaryLock)),
+			StartTS:     req.StartVersion,
+			TTL:         uint32(req.LockTtl),
+			PrimaryLen:  uint16(len(req.PrimaryLock)),
+			MinCommitTS: req.MinCommitTs,
 		},
 		Primary: req.PrimaryLock,
 		Value:   m.Value,
@@ -544,6 +568,16 @@ func (store *MVCCStore) Commit(req *requestCtx, keys [][]byte, startTS, commitTS
 		lock := mvcc.DecodeLock(buf)
 		if lock.StartTS != startTS {
 			return ErrReplaced
+		}
+		if commitTS < lock.MinCommitTS {
+			log.Infof("trying to commit with smaller commitTs=%v than minCommitTs=%v, key=%v",
+				commitTS, lock.MinCommitTS, key)
+			return &ErrCommitExpire{
+				StartTs:     startTS,
+				CommitTs:    commitTS,
+				MinCommitTs: lock.MinCommitTS,
+				Key:         key,
+			}
 		}
 		isPessimisticTxn = lock.ForUpdateTS > 0
 		tmpDiff += len(key) + len(lock.Value)
