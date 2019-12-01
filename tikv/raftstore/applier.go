@@ -963,6 +963,9 @@ func createWriteCmdOps(requests []*raft_cmdpb.Request) (ops writeCmdOps) {
 				// This is collapse rollback, since we do local rollback GC, we can ignore it.
 			case CFLock:
 				// This is pessimistic rollback.
+				ops.rollbacks = append(ops.rollbacks, rollbackOp{
+					delLock: req.Delete,
+				})
 			default:
 				panic("unreachable")
 			}
@@ -1108,15 +1111,24 @@ func (a *applier) getLock(aCtx *applyContext, rawKey []byte) []byte {
 }
 
 func (a *applier) execRollback(aCtx *applyContext, op rollbackOp) {
-	remain, rawKey, err := codec.DecodeBytes(op.putWrite.Key, nil)
-	if err != nil {
-		panic(op.putWrite.Key)
+	if op.putWrite != nil {
+		remain, rawKey, err := codec.DecodeBytes(op.putWrite.Key, nil)
+		if err != nil {
+			panic(op.putWrite.Key)
+		}
+		aCtx.wb.Rollback(append(rawKey, remain...))
+		if op.delLock != nil {
+			aCtx.wb.DeleteLock(rawKey, a.getLock(aCtx, rawKey))
+		}
+		return
 	}
-	aCtx.wb.Rollback(append(rawKey, remain...))
 	if op.delLock != nil {
+		_, rawKey, err := codec.DecodeBytes(op.delLock.Key, nil)
+		if err != nil {
+			panic(op.delLock.Key)
+		}
 		aCtx.wb.DeleteLock(rawKey, a.getLock(aCtx, rawKey))
 	}
-	return
 }
 
 func (a *applier) execDeleteRange(aCtx *applyContext, req *raft_cmdpb.DeleteRangeRequest) {

@@ -716,10 +716,11 @@ func (p *Peer) OnRoleChanged(observer PeerEventObserver, ready *raft.Ready) {
 			if !p.PendingRemove {
 				p.leaderChecker.term.Store(p.Term())
 			}
+			observer.OnRoleChange(p.getEventContext().RegionId, ss.RaftState)
 		} else if ss.RaftState == raft.StateFollower {
 			p.leaderLease.Expire()
+			observer.OnRoleChange(p.getEventContext().RegionId, ss.RaftState)
 		}
-		observer.OnRoleChange(p.getEventContext().RegionId, ss.RaftState)
 	}
 }
 
