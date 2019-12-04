@@ -7,7 +7,9 @@ import (
 	"github.com/coocood/badger"
 	"github.com/coocood/badger/y"
 	"github.com/juju/errors"
+	"github.com/ngaut/unistore/rowcodec"
 	"github.com/ngaut/unistore/tikv/mvcc"
+	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 )
 
 func NewDBReader(startKey, endKey []byte, txn *badger.Txn, safePoint uint64) *DBReader {
@@ -22,8 +24,12 @@ func NewDBReader(startKey, endKey []byte, txn *badger.Txn, safePoint uint64) *DB
 func NewIterator(txn *badger.Txn, reverse bool, startKey, endKey []byte) *badger.Iterator {
 	opts := badger.DefaultIteratorOptions
 	opts.Reverse = reverse
-	opts.StartKey = y.KeyWithTs(startKey, math.MaxUint64)
-	opts.EndKey = y.KeyWithTs(endKey, math.MaxUint64)
+	if len(startKey) > 0 {
+		opts.StartKey = y.KeyWithTs(startKey, math.MaxUint64)
+	}
+	if len(endKey) > 0 {
+		opts.EndKey = y.KeyWithTs(endKey, math.MaxUint64)
+	}
 	return txn.NewIterator(opts)
 }
 
@@ -36,6 +42,98 @@ type DBReader struct {
 	revIter   *badger.Iterator
 	oldIter   *badger.Iterator
 	safePoint uint64
+}
+
+// GetMvccInfoByKey fills MvccInfo reading committed keys from db
+func (r *DBReader) GetMvccInfoByKey(key []byte, isRowKey bool, mvccInfo *kvrpcpb.MvccInfo) error {
+	err := r.getKeyWithMeta(key, isRowKey, uint64(math.MaxUint64), mvccInfo)
+	if err != nil {
+		return err
+	}
+	if len(mvccInfo.Writes) > 0 {
+		err = r.getOldKeysWithMeta(key, mvccInfo.Writes[0].CommitTs, isRowKey, mvccInfo)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// getKeyWithMeta will try to get current key without looking for historical version
+func (r *DBReader) getKeyWithMeta(key []byte, isRowKey bool, startTs uint64, mvccInfo *kvrpcpb.MvccInfo) error {
+	item, err := r.txn.Get(key)
+	if err != nil && err != badger.ErrKeyNotFound {
+		return errors.Trace(err)
+	}
+	if err == badger.ErrKeyNotFound {
+		return nil
+	}
+	dbUsrMeta := mvcc.DBUserMeta(item.UserMeta())
+	if dbUsrMeta.CommitTS() <= startTs {
+		var val []byte
+		if isRowKey {
+			val, err = item.Value()
+			if err != nil {
+				return err
+			}
+			val, err = rowcodec.RowToOldRow(val, nil)
+			if err != nil {
+				return err
+			}
+		} else {
+			val, err = item.ValueCopy(nil)
+			if err != nil {
+				return err
+			}
+		}
+		curRecord := &kvrpcpb.MvccWrite{
+			Type:       kvrpcpb.Op_Put,
+			StartTs:    dbUsrMeta.StartTS(),
+			CommitTs:   dbUsrMeta.CommitTS(),
+			ShortValue: val,
+		}
+		mvccInfo.Writes = append(mvccInfo.Writes, curRecord)
+	}
+	return nil
+}
+
+// getOldKeysWithMeta will try to fill mvccInfo with all the historical committed records
+func (r *DBReader) getOldKeysWithMeta(key []byte, startTs uint64, isRowKey bool, mvccInfo *kvrpcpb.MvccInfo) error {
+	oldKey := mvcc.EncodeOldKey(key, startTs)
+	iter := r.GetIter()
+	for iter.Seek(oldKey); iter.ValidForPrefix(oldKey[:len(oldKey)-8]); iter.Next() {
+		item := iter.Item()
+		oldUsrMeta := mvcc.OldUserMeta(item.UserMeta())
+		commitTs, err := mvcc.DecodeOldKeyCommitTs(item.Key())
+		if err != nil {
+			return err
+		}
+		var val []byte
+		if isRowKey {
+			val, err = item.Value()
+			if err != nil {
+				return err
+			}
+			val, err = rowcodec.RowToOldRow(val, nil)
+			if err != nil {
+				return err
+			}
+		} else {
+			val, err = item.ValueCopy(nil)
+			if err != nil {
+				return err
+			}
+		}
+		curRecord := &kvrpcpb.MvccWrite{
+			Type:       kvrpcpb.Op_Put,
+			StartTs:    oldUsrMeta.StartTS(),
+			CommitTs:   commitTs,
+			ShortValue: val,
+		}
+		mvccInfo.Writes = append(mvccInfo.Writes, curRecord)
+	}
+
+	return nil
 }
 
 func (r *DBReader) Get(key []byte, startTS uint64) ([]byte, error) {

@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"unsafe"
 
+	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/util/codec"
 )
 
@@ -107,6 +108,18 @@ func EncodeOldKey(key []byte, ts uint64) []byte {
 	ret := codec.EncodeUintDesc(b, ts)
 	ret[0]++
 	return ret
+}
+
+// DecodeOldKeyCommitTs decodes commitTs from encoded old key
+func DecodeOldKeyCommitTs(key []byte) (uint64, error) {
+	if len(key) < 8 {
+		return 0, errors.Errorf("invalid input key=%v length=%d less than 8 bytes", key, len(key))
+	}
+	_, res, err := codec.DecodeUintDesc(key[len(key)-8:])
+	if err != nil {
+		return 0, err
+	}
+	return res, nil
 }
 
 // EncodeRollbackKey encodes a rollback key.

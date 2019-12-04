@@ -905,6 +905,40 @@ func (store *MVCCStore) StartDeadlockDetection(ctx context.Context, pdClient pd.
 	return nil
 }
 
+func (store *MVCCStore) MvccGetByKey(reqCtx *requestCtx, key []byte) (*kvrpcpb.MvccInfo, error) {
+	mvccInfo := &kvrpcpb.MvccInfo{}
+	lock := store.getLock(reqCtx, key)
+	if lock != nil {
+		mvccInfo.Lock = &kvrpcpb.MvccLock{
+			Type:       kvrpcpb.Op(lock.Op),
+			StartTs:    lock.StartTS,
+			Primary:    lock.Primary,
+			ShortValue: lock.Value,
+		}
+	}
+	reader := reqCtx.getDBReader()
+	isRowKey := rowcodec.IsRowKey(key)
+	// Get commit writes from db
+	err := reader.GetMvccInfoByKey(key, isRowKey, mvccInfo)
+	if err != nil {
+		return nil, err
+	}
+	// Get rollback writes from rollback store
+	it := store.rollbackStore.NewIterator()
+	rbStartKey := mvcc.EncodeRollbackKey(reqCtx.buf, key, uint64(math.MaxUint64))
+	for it.Seek(rbStartKey); it.Valid() && bytes.HasPrefix(it.Key(), key); it.Next() {
+		rollbackTs := mvcc.DecodeRollbackTS(it.Key())
+		curRecord := &kvrpcpb.MvccWrite{
+			Type:       kvrpcpb.Op_Rollback,
+			StartTs:    rollbackTs,
+			CommitTs:   rollbackTs,
+			ShortValue: safeCopy(it.Value()),
+		}
+		mvccInfo.Writes = append(mvccInfo.Writes, curRecord)
+	}
+	return mvccInfo, nil
+}
+
 type SafePoint struct {
 	timestamp uint64
 }

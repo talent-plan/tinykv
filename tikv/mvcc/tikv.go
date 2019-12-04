@@ -43,7 +43,7 @@ func ParseWriteCFValue(data []byte) (wv WriteCFValue, err error) {
 const (
 	shortValuePrefix = 'v'
 	forUpdatePrefix  = 'f'
-	shortValueMaxLen = 64
+	ShortValueMaxLen = 64
 )
 
 // EncodeWriteCFValue accepts a write cf parameters and return the encoded bytes data.
@@ -77,7 +77,7 @@ func EncodeLockCFValue(lock *MvccLock) ([]byte, []byte) {
 	var longValue []byte
 	data = codec.EncodeUvarint(codec.EncodeCompactBytes(data, lock.Primary), lock.StartTS)
 	data = codec.EncodeUvarint(data, uint64(lock.TTL))
-	if len(lock.Value) <= shortValueMaxLen {
+	if len(lock.Value) <= ShortValueMaxLen {
 		if len(lock.Value) != 0 {
 			data = append(data, byte(shortValuePrefix), byte(len(lock.Value)))
 			data = append(data, lock.Value...)

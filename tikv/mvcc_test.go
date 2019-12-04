@@ -250,6 +250,7 @@ func MustRollbackKey(key []byte, startTs uint64, store *TestStore, c *C) {
 func TestMvcc(t *testing.T) {
 	TestingT(t)
 }
+
 func (s *testMvccSuite) TestBasicOptimistic(c *C) {
 	var err error
 	store, err := NewTestStore("basic_optimistic_db", "basic_optimistic_log")
@@ -473,4 +474,74 @@ func (s *testMvccSuite) TestCheckTxnStatus(c *C) {
 	c.Assert(resCommitTs, Equals, uint64(41))
 	c.Assert(err, IsNil)
 	c.Assert(action, Equals, kvrpcpb.Action_NoAction)
+}
+
+func (s *testMvccSuite) TestMvccGetByKey(c *C) {
+	var err error
+	store, err := NewTestStore("TestMvccGetByKey", "TestMvccGetByKey")
+	c.Assert(err, IsNil)
+	defer CleanTestStore(store)
+
+	lockTTL := uint64(100)
+	pk := []byte("pk")
+	pkVal := []byte("pkVal")
+	startTs1 := uint64(1)
+	commitTs1 := uint64(2)
+	// write one record
+	MustPrewriteOptimistic(pk, pk, pkVal, startTs1, lockTTL, 0, store, c)
+	MustCommitKey(pk, pkVal, startTs1, commitTs1, store, c)
+
+	// update this record
+	startTs2 := uint64(3)
+	commitTs2 := uint64(4)
+	newVal := []byte("aba")
+	MustPrewriteOptimistic(pk, pk, newVal, startTs2, lockTTL, 0, store, c)
+	MustCommitKey(pk, newVal, startTs2, commitTs2, store, c)
+
+	// read using mvcc
+	reqCtx := &requestCtx{
+		regCtx: &regionCtx{
+			latches: make(map[uint64]*sync.WaitGroup),
+		},
+		svr: store.Svr,
+	}
+	var res *kvrpcpb.MvccInfo
+	res, err = store.MvccStore.MvccGetByKey(reqCtx, pk)
+	c.Assert(err, IsNil)
+	c.Assert(len(res.Writes), Equals, 2)
+
+	// prewrite and then rollback
+	// Add a Rollback whose start ts is 5.
+	startTs3 := uint64(5)
+	rollbackVal := []byte("rollbackVal")
+	MustPrewriteOptimistic(pk, pk, rollbackVal, startTs3, lockTTL, 0, store, c)
+	MustRollbackKey(pk, startTs3, store, c)
+
+	// put empty value
+	startTs4 := uint64(7)
+	commitTs4 := uint64(8)
+	emptyVal := []byte("")
+	MustPrewriteOptimistic(pk, pk, emptyVal, startTs4, lockTTL, 0, store, c)
+	MustCommitKey(pk, emptyVal, startTs4, commitTs4, store, c)
+
+	// read using mvcc
+	reqCtx.reader = nil
+	res, err = store.MvccStore.MvccGetByKey(reqCtx, pk)
+	c.Assert(err, IsNil)
+	c.Assert(len(res.Writes), Equals, 4)
+	c.Assert(res.Writes[2].StartTs, Equals, startTs1)
+	c.Assert(res.Writes[2].CommitTs, Equals, commitTs1)
+	c.Assert(bytes.Compare(res.Writes[2].ShortValue, pkVal), Equals, 0)
+
+	c.Assert(res.Writes[1].StartTs, Equals, startTs2)
+	c.Assert(res.Writes[1].CommitTs, Equals, commitTs2)
+	c.Assert(bytes.Compare(res.Writes[1].ShortValue, newVal), Equals, 0)
+
+	c.Assert(res.Writes[0].StartTs, Equals, startTs4)
+	c.Assert(res.Writes[0].CommitTs, Equals, commitTs4)
+	c.Assert(bytes.Compare(res.Writes[0].ShortValue, emptyVal), Equals, 0)
+
+	c.Assert(res.Writes[3].StartTs, Equals, startTs3)
+	c.Assert(res.Writes[3].CommitTs, Equals, startTs3)
+	c.Assert(bytes.Compare(res.Writes[3].ShortValue, []byte{0}), Equals, 0)
 }
