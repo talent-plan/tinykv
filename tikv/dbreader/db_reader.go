@@ -147,29 +147,11 @@ func (r *DBReader) Get(key []byte, startTS uint64) ([]byte, error) {
 	if mvcc.DBUserMeta(item.UserMeta()).CommitTS() <= startTS {
 		return item.Value()
 	}
-	return r.getOld(key, startTS)
-}
-
-func (r *DBReader) getOld(key []byte, startTS uint64) ([]byte, error) {
-	oldKey := mvcc.EncodeOldKey(key, startTS)
-	iter := r.GetIter()
-	iter.Seek(oldKey)
-	if !iter.ValidForPrefix(oldKey[:len(oldKey)-8]) {
-		return nil, nil
+	item = r.getOldItem(key, startTS)
+	if item != nil && !item.IsEmpty() {
+		return item.Value()
 	}
-	item := iter.Item()
-	nextCommitTs := mvcc.OldUserMeta(item.UserMeta()).NextCommitTS()
-	if nextCommitTs < r.safePoint {
-		// This entry is eligible for GC. Normally we will not see this version.
-		// But when the latest version is DELETE and it is GCed first,
-		// we may end up here, so we should ignore the obsolete version.
-		return nil, nil
-	}
-	if nextCommitTs <= startTS {
-		// There should be a newer entry for this key, so ignore this entry.
-		return nil, nil
-	}
-	return item.Value()
+	return nil, nil
 }
 
 func (r *DBReader) GetIter() *badger.Iterator {
@@ -214,7 +196,10 @@ func (r *DBReader) BatchGet(keys [][]byte, startTS uint64, f BatchGetFunc) {
 			if mvcc.DBUserMeta(item.UserMeta()).CommitTS() <= startTS {
 				val, err = item.Value()
 			} else {
-				val, err = r.getOld(keys[i], startTS)
+				item = r.getOldItem(keys[i], startTS)
+				if item != nil && !item.IsEmpty() {
+					val, err = item.Value()
+				}
 			}
 		}
 		f(key, val, err)
@@ -253,8 +238,8 @@ func (r *DBReader) Scan(startKey, endKey []byte, limit int, startTS uint64, proc
 		}
 		var err error
 		if mvcc.DBUserMeta(item.UserMeta()).CommitTS() > startTS {
-			item, err = r.getOldItem(mvcc.EncodeOldKey(key, startTS))
-			if err != nil {
+			item = r.getOldItem(key, startTS)
+			if item == nil {
 				continue
 			}
 		}
@@ -283,17 +268,25 @@ func (r *DBReader) Scan(startKey, endKey []byte, limit int, startTS uint64, proc
 	return nil
 }
 
-func (r *DBReader) getOldItem(oldKey []byte) (*badger.Item, error) {
+func (r *DBReader) getOldItem(key []byte, startTS uint64) *badger.Item {
+	oldKey := mvcc.EncodeOldKey(key, startTS)
 	oldIter := r.GetOldIter()
 	oldIter.Seek(oldKey)
-	if !oldIter.ValidForPrefix(oldKey[:len(oldKey)-8]) {
-		return nil, badger.ErrKeyNotFound
+	for oldIter.ValidForPrefix(oldKey[:len(oldKey)-8]) {
+		item := oldIter.Item()
+		nextCommitTS := mvcc.OldUserMeta(item.UserMeta()).NextCommitTS()
+		if nextCommitTS < r.safePoint {
+			// Ignore the obsolete version.
+			return nil
+		}
+		if nextCommitTS == mvcc.DecodeKeyTS(item.Key()) {
+			// Ignore Op_Lock old entry.
+			oldIter.Next()
+			continue
+		}
+		return item
 	}
-	if mvcc.OldUserMeta(oldIter.Item().UserMeta()).NextCommitTS() < r.safePoint {
-		// Ignore the obsolete version.
-		return nil, badger.ErrKeyNotFound
-	}
-	return oldIter.Item(), nil
+	return nil
 }
 
 // ReverseScan implements the MVCCStore interface. The search range is [startKey, endKey).
@@ -312,8 +305,8 @@ func (r *DBReader) ReverseScan(startKey, endKey []byte, limit int, startTS uint6
 		}
 		var err error
 		if mvcc.DBUserMeta(item.UserMeta()).CommitTS() > startTS {
-			item, err = r.getOldItem(mvcc.EncodeOldKey(key, startTS))
-			if err != nil {
+			item = r.getOldItem(key, startTS)
+			if item == nil {
 				continue
 			}
 		}

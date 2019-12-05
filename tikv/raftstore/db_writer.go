@@ -68,12 +68,19 @@ func (wb *raftWriteBatch) Prewrite(key []byte, lock *mvcc.MvccLock, isPessimisti
 
 func (wb *raftWriteBatch) Commit(key []byte, lock *mvcc.MvccLock) {
 	encodedKey := codec.EncodeBytes(nil, key)
+	writeType := mvcc.WriteTypePut
+	switch lock.Op {
+	case byte(kvrpcpb.Op_Lock):
+		writeType = mvcc.WriteTypeLock
+	case byte(kvrpcpb.Op_Del):
+		writeType = mvcc.WriteTypeDelete
+	}
 	putWriteReq := &rcpb.Request{
 		CmdType: rcpb.CmdType_Put,
 		Put: &rcpb.PutRequest{
 			Cf:    CFWrite,
 			Key:   codec.EncodeUintDesc(encodedKey, wb.commitTS),
-			Value: mvcc.EncodeWriteCFValue(mvcc.WriteTypePut, lock.StartTS, lock.Value),
+			Value: mvcc.EncodeWriteCFValue(writeType, lock.StartTS, lock.Value),
 		},
 	}
 	delLockReq := &rcpb.Request{

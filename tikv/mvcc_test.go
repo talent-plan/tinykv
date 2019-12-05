@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"os"
 	"sync"
-	"testing"
 
 	"github.com/coocood/badger"
 	"github.com/ngaut/unistore/lockstore"
@@ -25,6 +24,25 @@ type TestStore struct {
 	Svr       *Server
 	DBPath    string
 	LogPath   string
+}
+
+func (ts *TestStore) newReqCtx() *requestCtx {
+	return &requestCtx{
+		regCtx: &regionCtx{
+			latches:  make(map[uint64]*sync.WaitGroup),
+			startKey: []byte{'t'},
+			endKey:   []byte{'u'},
+		},
+		svr: ts.Svr,
+	}
+}
+
+func newMutation(op kvrpcpb.Op, key, value []byte) *kvrpcpb.Mutation {
+	return &kvrpcpb.Mutation{
+		Op:    op,
+		Key:   key,
+		Value: value,
+	}
 }
 
 func CreateTestDB(dbPath, LogPath string) (*badger.DB, error) {
@@ -73,124 +91,52 @@ func CleanTestStore(store *TestStore) {
 // PessimisticLock will add pessimistic lock on key
 func PessimisticLock(pk []byte, key []byte, startTs uint64, lockTTL uint64, forUpdateTs uint64,
 	isFirstLock bool, store *TestStore) (*lockwaiter.Waiter, error) {
-	mut := &kvrpcpb.Mutation{
-		Op:    kvrpcpb.Op_PessimisticLock,
-		Key:   key,
-		Value: []byte(""),
-	}
-	reqCtx := &requestCtx{
-		regCtx: &regionCtx{
-			latches: make(map[uint64]*sync.WaitGroup),
-		},
-		svr: store.Svr,
-	}
 	req := &kvrpcpb.PessimisticLockRequest{
-		Mutations:    []*kvrpcpb.Mutation{mut},
+		Mutations:    []*kvrpcpb.Mutation{newMutation(kvrpcpb.Op_PessimisticLock, key, nil)},
 		PrimaryLock:  pk,
 		StartVersion: startTs,
 		LockTtl:      lockTTL,
 		ForUpdateTs:  forUpdateTs,
 		IsFirstLock:  isFirstLock,
 	}
-	waiter, err := store.MvccStore.PessimisticLock(reqCtx, req)
+	waiter, err := store.MvccStore.PessimisticLock(store.newReqCtx(), req)
 	return waiter, err
 }
 
 // PrewriteOptimistic raises optimistic prewrite requests on store
 func PrewriteOptimistic(pk []byte, key []byte, value []byte, startTs uint64, lockTTL uint64,
 	minCommitTs uint64, store *TestStore) error {
-	var err error
-	mut := &kvrpcpb.Mutation{
-		Op:    kvrpcpb.Op_Put,
-		Key:   key,
-		Value: value,
-	}
-	reqCtx := &requestCtx{
-		regCtx: &regionCtx{
-			latches: make(map[uint64]*sync.WaitGroup),
-		},
-		svr: store.Svr,
-	}
 	prewriteReq := &kvrpcpb.PrewriteRequest{
-		Mutations:    []*kvrpcpb.Mutation{mut},
+		Mutations:    []*kvrpcpb.Mutation{newMutation(kvrpcpb.Op_Put, key, value)},
 		PrimaryLock:  pk,
 		StartVersion: startTs,
 		LockTtl:      lockTTL,
 		MinCommitTs:  minCommitTs,
 	}
-	err = store.MvccStore.prewriteOptimistic(reqCtx, prewriteReq.Mutations, prewriteReq)
-	return err
+	return store.MvccStore.prewriteOptimistic(store.newReqCtx(), prewriteReq.Mutations, prewriteReq)
 }
 
 // PrewritePessimistic raises pessmistic prewrite requests
 func PrewritePessimistic(pk []byte, key []byte, value []byte, startTs uint64, lockTTL uint64,
 	isPessimisticLock []bool, forUpdateTs uint64, store *TestStore) error {
-	var err error
-	mut := &kvrpcpb.Mutation{
-		Op:    kvrpcpb.Op_Put,
-		Key:   key,
-		Value: value,
-	}
-	reqCtx := &requestCtx{
-		regCtx: &regionCtx{
-			latches: make(map[uint64]*sync.WaitGroup),
-		},
-		svr: store.Svr,
-	}
 	prewriteReq := &kvrpcpb.PrewriteRequest{
-		Mutations:         []*kvrpcpb.Mutation{mut},
+		Mutations:         []*kvrpcpb.Mutation{newMutation(kvrpcpb.Op_Put, key, value)},
 		PrimaryLock:       pk,
 		StartVersion:      startTs,
 		LockTtl:           lockTTL,
 		IsPessimisticLock: isPessimisticLock,
 		ForUpdateTs:       forUpdateTs,
 	}
-	err = store.MvccStore.prewritePessimistic(reqCtx, prewriteReq.Mutations, prewriteReq)
-	return err
-}
-
-// CommitKey will commit key specified
-func CommitKey(key []byte, startTs, commitTs uint64, store *TestStore) error {
-	reqCtx := &requestCtx{
-		regCtx: &regionCtx{
-			latches: make(map[uint64]*sync.WaitGroup),
-		},
-		svr: store.Svr,
-	}
-	err := store.MvccStore.Commit(reqCtx, [][]byte{key}, startTs, commitTs)
-	return err
+	return store.MvccStore.prewritePessimistic(store.newReqCtx(), prewriteReq.Mutations, prewriteReq)
 }
 
 func KvGet(key []byte, readTs uint64, store *TestStore) ([]byte, error) {
-	rCtx1 := &requestCtx{
-		regCtx: &regionCtx{
-			latches: make(map[uint64]*sync.WaitGroup),
-		},
-		svr: store.Svr,
-	}
-	getVal, err := rCtx1.getDBReader().Get(key, readTs)
+	getVal, err := store.newReqCtx().getDBReader().Get(key, readTs)
 	return getVal, err
-}
-
-func RollBackKey(key []byte, startTs uint64, store *TestStore) error {
-	reqCtx := &requestCtx{
-		regCtx: &regionCtx{
-			latches: make(map[uint64]*sync.WaitGroup),
-		},
-		svr: store.Svr,
-	}
-	err := store.MvccStore.Rollback(reqCtx, [][]byte{key}, startTs)
-	return err
 }
 
 func CheckTxnStatus(pk []byte, lockTs uint64, callerStartTs uint64,
 	currentTs uint64, rollbackIfNotExists bool, store *TestStore) (uint64, uint64, kvrpcpb.Action, error) {
-	reqCtx := &requestCtx{
-		regCtx: &regionCtx{
-			latches: make(map[uint64]*sync.WaitGroup),
-		},
-		svr: store.Svr,
-	}
 	req := &kvrpcpb.CheckTxnStatusRequest{
 		PrimaryKey:         pk,
 		LockTs:             lockTs,
@@ -198,20 +144,14 @@ func CheckTxnStatus(pk []byte, lockTs uint64, callerStartTs uint64,
 		CurrentTs:          currentTs,
 		RollbackIfNotExist: rollbackIfNotExists,
 	}
-	resTTL, resCommitTs, action, err := store.MvccStore.CheckTxnStatus(reqCtx, req)
+	resTTL, resCommitTs, action, err := store.MvccStore.CheckTxnStatus(store.newReqCtx(), req)
 	return resTTL, resCommitTs, action, err
 }
 
 func MustPrewriteOptimistic(pk []byte, key []byte, value []byte, startTs uint64, lockTTL uint64,
 	minCommitTs uint64, store *TestStore, c *C) {
 	c.Assert(PrewriteOptimistic(pk, key, value, startTs, lockTTL, minCommitTs, store), IsNil)
-	reqCtx := &requestCtx{
-		regCtx: &regionCtx{
-			latches: make(map[uint64]*sync.WaitGroup),
-		},
-		svr: store.Svr,
-	}
-	lock := store.MvccStore.getLock(reqCtx, key)
+	lock := store.MvccStore.getLock(store.newReqCtx(), key)
 	c.Assert(uint64(lock.TTL), Equals, lockTTL)
 	c.Assert(bytes.Compare(lock.Value, value), Equals, 0)
 }
@@ -219,36 +159,25 @@ func MustPrewriteOptimistic(pk []byte, key []byte, value []byte, startTs uint64,
 func MustPrewritePessimistic(pk []byte, key []byte, value []byte, startTs uint64, lockTTL uint64,
 	isPessimisticLock []bool, forUpdateTs uint64, store *TestStore, c *C) {
 	c.Assert(PrewritePessimistic(pk, key, value, startTs, lockTTL, isPessimisticLock, forUpdateTs, store), IsNil)
-	reqCtx := &requestCtx{
-		regCtx: &regionCtx{
-			latches: make(map[uint64]*sync.WaitGroup),
-		},
-		svr: store.Svr,
-	}
-	lock := store.MvccStore.getLock(reqCtx, key)
+	lock := store.MvccStore.getLock(store.newReqCtx(), key)
 	c.Assert(lock.ForUpdateTS, Equals, forUpdateTs)
 	c.Assert(bytes.Compare(lock.Value, value), Equals, 0)
 }
 
 func MustCommitKey(key, val []byte, startTs, commitTs uint64, store *TestStore, c *C) {
-	err := CommitKey(key, startTs, commitTs, store)
+	err := store.MvccStore.Commit(store.newReqCtx(), [][]byte{key}, startTs, commitTs)
 	c.Assert(err, IsNil)
-	c.Assert(err, IsNil)
-	getVal, err := KvGet(key, commitTs, store)
+	getVal, err := store.newReqCtx().getDBReader().Get(key, commitTs)
 	c.Assert(err, IsNil)
 	c.Assert(bytes.Compare(getVal, val), Equals, 0)
 }
 
 func MustRollbackKey(key []byte, startTs uint64, store *TestStore, c *C) {
-	err := RollBackKey(key, startTs, store)
+	err := store.MvccStore.Rollback(store.newReqCtx(), [][]byte{key}, startTs)
 	c.Assert(err, IsNil)
 	rollbackKey := mvcc.EncodeRollbackKey(nil, key, startTs)
 	res := store.MvccStore.rollbackStore.Get(rollbackKey, nil)
 	c.Assert(bytes.Compare(res, []byte{0}), Equals, 0)
-}
-
-func TestMvcc(t *testing.T) {
-	TestingT(t)
 }
 
 func (s *testMvccSuite) TestBasicOptimistic(c *C) {
@@ -263,7 +192,7 @@ func (s *testMvccSuite) TestBasicOptimistic(c *C) {
 	MustPrewriteOptimistic(key1, key1, val1, 1, ttl, 0, store, c)
 	MustCommitKey(key1, val1, 1, 2, store, c)
 	// Read using smaller ts results in nothing
-	getVal, err := KvGet(key1, 1, store)
+	getVal, err := store.newReqCtx().getDBReader().Get(key1, 1)
 	c.Assert(getVal, IsNil)
 }
 
@@ -282,14 +211,8 @@ func (s *testMvccSuite) TestPessimiticTxnTTL(c *C) {
 	c.Assert(err, IsNil)
 
 	// Prewrite key1 with smaller lock ttl, lock ttl will not be changed
-	reqCtx := &requestCtx{
-		regCtx: &regionCtx{
-			latches: make(map[uint64]*sync.WaitGroup),
-		},
-		svr: store.Svr,
-	}
 	MustPrewritePessimistic(key1, key1, val1, startTs, lockTTL-500, []bool{true}, startTs, store, c)
-	lock := store.MvccStore.getLock(reqCtx, key1)
+	lock := store.MvccStore.getLock(store.newReqCtx(), key1)
 	c.Assert(uint64(lock.TTL), Equals, uint64(1000))
 
 	key2 := []byte("key2")
@@ -299,7 +222,7 @@ func (s *testMvccSuite) TestPessimiticTxnTTL(c *C) {
 
 	// Prewrite key1 with larger lock ttl, lock ttl will be updated
 	MustPrewritePessimistic(key2, key2, val2, 3, 2000, []bool{true}, 3, store, c)
-	lock2 := store.MvccStore.getLock(reqCtx, key2)
+	lock2 := store.MvccStore.getLock(store.newReqCtx(), key2)
 	c.Assert(uint64(lock2.TTL), Equals, uint64(2000))
 }
 
@@ -339,28 +262,19 @@ func (s *testMvccSuite) TestOverwritePessimisitcLock(c *C) {
 	// pessimistic lock one key
 	_, err = PessimisticLock(key, key, startTs, lockTTL, forUpdateTs, true, store)
 	c.Assert(err, IsNil)
-
-	reqCtx := &requestCtx{
-		regCtx: &regionCtx{
-			latches: make(map[uint64]*sync.WaitGroup),
-		},
-		svr: store.Svr,
-	}
-	lock := store.MvccStore.getLock(reqCtx, key)
+	lock := store.MvccStore.getLock(store.newReqCtx(), key)
 	c.Assert(lock.ForUpdateTS, Equals, forUpdateTs)
 
 	// pessimistic lock this key again using larger forUpdateTs
 	_, err = PessimisticLock(key, key, startTs, lockTTL, forUpdateTs+7, true, store)
 	c.Assert(err, IsNil)
-	reqCtx.buf = nil
-	lock2 := store.MvccStore.getLock(reqCtx, key)
+	lock2 := store.MvccStore.getLock(store.newReqCtx(), key)
 	c.Assert(lock2.ForUpdateTS, Equals, forUpdateTs+7)
 
 	// pessimistic lock one key using smaller forUpdateTsTs
 	_, err = PessimisticLock(key, key, startTs, lockTTL, forUpdateTs-7, true, store)
 	c.Assert(err, IsNil)
-	reqCtx.buf = nil
-	lock3 := store.MvccStore.getLock(reqCtx, key)
+	lock3 := store.MvccStore.getLock(store.newReqCtx(), key)
 	c.Assert(lock3.ForUpdateTS, Equals, forUpdateTs+7)
 }
 
@@ -407,13 +321,7 @@ func (s *testMvccSuite) TestCheckTxnStatus(c *C) {
 	c.Assert(resCommitTs, Equals, uint64(0))
 	c.Assert(err, IsNil)
 	c.Assert(action, Equals, kvrpcpb.Action_MinCommitTSPushed)
-	reqCtx := &requestCtx{
-		regCtx: &regionCtx{
-			latches: make(map[uint64]*sync.WaitGroup),
-		},
-		svr: store.Svr,
-	}
-	lock := store.MvccStore.getLock(reqCtx, pk)
+	lock := store.MvccStore.getLock(store.newReqCtx(), pk)
 	c.Assert(lock.StartTS, Equals, startTs)
 	c.Assert(uint64(lock.TTL), Equals, lockTTL)
 	c.Assert(lock.MinCommitTS, Equals, newCallerTs+1)
@@ -424,8 +332,7 @@ func (s *testMvccSuite) TestCheckTxnStatus(c *C) {
 	c.Assert(resCommitTs, Equals, uint64(0))
 	c.Assert(err, IsNil)
 	c.Assert(action, Equals, kvrpcpb.Action_MinCommitTSPushed)
-	reqCtx.buf = nil
-	lock = store.MvccStore.getLock(reqCtx, pk)
+	lock = store.MvccStore.getLock(store.newReqCtx(), pk)
 	c.Assert(lock.StartTS, Equals, startTs)
 	c.Assert(uint64(lock.TTL), Equals, lockTTL)
 	c.Assert(lock.MinCommitTS, Equals, newCallerTs+1)
@@ -438,8 +345,7 @@ func (s *testMvccSuite) TestCheckTxnStatus(c *C) {
 	c.Assert(resCommitTs, Equals, uint64(0))
 	c.Assert(err, IsNil)
 	c.Assert(action, Equals, kvrpcpb.Action_MinCommitTSPushed)
-	reqCtx.buf = nil
-	lock = store.MvccStore.getLock(reqCtx, pk)
+	lock = store.MvccStore.getLock(store.newReqCtx(), pk)
 	c.Assert(lock.StartTS, Equals, startTs)
 	c.Assert(uint64(lock.TTL), Equals, lockTTL)
 	c.Assert(lock.MinCommitTS, Equals, newCallerTs+1) // minCommitTS updated to 36
@@ -451,15 +357,14 @@ func (s *testMvccSuite) TestCheckTxnStatus(c *C) {
 	c.Assert(resCommitTs, Equals, uint64(0))
 	c.Assert(err, IsNil)
 	c.Assert(action, Equals, kvrpcpb.Action_MinCommitTSPushed)
-	reqCtx.buf = nil
-	lock = store.MvccStore.getLock(reqCtx, pk)
+	lock = store.MvccStore.getLock(store.newReqCtx(), pk)
 	c.Assert(lock.StartTS, Equals, startTs)
 	c.Assert(uint64(lock.TTL), Equals, lockTTL)
 	c.Assert(lock.MinCommitTS, Equals, newCallerTs+1) // minCommitTS updated to 36
 
 	// commit this key, commitTs(35) smaller than minCommitTs(36)
 	commitTs := uint64(35)
-	err = CommitKey(pk, startTs, commitTs, store)
+	err = store.MvccStore.Commit(store.newReqCtx(), [][]byte{pk}, startTs, commitTs)
 	c.Assert(err, NotNil)
 
 	// commit this key, using correct commitTs
@@ -483,7 +388,7 @@ func (s *testMvccSuite) TestMvccGetByKey(c *C) {
 	defer CleanTestStore(store)
 
 	lockTTL := uint64(100)
-	pk := []byte("pk")
+	pk := []byte("tpk")
 	pkVal := []byte("pkVal")
 	startTs1 := uint64(1)
 	commitTs1 := uint64(2)
@@ -499,14 +404,8 @@ func (s *testMvccSuite) TestMvccGetByKey(c *C) {
 	MustCommitKey(pk, newVal, startTs2, commitTs2, store, c)
 
 	// read using mvcc
-	reqCtx := &requestCtx{
-		regCtx: &regionCtx{
-			latches: make(map[uint64]*sync.WaitGroup),
-		},
-		svr: store.Svr,
-	}
 	var res *kvrpcpb.MvccInfo
-	res, err = store.MvccStore.MvccGetByKey(reqCtx, pk)
+	res, err = store.MvccStore.MvccGetByKey(store.newReqCtx(), pk)
 	c.Assert(err, IsNil)
 	c.Assert(len(res.Writes), Equals, 2)
 
@@ -525,8 +424,7 @@ func (s *testMvccSuite) TestMvccGetByKey(c *C) {
 	MustCommitKey(pk, emptyVal, startTs4, commitTs4, store, c)
 
 	// read using mvcc
-	reqCtx.reader = nil
-	res, err = store.MvccStore.MvccGetByKey(reqCtx, pk)
+	res, err = store.MvccStore.MvccGetByKey(store.newReqCtx(), pk)
 	c.Assert(err, IsNil)
 	c.Assert(len(res.Writes), Equals, 4)
 	c.Assert(res.Writes[2].StartTs, Equals, startTs1)
@@ -544,4 +442,60 @@ func (s *testMvccSuite) TestMvccGetByKey(c *C) {
 	c.Assert(res.Writes[3].StartTs, Equals, startTs3)
 	c.Assert(res.Writes[3].CommitTs, Equals, startTs3)
 	c.Assert(bytes.Compare(res.Writes[3].ShortValue, []byte{0}), Equals, 0)
+}
+
+func (s *testMvccSuite) TestPrimaryKeyOpLock(c *C) {
+	store, err := NewTestStore("PrimaryKeyOpLock", "PrimaryKeyOpLock")
+	c.Assert(err, IsNil)
+	defer CleanTestStore(store)
+
+	pk := func() []byte { return []byte("tpk") }
+	err = store.MvccStore.Prewrite(store.newReqCtx(), &kvrpcpb.PrewriteRequest{
+		Mutations:    []*kvrpcpb.Mutation{newMutation(kvrpcpb.Op_Lock, pk(), nil)},
+		PrimaryLock:  pk(),
+		StartVersion: 100,
+		LockTtl:      100,
+	})
+	c.Assert(err, IsNil)
+	err = store.MvccStore.Commit(store.newReqCtx(), [][]byte{pk()}, 100, 101)
+	c.Assert(err, IsNil)
+	_, commitTS, _, _ := CheckTxnStatus(pk(), 100, 110, 110, false, store)
+	c.Assert(commitTS, Equals, uint64(101))
+
+	val := []byte("val")
+	err = store.MvccStore.Prewrite(store.newReqCtx(), &kvrpcpb.PrewriteRequest{
+		Mutations:    []*kvrpcpb.Mutation{newMutation(kvrpcpb.Op_Put, pk(), val)},
+		PrimaryLock:  pk(),
+		StartVersion: 110,
+		LockTtl:      100,
+	})
+	c.Assert(err, IsNil)
+	err = store.MvccStore.Commit(store.newReqCtx(), [][]byte{pk()}, 110, 111)
+	c.Assert(err, IsNil)
+
+	err = store.MvccStore.Prewrite(store.newReqCtx(), &kvrpcpb.PrewriteRequest{
+		Mutations:    []*kvrpcpb.Mutation{newMutation(kvrpcpb.Op_Lock, pk(), val)},
+		PrimaryLock:  pk(),
+		StartVersion: 120,
+		LockTtl:      100,
+	})
+	c.Assert(err, IsNil)
+	err = store.MvccStore.Commit(store.newReqCtx(), [][]byte{pk()}, 120, 121)
+	c.Assert(err, IsNil)
+
+	_, commitTS, _, _ = CheckTxnStatus(pk(), 120, 130, 130, false, store)
+	c.Assert(commitTS, Equals, uint64(121))
+
+	getVal, err := store.newReqCtx().getDBReader().Get(pk(), 90)
+	c.Assert(err, IsNil)
+	c.Assert(getVal, IsNil)
+	getVal, err = store.newReqCtx().getDBReader().Get(pk(), 110)
+	c.Assert(err, IsNil)
+	c.Assert(getVal, IsNil)
+	getVal, err = store.newReqCtx().getDBReader().Get(pk(), 111)
+	c.Assert(err, IsNil)
+	c.Assert(getVal, DeepEquals, []byte("val"))
+	getVal, err = store.newReqCtx().getDBReader().Get(pk(), 130)
+	c.Assert(err, IsNil)
+	c.Assert(getVal, DeepEquals, []byte("val"))
 }

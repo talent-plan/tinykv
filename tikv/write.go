@@ -1,6 +1,7 @@
 package tikv
 
 import (
+	"bytes"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -194,7 +195,7 @@ func (w rollbackGCWorker) run() {
 		it := rollbackStore.NewIterator()
 		latestTS := w.writer.getLatestTS()
 		for it.SeekToFirst(); it.Valid(); it.Next() {
-			ts := mvcc.DecodeRollbackTS(it.Key())
+			ts := mvcc.DecodeKeyTS(it.Key())
 			if tsSub(latestTS, ts) > time.Minute {
 				lockBatch.rollbackGC(safeCopy(it.Key()))
 			}
@@ -295,12 +296,27 @@ func (wb *writeBatch) Prewrite(key []byte, lock *mvcc.MvccLock, isPessimisticLoc
 }
 
 func (wb *writeBatch) Commit(key []byte, lock *mvcc.MvccLock) {
+	userMeta := mvcc.NewDBUserMeta(wb.startTS, wb.commitTS)
 	if lock.Op != uint8(kvrpcpb.Op_Lock) {
-		userMeta := mvcc.NewDBUserMeta(wb.startTS, wb.commitTS)
 		wb.dbBatch.set(key, lock.Value, userMeta)
 		if lock.HasOldVer {
 			oldKey := mvcc.EncodeOldKey(key, lock.OldMeta.CommitTS())
 			wb.dbBatch.set(oldKey, lock.OldVal, lock.OldMeta.ToOldUserMeta(wb.commitTS))
+		}
+	} else if bytes.Equal(key, lock.Primary) {
+		// For primary key with Op_Lock type, the value need to be skipped, but we need to keep the transaction status.
+		// So we put it as old key directly.
+		if lock.HasOldVer {
+			// There is a latest value, we don't want to move the value to the old key space for performance and simplicity.
+			// Write the lock as old key directly to store the transaction status.
+			// The old entry doesn't have value as Delete entry, but we can compare the commitTS in key and NextCommitTS
+			// in the user meta to determine if the entry is Delete or Op_Lock.
+			// If NextCommitTS equals CommitTS, it is Op_Lock, otherwise, it is Delete.
+			oldKey := mvcc.EncodeOldKey(key, wb.commitTS)
+			wb.dbBatch.set(oldKey, nil, userMeta)
+		} else {
+			// Convert the lock to a delete to store the transaction status.
+			wb.dbBatch.set(key, nil, userMeta)
 		}
 	}
 	wb.lockBatch.delete(key)

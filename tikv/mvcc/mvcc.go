@@ -129,8 +129,8 @@ func EncodeRollbackKey(buf, key []byte, ts uint64) []byte {
 	return buf
 }
 
-// DecodeRollbackTS decodes the TS in a rollback key.
-func DecodeRollbackTS(buf []byte) uint64 {
+// DecodeKeyTS decodes the TS in a key.
+func DecodeKeyTS(buf []byte) uint64 {
 	tsBin := buf[len(buf)-8:]
 	_, ts, err := codec.DecodeUintDesc(tsBin)
 	if err != nil {

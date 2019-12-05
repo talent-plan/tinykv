@@ -1078,15 +1078,30 @@ func (a *applier) execCommit(aCtx *applyContext, op commitOp) {
 	y.Assert(len(val) > 0)
 	lock := mvcc.DecodeLock(val)
 	var sizeDiff int64
+	userMeta := mvcc.NewDBUserMeta(lock.StartTS, commitTS)
 	if lock.Op != uint8(kvrpcpb.Op_Lock) {
-		userMeta := mvcc.NewDBUserMeta(lock.StartTS, commitTS)
 		aCtx.wb.SetWithUserMeta(rawKey, lock.Value, userMeta)
+		if lock.HasOldVer {
+			oldKey := mvcc.EncodeOldKey(rawKey, lock.OldMeta.CommitTS())
+			aCtx.wb.SetWithUserMeta(oldKey, lock.OldVal, lock.OldMeta.ToOldUserMeta(commitTS))
+			sizeDiff -= int64(len(rawKey) + len(lock.OldVal))
+		}
 		sizeDiff = int64(len(rawKey) + len(lock.Value))
-	}
-	if lock.HasOldVer {
-		oldKey := mvcc.EncodeOldKey(rawKey, lock.OldMeta.CommitTS())
-		aCtx.wb.SetWithUserMeta(oldKey, lock.OldVal, lock.OldMeta.ToOldUserMeta(commitTS))
-		sizeDiff -= int64(len(rawKey) + len(lock.OldVal))
+	} else if bytes.Equal(lock.Primary, rawKey) {
+		// For primary key with Op_Lock type, the value need to be skipped, but we need to keep the transaction status.
+		// So we put it as old key directly.
+		if lock.HasOldVer {
+			// There is a latest value, we don't want to move the value to the old key space for performance and simplicity.
+			// Write the lock as old key directly to store the transaction status.
+			// The old entry doesn't have value as Delete entry, but we can compare the commitTS in key and NextCommitTS
+			// in the user meta to determine if the entry is Delete or Op_Lock.
+			// If NextCommitTS equals CommitTS, it is Op_Lock, otherwise, it is Delete.
+			oldKey := mvcc.EncodeOldKey(rawKey, commitTS)
+			aCtx.wb.SetWithUserMeta(oldKey, nil, userMeta)
+		} else {
+			// Convert the lock to a delete to store the transaction status.
+			aCtx.wb.SetWithUserMeta(rawKey, nil, userMeta)
+		}
 	}
 	if sizeDiff > 0 {
 		a.metrics.sizeDiffHint += uint64(sizeDiff)

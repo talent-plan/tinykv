@@ -483,10 +483,12 @@ func (store *MVCCStore) buildPrewriteLock(reqCtx *requestCtx, m *kvrpcpb.Mutatio
 		Value:   m.Value,
 	}
 	var err error
-	if item != nil && m.Op != kvrpcpb.Op_Lock {
+	if item != nil {
 		lock.HasOldVer = true
-		lock.OldMeta = mvcc.DBUserMeta(item.UserMeta())
-		lock.OldVal, err = item.Value()
+		if m.Op != kvrpcpb.Op_Lock { // We don't need to store old value for Op_Lock。
+			lock.OldMeta = mvcc.DBUserMeta(item.UserMeta())
+			lock.OldVal, err = item.Value()
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -714,7 +716,7 @@ func (store *MVCCStore) checkCommitted(reader *dbreader.DBReader, key []byte, st
 	}
 	// look for the key in the old version to check if the key is committed.
 	it := reader.GetOldIter()
-	oldKey := mvcc.EncodeOldKey(key, userMeta.CommitTS())
+	oldKey := mvcc.EncodeOldKey(key, math.MaxUint64)
 	// find greater commit version.
 	for it.Seek(oldKey); it.ValidForPrefix(oldKey[:len(oldKey)-8]); it.Next() {
 		item := it.Item()
@@ -927,7 +929,7 @@ func (store *MVCCStore) MvccGetByKey(reqCtx *requestCtx, key []byte) (*kvrpcpb.M
 	it := store.rollbackStore.NewIterator()
 	rbStartKey := mvcc.EncodeRollbackKey(reqCtx.buf, key, uint64(math.MaxUint64))
 	for it.Seek(rbStartKey); it.Valid() && bytes.HasPrefix(it.Key(), key); it.Next() {
-		rollbackTs := mvcc.DecodeRollbackTS(it.Key())
+		rollbackTs := mvcc.DecodeKeyTS(it.Key())
 		curRecord := &kvrpcpb.MvccWrite{
 			Type:       kvrpcpb.Op_Rollback,
 			StartTs:    rollbackTs,
