@@ -27,6 +27,7 @@ type dagContext struct {
 	dagReq    *tipb.DAGRequest
 	keyRanges []*coprocessor.KeyRange
 	evalCtx   *evalContext
+	startTS   uint64
 }
 
 func (svr *Server) handleCopDAGRequest(reqCtx *requestCtx, req *coprocessor.Request) *coprocessor.Response {
@@ -65,6 +66,7 @@ func (svr *Server) buildDAG(reqCtx *requestCtx, req *coprocessor.Request) (*dagC
 		dagReq:    dagReq,
 		keyRanges: req.Ranges,
 		evalCtx:   &evalContext{sc: sc},
+		startTS:   req.StartTs,
 	}
 	scanExec := dagReq.Executors[0]
 	if scanExec.Tp == tipb.ExecType_TypeTableScan {

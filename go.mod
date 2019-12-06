@@ -14,10 +14,10 @@ require (
 	github.com/pierrec/lz4 v2.0.5+incompatible
 	github.com/pingcap/check v0.0.0-20190102082844-67f458068fc8
 	github.com/pingcap/errors v0.11.4
-	github.com/pingcap/kvproto v0.0.0-20191121022655-4c654046831d
+	github.com/pingcap/kvproto v0.0.0-20191202044712-32be31591b03
 	github.com/pingcap/parser v0.0.0-20190903084634-0daf3f706c76
 	github.com/pingcap/tidb v1.1.0-beta.0.20190904060835-0872b65ff1f9
-	github.com/pingcap/tipb v0.0.0-20191008064422-018b2fadf414
+	github.com/pingcap/tipb v0.0.0-20191203131953-a35f738b4796
 	github.com/prometheus/client_golang v0.9.0
 	github.com/shirou/gopsutil v2.18.10+incompatible
 	github.com/stretchr/testify v1.3.0

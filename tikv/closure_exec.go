@@ -95,7 +95,7 @@ func (svr *Server) newClosureExecutor(dagCtx *dagContext, dagReq *tipb.DAGReques
 		reqCtx:      dagCtx.reqCtx,
 		outputOff:   dagReq.OutputOffsets,
 		mvccStore:   svr.mvccStore,
-		startTS:     dagReq.StartTs,
+		startTS:     dagCtx.startTS,
 		limit:       math.MaxInt64,
 	}
 	seCtx := mockpkg.NewContext()

@@ -45,9 +45,9 @@ func (svr *Server) handleCopAnalyzeRequest(reqCtx *requestCtx, req *coprocessor.
 	}
 	y.Assert(len(ranges) == 1)
 	if analyzeReq.Tp == tipb.AnalyzeType_TypeIndex {
-		resp, err = svr.handleAnalyzeIndexReq(reqCtx, ranges[0], analyzeReq)
+		resp, err = svr.handleAnalyzeIndexReq(reqCtx, ranges[0], analyzeReq, req.StartTs)
 	} else {
-		resp, err = svr.handleAnalyzeColumnsReq(reqCtx, ranges[0], analyzeReq)
+		resp, err = svr.handleAnalyzeColumnsReq(reqCtx, ranges[0], analyzeReq, req.StartTs)
 	}
 	if err != nil {
 		resp = &coprocessor.Response{
@@ -57,7 +57,7 @@ func (svr *Server) handleCopAnalyzeRequest(reqCtx *requestCtx, req *coprocessor.
 	return resp
 }
 
-func (svr *Server) handleAnalyzeIndexReq(reqCtx *requestCtx, ran kv.KeyRange, analyzeReq *tipb.AnalyzeReq) (*coprocessor.Response, error) {
+func (svr *Server) handleAnalyzeIndexReq(reqCtx *requestCtx, ran kv.KeyRange, analyzeReq *tipb.AnalyzeReq, startTS uint64) (*coprocessor.Response, error) {
 	dbReader := reqCtx.getDBReader()
 	processor := &analyzeIndexProcessor{
 		colLen:       int(analyzeReq.IdxReq.NumColumns),
@@ -66,7 +66,7 @@ func (svr *Server) handleAnalyzeIndexReq(reqCtx *requestCtx, ran kv.KeyRange, an
 	if analyzeReq.IdxReq.CmsketchDepth != nil && analyzeReq.IdxReq.CmsketchWidth != nil {
 		processor.cms = statistics.NewCMSketch(*analyzeReq.IdxReq.CmsketchDepth, *analyzeReq.IdxReq.CmsketchWidth)
 	}
-	err := dbReader.Scan(ran.StartKey, ran.EndKey, math.MaxInt64, analyzeReq.StartTs, processor)
+	err := dbReader.Scan(ran.StartKey, ran.EndKey, math.MaxInt64, startTS, processor)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +125,7 @@ type analyzeColumnsExec struct {
 	fields  []*ast.ResultField
 }
 
-func (svr *Server) handleAnalyzeColumnsReq(reqCtx *requestCtx, ran kv.KeyRange, analyzeReq *tipb.AnalyzeReq) (*coprocessor.Response, error) {
+func (svr *Server) handleAnalyzeColumnsReq(reqCtx *requestCtx, ran kv.KeyRange, analyzeReq *tipb.AnalyzeReq, startTS uint64) (*coprocessor.Response, error) {
 	sc := flagsToStatementContext(analyzeReq.Flags)
 	sc.TimeZone = time.FixedZone("UTC", int(analyzeReq.TimeZoneOffset))
 	evalCtx := &evalContext{sc: sc}
@@ -139,7 +139,7 @@ func (svr *Server) handleAnalyzeColumnsReq(reqCtx *requestCtx, ran kv.KeyRange, 
 		reader:  reqCtx.getDBReader(),
 		seekKey: ran.StartKey,
 		endKey:  ran.EndKey,
-		startTS: analyzeReq.StartTs,
+		startTS: startTS,
 		chk:     chunk.NewChunkWithCapacity(evalCtx.fieldTps, 1),
 		decoder: decoder,
 		evalCtx: evalCtx,
