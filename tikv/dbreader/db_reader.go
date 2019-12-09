@@ -51,7 +51,8 @@ func (r *DBReader) GetMvccInfoByKey(key []byte, isRowKey bool, mvccInfo *kvrpcpb
 		return err
 	}
 	if len(mvccInfo.Writes) > 0 {
-		err = r.getOldKeysWithMeta(key, mvccInfo.Writes[0].CommitTs, isRowKey, mvccInfo)
+		oldKey := mvcc.EncodeOldKey(key, mvccInfo.Writes[0].CommitTs)
+		err = r.getOldKeysWithMeta(oldKey, isRowKey, mvccInfo)
 		if err != nil {
 			return err
 		}
@@ -98,11 +99,11 @@ func (r *DBReader) getKeyWithMeta(key []byte, isRowKey bool, startTs uint64, mvc
 }
 
 // getOldKeysWithMeta will try to fill mvccInfo with all the historical committed records
-func (r *DBReader) getOldKeysWithMeta(key []byte, startTs uint64, isRowKey bool, mvccInfo *kvrpcpb.MvccInfo) error {
-	oldKey := mvcc.EncodeOldKey(key, startTs)
-	iter := r.GetIter()
-	for iter.Seek(oldKey); iter.ValidForPrefix(oldKey[:len(oldKey)-8]); iter.Next() {
-		item := iter.Item()
+// the oldKey should be in old-key encoded format
+func (r *DBReader) getOldKeysWithMeta(oldKey []byte, isRowKey bool, mvccInfo *kvrpcpb.MvccInfo) error {
+	oldIter := r.GetOldIter()
+	for oldIter.Seek(oldKey); oldIter.ValidForPrefix(oldKey[:len(oldKey)-8]); oldIter.Next() {
+		item := oldIter.Item()
 		oldUsrMeta := mvcc.OldUserMeta(item.UserMeta())
 		commitTs, err := mvcc.DecodeOldKeyCommitTs(item.Key())
 		if err != nil {
@@ -171,9 +172,13 @@ func (r *DBReader) getReverseIter() *badger.Iterator {
 func (r *DBReader) GetOldIter() *badger.Iterator {
 	if r.oldIter == nil {
 		oldStartKey := append([]byte{}, r.startKey...)
-		oldStartKey[0]++
+		if len(oldStartKey) > 0 {
+			oldStartKey[0]++
+		}
 		oldEndKey := append([]byte{}, r.endKey...)
-		oldEndKey[0]++
+		if len(oldEndKey) > 0 {
+			oldEndKey[0]++
+		}
 		r.oldIter = NewIterator(r.txn, false, oldStartKey, oldEndKey)
 	}
 	return r.oldIter
@@ -266,6 +271,42 @@ func (r *DBReader) Scan(startKey, endKey []byte, limit int, startTS uint64, proc
 		}
 	}
 	return nil
+}
+
+func (r *DBReader) GetKeyByStartTs(startKey, endKey []byte, startTs uint64) ([]byte, error) {
+	iter := r.GetIter()
+	for iter.Seek(startKey); iter.Valid(); iter.Next() {
+		curItem := iter.Item()
+		curKey := curItem.Key()
+		if bytes.Compare(curKey, endKey) >= 0 {
+			break
+		}
+		meta := mvcc.DBUserMeta(curItem.UserMeta())
+		if meta.StartTS() == startTs {
+			return curItem.KeyCopy(nil), nil
+		}
+	}
+	oldIter := r.GetOldIter()
+	oldStartKey := append([]byte{}, startKey...)
+	oldStartKey[0]++
+	oldEndKey := append([]byte{}, endKey...)
+	oldEndKey[0]++
+	for oldIter.Seek(oldStartKey); oldIter.Valid(); oldIter.Next() {
+		curItem := oldIter.Item()
+		oldKey := curItem.Key()
+		if bytes.Compare(oldKey, oldEndKey) >= 0 {
+			break
+		}
+		oldMeta := mvcc.OldUserMeta(curItem.UserMeta())
+		if oldMeta.StartTS() == startTs {
+			rawKey, _, err := mvcc.DecodeOldKey(oldKey)
+			if err != nil {
+				return nil, err
+			}
+			return rawKey, nil
+		}
+	}
+	return nil, nil
 }
 
 func (r *DBReader) getOldItem(key []byte, startTS uint64) *badger.Item {

@@ -27,11 +27,15 @@ type TestStore struct {
 }
 
 func (ts *TestStore) newReqCtx() *requestCtx {
+	return ts.newReqCtxWithKeys([]byte{'t'}, []byte{'u'})
+}
+
+func (ts *TestStore) newReqCtxWithKeys(startKey, endKey []byte) *requestCtx {
 	return &requestCtx{
 		regCtx: &regionCtx{
 			latches:  make(map[uint64]*sync.WaitGroup),
-			startKey: []byte{'t'},
-			endKey:   []byte{'u'},
+			startKey: startKey,
+			endKey:   endKey,
 		},
 		svr: ts.Svr,
 	}
@@ -286,7 +290,7 @@ func (s *testMvccSuite) TestCheckTxnStatus(c *C) {
 
 	var resTTL, resCommitTs uint64
 	var action kvrpcpb.Action
-	pk := []byte("pk")
+	pk := []byte("tpk")
 	startTs := uint64(1)
 	callerStartTs := uint64(3)
 	currentTs := uint64(5)
@@ -381,14 +385,25 @@ func (s *testMvccSuite) TestCheckTxnStatus(c *C) {
 	c.Assert(action, Equals, kvrpcpb.Action_NoAction)
 }
 
-func (s *testMvccSuite) TestMvccGetByKey(c *C) {
+func (s *testMvccSuite) TestDecodeOldKey(c *C) {
+	rawKey := []byte("trawKey")
+	oldCommitTs := uint64(1)
+	oldKey := mvcc.EncodeOldKey(rawKey, oldCommitTs)
+
+	resKey, resTs, err := mvcc.DecodeOldKey(oldKey)
+	c.Assert(err, IsNil)
+	c.Assert(bytes.Compare(resKey, rawKey), Equals, 0)
+	c.Assert(resTs, Equals, oldCommitTs)
+}
+
+func (s *testMvccSuite) TestMvccGet(c *C) {
 	var err error
-	store, err := NewTestStore("TestMvccGetByKey", "TestMvccGetByKey")
+	store, err := NewTestStore("TestMvccGetBy", "TestMvccGetBy")
 	c.Assert(err, IsNil)
 	defer CleanTestStore(store)
 
 	lockTTL := uint64(100)
-	pk := []byte("tpk")
+	pk := []byte("t1_r1")
 	pkVal := []byte("pkVal")
 	startTs1 := uint64(1)
 	commitTs1 := uint64(2)
@@ -442,6 +457,54 @@ func (s *testMvccSuite) TestMvccGetByKey(c *C) {
 	c.Assert(res.Writes[3].StartTs, Equals, startTs3)
 	c.Assert(res.Writes[3].CommitTs, Equals, startTs3)
 	c.Assert(bytes.Compare(res.Writes[3].ShortValue, []byte{0}), Equals, 0)
+
+	// read using MvccGetByStartTs using key current ts
+	res2, resKey, err := store.MvccStore.MvccGetByStartTs(store.newReqCtx(), startTs4)
+	c.Assert(err, IsNil)
+	c.Assert(res2, NotNil)
+	c.Assert(bytes.Compare(resKey, pk), Equals, 0)
+	c.Assert(len(res2.Writes), Equals, 4)
+	c.Assert(res2.Writes[2].StartTs, Equals, startTs1)
+	c.Assert(res2.Writes[2].CommitTs, Equals, commitTs1)
+	c.Assert(bytes.Compare(res2.Writes[2].ShortValue, pkVal), Equals, 0)
+
+	c.Assert(res2.Writes[1].StartTs, Equals, startTs2)
+	c.Assert(res2.Writes[1].CommitTs, Equals, commitTs2)
+	c.Assert(bytes.Compare(res2.Writes[1].ShortValue, newVal), Equals, 0)
+
+	c.Assert(res2.Writes[0].StartTs, Equals, startTs4)
+	c.Assert(res2.Writes[0].CommitTs, Equals, commitTs4)
+	c.Assert(bytes.Compare(res2.Writes[0].ShortValue, emptyVal), Equals, 0)
+
+	c.Assert(res2.Writes[3].StartTs, Equals, startTs3)
+	c.Assert(res2.Writes[3].CommitTs, Equals, startTs3)
+	c.Assert(bytes.Compare(res2.Writes[3].ShortValue, []byte{0}), Equals, 0)
+
+	// read using MvccGetByStartTs using non exists startTs
+	startTsNonExists := uint64(1000)
+	res3, resKey, err := store.MvccStore.MvccGetByStartTs(store.newReqCtx(), startTsNonExists)
+	c.Assert(err, IsNil)
+	c.Assert(resKey, IsNil)
+	c.Assert(res3, IsNil)
+
+	// read using old startTs
+	res4, resKey, err := store.MvccStore.MvccGetByStartTs(store.newReqCtx(), startTs2)
+	c.Assert(err, IsNil)
+	c.Assert(res4, NotNil)
+	c.Assert(bytes.Compare(resKey, pk), Equals, 0)
+	c.Assert(len(res4.Writes), Equals, 4)
+	c.Assert(res4.Writes[3].StartTs, Equals, startTs3)
+	c.Assert(res4.Writes[3].CommitTs, Equals, startTs3)
+	c.Assert(bytes.Compare(res4.Writes[3].ShortValue, []byte{0}), Equals, 0)
+
+	res4, resKey, err = store.MvccStore.MvccGetByStartTs(store.newReqCtxWithKeys([]byte("t1_r1"), []byte("t1_r2")), startTs2)
+	c.Assert(err, IsNil)
+	c.Assert(res4, NotNil)
+	c.Assert(bytes.Compare(resKey, pk), Equals, 0)
+	c.Assert(len(res4.Writes), Equals, 4)
+	c.Assert(res4.Writes[3].StartTs, Equals, startTs3)
+	c.Assert(res4.Writes[3].CommitTs, Equals, startTs3)
+	c.Assert(bytes.Compare(res4.Writes[3].ShortValue, []byte{0}), Equals, 0)
 }
 
 func (s *testMvccSuite) TestPrimaryKeyOpLock(c *C) {

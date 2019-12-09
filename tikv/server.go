@@ -579,9 +579,23 @@ func (svr *Server) MvccGetByKey(ctx context.Context, req *kvrpcpb.MvccGetByKeyRe
 	return resp, nil
 }
 
-func (svr *Server) MvccGetByStartTs(context.Context, *kvrpcpb.MvccGetByStartTsRequest) (*kvrpcpb.MvccGetByStartTsResponse, error) {
-	// TODO
-	return nil, nil
+func (svr *Server) MvccGetByStartTs(ctx context.Context, req *kvrpcpb.MvccGetByStartTsRequest) (*kvrpcpb.MvccGetByStartTsResponse, error) {
+	reqCtx, err := newRequestCtx(svr, req.Context, "MvccGetByStartTs")
+	if err != nil {
+		return &kvrpcpb.MvccGetByStartTsResponse{Error: err.Error()}, nil
+	}
+	defer reqCtx.finish()
+	if reqCtx.regErr != nil {
+		return &kvrpcpb.MvccGetByStartTsResponse{RegionError: reqCtx.regErr}, nil
+	}
+	resp := new(kvrpcpb.MvccGetByStartTsResponse)
+	mvccInfo, key, err := svr.mvccStore.MvccGetByStartTs(reqCtx, req.StartTs)
+	if err != nil {
+		resp.Error = err.Error()
+	}
+	resp.Info = mvccInfo
+	resp.Key = key
+	return resp, nil
 }
 
 func (svr *Server) UnsafeDestroyRange(context.Context, *kvrpcpb.UnsafeDestroyRangeRequest) (*kvrpcpb.UnsafeDestroyRangeResponse, error) {

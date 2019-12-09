@@ -110,6 +110,21 @@ func EncodeOldKey(key []byte, ts uint64) []byte {
 	return ret
 }
 
+// DecodeOldKey returns the rawkey and commitTs from oldKey
+func DecodeOldKey(oldKey []byte) ([]byte, uint64, error) {
+	if len(oldKey) < 8 {
+		return nil, 0, errors.Errorf("invalid input key=%v length=%d less than 8 bytes", oldKey, len(oldKey))
+	}
+	buf := append([]byte{}, oldKey...)
+	buf[0]--
+	rawKey := buf[:len(buf)-8]
+	_, res, err := codec.DecodeUintDesc(buf[len(buf)-8:])
+	if err != nil {
+		return nil, 0, err
+	}
+	return rawKey, res, nil
+}
+
 // DecodeOldKeyCommitTs decodes commitTs from encoded old key
 func DecodeOldKeyCommitTs(key []byte) (uint64, error) {
 	if len(key) < 8 {
