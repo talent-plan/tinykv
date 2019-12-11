@@ -170,6 +170,8 @@ func setupRaftInnerServer(bundle *mvcc.DBBundle, safePoint *tikv.SafePoint, pdCl
 	config.Addr = conf.StoreAddr
 	config.SnapPath = snapPath
 	config.RaftWorkerCnt = conf.RaftWorkers
+	config.SplitCheck.RegionMaxKeys = uint64(conf.Coprocessor.RegionMaxKeys)
+	config.SplitCheck.RegionSplitKeys = uint64(conf.Coprocessor.RegionSplitKeys)
 
 	raftDB := createDB(subPathRaft, nil, &conf.Engine)
 	meta, err := bundle.LockStore.LoadFromFile(filepath.Join(kvPath, raftstore.LockstoreFileName))

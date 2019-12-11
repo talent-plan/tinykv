@@ -131,7 +131,7 @@ type Config struct {
 	AdvertiseAddr string
 	Labels        []StoreLabel
 
-	splitCheck *splitCheckConfig
+	SplitCheck *splitCheckConfig
 }
 
 type splitCheckConfig struct {
@@ -153,8 +153,8 @@ type splitCheckConfig struct {
 	// When the number of keys in region [a,e) meets the region_max_keys,
 	// it will be split into two several regions [a,b), [b,c), [c,d), [d,e).
 	// And the number of keys in [a,b), [b,c), [c,d) will be region_split_keys.
-	regionMaxKeys   uint64
-	regionSplitKeys uint64
+	RegionMaxKeys   uint64
+	RegionSplitKeys uint64
 
 	// number of rows per sample key for half split.
 	rowsPerSample int
@@ -227,7 +227,7 @@ func NewDefaultConfig() *Config {
 		GrpcKeepAliveTimeout:     60 * time.Second,
 		GrpcRaftConnNum:          1,
 		Addr:                     "127.0.0.1:20160",
-		splitCheck:               newDefaultSplitCheckConfig(),
+		SplitCheck:               newDefaultSplitCheckConfig(),
 	}
 }
 
@@ -247,8 +247,8 @@ func newDefaultSplitCheckConfig() *splitCheckConfig {
 		batchSplitLimit:    batchSplitLimit,
 		regionSplitSize:    splitSize,
 		regionMaxSize:      splitSize / 2 * 3,
-		regionSplitKeys:    splitKeys,
-		regionMaxKeys:      splitKeys / 2 * 3,
+		RegionSplitKeys:    splitKeys,
+		RegionMaxKeys:      splitKeys / 2 * 3,
 		rowsPerSample:      1024,
 	}
 }

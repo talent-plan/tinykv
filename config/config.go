@@ -1,15 +1,21 @@
 package config
 
 type Config struct {
-	PDAddr      string `toml:"pd-addr"`
-	StoreAddr   string `toml:"store-addr"`
-	HttpAddr    string `toml:"http-addr"`
-	LogLevel    string `toml:"log-level"`
-	RegionSize  int64  `toml:"region-size"`  // Average region size.
-	MaxProcs    int    `toml:"max-procs"`    // Max CPU cores to use, set 0 to use all CPU cores in the machine.
-	Raft        bool   `toml:"raft"`         // Enable raft.
-	RaftWorkers int    `toml:"raft-workers"` // Number of raft workers.
-	Engine      Engine `toml:"engine"`       // Engine options.
+	PDAddr      string      `toml:"pd-addr"`
+	StoreAddr   string      `toml:"store-addr"`
+	HttpAddr    string      `toml:"http-addr"`
+	LogLevel    string      `toml:"log-level"`
+	RegionSize  int64       `toml:"region-size"`  // Average region size.
+	MaxProcs    int         `toml:"max-procs"`    // Max CPU cores to use, set 0 to use all CPU cores in the machine.
+	Raft        bool        `toml:"raft"`         // Enable raft.
+	RaftWorkers int         `toml:"raft-workers"` // Number of raft workers.
+	Engine      Engine      `toml:"engine"`       // Engine options.
+	Coprocessor Coprocessor `toml:"coprocessor"`  // Coprocessor options
+}
+
+type Coprocessor struct {
+	RegionMaxKeys   int64 `toml:"region-max-keys"`
+	RegionSplitKeys int64 `toml:"region-split-keys"`
 }
 
 type Engine struct {

@@ -227,9 +227,10 @@ func newWorker(name string, wg *sync.WaitGroup) *worker {
 }
 
 type splitCheckHandler struct {
-	engine *badger.DB
-	router *router
-	config *splitCheckConfig
+	engine   *badger.DB
+	router   *router
+	config   *splitCheckConfig
+	checkers []splitChecker
 }
 
 func newSplitCheckRunner(engine *badger.DB, router *router, config *splitCheckConfig) *splitCheckHandler {
@@ -239,6 +240,15 @@ func newSplitCheckRunner(engine *badger.DB, router *router, config *splitCheckCo
 		config: config,
 	}
 	return runner
+}
+
+func (r *splitCheckHandler) newCheckers() {
+	r.checkers = r.checkers[:0]
+	// the checker append order is the priority order
+	sizeChecker := newSizeSplitChecker(r.config.regionMaxSize, r.config.regionSplitSize, r.config.batchSplitLimit)
+	r.checkers = append(r.checkers, sizeChecker)
+	keysChecker := newKeysSplitChecker(r.config.RegionMaxKeys, r.config.RegionSplitKeys, r.config.batchSplitLimit)
+	r.checkers = append(r.checkers, keysChecker)
 }
 
 /// run checks a region with split checkers to produce split keys and generates split admin command.
@@ -295,25 +305,38 @@ func exceedEndKey(current, endKey []byte) bool {
 	return bytes.Compare(current, endKey) >= 0
 }
 
-/// splitCheck gets the split keys by scanning the range.
-func (r *splitCheckHandler) splitCheck(startKey, endKey []byte, reader *dbreader.DBReader) [][]byte {
-	ite := reader.GetIter()
-	splitKeys := r.tryTableSplit(startKey, endKey, ite)
-	if len(splitKeys) > 0 {
-		return splitKeys
-	}
-	checker := newSizeSplitChecker(r.config.regionMaxSize, r.config.regionSplitSize, r.config.batchSplitLimit)
+// doCheck checks kvs using every checker
+func (r *splitCheckHandler) doCheck(startKey, endKey []byte, ite *badger.Iterator) {
+	r.newCheckers()
 	for ite.Seek(startKey); ite.Valid(); ite.Next() {
 		item := ite.Item()
 		key := item.Key()
 		if exceedEndKey(key, endKey) {
 			break
 		}
-		if checker.onKv(key, uint64(item.ValueSize())) {
-			break
+		for _, checker := range r.checkers {
+			if checker.onKv(key, item) {
+				return
+			}
 		}
 	}
-	return checker.getSplitKeys()
+}
+
+/// SplitCheck gets the split keys by scanning the range.
+func (r *splitCheckHandler) splitCheck(startKey, endKey []byte, reader *dbreader.DBReader) [][]byte {
+	ite := reader.GetIter()
+	splitKeys := r.tryTableSplit(startKey, endKey, ite)
+	if len(splitKeys) > 0 {
+		return splitKeys
+	}
+	r.doCheck(startKey, endKey, ite)
+	for _, checker := range r.checkers {
+		keys := checker.getSplitKeys()
+		if len(keys) > 0 {
+			return keys
+		}
+	}
+	return nil
 }
 
 func (r *splitCheckHandler) tryTableSplit(startKey, endKey []byte, it *badger.Iterator) [][]byte {
@@ -348,6 +371,11 @@ func nextTableKey(key []byte) []byte {
 	return result
 }
 
+type splitChecker interface {
+	onKv(key []byte, item *badger.Item) bool
+	getSplitKeys() [][]byte
+}
+
 type sizeSplitChecker struct {
 	maxSize         uint64
 	splitSize       uint64
@@ -368,7 +396,8 @@ func safeCopy(b []byte) []byte {
 	return append([]byte{}, b...)
 }
 
-func (checker *sizeSplitChecker) onKv(key []byte, valueSize uint64) bool {
+func (checker *sizeSplitChecker) onKv(key []byte, item *badger.Item) bool {
+	valueSize := uint64(item.ValueSize())
 	size := uint64(len(key)) + valueSize
 	checker.currentSize += size
 	overLimit := uint64(len(checker.splitKeys)) >= checker.batchSplitLimit
@@ -399,6 +428,48 @@ func (checker *sizeSplitChecker) getSplitKeys() [][]byte {
 	}
 	keys := checker.splitKeys
 	checker.splitKeys = nil
+	return keys
+}
+
+func newKeysSplitChecker(regionMaxKeys, regionSplitKeys, batchSplitLimit uint64) *keysSplitChecker {
+	checker := &keysSplitChecker{
+		regionMaxKeys:   regionMaxKeys,
+		regionSplitKeys: regionSplitKeys,
+		batchSplitLimit: batchSplitLimit,
+	}
+	return checker
+}
+
+type keysSplitChecker struct {
+	regionMaxKeys   uint64
+	regionSplitKeys uint64
+	batchSplitLimit uint64
+	curCnt          uint64
+	splitKeys       [][]byte
+}
+
+func (c *keysSplitChecker) onKv(key []byte, item *badger.Item) bool {
+	c.curCnt++
+	overLimit := uint64(len(c.splitKeys)) >= c.batchSplitLimit
+	if c.curCnt > c.regionSplitKeys && !overLimit {
+		// if for previous on_kv() self.current_count == self.split_threshold,
+		// the split key would be pushed this time, but the entry for this time should not be ignored.
+		c.splitKeys = append(c.splitKeys, safeCopy(key))
+		c.curCnt = 1
+		overLimit = uint64(len(c.splitKeys)) >= c.batchSplitLimit
+	}
+	return overLimit && c.curCnt+c.regionSplitKeys >= c.regionMaxKeys
+}
+
+func (c *keysSplitChecker) getSplitKeys() [][]byte {
+	// make sure not to split when less than max_keys_count for last part
+	if c.curCnt+c.regionSplitKeys < c.regionMaxKeys {
+		if len(c.splitKeys) > 0 {
+			c.splitKeys = c.splitKeys[:len(c.splitKeys)-1]
+		}
+	}
+	keys := c.splitKeys
+	c.splitKeys = nil
 	return keys
 }
 
