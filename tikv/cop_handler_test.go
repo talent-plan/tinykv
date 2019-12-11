@@ -160,7 +160,7 @@ func isPrefixNext(key []byte, expected []byte) bool {
 }
 
 // return a dag context according to dagReq and key ranges.
-func newDagContext(store *TestStore, keyRanges []kv.KeyRange, dagReq *tipb.DAGRequest) *dagContext {
+func newDagContext(store *TestStore, keyRanges []kv.KeyRange, dagReq *tipb.DAGRequest, startTs uint64) *dagContext {
 	sc := flagsToStatementContext(dagReq.Flags)
 	dagCtx := &dagContext{
 		reqCtx: &requestCtx{
@@ -174,6 +174,7 @@ func newDagContext(store *TestStore, keyRanges []kv.KeyRange, dagReq *tipb.DAGRe
 		},
 		dagReq:  dagReq,
 		evalCtx: &evalContext{sc: sc},
+		startTS: startTs,
 	}
 	if dagReq.Executors[0].Tp == tipb.ExecType_TypeTableScan {
 		dagCtx.evalCtx.setColumnInfo(dagReq.Executors[0].TblScan.Columns)
@@ -243,7 +244,6 @@ func (dagBuilder *dagBuilder) addTableScan(colInfos []*tipb.ColumnInfo, tableId 
 
 func (dagBuilder *dagBuilder) build() *tipb.DAGRequest {
 	return &tipb.DAGRequest{
-		StartTs:       dagBuilder.startTs,
 		Executors:     dagBuilder.executors,
 		OutputOffsets: dagBuilder.outputOffsets,
 	}
@@ -283,7 +283,7 @@ func TestPointGet(t *testing.T) {
 		setOutputOffsets([]uint32{0, 1}).
 		build()
 	dagCtx := newDagContext(store, []kv.KeyRange{getTestPointRange(TableId, handle)},
-		dagRequest)
+		dagRequest, DagRequestStartTs)
 	chunks, rowCount, err := buildExecutorsAndExecute(store, dagRequest, dagCtx)
 	require.Nil(t, err)
 	require.Equal(t, rowCount, 0)
@@ -296,7 +296,7 @@ func TestPointGet(t *testing.T) {
 		setOutputOffsets([]uint32{0, 1}).
 		build()
 	dagCtx = newDagContext(store, []kv.KeyRange{getTestPointRange(TableId, handle)},
-		dagRequest)
+		dagRequest, DagRequestStartTs)
 	chunks, rowCount, err = buildExecutorsAndExecute(store, dagRequest, dagCtx)
 	require.Nil(t, err)
 	require.Equal(t, 1, rowCount)
