@@ -371,6 +371,7 @@ func (writer *dbWriter) DeleteRange(startKey, endKey []byte, latchHandle mvcc.La
 	reader := dbreader.NewDBReader(startKey, endKey, txn, atomic.LoadUint64(&writer.safePoint.timestamp))
 	keys = writer.collectRangeKeys(reader.GetIter(), startKey, endKey, keys)
 	keys = writer.collectRangeKeys(reader.GetIter(), oldStartKey, oldEndKey, keys)
+	reader.Close()
 	return writer.deleteKeysInBatch(latchHandle, keys, delRangeBatchSize)
 }
 

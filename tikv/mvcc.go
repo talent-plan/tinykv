@@ -969,6 +969,13 @@ func (store *MVCCStore) MvccGetByStartTs(reqCtx *requestCtx, startTs uint64) (*k
 	return res, rawKey, nil
 }
 
+func (store *MVCCStore) DeleteFileInRange(start, end []byte) {
+	store.db.DeleteFilesInRange(start, end)
+	start[0]++
+	end[0]++
+	store.db.DeleteFilesInRange(start, end)
+}
+
 type SafePoint struct {
 	timestamp uint64
 }

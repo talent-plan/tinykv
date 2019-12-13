@@ -598,8 +598,9 @@ func (svr *Server) MvccGetByStartTs(ctx context.Context, req *kvrpcpb.MvccGetByS
 	return resp, nil
 }
 
-func (svr *Server) UnsafeDestroyRange(context.Context, *kvrpcpb.UnsafeDestroyRangeRequest) (*kvrpcpb.UnsafeDestroyRangeResponse, error) {
-	// TODO
+func (svr *Server) UnsafeDestroyRange(ctx context.Context, req *kvrpcpb.UnsafeDestroyRangeRequest) (*kvrpcpb.UnsafeDestroyRangeResponse, error) {
+	start, end := req.GetStartKey(), req.GetEndKey()
+	svr.mvccStore.DeleteFileInRange(start, end)
 	return &kvrpcpb.UnsafeDestroyRangeResponse{}, nil
 }
 

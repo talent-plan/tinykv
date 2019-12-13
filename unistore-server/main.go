@@ -243,7 +243,6 @@ func createDB(subPath string, safePoint *tikv.SafePoint, conf *config.Engine) *b
 	opts.NumLevelZeroTables = conf.NumL0Tables
 	opts.NumLevelZeroTablesStall = conf.NumL0TablesStall
 	opts.SyncWrites = conf.SyncWrite
-	opts.TableBuilderOptions.EnableHashIndex = conf.HashIndex
 	if safePoint != nil {
 		opts.CompactionFilterFactory = safePoint.CreateCompactionFilter
 	}

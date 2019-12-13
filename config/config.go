@@ -29,7 +29,6 @@ type Engine struct {
 
 	// 	Sync all writes to disk. Setting this to true would slow down data loading significantly.")
 	SyncWrite     bool `toml:"sync-write"`
-	HashIndex     bool `toml:"hash-index"` // Enable hash index
 	NumCompactors int  `toml:"num-compactors"`
 }
 
