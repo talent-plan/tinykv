@@ -1048,16 +1048,14 @@ func convertPrewriteToLock(op prewriteOp, txn *badger.Txn) (key, value []byte) {
 	if err != nil {
 		panic(op.putLock.Value)
 	}
-	if lock.Op != uint8(kvrpcpb.Op_Lock) {
-		if item, err := txn.Get(rawKey); err == nil {
-			val, err1 := item.Value()
-			if err1 != nil {
-				panic(err1)
-			}
-			lock.HasOldVer = true
-			lock.OldMeta = item.UserMeta()
-			lock.OldVal = val
+	if item, err := txn.Get(rawKey); err == nil {
+		val, err1 := item.Value()
+		if err1 != nil {
+			panic(err1)
 		}
+		lock.HasOldVer = true
+		lock.OldMeta = item.UserMeta()
+		lock.OldVal = val
 	}
 	if op.putDefault != nil {
 		lock.Value = op.putDefault.Value
@@ -1081,12 +1079,12 @@ func (a *applier) execCommit(aCtx *applyContext, op commitOp) {
 	userMeta := mvcc.NewDBUserMeta(lock.StartTS, commitTS)
 	if lock.Op != uint8(kvrpcpb.Op_Lock) {
 		aCtx.wb.SetWithUserMeta(rawKey, lock.Value, userMeta)
+		sizeDiff = int64(len(rawKey) + len(lock.Value))
 		if lock.HasOldVer {
 			oldKey := mvcc.EncodeOldKey(rawKey, lock.OldMeta.CommitTS())
 			aCtx.wb.SetWithUserMeta(oldKey, lock.OldVal, lock.OldMeta.ToOldUserMeta(commitTS))
 			sizeDiff -= int64(len(rawKey) + len(lock.OldVal))
 		}
-		sizeDiff = int64(len(rawKey) + len(lock.Value))
 	} else if bytes.Equal(lock.Primary, rawKey) {
 		// For primary key with Op_Lock type, the value need to be skipped, but we need to keep the transaction status.
 		// So we put it as old key directly.
