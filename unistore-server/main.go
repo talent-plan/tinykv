@@ -53,14 +53,14 @@ func main() {
 	flag.Parse()
 	conf := loadConfig()
 	if *pdAddr != "" {
-		conf.PDAddr = *pdAddr
+		conf.Server.PDAddr = *pdAddr
 	}
 	if *storeAddr != "" {
-		conf.StoreAddr = *storeAddr
+		conf.Server.StoreAddr = *storeAddr
 	}
-	runtime.GOMAXPROCS(conf.MaxProcs)
+	runtime.GOMAXPROCS(conf.Server.MaxProcs)
 	log.Info("gitHash:", gitHash)
-	log.SetLevelByString(conf.LogLevel)
+	log.SetLevelByString(conf.Server.LogLevel)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 	safePoint := &tikv.SafePoint{}
 	log.Infof("conf %v", conf)
@@ -71,7 +71,7 @@ func main() {
 		RollbackStore: lockstore.NewMemStore(256 << 10),
 	}
 
-	pdClient, err := pd.NewClient(strings.Split(conf.PDAddr, ","), "")
+	pdClient, err := pd.NewClient(strings.Split(conf.Server.PDAddr, ","), "")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -81,12 +81,12 @@ func main() {
 		store         *tikv.MVCCStore
 		regionManager tikv.RegionManager
 	)
-	if conf.Raft {
+	if conf.Server.Raft {
 		innerServer, store, regionManager = setupRaftInnerServer(bundle, safePoint, pdClient, conf)
 	} else {
 		innerServer, store, regionManager = setupStandAlongInnerServer(bundle, safePoint, pdClient, conf)
 	}
-	err = store.StartDeadlockDetection(context.Background(), pdClient, innerServer, conf.Raft)
+	err = store.StartDeadlockDetection(context.Background(), pdClient, innerServer, conf.Server.Raft)
 	if err != nil {
 		log.Fatal("StartDeadlockDetection error=%v", err)
 	}
@@ -105,7 +105,7 @@ func main() {
 		grpc.MaxRecvMsgSize(10*1024*1024),
 	)
 	tikvpb.RegisterTikvServer(grpcServer, tikvServer)
-	listenAddr := conf.StoreAddr[strings.IndexByte(conf.StoreAddr, ':'):]
+	listenAddr := conf.Server.StoreAddr[strings.IndexByte(conf.Server.StoreAddr, ':'):]
 	l, err := net.Listen("tcp", listenAddr)
 	deadlock.RegisterDeadlockServer(grpcServer, tikvServer)
 	if err != nil {
@@ -113,11 +113,11 @@ func main() {
 	}
 	handleSignal(grpcServer)
 	go func() {
-		log.Infof("listening on %v", conf.HttpAddr)
+		log.Infof("listening on %v", conf.Server.StatusAddr)
 		http.HandleFunc("/status", func(writer http.ResponseWriter, request *http.Request) {
 			writer.WriteHeader(http.StatusOK)
 		})
-		err := http.ListenAndServe(conf.HttpAddr, nil)
+		err := http.ListenAndServe(conf.Server.StatusAddr, nil)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -156,6 +156,22 @@ func loadConfig() *config.Config {
 	return &conf
 }
 
+func setupRaftStoreConf(raftConf *raftstore.Config, conf *config.Config) {
+	raftConf.Addr = conf.Server.StoreAddr
+	raftConf.RaftWorkerCnt = conf.RaftStore.RaftWorkers
+
+	// raftstore block
+	raftConf.PdHeartbeatTickInterval = config.ParseDuration(conf.RaftStore.PdHeartbeatTickInterval)
+	raftConf.RaftStoreMaxLeaderLease = config.ParseDuration(conf.RaftStore.RaftStoreMaxLeaderLease)
+	raftConf.RaftBaseTickInterval = config.ParseDuration(conf.RaftStore.RaftBaseTickInterval)
+	raftConf.RaftHeartbeatTicks = conf.RaftStore.RaftHeartbeatTicks
+	raftConf.RaftElectionTimeoutTicks = conf.RaftStore.RaftElectionTimeoutTicks
+
+	// coprocessor block
+	raftConf.SplitCheck.RegionMaxKeys = uint64(conf.Coprocessor.RegionMaxKeys)
+	raftConf.SplitCheck.RegionSplitKeys = uint64(conf.Coprocessor.RegionSplitKeys)
+}
+
 func setupRaftInnerServer(bundle *mvcc.DBBundle, safePoint *tikv.SafePoint, pdClient pd.Client, conf *config.Config) (tikv.InnerServer, *tikv.MVCCStore, tikv.RegionManager) {
 	dbPath := conf.Engine.DBPath
 	kvPath := filepath.Join(dbPath, "kv")
@@ -166,12 +182,9 @@ func setupRaftInnerServer(bundle *mvcc.DBBundle, safePoint *tikv.SafePoint, pdCl
 	os.MkdirAll(raftPath, os.ModePerm)
 	os.Mkdir(snapPath, os.ModePerm)
 
-	config := raftstore.NewDefaultConfig()
-	config.Addr = conf.StoreAddr
-	config.SnapPath = snapPath
-	config.RaftWorkerCnt = conf.RaftWorkers
-	config.SplitCheck.RegionMaxKeys = uint64(conf.Coprocessor.RegionMaxKeys)
-	config.SplitCheck.RegionSplitKeys = uint64(conf.Coprocessor.RegionSplitKeys)
+	raftConf := raftstore.NewDefaultConfig()
+	raftConf.SnapPath = snapPath
+	setupRaftStoreConf(raftConf, conf)
 
 	raftDB := createDB(subPathRaft, nil, &conf.Engine)
 	meta, err := bundle.LockStore.LoadFromFile(filepath.Join(kvPath, raftstore.LockstoreFileName))
@@ -189,7 +202,7 @@ func setupRaftInnerServer(bundle *mvcc.DBBundle, safePoint *tikv.SafePoint, pdCl
 
 	engines := raftstore.NewEngines(bundle, raftDB, kvPath, raftPath)
 
-	innerServer := raftstore.NewRaftInnerServer(engines, config)
+	innerServer := raftstore.NewRaftInnerServer(engines, raftConf)
 	innerServer.Setup(pdClient)
 	router := innerServer.GetRaftstoreRouter()
 	storeMeta := innerServer.GetStoreMeta()
@@ -206,9 +219,9 @@ func setupRaftInnerServer(bundle *mvcc.DBBundle, safePoint *tikv.SafePoint, pdCl
 
 func setupStandAlongInnerServer(bundle *mvcc.DBBundle, safePoint *tikv.SafePoint, pdClient pd.Client, conf *config.Config) (tikv.InnerServer, *tikv.MVCCStore, tikv.RegionManager) {
 	regionOpts := tikv.RegionOptions{
-		StoreAddr:  conf.StoreAddr,
-		PDAddr:     conf.PDAddr,
-		RegionSize: conf.RegionSize,
+		StoreAddr:  conf.Server.StoreAddr,
+		PDAddr:     conf.Server.PDAddr,
+		RegionSize: conf.Server.RegionSize,
 	}
 
 	innerServer := tikv.NewStandAlongInnerServer(bundle)

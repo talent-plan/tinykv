@@ -1,16 +1,35 @@
 package config
 
+import (
+	"time"
+
+	"github.com/ngaut/log"
+)
+
 type Config struct {
-	PDAddr      string      `toml:"pd-addr"`
-	StoreAddr   string      `toml:"store-addr"`
-	HttpAddr    string      `toml:"http-addr"`
-	LogLevel    string      `toml:"log-level"`
-	RegionSize  int64       `toml:"region-size"`  // Average region size.
-	MaxProcs    int         `toml:"max-procs"`    // Max CPU cores to use, set 0 to use all CPU cores in the machine.
-	Raft        bool        `toml:"raft"`         // Enable raft.
-	RaftWorkers int         `toml:"raft-workers"` // Number of raft workers.
-	Engine      Engine      `toml:"engine"`       // Engine options.
-	Coprocessor Coprocessor `toml:"coprocessor"`  // Coprocessor options
+	Server      Server      `toml:"server"`      // Unistore server options
+	Engine      Engine      `toml:"engine"`      // Engine options.
+	RaftStore   RaftStore   `toml:"raftstore"`   // RaftStore configs
+	Coprocessor Coprocessor `toml:"coprocessor"` // Coprocessor options
+}
+
+type Server struct {
+	PDAddr     string `toml:"pd-addr"`
+	StoreAddr  string `toml:"store-addr"`
+	StatusAddr string `toml:"status-addr"`
+	LogLevel   string `toml:"log-level"`
+	RegionSize int64  `toml:"region-size"` // Average region size.
+	MaxProcs   int    `toml:"max-procs"`   // Max CPU cores to use, set 0 to use all CPU cores in the machine.
+	Raft       bool   `toml:"raft"`        // Enable raft.
+}
+
+type RaftStore struct {
+	RaftWorkers              int    `toml:"raft-workers"`                // Number of raft workers.
+	PdHeartbeatTickInterval  string `toml:"pd-heartbeat-tick-interval"`  // pd-heartbeat-tick-interval in seconds
+	RaftStoreMaxLeaderLease  string `toml:"raft-store-max-leader-lease"` // raft-store-max-leader-lease in milliseconds
+	RaftBaseTickInterval     string `toml:"raft-base-tick-interval"`     // raft-base-tick-interval in milliseconds
+	RaftHeartbeatTicks       int    `toml:"raft-heartbeat-ticks"`        // raft-heartbeat-ticks times
+	RaftElectionTimeoutTicks int    `toml:"raft-election-timeout-ticks"` // raft-election-timeout-ticks times
 }
 
 type Coprocessor struct {
@@ -35,14 +54,23 @@ type Engine struct {
 const MB = 1024 * 1024
 
 var DefaultConf = Config{
-	PDAddr:      "127.0.0.1:2379",
-	StoreAddr:   "127.0.0.1:9191",
-	HttpAddr:    "127.0.0.1:9291",
-	RegionSize:  64 * MB,
-	LogLevel:    "info",
-	MaxProcs:    0,
-	Raft:        true,
-	RaftWorkers: 2,
+	Server: Server{
+		PDAddr:     "127.0.0.1:2379",
+		StoreAddr:  "127.0.0.1:9191",
+		StatusAddr: "127.0.0.1:9291",
+		RegionSize: 64 * MB,
+		LogLevel:   "info",
+		MaxProcs:   0,
+		Raft:       true,
+	},
+	RaftStore: RaftStore{
+		RaftWorkers:              2,
+		PdHeartbeatTickInterval:  "20s",
+		RaftStoreMaxLeaderLease:  "9s",
+		RaftBaseTickInterval:     "1s",
+		RaftHeartbeatTicks:       2,
+		RaftElectionTimeoutTicks: 10,
+	},
 	Engine: Engine{
 		DBPath:           "/tmp/badger",
 		ValueThreshold:   256,
@@ -54,4 +82,16 @@ var DefaultConf = Config{
 		SyncWrite:        true,
 		NumCompactors:    1,
 	},
+}
+
+// parseDuration parses duration argument string.
+func ParseDuration(durationStr string) time.Duration {
+	dur, err := time.ParseDuration(durationStr)
+	if err != nil {
+		dur, err = time.ParseDuration(durationStr + "s")
+	}
+	if err != nil || dur < 0 {
+		log.Fatalf("invalid duration=%v", durationStr)
+	}
+	return dur
 }
