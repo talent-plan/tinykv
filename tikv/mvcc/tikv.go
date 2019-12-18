@@ -41,9 +41,10 @@ func ParseWriteCFValue(data []byte) (wv WriteCFValue, err error) {
 }
 
 const (
-	shortValuePrefix = 'v'
-	forUpdatePrefix  = 'f'
-	ShortValueMaxLen = 64
+	shortValuePrefix  = 'v'
+	forUpdatePrefix   = 'f'
+	minCommitTsPrefix = 'm'
+	ShortValueMaxLen  = 64
 )
 
 // EncodeWriteCFValue accepts a write cf parameters and return the encoded bytes data.
@@ -88,6 +89,10 @@ func EncodeLockCFValue(lock *MvccLock) ([]byte, []byte) {
 	if lock.ForUpdateTS > 0 {
 		data = append(data, byte(forUpdatePrefix))
 		data = codec.EncodeUint(data, lock.ForUpdateTS)
+	}
+	if lock.MinCommitTS > 0 {
+		data = append(data, byte(minCommitTsPrefix))
+		data = codec.EncodeUint(data, lock.MinCommitTS)
 	}
 	return data, longValue
 }
@@ -144,6 +149,9 @@ func ParseLockCFValue(data []byte) (lock MvccLock, err error) {
 	}
 	if len(data) > 0 && data[0] == forUpdatePrefix {
 		data, lock.ForUpdateTS, err = codec.DecodeUint(data[1:])
+	}
+	if len(data) > 0 && data[0] == minCommitTsPrefix {
+		data, lock.MinCommitTS, err = codec.DecodeUint(data[1:])
 	}
 	return
 }

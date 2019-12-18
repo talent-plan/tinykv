@@ -876,17 +876,21 @@ func (a *applier) execWriteCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdReques
 	resp *raft_cmdpb.RaftCmdResponse, result applyResult, err error) {
 	requests := req.GetRequests()
 	writeCmdOps := createWriteCmdOps(requests)
-	for _, op := range writeCmdOps.prewrites {
-		a.execPrewrite(aCtx, op)
-	}
-	for _, op := range writeCmdOps.commits {
-		a.execCommit(aCtx, op)
-	}
-	for _, op := range writeCmdOps.rollbacks {
-		a.execRollback(aCtx, op)
-	}
-	for _, op := range writeCmdOps.delRanges {
-		a.execDeleteRange(aCtx, op)
+	rangeDeleted := false
+	for _, op := range writeCmdOps {
+		switch x := op.(type) {
+		case *prewriteOp:
+			a.execPrewrite(aCtx, *x)
+		case *commitOp:
+			a.execCommit(aCtx, *x)
+		case *rollbackOp:
+			a.execRollback(aCtx, *x)
+		case *raft_cmdpb.DeleteRangeRequest:
+			a.execDeleteRange(aCtx, x)
+			rangeDeleted = true
+		default:
+			log.Fatalf("invalid input op=%v", x)
+		}
 	}
 	resps := make([]raft_cmdpb.Response, len(requests))
 	respPtrs := make([]*raft_cmdpb.Response, len(requests))
@@ -897,7 +901,7 @@ func (a *applier) execWriteCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdReques
 	}
 	resp = newCmdRespForReq(req)
 	resp.Responses = respPtrs
-	if len(writeCmdOps.delRanges) > 0 {
+	if rangeDeleted {
 		result = applyResult{
 			tp:   applyResultTypeExecResult,
 			data: &execResultDeleteRange{},
@@ -926,15 +930,8 @@ type rollbackOp struct {
 	delLock    *raft_cmdpb.DeleteRequest
 }
 
-type writeCmdOps struct {
-	prewrites []prewriteOp
-	commits   []commitOp
-	rollbacks []rollbackOp
-	delRanges []*raft_cmdpb.DeleteRangeRequest
-}
-
 // createWriteCmdOps regroups requests into operations.
-func createWriteCmdOps(requests []*raft_cmdpb.Request) (ops writeCmdOps) {
+func createWriteCmdOps(requests []*raft_cmdpb.Request) (ops []interface{}) {
 	// If first request is delete write, then this is a GC command, we can ignore it.
 	if del := requests[0].Delete; del != nil {
 		if del.Cf == CFWrite {
@@ -953,7 +950,7 @@ func createWriteCmdOps(requests []*raft_cmdpb.Request) (ops writeCmdOps) {
 				y.Assert(putWriteReq.Put != nil && putWriteReq.Put.Cf == CFWrite)
 				delLockReq := requests[i+2]
 				y.Assert(delLockReq.Delete != nil && delLockReq.Delete.Cf == CFLock)
-				ops.rollbacks = append(ops.rollbacks, rollbackOp{
+				ops = append(ops, &rollbackOp{
 					delDefault: req.Delete,
 					putWrite:   putWriteReq.Put,
 					delLock:    delLockReq.Delete,
@@ -963,7 +960,7 @@ func createWriteCmdOps(requests []*raft_cmdpb.Request) (ops writeCmdOps) {
 				// This is collapse rollback, since we do local rollback GC, we can ignore it.
 			case CFLock:
 				// This is pessimistic rollback.
-				ops.rollbacks = append(ops.rollbacks, rollbackOp{
+				ops = append(ops, &rollbackOp{
 					delLock: req.Delete,
 				})
 			default:
@@ -976,14 +973,14 @@ func createWriteCmdOps(requests []*raft_cmdpb.Request) (ops writeCmdOps) {
 				// Prewrite with large value, the next req must be put lock.
 				nextPut := requests[i+1].Put
 				y.Assert(nextPut != nil && nextPut.Cf == CFLock)
-				ops.prewrites = append(ops.prewrites, prewriteOp{
+				ops = append(ops, &prewriteOp{
 					putDefault: put,
 					putLock:    nextPut,
 				})
 				i++
 			case CFLock:
 				// Prewrite with short value.
-				ops.prewrites = append(ops.prewrites, prewriteOp{putLock: put})
+				ops = append(ops, &prewriteOp{putLock: put})
 			case CFWrite:
 				writeType := put.Value[0]
 				if writeType == mvcc.WriteTypeRollback {
@@ -995,13 +992,13 @@ func createWriteCmdOps(requests []*raft_cmdpb.Request) (ops writeCmdOps) {
 						}
 					}
 					if nextDel != nil {
-						ops.rollbacks = append(ops.rollbacks, rollbackOp{
+						ops = append(ops, &rollbackOp{
 							putWrite: put,
 							delLock:  nextDel,
 						})
 						i++
 					} else {
-						ops.rollbacks = append(ops.rollbacks, rollbackOp{
+						ops = append(ops, &rollbackOp{
 							putWrite: put,
 						})
 					}
@@ -1009,7 +1006,7 @@ func createWriteCmdOps(requests []*raft_cmdpb.Request) (ops writeCmdOps) {
 					// Commit must followed by del lock
 					nextDel := requests[i+1].Delete
 					y.Assert(nextDel != nil && nextDel.Cf == CFLock)
-					ops.commits = append(ops.commits, commitOp{
+					ops = append(ops, &commitOp{
 						putWrite: put,
 						delLock:  nextDel,
 					})
@@ -1017,7 +1014,7 @@ func createWriteCmdOps(requests []*raft_cmdpb.Request) (ops writeCmdOps) {
 				}
 			}
 		case raft_cmdpb.CmdType_DeleteRange:
-			ops.delRanges = append(ops.delRanges, req.DeleteRange)
+			ops = append(ops, &req.DeleteRange)
 		case raft_cmdpb.CmdType_IngestSST:
 			panic("ingestSST not unsupported")
 		case raft_cmdpb.CmdType_Snap, raft_cmdpb.CmdType_Get:

@@ -70,15 +70,19 @@ func restoreAppliedEntry(entry *eraftpb.Entry, txn *badger.Txn, lockStore, rollb
 		return nil
 	}
 	writeCmdOps := createWriteCmdOps(raftCmdRequest.Requests)
-	for _, prewrite := range writeCmdOps.prewrites {
-		restorePrewrite(prewrite, txn, lockStore)
-	}
-	for _, commit := range writeCmdOps.commits {
-		restoreCommit(commit, lockStore)
-	}
-	if rollbackStore != nil {
-		for _, rollback := range writeCmdOps.rollbacks {
-			restoreRollback(rollback, rollbackStore)
+	for _, op := range writeCmdOps {
+		switch x := op.(type) {
+		case *prewriteOp:
+			restorePrewrite(*x, txn, lockStore)
+		case *commitOp:
+			restoreCommit(*x, lockStore)
+		case *rollbackOp:
+			if rollbackStore != nil {
+				restoreRollback(*x, rollbackStore)
+			}
+		case *raft_cmdpb.DeleteRangeRequest:
+		default:
+			log.Fatalf("invalid input op=%v", x)
 		}
 	}
 	return nil

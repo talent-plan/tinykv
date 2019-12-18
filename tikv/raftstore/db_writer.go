@@ -211,3 +211,54 @@ func (writer *raftDBWriter) DeleteRange(startKey, endKey []byte, latchHandle mvc
 func NewDBWriter(router *RaftstoreRouter) mvcc.DBWriter {
 	return &raftDBWriter{router: router.router}
 }
+
+// TestRaftWriter is used to mock raft write related prewrite and commit operations without
+// sending real raft commands
+type TestRaftWriter struct {
+	dbBundle *mvcc.DBBundle
+	engine   *Engines
+}
+
+func (w *TestRaftWriter) Open() {
+}
+
+func (w *TestRaftWriter) Close() {
+}
+
+func (w *TestRaftWriter) Write(batch mvcc.WriteBatch) error {
+	raftWriteBatch := batch.(*raftWriteBatch)
+	applier := new(applier)
+	applyCtx := newApplyContext("test", nil, w.engine, nil, NewDefaultConfig())
+	_, _, err := applier.execWriteCmd(applyCtx, &rcpb.RaftCmdRequest{
+		Header:   new(rcpb.RaftRequestHeader),
+		Requests: raftWriteBatch.requests,
+	})
+	if err != nil {
+		return err
+	}
+	err = applyCtx.wb.WriteToKV(w.dbBundle)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (w *TestRaftWriter) DeleteRange(start, end []byte, latchHandle mvcc.LatchHandle) error {
+	return nil
+}
+
+func (w *TestRaftWriter) NewWriteBatch(startTS, commitTS uint64, ctx *kvrpcpb.Context) mvcc.WriteBatch {
+	return &raftWriteBatch{
+		ctx:      ctx,
+		startTS:  startTS,
+		commitTS: commitTS,
+	}
+}
+
+func NewTestRaftWriter(dbBundle *mvcc.DBBundle, engine *Engines) mvcc.DBWriter {
+	writer := &TestRaftWriter{
+		dbBundle: dbBundle,
+		engine:   engine,
+	}
+	return writer
+}

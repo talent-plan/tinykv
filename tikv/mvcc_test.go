@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/coocood/badger"
 	"github.com/ngaut/unistore/lockstore"
 	"github.com/ngaut/unistore/tikv/mvcc"
+	"github.com/ngaut/unistore/tikv/raftstore"
 	"github.com/ngaut/unistore/util/lockwaiter"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
@@ -76,7 +78,17 @@ func NewTestStore(dbPrefix string, logPrefix string) (*TestStore, error) {
 		LockStore:     lockstore.NewMemStore(4096),
 		RollbackStore: lockstore.NewMemStore(4096),
 	}
-	writer := NewDBWriter(dbBundle, safePoint)
+	// Some raft store path problems could not be found using simple store in tests
+	// writer := NewDBWriter(dbBundle, safePoint)
+	kvPath := filepath.Join(dbPath, "kv")
+	raftPath := filepath.Join(dbPath, "raft")
+	snapPath := filepath.Join(dbPath, "snap")
+	os.MkdirAll(kvPath, os.ModePerm)
+	os.MkdirAll(raftPath, os.ModePerm)
+	os.Mkdir(snapPath, os.ModePerm)
+	engines := raftstore.NewEngines(dbBundle, dbBundle.DB, kvPath, raftPath)
+	writer := raftstore.NewTestRaftWriter(dbBundle, engines)
+
 	store := NewMVCCStore(dbBundle, dbPath, safePoint, writer, nil)
 	svr := NewServer(nil, store, nil)
 	return &TestStore{
@@ -512,6 +524,7 @@ func (s *testMvccSuite) TestPrimaryKeyOpLock(c *C) {
 	c.Assert(err, IsNil)
 	defer CleanTestStore(store)
 
+	// prewrite 100 Op_Lock
 	pk := func() []byte { return []byte("tpk") }
 	err = store.MvccStore.Prewrite(store.newReqCtx(), &kvrpcpb.PrewriteRequest{
 		Mutations:    []*kvrpcpb.Mutation{newMutation(kvrpcpb.Op_Lock, pk(), nil)},
@@ -525,6 +538,7 @@ func (s *testMvccSuite) TestPrimaryKeyOpLock(c *C) {
 	_, commitTS, _, _ := CheckTxnStatus(pk(), 100, 110, 110, false, store)
 	c.Assert(commitTS, Equals, uint64(101))
 
+	// prewrite 110 Op_Lock
 	val := []byte("val")
 	err = store.MvccStore.Prewrite(store.newReqCtx(), &kvrpcpb.PrewriteRequest{
 		Mutations:    []*kvrpcpb.Mutation{newMutation(kvrpcpb.Op_Put, pk(), val)},
@@ -536,6 +550,7 @@ func (s *testMvccSuite) TestPrimaryKeyOpLock(c *C) {
 	err = store.MvccStore.Commit(store.newReqCtx(), [][]byte{pk()}, 110, 111)
 	c.Assert(err, IsNil)
 
+	// prewrite 120 Op_Lock
 	err = store.MvccStore.Prewrite(store.newReqCtx(), &kvrpcpb.PrewriteRequest{
 		Mutations:    []*kvrpcpb.Mutation{newMutation(kvrpcpb.Op_Lock, pk(), val)},
 		PrimaryLock:  pk(),
@@ -546,8 +561,13 @@ func (s *testMvccSuite) TestPrimaryKeyOpLock(c *C) {
 	err = store.MvccStore.Commit(store.newReqCtx(), [][]byte{pk()}, 120, 121)
 	c.Assert(err, IsNil)
 
+	// the older commit record should exist
 	_, commitTS, _, _ = CheckTxnStatus(pk(), 120, 130, 130, false, store)
 	c.Assert(commitTS, Equals, uint64(121))
+	_, commitTS, _, _ = CheckTxnStatus(pk(), 110, 130, 130, false, store)
+	c.Assert(commitTS, Equals, uint64(111))
+	_, commitTS, _, _ = CheckTxnStatus(pk(), 100, 130, 130, false, store)
+	c.Assert(commitTS, Equals, uint64(101))
 
 	getVal, err := store.newReqCtx().getDBReader().Get(pk(), 90)
 	c.Assert(err, IsNil)
