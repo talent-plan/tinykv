@@ -269,7 +269,7 @@ func TestPointGet(t *testing.T) {
 	// three rows data, just like the test data of table_scan.rs.
 	// then init the store with the generated data.
 	data := prepareTestTableData(t, keyNumber, TableId)
-	store, err := NewTestStore("cop_handler_test_db", "cop_handler_test_log")
+	store, err := NewTestStore("cop_handler_test_db", "cop_handler_test_log", nil)
 	defer CleanTestStore(store)
 	require.Nil(t, err)
 	errors := initTestData(store, data.encodedTestKVDatas)
