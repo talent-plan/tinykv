@@ -55,6 +55,7 @@ func (svr *Server) buildClosureExecutor(dagCtx *dagContext, dagReq *tipb.DAGRequ
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
+		ce.processor = &selectionProcessor{closureExecutor: ce}
 	}
 	lastExecutor := executors[len(executors)-1]
 	switch lastExecutor.Tp {

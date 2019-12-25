@@ -10,6 +10,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/parser/mysql"
+	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/tablecodec"
@@ -242,6 +243,25 @@ func (dagBuilder *dagBuilder) addTableScan(colInfos []*tipb.ColumnInfo, tableId 
 	return dagBuilder
 }
 
+func (dagBuilder *dagBuilder) addSelection(expr *tipb.Expr) *dagBuilder {
+	dagBuilder.executors = append(dagBuilder.executors, &tipb.Executor{
+		Tp: tipb.ExecType_TypeSelection,
+		Selection: &tipb.Selection{
+			Conditions:       []*tipb.Expr{expr},
+			XXX_unrecognized: nil,
+		},
+	})
+	return dagBuilder
+}
+
+func (dagBuilder *dagBuilder) addLimit(limit uint64) *dagBuilder {
+	dagBuilder.executors = append(dagBuilder.executors, &tipb.Executor{
+		Tp:    tipb.ExecType_TypeLimit,
+		Limit: &tipb.Limit{Limit: limit},
+	})
+	return dagBuilder
+}
+
 func (dagBuilder *dagBuilder) build() *tipb.DAGRequest {
 	return &tipb.DAGRequest{
 		Executors:     dagBuilder.executors,
@@ -313,4 +333,47 @@ func TestPointGet(t *testing.T) {
 	eq, err = returnedRow[1].CompareDatum(nil, &expectedRow[1])
 	require.Nil(t, err)
 	require.Equal(t, eq, 0)
+}
+
+func TestClosureExecutor(t *testing.T) {
+	data := prepareTestTableData(t, keyNumber, TableId)
+	store, err := NewTestStore("cop_handler_test_db", "cop_handler_test_log", nil)
+	defer CleanTestStore(store)
+	require.Nil(t, err)
+	errors := initTestData(store, data.encodedTestKVDatas)
+	require.Nil(t, errors)
+
+	dagRequest := newDagBuilder().
+		setStartTs(DagRequestStartTs).
+		addTableScan(data.colInfos, TableId).
+		addSelection(buildEQIntExpr(1, -1)).
+		addLimit(1).
+		setOutputOffsets([]uint32{0, 1}).
+		build()
+
+	dagCtx := newDagContext(store, []kv.KeyRange{getTestPointRange(TableId, 1)},
+		dagRequest, DagRequestStartTs)
+	_, rowCount, err := buildExecutorsAndExecute(store, dagRequest, dagCtx)
+	require.Nil(t, err, "%v", err)
+	require.Equal(t, rowCount, 0)
+}
+
+func buildEQIntExpr(colID, val int64) *tipb.Expr {
+	return &tipb.Expr{
+		Tp:        tipb.ExprType_ScalarFunc,
+		Sig:       tipb.ScalarFuncSig_EQInt,
+		FieldType: expression.ToPBFieldType(types.NewFieldType(mysql.TypeLonglong)),
+		Children: []*tipb.Expr{
+			{
+				Tp:        tipb.ExprType_ColumnRef,
+				Val:       codec.EncodeInt(nil, colID),
+				FieldType: expression.ToPBFieldType(types.NewFieldType(mysql.TypeLonglong)),
+			},
+			{
+				Tp:        tipb.ExprType_Int64,
+				Val:       codec.EncodeInt(nil, val),
+				FieldType: expression.ToPBFieldType(types.NewFieldType(mysql.TypeLonglong)),
+			},
+		},
+	}
 }
