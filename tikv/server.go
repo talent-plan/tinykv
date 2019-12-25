@@ -1,6 +1,7 @@
 package tikv
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"sync"
@@ -19,7 +20,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/tikvpb"
 	"github.com/pingcap/tidb/kv"
-	"golang.org/x/net/context"
 )
 
 var _ tikvpb.TikvServer = new(Server)

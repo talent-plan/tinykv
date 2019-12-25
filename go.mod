@@ -2,11 +2,10 @@ module github.com/ngaut/unistore
 
 require (
 	github.com/BurntSushi/toml v0.3.1
-	github.com/coocood/badger v1.5.1-0.20191213062605-be46736863c8
+	github.com/coocood/badger v1.5.1-0.20191224120441-29dd586ca27d
 	github.com/cznic/mathutil v0.0.0-20181122101859-297441e03548
-	github.com/dgryski/go-farm v0.0.0-20190104051053-3adb47b1fb0f
+	github.com/dgryski/go-farm v0.0.0-20190423205320-6a90982ecee2
 	github.com/golang/protobuf v1.3.1
-	github.com/golang/snappy v0.0.1 // indirect
 	github.com/juju/errors v0.0.0-20181118221551-089d3ea4e4d5
 	github.com/juju/loggo v0.0.0-20180524022052-584905176618 // indirect
 	github.com/juju/testing v0.0.0-20180920084828-472a3e8b2073 // indirect
@@ -23,7 +22,7 @@ require (
 	github.com/stretchr/testify v1.3.0
 	github.com/uber-go/atomic v1.3.2
 	github.com/zhangjinpeng1987/raft v0.0.0-20190624145930-deeb32d6553d
-	golang.org/x/net v0.0.0-20190108225652-1e06a53dbb7e
+	golang.org/x/net v0.0.0-20190620200207-3b0461eec859
 	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4
 	google.golang.org/grpc v1.17.0
 	gopkg.in/mgo.v2 v2.0.0-20180705113604-9856a29383ce // indirect

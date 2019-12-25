@@ -59,11 +59,7 @@ type Engines struct {
 
 func NewEngines(kvEngine *mvcc.DBBundle, raftEngine *badger.DB, kvPath, raftPath string) *Engines {
 	return &Engines{
-		kv: &mvcc.DBBundle{
-			DB:            kvEngine.DB,
-			LockStore:     kvEngine.LockStore,
-			RollbackStore: kvEngine.RollbackStore,
-		},
+		kv:       kvEngine,
 		kvPath:   kvPath,
 		raft:     raftEngine,
 		raftPath: raftPath,

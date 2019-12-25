@@ -3,6 +3,7 @@ package config
 import (
 	"time"
 
+	"github.com/coocood/badger/options"
 	"github.com/ngaut/log"
 )
 
@@ -47,8 +48,23 @@ type Engine struct {
 	VlogFileSize     int64  `toml:"vlog-file-size"`      // Value log file size.
 
 	// 	Sync all writes to disk. Setting this to true would slow down data loading significantly.")
-	SyncWrite     bool `toml:"sync-write"`
-	NumCompactors int  `toml:"num-compactors"`
+	SyncWrite         bool     `toml:"sync-write"`
+	NumCompactors     int      `toml:"num-compactors"`
+	SurfStartLevel    int      `toml:"surf-start-level"`
+	BlockCacheSize    int64    `toml:"block-cache-size"`
+	Compression       []string `toml:"compression"` // Compression types for each level
+	IngestCompression string   `toml:"ingest-compression"`
+}
+
+func ParseCompression(s string) options.CompressionType {
+	switch s {
+	case "snappy":
+		return options.Snappy
+	case "zstd":
+		return options.ZSTD
+	default:
+		return options.None
+	}
 }
 
 const MB = 1024 * 1024
@@ -81,6 +97,9 @@ var DefaultConf = Config{
 		VlogFileSize:     256 * MB,
 		SyncWrite:        true,
 		NumCompactors:    1,
+		SurfStartLevel:   8,
+		Compression:      make([]string, 7),
+		BlockCacheSize:   1 << 30,
 	},
 }
 
@@ -94,4 +113,14 @@ func ParseDuration(durationStr string) time.Duration {
 		log.Fatalf("invalid duration=%v", durationStr)
 	}
 	return dur
+}
+
+var globalConf = DefaultConf
+
+func GetGlobalConf() *Config {
+	return &globalConf
+}
+
+func SetGlobalConf(c *Config) {
+	globalConf = *c
 }
