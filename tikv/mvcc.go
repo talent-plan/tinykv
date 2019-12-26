@@ -165,6 +165,9 @@ func (store *MVCCStore) PessimisticLock(reqCtx *requestCtx, req *kvrpcpb.Pessimi
 	batch := store.dbWriter.NewWriteBatch(startTS, 0, reqCtx.rpcCtx)
 	for _, m := range mutations {
 		lock, err := store.checkConflictInLockStore(reqCtx, m, startTS)
+		if err == ErrAlreadyRollback {
+			return nil, err
+		}
 		if err != nil {
 			return store.handleCheckPessimisticErr(startTS, err, req.IsFirstLock)
 		}
@@ -571,6 +574,11 @@ func (store *MVCCStore) Commit(req *requestCtx, keys [][]byte, startTS, commitTS
 		if lock.StartTS != startTS {
 			return ErrReplaced
 		}
+		if lock.Op == uint8(kvrpcpb.Op_PessimisticLock) {
+			return &ErrCommitPessimisticLock{
+				key: key,
+			}
+		}
 		if commitTS < lock.MinCommitTS {
 			log.Infof("trying to commit with smaller commitTs=%v than minCommitTs=%v, key=%v",
 				commitTS, lock.MinCommitTS, key)
@@ -624,6 +632,7 @@ const (
 	rollbackStatusNoLock  = 1
 	rollbackStatusNewLock = 2
 	rollbackPessimistic   = 3
+	rollbackStatusLocked  = 4
 )
 
 func (store *MVCCStore) Rollback(reqCtx *requestCtx, keys [][]byte, startTS uint64) error {
@@ -637,7 +646,11 @@ func (store *MVCCStore) Rollback(reqCtx *requestCtx, keys [][]byte, startTS uint
 
 	statuses := make([]int, len(keys))
 	for i, key := range keys {
-		statuses[i] = store.rollbackKeyReadLock(reqCtx, batch, key, startTS)
+		var rollbackErr error
+		statuses[i], rollbackErr = store.rollbackKeyReadLock(reqCtx, batch, key, startTS, 0)
+		if rollbackErr != nil {
+			return errors.Trace(rollbackErr)
+		}
 	}
 	for i, key := range keys {
 		status := statuses[i]
@@ -655,13 +668,14 @@ func (store *MVCCStore) Rollback(reqCtx *requestCtx, keys [][]byte, startTS uint
 	return errors.Trace(err)
 }
 
-func (store *MVCCStore) rollbackKeyReadLock(reqCtx *requestCtx, batch mvcc.WriteBatch, key []byte, startTS uint64) (status int) {
+func (store *MVCCStore) rollbackKeyReadLock(reqCtx *requestCtx, batch mvcc.WriteBatch, key []byte,
+	startTS, currentTs uint64) (int, error) {
 	reqCtx.buf = mvcc.EncodeRollbackKey(reqCtx.buf, key, startTS)
 	rollbackKey := safeCopy(reqCtx.buf)
 	reqCtx.buf = store.rollbackStore.Get(rollbackKey, reqCtx.buf)
 	if len(reqCtx.buf) != 0 {
 		// Already rollback.
-		return rollbackStatusDone
+		return rollbackStatusDone, nil
 	}
 	reqCtx.buf = store.lockStore.Get(key, reqCtx.buf)
 	hasLock := len(reqCtx.buf) > 0
@@ -671,22 +685,30 @@ func (store *MVCCStore) rollbackKeyReadLock(reqCtx *requestCtx, batch mvcc.Write
 			// The lock is old, means this is written by an old transaction, and the current transaction may not arrive.
 			// We should write a rollback lock.
 			batch.Rollback(key, false)
-			return rollbackStatusDone
+			return rollbackStatusDone, nil
 		}
 		if lock.StartTS == startTS {
+			if currentTs > 0 && uint64(oracle.ExtractPhysical(lock.StartTS))+uint64(lock.TTL) >= uint64(oracle.ExtractPhysical(currentTs)) {
+				return rollbackStatusLocked, &ErrLocked{
+					Primary: key,
+					Key:     key,
+					StartTS: lock.StartTS,
+					TTL:     uint64(lock.TTL),
+				}
+			}
 			if lock.Op == uint8(kvrpcpb.Op_PessimisticLock) {
 				batch.PessimisticRollback(key)
-				return rollbackPessimistic
+				return rollbackPessimistic, nil
 			}
 			// We can not simply delete the lock because the prewrite may be sent multiple times.
 			// To prevent that we update it a rollback lock.
 			batch.Rollback(key, true)
-			return rollbackStatusDone
+			return rollbackStatusDone, nil
 		}
 		// lock.startTS > startTS, go to DB to check if the key is committed.
-		return rollbackStatusNewLock
+		return rollbackStatusNewLock, nil
 	}
-	return rollbackStatusNoLock
+	return rollbackStatusNoLock, nil
 }
 
 func (store *MVCCStore) rollbackKeyReadDB(req *requestCtx, batch mvcc.WriteBatch, key []byte, startTS uint64, hasLock bool) error {
@@ -790,7 +812,7 @@ func (store *MVCCStore) CheckRangeLock(startTS uint64, startKey, endKey []byte) 
 	return nil
 }
 
-func (store *MVCCStore) Cleanup(reqCtx *requestCtx, key []byte, startTS uint64) error {
+func (store *MVCCStore) Cleanup(reqCtx *requestCtx, key []byte, startTS, currentTs uint64) error {
 	hashVals := keysToHashVals(key)
 	regCtx := reqCtx.regCtx
 	batch := store.dbWriter.NewWriteBatch(startTS, 0, reqCtx.rpcCtx)
@@ -798,14 +820,17 @@ func (store *MVCCStore) Cleanup(reqCtx *requestCtx, key []byte, startTS uint64) 
 	regCtx.AcquireLatches(hashVals)
 	defer regCtx.ReleaseLatches(hashVals)
 
-	status := store.rollbackKeyReadLock(reqCtx, batch, key, startTS)
+	status, err := store.rollbackKeyReadLock(reqCtx, batch, key, startTS, currentTs)
+	if err != nil {
+		return err
+	}
 	if status != rollbackStatusDone {
 		err := store.rollbackKeyReadDB(reqCtx, batch, key, startTS, status == rollbackStatusNewLock)
 		if err != nil {
 			return err
 		}
 	}
-	err := store.dbWriter.Write(batch)
+	err = store.dbWriter.Write(batch)
 	store.lockWaiterManager.WakeUp(startTS, 0, hashVals)
 	return err
 }

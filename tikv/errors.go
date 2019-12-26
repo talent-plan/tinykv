@@ -39,6 +39,14 @@ func (e ErrAlreadyCommitted) Error() string {
 	return "txn already committed"
 }
 
+type ErrCommitPessimisticLock struct {
+	key []byte
+}
+
+func (e ErrCommitPessimisticLock) Error() string {
+	return fmt.Sprintf("txn commit pessimistic lock directly on key=%v", e.key)
+}
+
 type ErrKeyAlreadyExists struct {
 	Key []byte
 }

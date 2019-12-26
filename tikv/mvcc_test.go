@@ -152,6 +152,15 @@ func PrewritePessimistic(pk []byte, key []byte, value []byte, startTs uint64, lo
 	return store.MvccStore.prewritePessimistic(store.newReqCtx(), prewriteReq.Mutations, prewriteReq)
 }
 
+func MustCheckTxnStatus(pk []byte, lockTs uint64, callerStartTs uint64,
+	currentTs uint64, rollbackIfNotExists bool, ttl, commitTs uint64, action kvrpcpb.Action, s *TestStore) {
+	resTTL, resCommitTs, resAction, err := CheckTxnStatus(pk, lockTs, callerStartTs, currentTs, rollbackIfNotExists, s)
+	s.c.Assert(err, IsNil)
+	s.c.Assert(resTTL, Equals, ttl)
+	s.c.Assert(resCommitTs, Equals, commitTs)
+	s.c.Assert(resAction, Equals, action)
+}
+
 func CheckTxnStatus(pk []byte, lockTs uint64, callerStartTs uint64,
 	currentTs uint64, rollbackIfNotExists bool, store *TestStore) (uint64, uint64, kvrpcpb.Action, error) {
 	req := &kvrpcpb.CheckTxnStatusRequest{
@@ -170,10 +179,16 @@ func MustLocked(key []byte, pessimistic bool, store *TestStore) {
 	store.c.Assert(lock, NotNil)
 	if pessimistic {
 		store.c.Assert(lock.ForUpdateTS, Greater, uint64(0))
-		store.c.Assert(lock.Op, Equals, kvrpcpb.Op_PessimisticLock)
 	} else {
 		store.c.Assert(lock.ForUpdateTS, Equals, uint64(0))
 	}
+}
+
+func MustPessimisticLocked(key []byte, startTs, forUpdateTs uint64, store *TestStore) {
+	lock := store.MvccStore.getLock(store.newReqCtx(), key)
+	store.c.Assert(lock, NotNil)
+	store.c.Assert(lock.StartTS, Equals, startTs)
+	store.c.Assert(lock.ForUpdateTS, Equals, forUpdateTs)
 }
 
 func MustUnLocked(key []byte, store *TestStore) {
@@ -185,7 +200,7 @@ func MustPrewritePut(pk, key []byte, val []byte, startTs uint64, store *TestStor
 	MustPrewriteOptimistic(pk, key, val, startTs, 50, startTs, store)
 }
 
-func MustPrewriteLockErr(pk, key []byte, val []byte, startTs uint64, store *TestStore) {
+func MustPrewritePutLockErr(pk, key []byte, val []byte, startTs uint64, store *TestStore) {
 	err := PrewriteOptimistic(pk, key, val, startTs, lockTTL, startTs, store)
 	store.c.Assert(err, NotNil)
 	lockedErr := err.(*ErrLocked)
@@ -197,17 +212,57 @@ func MustPrewritePutErr(pk, key []byte, val []byte, startTs uint64, store *TestS
 	store.c.Assert(err, NotNil)
 }
 
+func MustPrewriteInsert(pk, key []byte, val []byte, startTs uint64, store *TestStore) {
+	prewriteReq := &kvrpcpb.PrewriteRequest{
+		Mutations:    []*kvrpcpb.Mutation{newMutation(kvrpcpb.Op_Insert, key, val)},
+		PrimaryLock:  pk,
+		StartVersion: startTs,
+		LockTtl:      lockTTL,
+		MinCommitTs:  startTs,
+	}
+	err := store.MvccStore.prewriteOptimistic(store.newReqCtx(), prewriteReq.Mutations, prewriteReq)
+	store.c.Assert(err, IsNil)
+}
+
+func MustPrewriteInsertAlreadyExists(pk, key []byte, val []byte, startTs uint64, store *TestStore) {
+	prewriteReq := &kvrpcpb.PrewriteRequest{
+		Mutations:    []*kvrpcpb.Mutation{newMutation(kvrpcpb.Op_Insert, key, val)},
+		PrimaryLock:  pk,
+		StartVersion: startTs,
+		LockTtl:      lockTTL,
+		MinCommitTs:  startTs,
+	}
+	err := store.MvccStore.prewriteOptimistic(store.newReqCtx(), prewriteReq.Mutations, prewriteReq)
+	store.c.Assert(err, NotNil)
+	existErr := err.(*ErrKeyAlreadyExists)
+	store.c.Assert(existErr, NotNil)
+}
+
 func MustPrewriteDelete(pk, key []byte, startTs uint64, store *TestStore) {
 	MustPrewriteOptimistic(pk, key, nil, startTs, 50, startTs, store)
 }
 
 func MustAcquirePessimisticLock(pk, key []byte, startTs uint64, forUpdateTs uint64, store *TestStore) {
-	_, err := PessimisticLock(pk, key, startTs, 500, forUpdateTs, false, store)
+	_, err := PessimisticLock(pk, key, startTs, lockTTL, forUpdateTs, false, store)
 	store.c.Assert(err, IsNil)
+}
+
+func MustAcquirePessimisticLockErr(pk, key []byte, startTs uint64, forUpdateTs uint64, store *TestStore) {
+	_, err := PessimisticLock(pk, key, startTs, lockTTL, forUpdateTs, false, store)
+	store.c.Assert(err, NotNil)
 }
 
 func MustPessimisitcPrewriteDelete(pk, key []byte, startTs uint64, forUpdateTs uint64, store *TestStore) {
 	MustPrewritePessimistic(pk, key, nil, startTs, 5000, []bool{true}, forUpdateTs, store)
+}
+
+func MustPessimisticRollback(key []byte, startTs uint64, forUpdateTs uint64, store *TestStore) {
+	err := store.MvccStore.PessimisticRollback(store.newReqCtx(), &kvrpcpb.PessimisticRollbackRequest{
+		StartVersion: startTs,
+		ForUpdateTs:  forUpdateTs,
+		Keys:         [][]byte{key},
+	})
+	store.c.Assert(err, IsNil)
 }
 
 func MustPrewriteOptimistic(pk []byte, key []byte, value []byte, startTs uint64, lockTTL uint64,
@@ -218,12 +273,33 @@ func MustPrewriteOptimistic(pk []byte, key []byte, value []byte, startTs uint64,
 	store.c.Assert(bytes.Compare(lock.Value, value), Equals, 0)
 }
 
+func MustPrewritePessimisticPut(pk []byte, key []byte, value []byte, startTs uint64, forUpdateTs uint64, store *TestStore) {
+	store.c.Assert(PrewritePessimistic(pk, key, value, startTs, lockTTL, []bool{true}, forUpdateTs, store), IsNil)
+	lock := store.MvccStore.getLock(store.newReqCtx(), key)
+	store.c.Assert(lock.ForUpdateTS, Equals, forUpdateTs)
+	store.c.Assert(bytes.Compare(lock.Value, value), Equals, 0)
+}
+
+func MustPrewritePessimisticDelete(pk []byte, key []byte, startTs uint64, forUpdateTs uint64, store *TestStore) {
+	store.c.Assert(PrewritePessimistic(pk, key, nil, startTs, lockTTL, []bool{true}, forUpdateTs, store), IsNil)
+}
 func MustPrewritePessimistic(pk []byte, key []byte, value []byte, startTs uint64, lockTTL uint64,
 	isPessimisticLock []bool, forUpdateTs uint64, store *TestStore) {
 	store.c.Assert(PrewritePessimistic(pk, key, value, startTs, lockTTL, isPessimisticLock, forUpdateTs, store), IsNil)
 	lock := store.MvccStore.getLock(store.newReqCtx(), key)
 	store.c.Assert(lock.ForUpdateTS, Equals, forUpdateTs)
 	store.c.Assert(bytes.Compare(lock.Value, value), Equals, 0)
+}
+
+func MustPrewritePessimisticPutErr(pk []byte, key []byte, value []byte, startTs uint64, forUpdateTs uint64, store *TestStore) {
+	err := PrewritePessimistic(pk, key, value, startTs, lockTTL, []bool{true}, forUpdateTs, store)
+	store.c.Assert(err, NotNil)
+}
+
+func MustPrewritePessimisticErr(pk []byte, key []byte, value []byte, startTs uint64, lockTTL uint64,
+	isPessimisticLock []bool, forUpdateTs uint64, store *TestStore) {
+	err := PrewritePessimistic(pk, key, value, startTs, lockTTL, isPessimisticLock, forUpdateTs, store)
+	store.c.Assert(err, NotNil)
 }
 
 func MustCommitKeyPut(key, val []byte, startTs, commitTs uint64, store *TestStore) {
@@ -239,12 +315,22 @@ func MustCommit(key []byte, startTs, commitTs uint64, store *TestStore) {
 	store.c.Assert(err, IsNil)
 }
 
+func MustCommitErr(key []byte, startTs, commitTs uint64, store *TestStore) {
+	err := store.MvccStore.Commit(store.newReqCtx(), [][]byte{key}, startTs, commitTs)
+	store.c.Assert(err, NotNil)
+}
+
 func MustRollbackKey(key []byte, startTs uint64, store *TestStore) {
 	err := store.MvccStore.Rollback(store.newReqCtx(), [][]byte{key}, startTs)
 	store.c.Assert(err, IsNil)
 	rollbackKey := mvcc.EncodeRollbackKey(nil, key, startTs)
 	res := store.MvccStore.rollbackStore.Get(rollbackKey, nil)
-	store.c.Assert(bytes.Compare(res, []byte{0}), Equals, 0)
+	store.c.Assert(len(res), GreaterEqual, 0)
+}
+
+func MustRollbackErr(key []byte, startTs uint64, store *TestStore) {
+	err := store.MvccStore.Rollback(store.newReqCtx(), [][]byte{key}, startTs)
+	store.c.Assert(err, NotNil)
 }
 
 func MustGetNone(key []byte, startTs uint64, store *TestStore) {
@@ -285,6 +371,48 @@ func MustPrewriteLock(pk []byte, key []byte, startTs uint64, store *TestStore) {
 		LockTtl:      lockTTL,
 	})
 	store.c.Assert(err, IsNil)
+}
+
+func MustPrewriteLockErr(pk []byte, key []byte, startTs uint64, store *TestStore) {
+	err := store.MvccStore.Prewrite(store.newReqCtx(), &kvrpcpb.PrewriteRequest{
+		Mutations:    []*kvrpcpb.Mutation{newMutation(kvrpcpb.Op_Lock, key, nil)},
+		PrimaryLock:  pk,
+		StartVersion: startTs,
+		LockTtl:      lockTTL,
+	})
+	store.c.Assert(err, NotNil)
+}
+
+func MustGC(key []byte, safePoint uint64, s *TestStore) {
+	err := s.MvccStore.GC(s.newReqCtx(), safePoint)
+	s.c.Assert(err, IsNil)
+}
+
+func MustCleanup(key []byte, startTs, currentTs uint64, store *TestStore) {
+	err := store.MvccStore.Cleanup(store.newReqCtx(), key, startTs, currentTs)
+	store.c.Assert(err, IsNil)
+}
+
+func MustCleanupErr(key []byte, startTs, currentTs uint64, store *TestStore) {
+	err := store.MvccStore.Cleanup(store.newReqCtx(), key, startTs, currentTs)
+	store.c.Assert(err, NotNil)
+}
+
+func MustTxnHeartBeat(pk []byte, startTs, adviceTTL, expectedTTL uint64, store *TestStore) {
+	lockTTL, err := store.MvccStore.TxnHeartBeat(store.newReqCtx(), &kvrpcpb.TxnHeartBeatRequest{
+		PrimaryLock:   pk,
+		StartVersion:  startTs,
+		AdviseLockTtl: adviceTTL,
+	})
+	store.c.Assert(err, IsNil)
+	store.c.Assert(lockTTL, Equals, expectedTTL)
+}
+
+func MustGetRollback(key []byte, ts uint64, store *TestStore) {
+	// Rollback entry still exits in rollbackStore if no rollbackGC
+	rollbackKey := mvcc.EncodeRollbackKey(key, key, ts)
+	res := store.MvccStore.rollbackStore.Get(rollbackKey, nil)
+	store.c.Assert(bytes.Compare(res, []byte{0}), Equals, 0)
 }
 
 func (s *testMvccSuite) TestBasicOptimistic(c *C) {
@@ -339,7 +467,7 @@ func (s *testMvccSuite) TestRollback(c *C) {
 	c.Assert(err, IsNil)
 	defer CleanTestStore(store)
 
-	key := []byte("key")
+	key := []byte("tkey")
 	val := []byte("value")
 	startTs := uint64(1)
 	lockTTL := uint64(100)
@@ -354,6 +482,22 @@ func (s *testMvccSuite) TestRollback(c *C) {
 	rollbackKey := mvcc.EncodeRollbackKey(buf, key, startTs)
 	res := store.MvccStore.rollbackStore.Get(rollbackKey, nil)
 	c.Assert(bytes.Compare(res, []byte{0}), Equals, 0)
+
+	// Test collapse rollback
+	k := []byte("tk")
+	v := []byte("v")
+	// Add a Rollback whose start ts is 1
+	MustPrewritePut(k, k, v, 1, store)
+	MustRollbackKey(k, 1, store)
+	MustGetRollback(k, 1, store)
+
+	// Add a Rollback whose start ts is 3, the previous Rollback whose
+	// start ts is 1 will be collapsed in tikv, but unistore will not
+	MustPrewritePut(k, k, v, 2, store)
+	MustRollbackKey(k, 2, store)
+	MustGetNone(k, 2, store)
+	MustGetRollback(k, 2, store)
+	MustGetRollback(k, 1, store)
 }
 
 func (s *testMvccSuite) TestOverwritePessimisitcLock(c *C) {
@@ -749,7 +893,7 @@ func (s *testMvccSuite) TestTxnPrewrite(c *C) {
 	// Retry prewrite
 	MustPrewritePut(k, k, v, 5, store)
 	// Conflict
-	MustPrewriteLockErr(k, k, v, 6, store)
+	MustPrewritePutLockErr(k, k, v, 6, store)
 
 	MustCommit(k, 5, 10, store)
 	MustGetVal(k, v, 10, store)
@@ -768,5 +912,393 @@ func (s *testMvccSuite) TestTxnPrewrite(c *C) {
 	// Can prewrite after rollback
 	MustPrewriteDelete(k, k, 13, store)
 	MustRollbackKey(k, 13, store)
+	MustUnLocked(k, store)
+}
+
+func (s *testMvccSuite) TestPrewriteInsert(c *C) {
+	store, err := NewTestStore("TestPrewriteInsert", "TestPrewriteInsert", c)
+	c.Assert(err, IsNil)
+	defer CleanTestStore(store)
+
+	// nothing at start
+	k1 := []byte("tk1")
+	v1 := []byte("v1")
+	v2 := []byte("v2")
+	v3 := []byte("v3")
+
+	MustPrewritePut(k1, k1, v1, 1, store)
+	MustCommit(k1, 1, 2, store)
+	// "k1" already exist, returns AlreadyExist error
+	MustPrewriteInsertAlreadyExists(k1, k1, v2, 3, store)
+	// Delete "k1"
+	MustPrewriteDelete(k1, k1, 4, store)
+	MustCommit(k1, 4, 5, store)
+	// After delete "k1", insert returns ok
+	MustPrewriteInsert(k1, k1, v2, 6, store)
+	MustCommit(k1, 6, 7, store)
+	// Rollback
+	MustPrewritePut(k1, k1, v3, 8, store)
+	MustRollbackKey(k1, 8, store)
+	MustPrewriteInsertAlreadyExists(k1, k1, v2, 9, store)
+	// Delete "k1" again
+	MustPrewriteDelete(k1, k1, 10, store)
+	MustCommit(k1, 10, 11, store)
+	// Rollback again
+	MustPrewritePut(k1, k1, v3, 12, store)
+	MustRollbackKey(k1, 12, store)
+	// After delete "k1", insert returns ok
+	MustPrewriteInsert(k1, k1, v2, 13, store)
+	MustCommit(k1, 13, 14, store)
+	MustGetVal(k1, v2, 15, store)
+}
+
+func (s *testMvccSuite) TestRollbackKey(c *C) {
+	store, err := NewTestStore("TestRollbackKey", "TestRollbackKey", c)
+	c.Assert(err, IsNil)
+	defer CleanTestStore(store)
+
+	k := []byte("tk")
+	v := []byte("v")
+	MustPrewritePut(k, k, v, 5, store)
+	MustCommit(k, 5, 10, store)
+
+	// Lock
+	MustPrewriteLock(k, k, 15, store)
+	MustLocked(k, false, store)
+
+	// Rollback lock
+	MustRollbackKey(k, 15, store)
+	MustUnLocked(k, store)
+	MustGetVal(k, v, 16, store)
+
+	// Rollback delete
+	MustPrewriteDelete(k, k, 17, store)
+	MustLocked(k, false, store)
+	MustRollbackKey(k, 17, store)
+	MustGetVal(k, v, 18, store)
+}
+
+func (s *testMvccSuite) TestCleanup(c *C) {
+	store, err := NewTestStore("TestCleanup", "TestCleanup", c)
+	c.Assert(err, IsNil)
+	defer CleanTestStore(store)
+
+	k := []byte("tk")
+	v := []byte("v")
+	// Cleanup's logic is mostly similar to rollback, except the TTL check. Tests that
+	// not related to TTL check should be covered by other test cases
+	MustPrewritePut(k, k, v, 10, store)
+	MustLocked(k, false, store)
+	MustTxnHeartBeat(k, 10, 100, 100, store)
+	// Check the last txn_heart_beat has set the lock's TTL to 100
+	MustTxnHeartBeat(k, 10, 90, 100, store)
+	// TTL not expired. Do nothing but returns an error
+	MustCleanupErr(k, 10, 20, store)
+	MustLocked(k, false, store)
+	MustCleanup(k, 11, 20, store)
+	// TTL expired. The lock should be removed
+	MustCleanup(k, 10, 120<<18, store)
+	MustUnLocked(k, store)
+}
+
+func (s *testMvccSuite) TestCommit(c *C) {
+	store, err := NewTestStore("TestCommit", "TestCommit", c)
+	c.Assert(err, IsNil)
+	defer CleanTestStore(store)
+
+	k := []byte("tk")
+	v := []byte("v")
+	// Not prewrite yet
+	MustCommitErr(k, 1, 2, store)
+	MustPrewritePut(k, k, v, 5, store)
+	// Start_ts not match
+	MustCommitErr(k, 4, 5, store)
+	MustRollbackKey(k, 5, store)
+	// Commit after rollback
+	MustCommitErr(k, 5, 6, store)
+
+	k1 := []byte("tk1")
+	v1 := []byte("v")
+	k2 := []byte("tk2")
+	k3 := []byte("tk3")
+
+	MustPrewritePut(k1, k1, v1, 10, store)
+	MustPrewriteLock(k1, k2, 10, store)
+	MustPrewriteDelete(k1, k3, 10, store)
+	MustLocked(k1, false, store)
+	MustLocked(k2, false, store)
+	MustLocked(k3, false, store)
+	MustCommit(k1, 10, 15, store)
+	MustCommit(k2, 10, 15, store)
+	MustCommit(k3, 10, 15, store)
+	MustGetVal(k1, v1, 16, store)
+	MustGetNone(k2, 16, store)
+	MustGetNone(k3, 16, store)
+	// Commit again has no effect
+	MustCommit(k1, 10, 15, store)
+	// Secondary Op_Lock keys could not be committed more than once on unistore
+	// MustCommit(k2, 10, 15, store)
+	MustCommit(k3, 10, 15, store)
+	MustGetVal(k1, v1, 16, store)
+	MustGetNone(k2, 16, store)
+	MustGetNone(k3, 16, store)
+
+	// The rollback should be failed since the transaction was committed before
+	MustRollbackErr(k1, 10, store)
+	MustGetVal(k1, v1, 17, store)
+
+	// Rollback before prewrite
+	kr := []byte("tkr")
+	MustRollbackKey(kr, 5, store)
+	MustPrewriteLockErr(kr, kr, 5, store)
+}
+
+func (s *testMvccSuite) TestMinCommitTs(c *C) {
+	store, err := NewTestStore("TestMinCommitTs", "TestMinCommitTs", c)
+	c.Assert(err, IsNil)
+	defer CleanTestStore(store)
+
+	k := []byte("tk")
+	v := []byte("v")
+
+	MustPrewriteOptimistic(k, k, v, 10, 100, 11, store)
+	MustCheckTxnStatus(k, 10, 20, 20, false, 100, 0,
+		kvrpcpb.Action_MinCommitTSPushed, store)
+	// The the min_commit_ts should be ts(20, 1)
+	MustCommitErr(k, 10, 15, store)
+	MustCommitErr(k, 10, 20, store)
+	MustCommit(k, 10, 21, store)
+
+	MustPrewriteOptimistic(k, k, v, 30, 100, 30, store)
+	MustCheckTxnStatus(k, 30, 40, 40, false, 100, 0,
+		kvrpcpb.Action_MinCommitTSPushed, store)
+	MustCommit(k, 30, 50, store)
+}
+
+func (s *testMvccSuite) TestGC(c *C) {
+	store, err := NewTestStore("TestGC", "TestGC", c)
+	c.Assert(err, IsNil)
+	defer CleanTestStore(store)
+
+	k := []byte("tk")
+	v1 := []byte("v1")
+	v2 := []byte("v2")
+	v3 := []byte("v3")
+	v4 := []byte("v4")
+
+	MustPrewritePut(k, k, v1, 5, store)
+	MustCommit(k, 5, 10, store)
+	MustPrewritePut(k, k, v2, 15, store)
+	MustCommit(k, 15, 20, store)
+	MustPrewriteDelete(k, k, 25, store)
+	MustCommit(k, 25, 30, store)
+	MustPrewritePut(k, k, v3, 35, store)
+	MustCommit(k, 35, 40, store)
+	MustPrewriteLock(k, k, 45, store)
+	MustCommit(k, 45, 50, store)
+	MustPrewritePut(k, k, v4, 55, store)
+	MustRollbackKey(k, 55, store)
+
+	// Transactions:
+	// startTS commitTS Command
+	// --
+	// 55      -        PUT "x55" (Rollback)
+	// 45      50       LOCK
+	// 35      40       PUT "x35"
+	// 25      30       DELETE
+	// 15      20       PUT "x15"
+	//  5      10       PUT "x5"
+
+	// CF data layout:
+	// ts CFDefault   CFWrite
+	// --
+	// 55             Rollback(PUT,50)
+	// 50             Commit(LOCK,45)
+	// 45
+	// 40             Commit(PUT,35)
+	// 35   x35
+	// 30             Commit(Delete,25)
+	// 25
+	// 20             Commit(PUT,15)
+	// 15   x15
+	// 10             Commit(PUT,5)
+	// 5    x5
+	MustGC(k, 12, store)
+	MustGetVal(k, v1, 12, store)
+	MustGC(k, 22, store)
+	MustGetVal(k, v2, 22, store)
+	MustGetNone(k, 12, store)
+	MustGC(k, 32, store)
+	MustGetNone(k, 22, store)
+	MustGetNone(k, 35, store)
+	MustGC(k, 60, store)
+	MustGetVal(k, v3, 62, store)
+}
+
+func (s *testMvccSuite) TestPessimisticLock(c *C) {
+	store, err := NewTestStore("TestPessimisticLock", "TestPessimisticLock", c)
+	c.Assert(err, IsNil)
+	defer CleanTestStore(store)
+
+	k := []byte("tk")
+	v := []byte("v")
+	// Normal
+	MustAcquirePessimisticLock(k, k, 1, 1, store)
+	MustPessimisticLocked(k, 1, 1, store)
+	MustPrewritePessimistic(k, k, v, 1, 100, []bool{true}, 1, store)
+	MustLocked(k, true, store)
+	MustCommit(k, 1, 2, store)
+	MustUnLocked(k, store)
+
+	// Lock conflict
+	MustPrewritePut(k, k, v, 3, store)
+	MustAcquirePessimisticLockErr(k, k, 4, 4, store)
+	MustCleanup(k, 3, 0, store)
+	MustUnLocked(k, store)
+	MustAcquirePessimisticLock(k, k, 5, 5, store)
+	MustPrewriteLockErr(k, k, 6, store)
+	MustCleanup(k, 5, 0, store)
+	MustUnLocked(k, store)
+
+	// Data conflict
+	MustPrewritePut(k, k, v, 7, store)
+	MustCommit(k, 7, 9, store)
+	MustUnLocked(k, store)
+	MustPrewriteLockErr(k, k, 8, store)
+	MustAcquirePessimisticLockErr(k, k, 8, 8, store)
+	MustAcquirePessimisticLock(k, k, 8, 9, store)
+	MustPrewritePessimisticPut(k, k, v, 8, 8, store)
+	MustCommit(k, 8, 10, store)
+	MustUnLocked(k, store)
+
+	// Rollback
+	MustAcquirePessimisticLock(k, k, 11, 11, store)
+	MustPessimisticLocked(k, 11, 11, store)
+	MustCleanup(k, 11, 0, store)
+	MustAcquirePessimisticLockErr(k, k, 11, 11, store)
+	MustPrewritePessimisticPutErr(k, k, v, 11, 11, store)
+	MustUnLocked(k, store)
+
+	MustAcquirePessimisticLock(k, k, 12, 12, store)
+	MustPrewritePessimisticPut(k, k, v, 12, 12, store)
+	MustLocked(k, true, store)
+	MustCleanup(k, 12, 0, store)
+	MustAcquirePessimisticLockErr(k, k, 12, 12, store)
+	MustPrewritePessimisticPutErr(k, k, v, 12, 12, store)
+	MustPrewriteLockErr(k, k, 12, store)
+	MustUnLocked(k, store)
+
+	// Duplicated
+	v3 := []byte("v3")
+	MustAcquirePessimisticLock(k, k, 13, 13, store)
+	MustPessimisticLocked(k, 13, 13, store)
+	MustAcquirePessimisticLock(k, k, 13, 13, store)
+	MustPessimisticLocked(k, 13, 13, store)
+	MustPrewritePessimisticPut(k, k, v3, 13, 13, store)
+	MustLocked(k, true, store)
+	MustCommit(k, 13, 14, store)
+	MustUnLocked(k, store)
+	MustCommit(k, 13, 14, store)
+	MustUnLocked(k, store)
+	MustGetVal(k, v3, 15, store)
+
+	// Pessimistic lock doesn't block reads
+	MustAcquirePessimisticLock(k, k, 15, 15, store)
+	MustPessimisticLocked(k, 15, 15, store)
+	MustGetVal(k, v3, 16, store)
+	MustPrewritePessimisticDelete(k, k, 15, 15, store)
+	MustGetErr(k, 16, store)
+	MustCommit(k, 15, 17, store)
+
+	// Rollback
+	MustAcquirePessimisticLock(k, k, 18, 18, store)
+	MustRollbackKey(k, 18, store)
+	MustPessimisticRollback(k, 18, 18, store)
+	MustUnLocked(k, store)
+	MustPrewritePut(k, k, v, 19, store)
+	MustCommit(k, 19, 20, store)
+	// Here unistore is different from tikv, unistore will not store the pessimistic rollback into db
+	// so the concurrent pessimistic lock acquire will succeed
+	// MustAcquirePessimisticLockErr(k, k, 18, 21, store)
+	MustUnLocked(k, store)
+
+	// Prewrite non-exist pessimistic lock
+	MustPrewritePessimisticPutErr(k, k, v, 22, 22, store)
+
+	// LockTypeNotMatch
+	MustPrewritePut(k, k, v, 23, store)
+	MustLocked(k, false, store)
+	MustAcquirePessimisticLockErr(k, k, 23, 23, store)
+	MustCleanup(k, 23, 0, store)
+	MustAcquirePessimisticLock(k, k, 24, 24, store)
+	MustPessimisticLocked(k, 24, 24, store)
+	MustCommitErr(k, 24, 25, store)
+	MustRollbackKey(k, 24, store)
+
+	// Acquire lock on a prewritten key should fail
+	MustAcquirePessimisticLock(k, k, 26, 26, store)
+	MustPessimisticLocked(k, 26, 26, store)
+	MustPrewritePessimisticDelete(k, k, 26, 26, store)
+	MustLocked(k, true, store)
+	MustAcquirePessimisticLockErr(k, k, 26, 26, store)
+	MustLocked(k, true, store)
+
+	// Acquire lock on a committed key should fail
+	MustCommit(k, 26, 27, store)
+	MustUnLocked(k, store)
+	MustGetNone(k, 28, store)
+	MustAcquirePessimisticLockErr(k, k, 26, 26, store)
+	MustUnLocked(k, store)
+	MustGetNone(k, 28, store)
+	// Pessimistic prewrite on a committed key should fail
+	MustPrewritePessimisticPutErr(k, k, v, 26, 26, store)
+	MustUnLocked(k, store)
+	MustGetNone(k, 28, store)
+	// Currently we cannot avoid this TODO
+	MustAcquirePessimisticLock(k, k, 26, 29, store)
+	MustPessimisticRollback(k, 26, 29, store)
+	MustUnLocked(k, store)
+
+	// Rollback collapsed
+	MustRollbackKey(k, 32, store)
+	MustRollbackKey(k, 33, store)
+	MustAcquirePessimisticLockErr(k, k, 32, 32, store)
+	MustAcquirePessimisticLockErr(k, k, 32, 34, store)
+	MustUnLocked(k, store)
+
+	// Acquire lock when there is lock with different for_update_ts
+	MustAcquirePessimisticLock(k, k, 35, 36, store)
+	MustPessimisticLocked(k, 35, 36, store)
+	MustAcquirePessimisticLock(k, k, 35, 35, store)
+	MustPessimisticLocked(k, 35, 36, store)
+	MustAcquirePessimisticLock(k, k, 35, 37, store)
+	MustPessimisticLocked(k, 35, 37, store)
+
+	// Cannot prewrite when there is another transaction's pessimistic lock
+	v = []byte("vvv")
+	MustPrewritePessimisticPutErr(k, k, v, 36, 36, store)
+	MustPrewritePessimisticPutErr(k, k, v, 36, 38, store)
+	MustPessimisticLocked(k, 35, 37, store)
+	// Cannot prewrite when there is another transaction's non-pessimistic lock
+	MustPrewritePessimisticPut(k, k, v, 35, 37, store)
+	MustLocked(k, true, store)
+	v1 := []byte("v1")
+	MustPrewritePessimisticPutErr(k, k, v1, 36, 38, store)
+	MustLocked(k, true, store)
+
+	// Commit pessimistic transaction's key but with smaller commit_ts than for_update_ts
+	// Currently not checked, so in this case it will actually be successfully committed
+	MustCommit(k, 35, 36, store)
+	MustUnLocked(k, store)
+	MustGetVal(k, v, 37, store)
+
+	// Prewrite meets pessimistic lock on a non-pessimistic key
+	// Currently not checked, so prewrite will success, but commit will fail
+	MustAcquirePessimisticLock(k, k, 40, 40, store)
+	MustLocked(k, true, store)
+	store.c.Assert(PrewriteOptimistic(k, k, v, 40, lockTTL, 40, store), IsNil)
+	MustLocked(k, true, store)
+	MustCommitErr(k, 40, 41, store)
+	MustRollbackKey(k, 40, store)
 	MustUnLocked(k, store)
 }

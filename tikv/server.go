@@ -334,7 +334,7 @@ func (svr *Server) KvCleanup(ctx context.Context, req *kvrpcpb.CleanupRequest) (
 	if reqCtx.regErr != nil {
 		return &kvrpcpb.CleanupResponse{RegionError: reqCtx.regErr}, nil
 	}
-	err = svr.mvccStore.Cleanup(reqCtx, req.Key, req.StartVersion)
+	err = svr.mvccStore.Cleanup(reqCtx, req.Key, req.StartVersion, req.CurrentTs)
 	resp := new(kvrpcpb.CleanupResponse)
 	if committed, ok := err.(ErrAlreadyCommitted); ok {
 		resp.CommitVersion = uint64(committed)
@@ -704,6 +704,10 @@ func convertToKeyError(err error) *kvrpcpb.KeyError {
 				StartTs:    x.StartTS,
 				PrimaryKey: x.PrimaryKey,
 			},
+		}
+	case *ErrCommitPessimisticLock:
+		return &kvrpcpb.KeyError{
+			Abort: x.Error(),
 		}
 	default:
 		return &kvrpcpb.KeyError{
