@@ -9,7 +9,6 @@ import "gogoproto/gogo.proto";
 option (gogoproto.sizer_all) = true;
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.unmarshaler_all) = true;
-option (rustproto.lite_runtime_all) = true;
 
 option java_package = "org.tikv.kvproto";
 
@@ -36,4 +35,8 @@ service TiKv {
     rpc Raft(stream raft_serverpb.RaftMessage) returns (raft_serverpb.Done) {}
     rpc BatchRaft(stream BatchRaftMessage) returns (raft_serverpb.Done) {}
     rpc Snapshot(stream raft_serverpb.SnapshotChunk) returns (raft_serverpb.Done) {}
+}
+
+message BatchRaftMessage {
+    repeated raft_serverpb.RaftMessage msgs = 1;
 }

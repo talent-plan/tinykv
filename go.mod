@@ -5,6 +5,7 @@ require (
 	github.com/coocood/badger v1.5.1-0.20191224120441-29dd586ca27d
 	github.com/cznic/mathutil v0.0.0-20181122101859-297441e03548
 	github.com/dgryski/go-farm v0.0.0-20190423205320-6a90982ecee2
+	github.com/gogo/protobuf v1.2.1
 	github.com/golang/protobuf v1.3.1
 	github.com/juju/errors v0.0.0-20181118221551-089d3ea4e4d5
 	github.com/juju/loggo v0.0.0-20180524022052-584905176618 // indirect

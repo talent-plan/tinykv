@@ -21,7 +21,7 @@ if [ -z $GOPATH ]; then
     exit 1
 fi
 
-GO_PREFIX_PATH=github.com/Connor1996/unistore/pkg
+GO_PREFIX_PATH=github.com/ngaut/unistore/pkg
 export PATH=$(pwd)/_tools/bin:$GOPATH/bin:$PATH
 
 echo "install tools..."
