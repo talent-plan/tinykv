@@ -18,7 +18,7 @@ PACKAGES            := $$($(PACKAGE_LIST))
 PACKAGE_DIRECTORIES := $(PACKAGE_LIST) | sed 's|github.com/pingcap/$(PROJECT)/||'
 
 # Targets
-.PHONY: build clean test
+.PHONY: build clean test proto
 
 default: build
 
@@ -32,3 +32,12 @@ build:
 
 linux:
 	GOOS=linux $(GOBUILD) -ldflags "-X main.gitHash=`git rev-parse HEAD`" -o bin/unistore-server-linux unistore-server/main.go
+
+
+CURDIR := $(shell pwd)
+export PATH := $(CURDIR)/bin/:$(PATH)
+
+proto:
+	mkdir -p $(CURDIR)/bin
+	./generate_go.sh
+	GO111MODULE=on go build ./pkg/...

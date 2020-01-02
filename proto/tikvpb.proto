@@ -1,0 +1,39 @@
+syntax = "proto3";
+package tikvpb;
+
+import "kvrpcpb.proto";
+import "raft_serverpb.proto";
+
+import "gogoproto/gogo.proto";
+
+option (gogoproto.sizer_all) = true;
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+option (rustproto.lite_runtime_all) = true;
+
+option java_package = "org.tikv.kvproto";
+
+// Serve as a distributed kv database.
+service TiKv {
+    // KV commands with mvcc/txn supported.
+    rpc KvGet(kvrpcpb.GetRequest) returns (kvrpcpb.GetResponse) {}
+    rpc KvScan(kvrpcpb.ScanRequest) returns (kvrpcpb.ScanResponse) {}
+    rpc KvPrewrite(kvrpcpb.PrewriteRequest) returns (kvrpcpb.PrewriteResponse) {}
+    rpc KvCommit(kvrpcpb.CommitRequest) returns (kvrpcpb.CommitResponse) {}
+    rpc KvCleanup(kvrpcpb.CleanupRequest) returns (kvrpcpb.CleanupResponse) {}
+    rpc KvBatchGet(kvrpcpb.BatchGetRequest) returns (kvrpcpb.BatchGetResponse) {}
+    rpc KvBatchRollback(kvrpcpb.BatchRollbackRequest) returns (kvrpcpb.BatchRollbackResponse) {}
+    rpc KvScanLock(kvrpcpb.ScanLockRequest) returns (kvrpcpb.ScanLockResponse) {}
+    rpc KvResolveLock(kvrpcpb.ResolveLockRequest) returns (kvrpcpb.ResolveLockResponse) {}
+
+    // RawKV commands.
+    rpc RawGet(kvrpcpb.RawGetRequest) returns (kvrpcpb.RawGetResponse) {}
+    rpc RawPut(kvrpcpb.RawPutRequest) returns (kvrpcpb.RawPutResponse) {}
+    rpc RawDelete(kvrpcpb.RawDeleteRequest) returns (kvrpcpb.RawDeleteResponse) {}
+    rpc RawScan(kvrpcpb.RawScanRequest) returns (kvrpcpb.RawScanResponse) {}
+
+    // Raft commands (tinykv <-> tinykv).
+    rpc Raft(stream raft_serverpb.RaftMessage) returns (raft_serverpb.Done) {}
+    rpc BatchRaft(stream BatchRaftMessage) returns (raft_serverpb.Done) {}
+    rpc Snapshot(stream raft_serverpb.SnapshotChunk) returns (raft_serverpb.Done) {}
+}
