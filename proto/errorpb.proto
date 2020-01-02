@@ -1,0 +1,63 @@
+syntax = "proto3";
+package errorpb;
+
+import "metapb.proto";
+import "gogoproto/gogo.proto";
+
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.sizer_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+
+option java_package = "org.tikv.kvproto";
+
+message NotLeader {
+    uint64 region_id = 1;
+    metapb.Peer leader = 2;
+}
+
+message StoreNotMatch {
+    uint64 request_store_id = 1;
+    uint64 actual_store_id = 2;
+}
+
+message RegionNotFound {
+    uint64 region_id = 1;
+}
+
+message KeyNotInRegion {
+    bytes key = 1;
+    uint64 region_id = 2;
+    bytes start_key = 3;
+    bytes end_key = 4;
+}
+
+message EpochNotMatch {
+    repeated metapb.Region current_regions = 1;
+}
+
+message ServerIsBusy {
+    string reason = 1;
+    uint64 backoff_ms = 2;
+}
+
+message StaleCommand {
+}
+
+message RaftEntryTooLarge {
+    uint64 region_id = 1;
+    uint64 entry_size = 2;
+}
+
+message Error {
+    reserved "stale_epoch";
+
+    string message = 1;
+    NotLeader not_leader = 2;
+    RegionNotFound region_not_found = 3;
+    KeyNotInRegion key_not_in_region = 4;
+    EpochNotMatch epoch_not_match = 5;
+    ServerIsBusy server_is_busy = 6;
+    StaleCommand stale_command = 7;
+    StoreNotMatch store_not_match = 8;
+    RaftEntryTooLarge raft_entry_too_large = 9;
+}
