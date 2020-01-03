@@ -43,7 +43,7 @@ func (m *BatchRaftMessage) Reset()         { *m = BatchRaftMessage{} }
 func (m *BatchRaftMessage) String() string { return proto.CompactTextString(m) }
 func (*BatchRaftMessage) ProtoMessage()    {}
 func (*BatchRaftMessage) Descriptor() ([]byte, []int) {
-	return fileDescriptor_tikvpb_09a87e5445b989fb, []int{0}
+	return fileDescriptor_tikvpb_ca607ccfa152d6c3, []int{0}
 }
 func (m *BatchRaftMessage) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -91,9 +91,9 @@ var _ grpc.ClientConn
 // is compatible with the grpc package it is being compiled against.
 const _ = grpc.SupportPackageIsVersion4
 
-// Client API for TiKv service
+// Client API for Tikv service
 
-type TiKvClient interface {
+type TikvClient interface {
 	// KV commands with mvcc/txn supported.
 	KvGet(ctx context.Context, in *kvrpcpb.GetRequest, opts ...grpc.CallOption) (*kvrpcpb.GetResponse, error)
 	KvScan(ctx context.Context, in *kvrpcpb.ScanRequest, opts ...grpc.CallOption) (*kvrpcpb.ScanResponse, error)
@@ -110,160 +110,160 @@ type TiKvClient interface {
 	RawDelete(ctx context.Context, in *kvrpcpb.RawDeleteRequest, opts ...grpc.CallOption) (*kvrpcpb.RawDeleteResponse, error)
 	RawScan(ctx context.Context, in *kvrpcpb.RawScanRequest, opts ...grpc.CallOption) (*kvrpcpb.RawScanResponse, error)
 	// Raft commands (tinykv <-> tinykv).
-	Raft(ctx context.Context, opts ...grpc.CallOption) (TiKv_RaftClient, error)
-	BatchRaft(ctx context.Context, opts ...grpc.CallOption) (TiKv_BatchRaftClient, error)
-	Snapshot(ctx context.Context, opts ...grpc.CallOption) (TiKv_SnapshotClient, error)
+	Raft(ctx context.Context, opts ...grpc.CallOption) (Tikv_RaftClient, error)
+	BatchRaft(ctx context.Context, opts ...grpc.CallOption) (Tikv_BatchRaftClient, error)
+	Snapshot(ctx context.Context, opts ...grpc.CallOption) (Tikv_SnapshotClient, error)
 }
 
-type tiKvClient struct {
+type tikvClient struct {
 	cc *grpc.ClientConn
 }
 
-func NewTiKvClient(cc *grpc.ClientConn) TiKvClient {
-	return &tiKvClient{cc}
+func NewTikvClient(cc *grpc.ClientConn) TikvClient {
+	return &tikvClient{cc}
 }
 
-func (c *tiKvClient) KvGet(ctx context.Context, in *kvrpcpb.GetRequest, opts ...grpc.CallOption) (*kvrpcpb.GetResponse, error) {
+func (c *tikvClient) KvGet(ctx context.Context, in *kvrpcpb.GetRequest, opts ...grpc.CallOption) (*kvrpcpb.GetResponse, error) {
 	out := new(kvrpcpb.GetResponse)
-	err := c.cc.Invoke(ctx, "/tikvpb.TiKv/KvGet", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/tikvpb.Tikv/KvGet", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *tiKvClient) KvScan(ctx context.Context, in *kvrpcpb.ScanRequest, opts ...grpc.CallOption) (*kvrpcpb.ScanResponse, error) {
+func (c *tikvClient) KvScan(ctx context.Context, in *kvrpcpb.ScanRequest, opts ...grpc.CallOption) (*kvrpcpb.ScanResponse, error) {
 	out := new(kvrpcpb.ScanResponse)
-	err := c.cc.Invoke(ctx, "/tikvpb.TiKv/KvScan", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/tikvpb.Tikv/KvScan", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *tiKvClient) KvPrewrite(ctx context.Context, in *kvrpcpb.PrewriteRequest, opts ...grpc.CallOption) (*kvrpcpb.PrewriteResponse, error) {
+func (c *tikvClient) KvPrewrite(ctx context.Context, in *kvrpcpb.PrewriteRequest, opts ...grpc.CallOption) (*kvrpcpb.PrewriteResponse, error) {
 	out := new(kvrpcpb.PrewriteResponse)
-	err := c.cc.Invoke(ctx, "/tikvpb.TiKv/KvPrewrite", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/tikvpb.Tikv/KvPrewrite", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *tiKvClient) KvCommit(ctx context.Context, in *kvrpcpb.CommitRequest, opts ...grpc.CallOption) (*kvrpcpb.CommitResponse, error) {
+func (c *tikvClient) KvCommit(ctx context.Context, in *kvrpcpb.CommitRequest, opts ...grpc.CallOption) (*kvrpcpb.CommitResponse, error) {
 	out := new(kvrpcpb.CommitResponse)
-	err := c.cc.Invoke(ctx, "/tikvpb.TiKv/KvCommit", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/tikvpb.Tikv/KvCommit", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *tiKvClient) KvCleanup(ctx context.Context, in *kvrpcpb.CleanupRequest, opts ...grpc.CallOption) (*kvrpcpb.CleanupResponse, error) {
+func (c *tikvClient) KvCleanup(ctx context.Context, in *kvrpcpb.CleanupRequest, opts ...grpc.CallOption) (*kvrpcpb.CleanupResponse, error) {
 	out := new(kvrpcpb.CleanupResponse)
-	err := c.cc.Invoke(ctx, "/tikvpb.TiKv/KvCleanup", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/tikvpb.Tikv/KvCleanup", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *tiKvClient) KvBatchGet(ctx context.Context, in *kvrpcpb.BatchGetRequest, opts ...grpc.CallOption) (*kvrpcpb.BatchGetResponse, error) {
+func (c *tikvClient) KvBatchGet(ctx context.Context, in *kvrpcpb.BatchGetRequest, opts ...grpc.CallOption) (*kvrpcpb.BatchGetResponse, error) {
 	out := new(kvrpcpb.BatchGetResponse)
-	err := c.cc.Invoke(ctx, "/tikvpb.TiKv/KvBatchGet", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/tikvpb.Tikv/KvBatchGet", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *tiKvClient) KvBatchRollback(ctx context.Context, in *kvrpcpb.BatchRollbackRequest, opts ...grpc.CallOption) (*kvrpcpb.BatchRollbackResponse, error) {
+func (c *tikvClient) KvBatchRollback(ctx context.Context, in *kvrpcpb.BatchRollbackRequest, opts ...grpc.CallOption) (*kvrpcpb.BatchRollbackResponse, error) {
 	out := new(kvrpcpb.BatchRollbackResponse)
-	err := c.cc.Invoke(ctx, "/tikvpb.TiKv/KvBatchRollback", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/tikvpb.Tikv/KvBatchRollback", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *tiKvClient) KvScanLock(ctx context.Context, in *kvrpcpb.ScanLockRequest, opts ...grpc.CallOption) (*kvrpcpb.ScanLockResponse, error) {
+func (c *tikvClient) KvScanLock(ctx context.Context, in *kvrpcpb.ScanLockRequest, opts ...grpc.CallOption) (*kvrpcpb.ScanLockResponse, error) {
 	out := new(kvrpcpb.ScanLockResponse)
-	err := c.cc.Invoke(ctx, "/tikvpb.TiKv/KvScanLock", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/tikvpb.Tikv/KvScanLock", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *tiKvClient) KvResolveLock(ctx context.Context, in *kvrpcpb.ResolveLockRequest, opts ...grpc.CallOption) (*kvrpcpb.ResolveLockResponse, error) {
+func (c *tikvClient) KvResolveLock(ctx context.Context, in *kvrpcpb.ResolveLockRequest, opts ...grpc.CallOption) (*kvrpcpb.ResolveLockResponse, error) {
 	out := new(kvrpcpb.ResolveLockResponse)
-	err := c.cc.Invoke(ctx, "/tikvpb.TiKv/KvResolveLock", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/tikvpb.Tikv/KvResolveLock", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *tiKvClient) RawGet(ctx context.Context, in *kvrpcpb.RawGetRequest, opts ...grpc.CallOption) (*kvrpcpb.RawGetResponse, error) {
+func (c *tikvClient) RawGet(ctx context.Context, in *kvrpcpb.RawGetRequest, opts ...grpc.CallOption) (*kvrpcpb.RawGetResponse, error) {
 	out := new(kvrpcpb.RawGetResponse)
-	err := c.cc.Invoke(ctx, "/tikvpb.TiKv/RawGet", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/tikvpb.Tikv/RawGet", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *tiKvClient) RawPut(ctx context.Context, in *kvrpcpb.RawPutRequest, opts ...grpc.CallOption) (*kvrpcpb.RawPutResponse, error) {
+func (c *tikvClient) RawPut(ctx context.Context, in *kvrpcpb.RawPutRequest, opts ...grpc.CallOption) (*kvrpcpb.RawPutResponse, error) {
 	out := new(kvrpcpb.RawPutResponse)
-	err := c.cc.Invoke(ctx, "/tikvpb.TiKv/RawPut", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/tikvpb.Tikv/RawPut", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *tiKvClient) RawDelete(ctx context.Context, in *kvrpcpb.RawDeleteRequest, opts ...grpc.CallOption) (*kvrpcpb.RawDeleteResponse, error) {
+func (c *tikvClient) RawDelete(ctx context.Context, in *kvrpcpb.RawDeleteRequest, opts ...grpc.CallOption) (*kvrpcpb.RawDeleteResponse, error) {
 	out := new(kvrpcpb.RawDeleteResponse)
-	err := c.cc.Invoke(ctx, "/tikvpb.TiKv/RawDelete", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/tikvpb.Tikv/RawDelete", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *tiKvClient) RawScan(ctx context.Context, in *kvrpcpb.RawScanRequest, opts ...grpc.CallOption) (*kvrpcpb.RawScanResponse, error) {
+func (c *tikvClient) RawScan(ctx context.Context, in *kvrpcpb.RawScanRequest, opts ...grpc.CallOption) (*kvrpcpb.RawScanResponse, error) {
 	out := new(kvrpcpb.RawScanResponse)
-	err := c.cc.Invoke(ctx, "/tikvpb.TiKv/RawScan", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/tikvpb.Tikv/RawScan", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *tiKvClient) Raft(ctx context.Context, opts ...grpc.CallOption) (TiKv_RaftClient, error) {
-	stream, err := c.cc.NewStream(ctx, &_TiKv_serviceDesc.Streams[0], "/tikvpb.TiKv/Raft", opts...)
+func (c *tikvClient) Raft(ctx context.Context, opts ...grpc.CallOption) (Tikv_RaftClient, error) {
+	stream, err := c.cc.NewStream(ctx, &_Tikv_serviceDesc.Streams[0], "/tikvpb.Tikv/Raft", opts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &tiKvRaftClient{stream}
+	x := &tikvRaftClient{stream}
 	return x, nil
 }
 
-type TiKv_RaftClient interface {
+type Tikv_RaftClient interface {
 	Send(*raft_serverpb.RaftMessage) error
 	CloseAndRecv() (*raft_serverpb.Done, error)
 	grpc.ClientStream
 }
 
-type tiKvRaftClient struct {
+type tikvRaftClient struct {
 	grpc.ClientStream
 }
 
-func (x *tiKvRaftClient) Send(m *raft_serverpb.RaftMessage) error {
+func (x *tikvRaftClient) Send(m *raft_serverpb.RaftMessage) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *tiKvRaftClient) CloseAndRecv() (*raft_serverpb.Done, error) {
+func (x *tikvRaftClient) CloseAndRecv() (*raft_serverpb.Done, error) {
 	if err := x.ClientStream.CloseSend(); err != nil {
 		return nil, err
 	}
@@ -274,30 +274,30 @@ func (x *tiKvRaftClient) CloseAndRecv() (*raft_serverpb.Done, error) {
 	return m, nil
 }
 
-func (c *tiKvClient) BatchRaft(ctx context.Context, opts ...grpc.CallOption) (TiKv_BatchRaftClient, error) {
-	stream, err := c.cc.NewStream(ctx, &_TiKv_serviceDesc.Streams[1], "/tikvpb.TiKv/BatchRaft", opts...)
+func (c *tikvClient) BatchRaft(ctx context.Context, opts ...grpc.CallOption) (Tikv_BatchRaftClient, error) {
+	stream, err := c.cc.NewStream(ctx, &_Tikv_serviceDesc.Streams[1], "/tikvpb.Tikv/BatchRaft", opts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &tiKvBatchRaftClient{stream}
+	x := &tikvBatchRaftClient{stream}
 	return x, nil
 }
 
-type TiKv_BatchRaftClient interface {
+type Tikv_BatchRaftClient interface {
 	Send(*BatchRaftMessage) error
 	CloseAndRecv() (*raft_serverpb.Done, error)
 	grpc.ClientStream
 }
 
-type tiKvBatchRaftClient struct {
+type tikvBatchRaftClient struct {
 	grpc.ClientStream
 }
 
-func (x *tiKvBatchRaftClient) Send(m *BatchRaftMessage) error {
+func (x *tikvBatchRaftClient) Send(m *BatchRaftMessage) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *tiKvBatchRaftClient) CloseAndRecv() (*raft_serverpb.Done, error) {
+func (x *tikvBatchRaftClient) CloseAndRecv() (*raft_serverpb.Done, error) {
 	if err := x.ClientStream.CloseSend(); err != nil {
 		return nil, err
 	}
@@ -308,30 +308,30 @@ func (x *tiKvBatchRaftClient) CloseAndRecv() (*raft_serverpb.Done, error) {
 	return m, nil
 }
 
-func (c *tiKvClient) Snapshot(ctx context.Context, opts ...grpc.CallOption) (TiKv_SnapshotClient, error) {
-	stream, err := c.cc.NewStream(ctx, &_TiKv_serviceDesc.Streams[2], "/tikvpb.TiKv/Snapshot", opts...)
+func (c *tikvClient) Snapshot(ctx context.Context, opts ...grpc.CallOption) (Tikv_SnapshotClient, error) {
+	stream, err := c.cc.NewStream(ctx, &_Tikv_serviceDesc.Streams[2], "/tikvpb.Tikv/Snapshot", opts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &tiKvSnapshotClient{stream}
+	x := &tikvSnapshotClient{stream}
 	return x, nil
 }
 
-type TiKv_SnapshotClient interface {
+type Tikv_SnapshotClient interface {
 	Send(*raft_serverpb.SnapshotChunk) error
 	CloseAndRecv() (*raft_serverpb.Done, error)
 	grpc.ClientStream
 }
 
-type tiKvSnapshotClient struct {
+type tikvSnapshotClient struct {
 	grpc.ClientStream
 }
 
-func (x *tiKvSnapshotClient) Send(m *raft_serverpb.SnapshotChunk) error {
+func (x *tikvSnapshotClient) Send(m *raft_serverpb.SnapshotChunk) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *tiKvSnapshotClient) CloseAndRecv() (*raft_serverpb.Done, error) {
+func (x *tikvSnapshotClient) CloseAndRecv() (*raft_serverpb.Done, error) {
 	if err := x.ClientStream.CloseSend(); err != nil {
 		return nil, err
 	}
@@ -342,9 +342,9 @@ func (x *tiKvSnapshotClient) CloseAndRecv() (*raft_serverpb.Done, error) {
 	return m, nil
 }
 
-// Server API for TiKv service
+// Server API for Tikv service
 
-type TiKvServer interface {
+type TikvServer interface {
 	// KV commands with mvcc/txn supported.
 	KvGet(context.Context, *kvrpcpb.GetRequest) (*kvrpcpb.GetResponse, error)
 	KvScan(context.Context, *kvrpcpb.ScanRequest) (*kvrpcpb.ScanResponse, error)
@@ -361,268 +361,268 @@ type TiKvServer interface {
 	RawDelete(context.Context, *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error)
 	RawScan(context.Context, *kvrpcpb.RawScanRequest) (*kvrpcpb.RawScanResponse, error)
 	// Raft commands (tinykv <-> tinykv).
-	Raft(TiKv_RaftServer) error
-	BatchRaft(TiKv_BatchRaftServer) error
-	Snapshot(TiKv_SnapshotServer) error
+	Raft(Tikv_RaftServer) error
+	BatchRaft(Tikv_BatchRaftServer) error
+	Snapshot(Tikv_SnapshotServer) error
 }
 
-func RegisterTiKvServer(s *grpc.Server, srv TiKvServer) {
-	s.RegisterService(&_TiKv_serviceDesc, srv)
+func RegisterTikvServer(s *grpc.Server, srv TikvServer) {
+	s.RegisterService(&_Tikv_serviceDesc, srv)
 }
 
-func _TiKv_KvGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Tikv_KvGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(kvrpcpb.GetRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(TiKvServer).KvGet(ctx, in)
+		return srv.(TikvServer).KvGet(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/tikvpb.TiKv/KvGet",
+		FullMethod: "/tikvpb.Tikv/KvGet",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TiKvServer).KvGet(ctx, req.(*kvrpcpb.GetRequest))
+		return srv.(TikvServer).KvGet(ctx, req.(*kvrpcpb.GetRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _TiKv_KvScan_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Tikv_KvScan_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(kvrpcpb.ScanRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(TiKvServer).KvScan(ctx, in)
+		return srv.(TikvServer).KvScan(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/tikvpb.TiKv/KvScan",
+		FullMethod: "/tikvpb.Tikv/KvScan",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TiKvServer).KvScan(ctx, req.(*kvrpcpb.ScanRequest))
+		return srv.(TikvServer).KvScan(ctx, req.(*kvrpcpb.ScanRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _TiKv_KvPrewrite_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Tikv_KvPrewrite_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(kvrpcpb.PrewriteRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(TiKvServer).KvPrewrite(ctx, in)
+		return srv.(TikvServer).KvPrewrite(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/tikvpb.TiKv/KvPrewrite",
+		FullMethod: "/tikvpb.Tikv/KvPrewrite",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TiKvServer).KvPrewrite(ctx, req.(*kvrpcpb.PrewriteRequest))
+		return srv.(TikvServer).KvPrewrite(ctx, req.(*kvrpcpb.PrewriteRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _TiKv_KvCommit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Tikv_KvCommit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(kvrpcpb.CommitRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(TiKvServer).KvCommit(ctx, in)
+		return srv.(TikvServer).KvCommit(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/tikvpb.TiKv/KvCommit",
+		FullMethod: "/tikvpb.Tikv/KvCommit",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TiKvServer).KvCommit(ctx, req.(*kvrpcpb.CommitRequest))
+		return srv.(TikvServer).KvCommit(ctx, req.(*kvrpcpb.CommitRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _TiKv_KvCleanup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Tikv_KvCleanup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(kvrpcpb.CleanupRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(TiKvServer).KvCleanup(ctx, in)
+		return srv.(TikvServer).KvCleanup(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/tikvpb.TiKv/KvCleanup",
+		FullMethod: "/tikvpb.Tikv/KvCleanup",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TiKvServer).KvCleanup(ctx, req.(*kvrpcpb.CleanupRequest))
+		return srv.(TikvServer).KvCleanup(ctx, req.(*kvrpcpb.CleanupRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _TiKv_KvBatchGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Tikv_KvBatchGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(kvrpcpb.BatchGetRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(TiKvServer).KvBatchGet(ctx, in)
+		return srv.(TikvServer).KvBatchGet(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/tikvpb.TiKv/KvBatchGet",
+		FullMethod: "/tikvpb.Tikv/KvBatchGet",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TiKvServer).KvBatchGet(ctx, req.(*kvrpcpb.BatchGetRequest))
+		return srv.(TikvServer).KvBatchGet(ctx, req.(*kvrpcpb.BatchGetRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _TiKv_KvBatchRollback_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Tikv_KvBatchRollback_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(kvrpcpb.BatchRollbackRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(TiKvServer).KvBatchRollback(ctx, in)
+		return srv.(TikvServer).KvBatchRollback(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/tikvpb.TiKv/KvBatchRollback",
+		FullMethod: "/tikvpb.Tikv/KvBatchRollback",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TiKvServer).KvBatchRollback(ctx, req.(*kvrpcpb.BatchRollbackRequest))
+		return srv.(TikvServer).KvBatchRollback(ctx, req.(*kvrpcpb.BatchRollbackRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _TiKv_KvScanLock_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Tikv_KvScanLock_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(kvrpcpb.ScanLockRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(TiKvServer).KvScanLock(ctx, in)
+		return srv.(TikvServer).KvScanLock(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/tikvpb.TiKv/KvScanLock",
+		FullMethod: "/tikvpb.Tikv/KvScanLock",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TiKvServer).KvScanLock(ctx, req.(*kvrpcpb.ScanLockRequest))
+		return srv.(TikvServer).KvScanLock(ctx, req.(*kvrpcpb.ScanLockRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _TiKv_KvResolveLock_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Tikv_KvResolveLock_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(kvrpcpb.ResolveLockRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(TiKvServer).KvResolveLock(ctx, in)
+		return srv.(TikvServer).KvResolveLock(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/tikvpb.TiKv/KvResolveLock",
+		FullMethod: "/tikvpb.Tikv/KvResolveLock",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TiKvServer).KvResolveLock(ctx, req.(*kvrpcpb.ResolveLockRequest))
+		return srv.(TikvServer).KvResolveLock(ctx, req.(*kvrpcpb.ResolveLockRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _TiKv_RawGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Tikv_RawGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(kvrpcpb.RawGetRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(TiKvServer).RawGet(ctx, in)
+		return srv.(TikvServer).RawGet(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/tikvpb.TiKv/RawGet",
+		FullMethod: "/tikvpb.Tikv/RawGet",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TiKvServer).RawGet(ctx, req.(*kvrpcpb.RawGetRequest))
+		return srv.(TikvServer).RawGet(ctx, req.(*kvrpcpb.RawGetRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _TiKv_RawPut_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Tikv_RawPut_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(kvrpcpb.RawPutRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(TiKvServer).RawPut(ctx, in)
+		return srv.(TikvServer).RawPut(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/tikvpb.TiKv/RawPut",
+		FullMethod: "/tikvpb.Tikv/RawPut",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TiKvServer).RawPut(ctx, req.(*kvrpcpb.RawPutRequest))
+		return srv.(TikvServer).RawPut(ctx, req.(*kvrpcpb.RawPutRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _TiKv_RawDelete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Tikv_RawDelete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(kvrpcpb.RawDeleteRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(TiKvServer).RawDelete(ctx, in)
+		return srv.(TikvServer).RawDelete(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/tikvpb.TiKv/RawDelete",
+		FullMethod: "/tikvpb.Tikv/RawDelete",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TiKvServer).RawDelete(ctx, req.(*kvrpcpb.RawDeleteRequest))
+		return srv.(TikvServer).RawDelete(ctx, req.(*kvrpcpb.RawDeleteRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _TiKv_RawScan_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Tikv_RawScan_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(kvrpcpb.RawScanRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(TiKvServer).RawScan(ctx, in)
+		return srv.(TikvServer).RawScan(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/tikvpb.TiKv/RawScan",
+		FullMethod: "/tikvpb.Tikv/RawScan",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TiKvServer).RawScan(ctx, req.(*kvrpcpb.RawScanRequest))
+		return srv.(TikvServer).RawScan(ctx, req.(*kvrpcpb.RawScanRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _TiKv_Raft_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(TiKvServer).Raft(&tiKvRaftServer{stream})
+func _Tikv_Raft_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(TikvServer).Raft(&tikvRaftServer{stream})
 }
 
-type TiKv_RaftServer interface {
+type Tikv_RaftServer interface {
 	SendAndClose(*raft_serverpb.Done) error
 	Recv() (*raft_serverpb.RaftMessage, error)
 	grpc.ServerStream
 }
 
-type tiKvRaftServer struct {
+type tikvRaftServer struct {
 	grpc.ServerStream
 }
 
-func (x *tiKvRaftServer) SendAndClose(m *raft_serverpb.Done) error {
+func (x *tikvRaftServer) SendAndClose(m *raft_serverpb.Done) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *tiKvRaftServer) Recv() (*raft_serverpb.RaftMessage, error) {
+func (x *tikvRaftServer) Recv() (*raft_serverpb.RaftMessage, error) {
 	m := new(raft_serverpb.RaftMessage)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
@@ -630,25 +630,25 @@ func (x *tiKvRaftServer) Recv() (*raft_serverpb.RaftMessage, error) {
 	return m, nil
 }
 
-func _TiKv_BatchRaft_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(TiKvServer).BatchRaft(&tiKvBatchRaftServer{stream})
+func _Tikv_BatchRaft_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(TikvServer).BatchRaft(&tikvBatchRaftServer{stream})
 }
 
-type TiKv_BatchRaftServer interface {
+type Tikv_BatchRaftServer interface {
 	SendAndClose(*raft_serverpb.Done) error
 	Recv() (*BatchRaftMessage, error)
 	grpc.ServerStream
 }
 
-type tiKvBatchRaftServer struct {
+type tikvBatchRaftServer struct {
 	grpc.ServerStream
 }
 
-func (x *tiKvBatchRaftServer) SendAndClose(m *raft_serverpb.Done) error {
+func (x *tikvBatchRaftServer) SendAndClose(m *raft_serverpb.Done) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *tiKvBatchRaftServer) Recv() (*BatchRaftMessage, error) {
+func (x *tikvBatchRaftServer) Recv() (*BatchRaftMessage, error) {
 	m := new(BatchRaftMessage)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
@@ -656,25 +656,25 @@ func (x *tiKvBatchRaftServer) Recv() (*BatchRaftMessage, error) {
 	return m, nil
 }
 
-func _TiKv_Snapshot_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(TiKvServer).Snapshot(&tiKvSnapshotServer{stream})
+func _Tikv_Snapshot_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(TikvServer).Snapshot(&tikvSnapshotServer{stream})
 }
 
-type TiKv_SnapshotServer interface {
+type Tikv_SnapshotServer interface {
 	SendAndClose(*raft_serverpb.Done) error
 	Recv() (*raft_serverpb.SnapshotChunk, error)
 	grpc.ServerStream
 }
 
-type tiKvSnapshotServer struct {
+type tikvSnapshotServer struct {
 	grpc.ServerStream
 }
 
-func (x *tiKvSnapshotServer) SendAndClose(m *raft_serverpb.Done) error {
+func (x *tikvSnapshotServer) SendAndClose(m *raft_serverpb.Done) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *tiKvSnapshotServer) Recv() (*raft_serverpb.SnapshotChunk, error) {
+func (x *tikvSnapshotServer) Recv() (*raft_serverpb.SnapshotChunk, error) {
 	m := new(raft_serverpb.SnapshotChunk)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
@@ -682,77 +682,77 @@ func (x *tiKvSnapshotServer) Recv() (*raft_serverpb.SnapshotChunk, error) {
 	return m, nil
 }
 
-var _TiKv_serviceDesc = grpc.ServiceDesc{
-	ServiceName: "tikvpb.TiKv",
-	HandlerType: (*TiKvServer)(nil),
+var _Tikv_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "tikvpb.Tikv",
+	HandlerType: (*TikvServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "KvGet",
-			Handler:    _TiKv_KvGet_Handler,
+			Handler:    _Tikv_KvGet_Handler,
 		},
 		{
 			MethodName: "KvScan",
-			Handler:    _TiKv_KvScan_Handler,
+			Handler:    _Tikv_KvScan_Handler,
 		},
 		{
 			MethodName: "KvPrewrite",
-			Handler:    _TiKv_KvPrewrite_Handler,
+			Handler:    _Tikv_KvPrewrite_Handler,
 		},
 		{
 			MethodName: "KvCommit",
-			Handler:    _TiKv_KvCommit_Handler,
+			Handler:    _Tikv_KvCommit_Handler,
 		},
 		{
 			MethodName: "KvCleanup",
-			Handler:    _TiKv_KvCleanup_Handler,
+			Handler:    _Tikv_KvCleanup_Handler,
 		},
 		{
 			MethodName: "KvBatchGet",
-			Handler:    _TiKv_KvBatchGet_Handler,
+			Handler:    _Tikv_KvBatchGet_Handler,
 		},
 		{
 			MethodName: "KvBatchRollback",
-			Handler:    _TiKv_KvBatchRollback_Handler,
+			Handler:    _Tikv_KvBatchRollback_Handler,
 		},
 		{
 			MethodName: "KvScanLock",
-			Handler:    _TiKv_KvScanLock_Handler,
+			Handler:    _Tikv_KvScanLock_Handler,
 		},
 		{
 			MethodName: "KvResolveLock",
-			Handler:    _TiKv_KvResolveLock_Handler,
+			Handler:    _Tikv_KvResolveLock_Handler,
 		},
 		{
 			MethodName: "RawGet",
-			Handler:    _TiKv_RawGet_Handler,
+			Handler:    _Tikv_RawGet_Handler,
 		},
 		{
 			MethodName: "RawPut",
-			Handler:    _TiKv_RawPut_Handler,
+			Handler:    _Tikv_RawPut_Handler,
 		},
 		{
 			MethodName: "RawDelete",
-			Handler:    _TiKv_RawDelete_Handler,
+			Handler:    _Tikv_RawDelete_Handler,
 		},
 		{
 			MethodName: "RawScan",
-			Handler:    _TiKv_RawScan_Handler,
+			Handler:    _Tikv_RawScan_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "Raft",
-			Handler:       _TiKv_Raft_Handler,
+			Handler:       _Tikv_Raft_Handler,
 			ClientStreams: true,
 		},
 		{
 			StreamName:    "BatchRaft",
-			Handler:       _TiKv_BatchRaft_Handler,
+			Handler:       _Tikv_BatchRaft_Handler,
 			ClientStreams: true,
 		},
 		{
 			StreamName:    "Snapshot",
-			Handler:       _TiKv_Snapshot_Handler,
+			Handler:       _Tikv_Snapshot_Handler,
 			ClientStreams: true,
 		},
 	},
@@ -1016,9 +1016,9 @@ var (
 	ErrIntOverflowTikvpb   = fmt.Errorf("proto: integer overflow")
 )
 
-func init() { proto.RegisterFile("tikvpb.proto", fileDescriptor_tikvpb_09a87e5445b989fb) }
+func init() { proto.RegisterFile("tikvpb.proto", fileDescriptor_tikvpb_ca607ccfa152d6c3) }
 
-var fileDescriptor_tikvpb_09a87e5445b989fb = []byte{
+var fileDescriptor_tikvpb_ca607ccfa152d6c3 = []byte{
 	// 491 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x7c, 0x94, 0xdf, 0x6e, 0xd3, 0x30,
 	0x14, 0xc6, 0x1b, 0x51, 0x4a, 0x7b, 0x60, 0x62, 0x72, 0x07, 0x64, 0x61, 0x44, 0xa8, 0x57, 0xbb,
@@ -1030,7 +1030,7 @@ var fileDescriptor_tikvpb_09a87e5445b989fb = []byte{
 	0x9e, 0x05, 0x2c, 0x60, 0xc5, 0xe3, 0x9b, 0xfc, 0xa9, 0xa4, 0x93, 0x29, 0x9c, 0x4e, 0xa9, 0xf0,
 	0x57, 0x1e, 0xbd, 0x17, 0x5f, 0x90, 0x73, 0x1a, 0x20, 0x71, 0xa0, 0xbf, 0xe1, 0x01, 0x37, 0x8d,
 	0xd7, 0x0f, 0x2e, 0x1f, 0x5f, 0x59, 0x4e, 0x33, 0xad, 0xe6, 0xf4, 0x0a, 0xdf, 0xd5, 0xcf, 0x21,
-	0xf4, 0xbf, 0xae, 0x5d, 0x49, 0xde, 0xc1, 0x43, 0x57, 0xde, 0xa0, 0x20, 0x63, 0x47, 0x35, 0x74,
+	0xf4, 0xbf, 0xae, 0x43, 0x49, 0xde, 0xc1, 0x43, 0x57, 0xde, 0xa0, 0x20, 0x63, 0x47, 0x35, 0x74,
 	0x83, 0xc2, 0xc3, 0xef, 0x19, 0x72, 0x61, 0x9d, 0x35, 0x21, 0x4f, 0x58, 0xcc, 0x71, 0xd2, 0x23,
 	0xef, 0x61, 0xe0, 0xca, 0x3b, 0x9f, 0xc6, 0xa4, 0x72, 0xe4, 0xaf, 0xaa, 0xee, 0x59, 0x8b, 0xea,
 	0xc2, 0x19, 0x80, 0x2b, 0x17, 0x29, 0x6e, 0xd3, 0xb5, 0x40, 0x62, 0x6a, 0x9b, 0x42, 0x2a, 0xe0,
@@ -1050,5 +1050,5 @@ var fileDescriptor_tikvpb_09a87e5445b989fb = []byte{
 	0x09, 0x5f, 0x31, 0x41, 0x2e, 0x5a, 0x26, 0x25, 0xcc, 0x56, 0x59, 0x1c, 0x1e, 0x8d, 0x98, 0x4e,
 	0x7e, 0xed, 0x6c, 0xe3, 0xf7, 0xce, 0x36, 0xfe, 0xec, 0x6c, 0xe3, 0xc7, 0x5f, 0xbb, 0x07, 0xa7,
 	0x2c, 0x0d, 0x8a, 0x56, 0x9c, 0x50, 0x16, 0x37, 0xd2, 0x72, 0x50, 0xfc, 0xbc, 0xfd, 0x17, 0x00,
-	0x00, 0xff, 0xff, 0xcd, 0x7f, 0xcd, 0x91, 0xea, 0x04, 0x00, 0x00,
+	0x00, 0xff, 0xff, 0xa5, 0x6e, 0x31, 0x3f, 0xea, 0x04, 0x00, 0x00,
 }
