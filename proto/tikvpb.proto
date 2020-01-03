@@ -3,7 +3,6 @@ package tikvpb;
 
 import "kvrpcpb.proto";
 import "raft_serverpb.proto";
-import "coprocessor.proto";
 
 import "gogoproto/gogo.proto";
 
@@ -37,9 +36,6 @@ service Tikv {
     rpc Raft(stream raft_serverpb.RaftMessage) returns (raft_serverpb.Done) {}
     rpc BatchRaft(stream BatchRaftMessage) returns (raft_serverpb.Done) {}
     rpc Snapshot(stream raft_serverpb.SnapshotChunk) returns (raft_serverpb.Done) {}
-
-    // Coprocessor 
-    rpc Coprocessor(coprocessor.Request) returns (coprocessor.Response) {}
 }
 
 message BatchRaftMessage {

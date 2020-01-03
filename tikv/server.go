@@ -2,7 +2,6 @@ package tikv
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -10,7 +9,6 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
-	"github.com/ngaut/unistore/pkg/coprocessor"
 	deadlockPb "github.com/ngaut/unistore/pkg/deadlock"
 	"github.com/ngaut/unistore/pkg/errorpb"
 	"github.com/ngaut/unistore/pkg/kvrpcpb"
@@ -18,7 +16,6 @@ import (
 	"github.com/ngaut/unistore/rowcodec"
 	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/ngaut/unistore/tikv/raftstore"
-	"github.com/pingcap/tidb/kv"
 )
 
 var _ tikvpb.TikvServer = new(Server)
@@ -170,6 +167,12 @@ func (svr *Server) KvScan(ctx context.Context, req *kvrpcpb.ScanRequest) (*kvrpc
 	return &kvrpcpb.ScanResponse{
 		Pairs: scanProc.pairs,
 	}, nil
+}
+
+type skipVal bool
+
+func (s skipVal) SkipValue() bool {
+	return bool(s)
 }
 
 type kvScanProcessor struct {
@@ -432,25 +435,6 @@ func (svr *Server) RawBatchScan(context.Context, *kvrpcpb.RawBatchScanRequest) (
 
 func (svr *Server) RawDeleteRange(context.Context, *kvrpcpb.RawDeleteRangeRequest) (*kvrpcpb.RawDeleteRangeResponse, error) {
 	return &kvrpcpb.RawDeleteRangeResponse{}, nil
-}
-
-// SQL push down commands.
-func (svr *Server) Coprocessor(ctx context.Context, req *coprocessor.Request) (*coprocessor.Response, error) {
-	reqCtx, err := newRequestCtx(svr, req.Context, "Coprocessor")
-	if err != nil {
-		return &coprocessor.Response{OtherError: convertToKeyError(err).String()}, nil
-	}
-	defer reqCtx.finish()
-	if reqCtx.regErr != nil {
-		return &coprocessor.Response{RegionError: reqCtx.regErr}, nil
-	}
-	switch req.Tp {
-	case kv.ReqTypeDAG:
-		return svr.handleCopDAGRequest(reqCtx, req), nil
-	case kv.ReqTypeAnalyze:
-		return svr.handleCopAnalyzeRequest(reqCtx, req), nil
-	}
-	return &coprocessor.Response{OtherError: fmt.Sprintf("unsupported request type %d", req.GetTp())}, nil
 }
 
 // Raft commands (tikv <-> tikv).
