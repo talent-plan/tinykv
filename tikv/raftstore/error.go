@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/errorpb"
-	"github.com/pingcap/kvproto/pkg/metapb"
+	"github.com/ngaut/unistore/pkg/errorpb"
+	"github.com/ngaut/unistore/pkg/metapb"
 )
 
 type ErrNotLeader struct {

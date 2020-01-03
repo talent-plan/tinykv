@@ -9,7 +9,7 @@ import (
 
 	"github.com/cznic/mathutil"
 	"github.com/ngaut/unistore/tikv/dbreader"
-	"github.com/pingcap/kvproto/pkg/kvrpcpb"
+	"github.com/ngaut/unistore/pkg/kvrpcpb"
 
 	"github.com/coocood/badger"
 	"github.com/ngaut/unistore/tikv/mvcc"

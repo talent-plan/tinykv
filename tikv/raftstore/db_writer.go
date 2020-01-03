@@ -6,9 +6,9 @@ import (
 	"github.com/ngaut/unistore/metrics"
 	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/errorpb"
-	"github.com/pingcap/kvproto/pkg/kvrpcpb"
-	rcpb "github.com/pingcap/kvproto/pkg/raft_cmdpb"
+	"github.com/ngaut/unistore/pkg/errorpb"
+	"github.com/ngaut/unistore/pkg/kvrpcpb"
+	rcpb "github.com/ngaut/unistore/pkg/raft_cmdpb"
 	"github.com/pingcap/tidb/util/codec"
 )
 

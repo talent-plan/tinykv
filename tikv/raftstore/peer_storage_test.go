@@ -6,10 +6,10 @@ import (
 	"testing"
 
 	"github.com/coocood/badger"
-	"github.com/pingcap/kvproto/pkg/eraftpb"
+	"github.com/ngaut/unistore/pkg/eraftpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/zhangjinpeng1987/raft"
+	"github.com/ngaut/unistore/raft"
 )
 
 func TestPeerStorageTerm(t *testing.T) {

@@ -10,15 +10,14 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
+	"github.com/ngaut/unistore/pkg/coprocessor"
+	deadlockPb "github.com/ngaut/unistore/pkg/deadlock"
+	"github.com/ngaut/unistore/pkg/errorpb"
+	"github.com/ngaut/unistore/pkg/kvrpcpb"
+	"github.com/ngaut/unistore/pkg/tikvpb"
 	"github.com/ngaut/unistore/rowcodec"
 	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/ngaut/unistore/tikv/raftstore"
-	"github.com/ngaut/unistore/util/lockwaiter"
-	"github.com/pingcap/kvproto/pkg/coprocessor"
-	deadlockPb "github.com/pingcap/kvproto/pkg/deadlock"
-	"github.com/pingcap/kvproto/pkg/errorpb"
-	"github.com/pingcap/kvproto/pkg/kvrpcpb"
-	"github.com/pingcap/kvproto/pkg/tikvpb"
 	"github.com/pingcap/tidb/kv"
 )
 
@@ -192,85 +191,6 @@ func (p *kvScanProcessor) Process(key, value []byte) (err error) {
 		Value: safeCopy(value),
 	})
 	return nil
-}
-
-func (svr *Server) KvPessimisticLock(ctx context.Context, req *kvrpcpb.PessimisticLockRequest) (*kvrpcpb.PessimisticLockResponse, error) {
-	reqCtx, err := newRequestCtx(svr, req.Context, "PessimisticLock")
-	if err != nil {
-		return &kvrpcpb.PessimisticLockResponse{Errors: []*kvrpcpb.KeyError{convertToKeyError(err)}}, nil
-	}
-	defer reqCtx.finish()
-	if reqCtx.regErr != nil {
-		return &kvrpcpb.PessimisticLockResponse{RegionError: reqCtx.regErr}, nil
-	}
-	waiter, err := svr.mvccStore.PessimisticLock(reqCtx, req)
-	resp := &kvrpcpb.PessimisticLockResponse{}
-	resp.Errors, resp.RegionError = convertToPBErrors(err)
-	if waiter == nil {
-		return resp, nil
-	}
-	result := waiter.Wait()
-	svr.mvccStore.DeadlockDetectCli.CleanUpWaitFor(req.StartVersion, waiter.LockTS, waiter.KeyHash)
-	if result.Position == lockwaiter.WaitTimeout {
-		svr.mvccStore.lockWaiterManager.CleanUp(waiter)
-		return resp, nil
-	} else if result.DeadlockResp != nil {
-		log.Errorf("deadlock found for entry=%v", result.DeadlockResp.Entry)
-		errLocked := err.(*ErrLocked)
-		deadlockErr := &ErrDeadlock{
-			LockKey:         errLocked.Key,
-			LockTS:          errLocked.StartTS,
-			DeadlockKeyHash: result.DeadlockResp.DeadlockKeyHash,
-		}
-		resp.Errors, resp.RegionError = convertToPBErrors(deadlockErr)
-		return resp, nil
-	}
-	if result.Position > 0 {
-		// Sleep a little so the transaction in lower position will more likely get the lock.
-		time.Sleep(time.Millisecond * 3)
-	}
-	conflictCommitTS := result.CommitTS
-	if conflictCommitTS < req.GetForUpdateTs() {
-		// The key is rollbacked, we don't have the exact commitTS, but we can use the server's latest.
-		conflictCommitTS = svr.mvccStore.getLatestTS()
-	}
-	err = &ErrConflict{
-		StartTS:          req.GetForUpdateTs(),
-		ConflictTS:       waiter.LockTS,
-		ConflictCommitTS: conflictCommitTS,
-	}
-	resp.Errors, _ = convertToPBErrors(err)
-	return resp, nil
-}
-
-func (svr *Server) KVPessimisticRollback(ctx context.Context, req *kvrpcpb.PessimisticRollbackRequest) (*kvrpcpb.PessimisticRollbackResponse, error) {
-	reqCtx, err := newRequestCtx(svr, req.Context, "PessimisticRollback")
-	if err != nil {
-		return &kvrpcpb.PessimisticRollbackResponse{Errors: []*kvrpcpb.KeyError{convertToKeyError(err)}}, nil
-	}
-	defer reqCtx.finish()
-	if reqCtx.regErr != nil {
-		return &kvrpcpb.PessimisticRollbackResponse{RegionError: reqCtx.regErr}, nil
-	}
-	err = svr.mvccStore.PessimisticRollback(reqCtx, req)
-	resp := &kvrpcpb.PessimisticRollbackResponse{}
-	resp.Errors, resp.RegionError = convertToPBErrors(err)
-	return resp, nil
-}
-
-func (svr *Server) KvTxnHeartBeat(ctx context.Context, req *kvrpcpb.TxnHeartBeatRequest) (*kvrpcpb.TxnHeartBeatResponse, error) {
-	reqCtx, err := newRequestCtx(svr, req.Context, "TxnHeartBeat")
-	if err != nil {
-		return &kvrpcpb.TxnHeartBeatResponse{Error: convertToKeyError(err)}, nil
-	}
-	defer reqCtx.finish()
-	if reqCtx.regErr != nil {
-		return &kvrpcpb.TxnHeartBeatResponse{RegionError: reqCtx.regErr}, nil
-	}
-	lockTTL, err := svr.mvccStore.TxnHeartBeat(reqCtx, req)
-	resp := &kvrpcpb.TxnHeartBeatResponse{LockTtl: lockTTL}
-	resp.Error, resp.RegionError = convertToPBError(err)
-	return resp, nil
 }
 
 func (svr *Server) KvCheckTxnStatus(ctx context.Context, req *kvrpcpb.CheckTxnStatusRequest) (*kvrpcpb.CheckTxnStatusResponse, error) {
@@ -533,11 +453,6 @@ func (svr *Server) Coprocessor(ctx context.Context, req *coprocessor.Request) (*
 	return &coprocessor.Response{OtherError: fmt.Sprintf("unsupported request type %d", req.GetTp())}, nil
 }
 
-func (svr *Server) CoprocessorStream(*coprocessor.Request, tikvpb.Tikv_CoprocessorStreamServer) error {
-	// TODO
-	return nil
-}
-
 // Raft commands (tikv <-> tikv).
 func (svr *Server) Raft(stream tikvpb.Tikv_RaftServer) error {
 	return svr.innerServer.Raft(stream)
@@ -553,55 +468,6 @@ func (svr *Server) BatchRaft(stream tikvpb.Tikv_BatchRaftServer) error {
 // Region commands.
 func (svr *Server) SplitRegion(ctx context.Context, req *kvrpcpb.SplitRegionRequest) (*kvrpcpb.SplitRegionResponse, error) {
 	return svr.innerServer.SplitRegion(req), nil
-}
-
-func (svr *Server) ReadIndex(context.Context, *kvrpcpb.ReadIndexRequest) (*kvrpcpb.ReadIndexResponse, error) {
-	// TODO:
-	return &kvrpcpb.ReadIndexResponse{}, nil
-}
-
-// transaction debugger commands.
-func (svr *Server) MvccGetByKey(ctx context.Context, req *kvrpcpb.MvccGetByKeyRequest) (*kvrpcpb.MvccGetByKeyResponse, error) {
-	reqCtx, err := newRequestCtx(svr, req.Context, "MvccGetByKey")
-	if err != nil {
-		return &kvrpcpb.MvccGetByKeyResponse{Error: err.Error()}, nil
-	}
-	defer reqCtx.finish()
-	if reqCtx.regErr != nil {
-		return &kvrpcpb.MvccGetByKeyResponse{RegionError: reqCtx.regErr}, nil
-	}
-	resp := new(kvrpcpb.MvccGetByKeyResponse)
-	mvccInfo, err := svr.mvccStore.MvccGetByKey(reqCtx, req.GetKey())
-	if err != nil {
-		resp.Error = err.Error()
-	}
-	resp.Info = mvccInfo
-	return resp, nil
-}
-
-func (svr *Server) MvccGetByStartTs(ctx context.Context, req *kvrpcpb.MvccGetByStartTsRequest) (*kvrpcpb.MvccGetByStartTsResponse, error) {
-	reqCtx, err := newRequestCtx(svr, req.Context, "MvccGetByStartTs")
-	if err != nil {
-		return &kvrpcpb.MvccGetByStartTsResponse{Error: err.Error()}, nil
-	}
-	defer reqCtx.finish()
-	if reqCtx.regErr != nil {
-		return &kvrpcpb.MvccGetByStartTsResponse{RegionError: reqCtx.regErr}, nil
-	}
-	resp := new(kvrpcpb.MvccGetByStartTsResponse)
-	mvccInfo, key, err := svr.mvccStore.MvccGetByStartTs(reqCtx, req.StartTs)
-	if err != nil {
-		resp.Error = err.Error()
-	}
-	resp.Info = mvccInfo
-	resp.Key = key
-	return resp, nil
-}
-
-func (svr *Server) UnsafeDestroyRange(ctx context.Context, req *kvrpcpb.UnsafeDestroyRangeRequest) (*kvrpcpb.UnsafeDestroyRangeResponse, error) {
-	start, end := req.GetStartKey(), req.GetEndKey()
-	svr.mvccStore.DeleteFileInRange(start, end)
-	return &kvrpcpb.UnsafeDestroyRangeResponse{}, nil
 }
 
 // deadlock detection related services

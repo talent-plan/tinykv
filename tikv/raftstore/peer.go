@@ -10,13 +10,13 @@ import (
 	"unsafe"
 
 	"github.com/ngaut/log"
+	"github.com/ngaut/unistore/pkg/eraftpb"
+	"github.com/ngaut/unistore/pkg/metapb"
+	"github.com/ngaut/unistore/pkg/pdpb"
+	"github.com/ngaut/unistore/pkg/raft_cmdpb"
+	rspb "github.com/ngaut/unistore/pkg/raft_serverpb"
+	"github.com/ngaut/unistore/raft"
 	"github.com/ngaut/unistore/tikv/mvcc"
-	"github.com/pingcap/kvproto/pkg/eraftpb"
-	"github.com/pingcap/kvproto/pkg/metapb"
-	"github.com/pingcap/kvproto/pkg/pdpb"
-	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
-	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
-	"github.com/zhangjinpeng1987/raft"
 )
 
 type ReadyICPair struct {
@@ -1692,8 +1692,7 @@ func Inspect(i RequestInspector, req *raft_cmdpb.RaftCmdRequest) (RequestPolicy,
 		switch r.CmdType {
 		case raft_cmdpb.CmdType_Get, raft_cmdpb.CmdType_Snap:
 			hasRead = true
-		case raft_cmdpb.CmdType_Delete, raft_cmdpb.CmdType_Put, raft_cmdpb.CmdType_DeleteRange,
-			raft_cmdpb.CmdType_IngestSST:
+		case raft_cmdpb.CmdType_Delete, raft_cmdpb.CmdType_Put, raft_cmdpb.CmdType_DeleteRange:
 			hasWrite = true
 		case raft_cmdpb.CmdType_Prewrite, raft_cmdpb.CmdType_Invalid:
 			return RequestPolicy_Invalid, fmt.Errorf("invalid cmd type %v, message maybe corrupted", r.CmdType)
@@ -1817,7 +1816,7 @@ func (r *ReadExecutor) Execute(msg *raft_cmdpb.RaftCmdRequest, region *metapb.Re
 			needSnapshot = true
 			resp = new(raft_cmdpb.Response)
 		case raft_cmdpb.CmdType_Prewrite, raft_cmdpb.CmdType_Put, raft_cmdpb.CmdType_Delete,
-			raft_cmdpb.CmdType_DeleteRange, raft_cmdpb.CmdType_IngestSST, raft_cmdpb.CmdType_Invalid:
+			raft_cmdpb.CmdType_DeleteRange, raft_cmdpb.CmdType_Invalid:
 			panic("unreachable")
 		}
 

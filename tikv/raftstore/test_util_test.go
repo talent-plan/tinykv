@@ -10,7 +10,7 @@ import (
 	"github.com/ngaut/unistore/lockstore"
 
 	"github.com/coocood/badger"
-	"github.com/pingcap/kvproto/pkg/eraftpb"
+	"github.com/ngaut/unistore/pkg/eraftpb"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/stretchr/testify/require"
 )

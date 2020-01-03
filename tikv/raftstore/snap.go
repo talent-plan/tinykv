@@ -20,9 +20,9 @@ import (
 	"github.com/ngaut/unistore/rocksdb"
 	"github.com/ngaut/unistore/util"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/eraftpb"
-	"github.com/pingcap/kvproto/pkg/metapb"
-	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
+	"github.com/ngaut/unistore/pkg/eraftpb"
+	"github.com/ngaut/unistore/pkg/metapb"
+	rspb "github.com/ngaut/unistore/pkg/raft_serverpb"
 )
 
 type CFName = string

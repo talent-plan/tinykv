@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/pingcap/kvproto/pkg/metapb"
-	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
+	"github.com/ngaut/unistore/pkg/metapb"
+	rspb "github.com/ngaut/unistore/pkg/raft_serverpb"
 	"github.com/stretchr/testify/require"
 )
 

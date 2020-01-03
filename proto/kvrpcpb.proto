@@ -31,6 +31,9 @@ message KeyError {
     string abort = 3; // Client should abort the txn.
     WriteConflict conflict = 4; // Write conflict is moved from retryable to here.
     AlreadyExist already_exist = 5; // Key already exists
+    Deadlock deadlock = 6; // Deadlock is used in pessimistic transaction for single statement rollback.
+    CommitTsExpired commit_ts_expired = 7; // Commit ts is earlier than min commit ts of a transaction.
+    TxnNotFound txn_not_found = 8; // Txn not found when checking txn status.
 }
 
 message WriteConflict {
@@ -39,6 +42,24 @@ message WriteConflict {
     bytes key = 3;
     bytes primary = 4;
     uint64 conflict_commit_ts = 5;
+}
+
+message Deadlock {
+    uint64 lock_ts = 1;
+    bytes lock_key = 2;
+    uint64 deadlock_key_hash = 3;
+}
+
+message CommitTsExpired {
+    uint64 start_ts = 1;
+    uint64 attempted_commit_ts = 2;
+    bytes key = 3;
+    uint64 min_commit_ts = 4;
+}
+
+message TxnNotFound {
+    uint64 start_ts = 1;
+    bytes primary_key = 2;
 }
 
 enum CommandPri {
@@ -66,6 +87,12 @@ message Context {
     bool handle_time = 10; // true means return handle time detail
     bool scan_detail = 11; // true means return scan cf's detail
     bool replica_read = 12;
+    repeated uint64 resolved_locks = 13;
+    uint64 max_execution_duration_ms = 14;
+
+    // After a region applys to `applied_index`, we can get a
+    // snapshot for the region even if the peer is follower.
+    uint64 applied_index = 15;
 }
 
 message HandleTime {
@@ -99,6 +126,7 @@ message GetResponse {
     errorpb.Error region_error = 1;
     KeyError error = 2;
     bytes value = 3;
+    bool not_found = 4;
 }
 
 message ScanRequest {
@@ -161,6 +189,9 @@ message PrewriteRequest {
     uint64 txn_size = 8;
     // Use for pessimistic transaction, used to check if a conflict lock is already committed.
     uint64 for_update_ts = 9;
+    // If min_commit_ts > 0, this is large transaction proto, the final commit_ts
+    // would be infered from min_commit_ts.
+    uint64 min_commit_ts = 10;
 }
 
 message PrewriteResponse {
@@ -168,8 +199,9 @@ message PrewriteResponse {
     repeated KeyError errors = 2;
 }
 
+// Used to update the lock_ttl of a large transaction to prevent it from been killed.
 message TxnHeartBeatRequest {
-    Context context = 1;    
+    Context context = 1;
     bytes primary_lock = 2;
     uint64 start_version = 3;
     uint64 advise_lock_ttl = 4;
@@ -191,14 +223,20 @@ message PessimisticLockRequest {
     uint64 for_update_ts = 6;
     // If the request is the first lock request, we don't need to detect deadlock.
     bool is_first_lock = 7;
-    // Time to wait for lock released in milliseconds when encountering locks.uint64 wait_timeout = 8;
+    // Time to wait for lock released in milliseconds when encountering locks.
     // 0 means using default timeout in TiKV. Negative means no wait.
     int64 wait_timeout = 8;
+    // If it is true, TiKV will acquire the pessimistic lock regardless of write conflict
+    // and return the latest value. Now it's only supported for single mutation.
+    bool force = 9;
 }
 
 message PessimisticLockResponse {
     errorpb.Error region_error = 1;
     repeated KeyError errors = 2;
+    // It carries the latest value and its commit ts if force in PessimisticLockRequest is true.
+    uint64 commit_ts = 3;
+    bytes value = 4;
 }
 
 message PessimisticRollbackRequest {
@@ -225,6 +263,7 @@ message CommitRequest {
 message CommitResponse {
     errorpb.Error region_error = 1;
     KeyError error = 2;
+    uint64 commit_version = 3;  // If the commit ts is derived from min_commit_ts, this field should be set.
 }
 
 message ImportRequest {
@@ -246,6 +285,42 @@ message BatchRollbackRequest {
 message BatchRollbackResponse {
     errorpb.Error region_error = 1;
     KeyError error = 2;
+}
+
+// CheckTxnStatusRequest checks the status of a transaction.
+// If the transaction is rollbacked/committed, return the result;
+// If the TTL of the transaction is exhausted, abort that transaction and return rollbacked;
+// Otherwise, returns the TTL information.
+// CheckTxnStatusRequest may also push forward the minCommitTS of a large transaction.
+message CheckTxnStatusRequest {
+    Context context = 1;
+    bytes primary_key = 2;
+    uint64 lock_ts = 3;	// primary key and lock ts together to locate the primary lock of a transaction.
+    uint64 caller_start_ts = 4;	// The start ts of the caller, i.e, the start ts of reader transaction.
+    uint64 current_ts = 5; // current_ts is used to check TTL timeout, it may be inaccurate.
+    bool rollback_if_not_exist = 6;
+}
+
+enum Action {
+    NoAction = 0;
+    TTLExpireRollback = 1;
+    LockNotExistRollback = 2;
+    MinCommitTSPushed = 3;
+}
+
+message CheckTxnStatusResponse {
+    errorpb.Error region_error = 1;
+    KeyError error = 2;
+    // Three kinds of txn status:
+    // locked: lock_ttl > 0
+    // committed: commit_version > 0
+    // rollbacked: lock_ttl = 0 && commit_version = 0
+    uint64 lock_ttl = 3;
+    uint64 commit_version = 4;
+    // The action performed by the CheckTxnStatus
+    // If the action is rollback, set the rollback reason.
+    // If the minCommitTS is pushed, set the push flag.
+    Action action = 5;
 }
 
 message CleanupRequest {
@@ -325,6 +400,7 @@ message RawGetResponse {
     errorpb.Error region_error = 1;
     string error = 2;
     bytes value = 3;
+    bool not_found = 4;
 }
 
 message RawPutRequest {
@@ -523,4 +599,3 @@ message ReadIndexResponse{
     errorpb.Error region_error = 1;
     uint64 read_index = 2;
 }
-

@@ -4,9 +4,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pingcap/kvproto/pkg/metapb"
-	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
-	"github.com/zhangjinpeng1987/raft"
+	"github.com/ngaut/unistore/pkg/metapb"
+	"github.com/ngaut/unistore/pkg/raft_cmdpb"
+	"github.com/ngaut/unistore/raft"
 )
 
 type MsgType int64

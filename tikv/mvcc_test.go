@@ -15,7 +15,7 @@ import (
 	"github.com/ngaut/unistore/tikv/raftstore"
 	"github.com/ngaut/unistore/util/lockwaiter"
 	. "github.com/pingcap/check"
-	"github.com/pingcap/kvproto/pkg/kvrpcpb"
+	"github.com/ngaut/unistore/pkg/kvrpcpb"
 )
 
 var _ = Suite(&testMvccSuite{})

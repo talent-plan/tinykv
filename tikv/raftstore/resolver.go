@@ -6,7 +6,7 @@ import (
 
 	"github.com/ngaut/unistore/pd"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/metapb"
+	"github.com/ngaut/unistore/pkg/metapb"
 )
 
 const storeAddressRefreshSeconds = 60

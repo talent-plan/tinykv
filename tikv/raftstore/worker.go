@@ -20,12 +20,12 @@ import (
 	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/eraftpb"
-	"github.com/pingcap/kvproto/pkg/metapb"
-	"github.com/pingcap/kvproto/pkg/pdpb"
-	"github.com/pingcap/kvproto/pkg/raft_serverpb"
-	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
-	"github.com/pingcap/kvproto/pkg/tikvpb"
+	"github.com/ngaut/unistore/pkg/eraftpb"
+	"github.com/ngaut/unistore/pkg/metapb"
+	"github.com/ngaut/unistore/pkg/pdpb"
+	"github.com/ngaut/unistore/pkg/raft_serverpb"
+	rspb "github.com/ngaut/unistore/pkg/raft_serverpb"
+	"github.com/ngaut/unistore/pkg/tikvpb"
 	"github.com/pingcap/tidb/util/codec"
 )
 

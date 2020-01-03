@@ -1,8 +1,8 @@
 package raftstore
 
 import (
-	"github.com/pingcap/kvproto/pkg/errorpb"
-	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
+	"github.com/ngaut/unistore/pkg/errorpb"
+	"github.com/ngaut/unistore/pkg/raft_cmdpb"
 )
 
 func ensureRespHeader(resp *raft_cmdpb.RaftCmdResponse) {

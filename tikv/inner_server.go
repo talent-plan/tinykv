@@ -3,8 +3,8 @@ package tikv
 import (
 	"github.com/ngaut/unistore/pd"
 	"github.com/ngaut/unistore/tikv/mvcc"
-	"github.com/pingcap/kvproto/pkg/kvrpcpb"
-	"github.com/pingcap/kvproto/pkg/tikvpb"
+	"github.com/ngaut/unistore/pkg/kvrpcpb"
+	"github.com/ngaut/unistore/pkg/tikvpb"
 )
 
 type InnerServer interface {

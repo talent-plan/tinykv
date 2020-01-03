@@ -15,12 +15,12 @@ import (
 	"github.com/ngaut/unistore/metrics"
 	"github.com/ngaut/unistore/pd"
 	"github.com/ngaut/unistore/tikv/raftstore"
-	"github.com/pingcap/kvproto/pkg/errorpb"
-	"github.com/pingcap/kvproto/pkg/kvrpcpb"
-	"github.com/pingcap/kvproto/pkg/metapb"
-	"github.com/pingcap/kvproto/pkg/pdpb"
+	"github.com/ngaut/unistore/pkg/errorpb"
+	"github.com/ngaut/unistore/pkg/kvrpcpb"
+	"github.com/ngaut/unistore/pkg/metapb"
+	"github.com/ngaut/unistore/pkg/pdpb"
 	"github.com/pingcap/tidb/util/codec"
-	"github.com/zhangjinpeng1987/raft"
+	"github.com/ngaut/unistore/raft"
 	"golang.org/x/net/context"
 )
 

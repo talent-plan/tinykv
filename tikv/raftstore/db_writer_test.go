@@ -7,8 +7,8 @@ import (
 
 	"github.com/coocood/badger"
 	"github.com/ngaut/unistore/tikv/mvcc"
-	"github.com/pingcap/kvproto/pkg/kvrpcpb"
-	rfpb "github.com/pingcap/kvproto/pkg/raft_cmdpb"
+	"github.com/ngaut/unistore/pkg/kvrpcpb"
+	rfpb "github.com/ngaut/unistore/pkg/raft_cmdpb"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -3,7 +3,7 @@ package raftstore
 import (
 	"testing"
 
-	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
+	"github.com/ngaut/unistore/pkg/raft_cmdpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

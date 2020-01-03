@@ -12,12 +12,12 @@ import (
 	"github.com/cznic/mathutil"
 	"github.com/golang/protobuf/proto"
 	"github.com/ngaut/log"
+	"github.com/ngaut/unistore/pkg/eraftpb"
+	"github.com/ngaut/unistore/pkg/metapb"
+	rspb "github.com/ngaut/unistore/pkg/raft_serverpb"
 	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/eraftpb"
-	"github.com/pingcap/kvproto/pkg/metapb"
-	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
-	"github.com/zhangjinpeng1987/raft"
+	"github.com/ngaut/unistore/raft"
 )
 
 type JobStatus = uint32

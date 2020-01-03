@@ -6,8 +6,8 @@ import (
 	"github.com/coocood/badger"
 	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/metapb"
-	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
+	"github.com/ngaut/unistore/pkg/metapb"
+	rspb "github.com/ngaut/unistore/pkg/raft_serverpb"
 )
 
 const (

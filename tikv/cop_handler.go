@@ -6,9 +6,9 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/juju/errors"
+	"github.com/ngaut/unistore/pkg/coprocessor"
+	"github.com/ngaut/unistore/pkg/kvrpcpb"
 	"github.com/ngaut/unistore/rowcodec"
-	"github.com/pingcap/kvproto/pkg/coprocessor"
-	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/parser/terror"
 	"github.com/pingcap/tidb/expression"

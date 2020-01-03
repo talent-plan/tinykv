@@ -1,9 +1,9 @@
 package raftstore
 
 import (
-	"github.com/pingcap/kvproto/pkg/eraftpb"
-	"github.com/pingcap/kvproto/pkg/metapb"
-	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
+	"github.com/ngaut/unistore/pkg/eraftpb"
+	"github.com/ngaut/unistore/pkg/metapb"
+	"github.com/ngaut/unistore/pkg/raft_cmdpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"testing"

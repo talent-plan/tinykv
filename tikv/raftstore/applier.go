@@ -8,14 +8,14 @@ import (
 	"github.com/coocood/badger"
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
+	"github.com/ngaut/unistore/pkg/eraftpb"
+	"github.com/ngaut/unistore/pkg/kvrpcpb"
+	"github.com/ngaut/unistore/pkg/metapb"
+	"github.com/ngaut/unistore/pkg/raft_cmdpb"
+	rspb "github.com/ngaut/unistore/pkg/raft_serverpb"
 	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/eraftpb"
-	"github.com/pingcap/kvproto/pkg/kvrpcpb"
-	"github.com/pingcap/kvproto/pkg/metapb"
-	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
-	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/uber-go/atomic"
 )
@@ -454,9 +454,6 @@ func shouldWriteToEngine(cmd *raft_cmdpb.RaftCmdRequest, wbKeys int) bool {
 	// must write the current write batch to the engine first.
 	for _, req := range cmd.Requests {
 		if req.DeleteRange != nil {
-			return true
-		}
-		if req.IngestSst != nil {
 			return true
 		}
 	}
@@ -1015,8 +1012,6 @@ func createWriteCmdOps(requests []*raft_cmdpb.Request) (ops []interface{}) {
 			}
 		case raft_cmdpb.CmdType_DeleteRange:
 			ops = append(ops, &req.DeleteRange)
-		case raft_cmdpb.CmdType_IngestSST:
-			panic("ingestSST not unsupported")
 		case raft_cmdpb.CmdType_Snap, raft_cmdpb.CmdType_Get:
 			// Readonly commands are handled in raftstore directly.
 			// Don't panic here in case there are old entries need to be applied.

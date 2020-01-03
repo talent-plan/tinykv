@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/dgryski/go-farm"
-	"github.com/pingcap/kvproto/pkg/kvrpcpb"
+	"github.com/ngaut/unistore/pkg/kvrpcpb"
 )
 
 func exceedEndKey(current, endKey []byte) bool {

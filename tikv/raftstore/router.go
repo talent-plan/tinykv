@@ -4,7 +4,7 @@ import (
 	"sync"
 	"unsafe"
 
-	"github.com/pingcap/kvproto/pkg/raft_serverpb"
+	"github.com/ngaut/unistore/pkg/raft_serverpb"
 
 	"github.com/pingcap/errors"
 )

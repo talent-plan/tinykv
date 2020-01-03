@@ -14,7 +14,7 @@ import (
 
 	"github.com/ngaut/log"
 	"github.com/pingcap/errors"
-	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
+	rspb "github.com/ngaut/unistore/pkg/raft_serverpb"
 )
 
 type SnapEntry int

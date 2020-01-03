@@ -10,7 +10,7 @@ import (
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/pd"
 	"github.com/ngaut/unistore/util/lockwaiter"
-	deadlockPb "github.com/pingcap/kvproto/pkg/deadlock"
+	deadlockPb "github.com/ngaut/unistore/pkg/deadlock"
 )
 
 // Follower will send detection rpc to Leader

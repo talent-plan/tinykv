@@ -26,8 +26,8 @@ import (
 	"github.com/ngaut/unistore/tikv"
 	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/ngaut/unistore/tikv/raftstore"
-	"github.com/pingcap/kvproto/pkg/deadlock"
-	"github.com/pingcap/kvproto/pkg/tikvpb"
+	"github.com/ngaut/unistore/pkg/deadlock"
+	"github.com/ngaut/unistore/pkg/tikvpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 )

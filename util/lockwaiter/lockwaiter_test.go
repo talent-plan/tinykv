@@ -7,7 +7,7 @@ import (
 
 	"github.com/ngaut/log"
 	. "github.com/pingcap/check"
-	deadlockPb "github.com/pingcap/kvproto/pkg/deadlock"
+	deadlockPb "github.com/ngaut/unistore/pkg/deadlock"
 )
 
 func TestT(t *testing.T) {

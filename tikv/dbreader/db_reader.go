@@ -9,7 +9,7 @@ import (
 	"github.com/juju/errors"
 	"github.com/ngaut/unistore/rowcodec"
 	"github.com/ngaut/unistore/tikv/mvcc"
-	"github.com/pingcap/kvproto/pkg/kvrpcpb"
+	"github.com/ngaut/unistore/pkg/kvrpcpb"
 )
 
 func NewDBReader(startKey, endKey []byte, txn *badger.Txn, safePoint uint64) *DBReader {

@@ -22,7 +22,7 @@ import (
 	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/ngaut/unistore/util/lockwaiter"
-	"github.com/pingcap/kvproto/pkg/kvrpcpb"
+	"github.com/ngaut/unistore/pkg/kvrpcpb"
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/util/codec"
 )

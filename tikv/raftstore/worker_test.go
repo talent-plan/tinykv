@@ -10,8 +10,8 @@ import (
 	"github.com/coocood/badger"
 	"github.com/ngaut/unistore/lockstore"
 	"github.com/ngaut/unistore/tikv/mvcc"
-	"github.com/pingcap/kvproto/pkg/eraftpb"
-	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
+	"github.com/ngaut/unistore/pkg/eraftpb"
+	rspb "github.com/ngaut/unistore/pkg/raft_serverpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

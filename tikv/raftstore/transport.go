@@ -4,9 +4,9 @@ import (
 	"sync"
 
 	"github.com/ngaut/log"
-	"github.com/pingcap/kvproto/pkg/eraftpb"
-	"github.com/pingcap/kvproto/pkg/raft_serverpb"
-	"github.com/zhangjinpeng1987/raft"
+	"github.com/ngaut/unistore/pkg/eraftpb"
+	"github.com/ngaut/unistore/pkg/raft_serverpb"
+	"github.com/ngaut/unistore/raft"
 )
 
 type RaftRouter interface {

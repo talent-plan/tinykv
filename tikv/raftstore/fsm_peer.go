@@ -7,14 +7,14 @@ import (
 
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
+	"github.com/ngaut/unistore/pkg/eraftpb"
+	"github.com/ngaut/unistore/pkg/metapb"
+	"github.com/ngaut/unistore/pkg/raft_cmdpb"
+	rspb "github.com/ngaut/unistore/pkg/raft_serverpb"
+	"github.com/ngaut/unistore/raft"
 	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/eraftpb"
-	"github.com/pingcap/kvproto/pkg/metapb"
-	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
-	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
 	"github.com/pingcap/tidb/tablecodec"
-	"github.com/zhangjinpeng1987/raft"
 )
 
 type peerFsm struct {

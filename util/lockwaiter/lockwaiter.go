@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/ngaut/log"
-	"github.com/pingcap/kvproto/pkg/deadlock"
+	"github.com/ngaut/unistore/pkg/deadlock"
 )
 
 type Manager struct {

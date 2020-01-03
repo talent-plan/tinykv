@@ -15,10 +15,10 @@ import (
 	"github.com/ngaut/unistore/rocksdb"
 	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/metapb"
-	"github.com/pingcap/kvproto/pkg/pdpb"
-	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
-	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
+	"github.com/ngaut/unistore/pkg/metapb"
+	"github.com/ngaut/unistore/pkg/pdpb"
+	"github.com/ngaut/unistore/pkg/raft_cmdpb"
+	rspb "github.com/ngaut/unistore/pkg/raft_serverpb"
 )
 
 type storeMeta struct {

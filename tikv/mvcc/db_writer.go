@@ -5,7 +5,7 @@ import (
 
 	"github.com/coocood/badger"
 	"github.com/ngaut/unistore/lockstore"
-	"github.com/pingcap/kvproto/pkg/kvrpcpb"
+	"github.com/ngaut/unistore/pkg/kvrpcpb"
 )
 
 // DBWriter is the interface to persistent data.

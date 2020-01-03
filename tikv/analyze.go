@@ -9,7 +9,7 @@ import (
 	"github.com/juju/errors"
 	"github.com/ngaut/unistore/rowcodec"
 	"github.com/ngaut/unistore/tikv/dbreader"
-	"github.com/pingcap/kvproto/pkg/coprocessor"
+	"github.com/ngaut/unistore/pkg/coprocessor"
 	"github.com/pingcap/parser/ast"
 	"github.com/pingcap/parser/charset"
 	"github.com/pingcap/parser/model"

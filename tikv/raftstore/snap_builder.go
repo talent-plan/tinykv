@@ -10,8 +10,8 @@ import (
 	"github.com/ngaut/unistore/rocksdb"
 	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/kvrpcpb"
-	"github.com/pingcap/kvproto/pkg/metapb"
+	"github.com/ngaut/unistore/pkg/kvrpcpb"
+	"github.com/ngaut/unistore/pkg/metapb"
 	"github.com/pingcap/tidb/util/codec"
 )
 
