@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/binary"
 	"flag"
 	"net"
@@ -23,11 +22,10 @@ import (
 	"github.com/ngaut/unistore/config"
 	"github.com/ngaut/unistore/lockstore"
 	"github.com/ngaut/unistore/pd"
+	"github.com/ngaut/unistore/pkg/tikvpb"
 	"github.com/ngaut/unistore/tikv"
 	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/ngaut/unistore/tikv/raftstore"
-	"github.com/ngaut/unistore/pkg/deadlock"
-	"github.com/ngaut/unistore/pkg/tikvpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 )
@@ -88,11 +86,6 @@ func main() {
 	} else {
 		innerServer, store, regionManager = setupStandAlongInnerServer(bundle, safePoint, pdClient, conf)
 	}
-	err = store.StartDeadlockDetection(context.Background(), pdClient, innerServer, conf.Server.Raft)
-	if err != nil {
-		log.Fatal("StartDeadlockDetection error=%v", err)
-	}
-
 	tikvServer := tikv.NewServer(regionManager, store, innerServer)
 
 	var alivePolicy = keepalive.EnforcementPolicy{
@@ -109,7 +102,6 @@ func main() {
 	tikvpb.RegisterTikvServer(grpcServer, tikvServer)
 	listenAddr := conf.Server.StoreAddr[strings.IndexByte(conf.Server.StoreAddr, ':'):]
 	l, err := net.Listen("tcp", listenAddr)
-	deadlock.RegisterDeadlockServer(grpcServer, tikvServer)
 	if err != nil {
 		log.Fatal(err)
 	}

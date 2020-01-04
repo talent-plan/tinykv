@@ -14,13 +14,13 @@ import (
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/metrics"
 	"github.com/ngaut/unistore/pd"
-	"github.com/ngaut/unistore/tikv/raftstore"
 	"github.com/ngaut/unistore/pkg/errorpb"
 	"github.com/ngaut/unistore/pkg/kvrpcpb"
 	"github.com/ngaut/unistore/pkg/metapb"
 	"github.com/ngaut/unistore/pkg/pdpb"
-	"github.com/pingcap/tidb/util/codec"
 	"github.com/ngaut/unistore/raft"
+	"github.com/ngaut/unistore/tikv/raftstore"
+	"github.com/pingcap/tidb/util/codec"
 	"golang.org/x/net/context"
 )
 

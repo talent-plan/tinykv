@@ -15,9 +15,9 @@ import (
 	"github.com/ngaut/unistore/pkg/eraftpb"
 	"github.com/ngaut/unistore/pkg/metapb"
 	rspb "github.com/ngaut/unistore/pkg/raft_serverpb"
+	"github.com/ngaut/unistore/raft"
 	"github.com/ngaut/unistore/tikv/dbreader"
 	"github.com/pingcap/errors"
-	"github.com/ngaut/unistore/raft"
 )
 
 type JobStatus = uint32

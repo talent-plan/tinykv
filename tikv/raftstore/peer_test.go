@@ -1,9 +1,10 @@
 package raftstore
 
 import (
+	"testing"
+
 	"github.com/ngaut/unistore/pkg/raft_cmdpb"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestGetSyncLogFromRequest(t *testing.T) {
@@ -132,8 +133,6 @@ func TestRequestInspector(t *testing.T) {
 		OpPolicyPair{Tp: raft_cmdpb.CmdType_Snap, Policy: RequestPolicy_ReadLocal},
 		OpPolicyPair{Tp: raft_cmdpb.CmdType_Put, Policy: RequestPolicy_ProposeNormal},
 		OpPolicyPair{Tp: raft_cmdpb.CmdType_Delete, Policy: RequestPolicy_ProposeNormal},
-		OpPolicyPair{Tp: raft_cmdpb.CmdType_DeleteRange, Policy: RequestPolicy_ProposeNormal},
-		OpPolicyPair{Tp: raft_cmdpb.CmdType_IngestSST, Policy: RequestPolicy_ProposeNormal},
 	}
 	for _, opPolicy := range Ops {
 		request := new(raft_cmdpb.Request)

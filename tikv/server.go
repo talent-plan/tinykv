@@ -2,14 +2,12 @@ package tikv
 
 import (
 	"context"
-	"io"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
-	deadlockPb "github.com/ngaut/unistore/pkg/deadlock"
 	"github.com/ngaut/unistore/pkg/errorpb"
 	"github.com/ngaut/unistore/pkg/kvrpcpb"
 	"github.com/ngaut/unistore/pkg/tikvpb"
@@ -169,16 +167,10 @@ func (svr *Server) KvScan(ctx context.Context, req *kvrpcpb.ScanRequest) (*kvrpc
 	}, nil
 }
 
-type skipVal bool
-
-func (s skipVal) SkipValue() bool {
-	return bool(s)
-}
-
 type kvScanProcessor struct {
-	skipVal
-	buf   []byte
-	pairs []*kvrpcpb.KvPair
+	skipVal bool
+	buf     []byte
+	pairs   []*kvrpcpb.KvPair
 }
 
 func (p *kvScanProcessor) Process(key, value []byte) (err error) {
@@ -194,6 +186,10 @@ func (p *kvScanProcessor) Process(key, value []byte) (err error) {
 		Value: safeCopy(value),
 	})
 	return nil
+}
+
+func (p *kvScanProcessor) SkipValue() bool {
+	return p.skipVal
 }
 
 func (svr *Server) KvCheckTxnStatus(ctx context.Context, req *kvrpcpb.CheckTxnStatusRequest) (*kvrpcpb.CheckTxnStatusResponse, error) {
@@ -241,11 +237,6 @@ func (svr *Server) KvCommit(ctx context.Context, req *kvrpcpb.CommitRequest) (*k
 		resp.Error, resp.RegionError = convertToPBError(err)
 	}
 	return resp, nil
-}
-
-func (svr *Server) KvImport(context.Context, *kvrpcpb.ImportRequest) (*kvrpcpb.ImportResponse, error) {
-	// TODO
-	return &kvrpcpb.ImportResponse{}, nil
 }
 
 func (svr *Server) KvCleanup(ctx context.Context, req *kvrpcpb.CleanupRequest) (*kvrpcpb.CleanupResponse, error) {
@@ -364,42 +355,6 @@ func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRe
 	return resp, nil
 }
 
-func (svr *Server) KvGC(ctx context.Context, req *kvrpcpb.GCRequest) (*kvrpcpb.GCResponse, error) {
-	reqCtx, err := newRequestCtx(svr, req.Context, "KvGC")
-	if err != nil {
-		return &kvrpcpb.GCResponse{Error: convertToKeyError(err)}, nil
-	}
-	defer reqCtx.finish()
-	if reqCtx.regErr != nil {
-		return &kvrpcpb.GCResponse{RegionError: reqCtx.regErr}, nil
-	}
-	log.Debug("kv GC safePoint:", extractPhysicalTime(req.SafePoint))
-	if !isMvccRegion(reqCtx.regCtx) {
-		return &kvrpcpb.GCResponse{}, nil
-	}
-	err = svr.mvccStore.GC(reqCtx, req.SafePoint)
-	return &kvrpcpb.GCResponse{Error: convertToKeyError(err)}, nil
-}
-
-func (svr *Server) KvDeleteRange(ctx context.Context, req *kvrpcpb.DeleteRangeRequest) (*kvrpcpb.DeleteRangeResponse, error) {
-	reqCtx, err := newRequestCtx(svr, req.Context, "KvDeleteRange")
-	if err != nil {
-		return &kvrpcpb.DeleteRangeResponse{Error: convertToKeyError(err).String()}, nil
-	}
-	defer reqCtx.finish()
-	if reqCtx.regErr != nil {
-		return &kvrpcpb.DeleteRangeResponse{RegionError: reqCtx.regErr}, nil
-	}
-	if !isMvccRegion(reqCtx.regCtx) {
-		return &kvrpcpb.DeleteRangeResponse{}, nil
-	}
-	err = svr.mvccStore.dbWriter.DeleteRange(req.StartKey, req.EndKey, reqCtx.regCtx)
-	if err != nil {
-		log.Error(err)
-	}
-	return &kvrpcpb.DeleteRangeResponse{}, nil
-}
-
 // RawKV commands.
 func (svr *Server) RawGet(context.Context, *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
 	return &kvrpcpb.RawGetResponse{}, nil
@@ -417,26 +372,6 @@ func (svr *Server) RawScan(context.Context, *kvrpcpb.RawScanRequest) (*kvrpcpb.R
 	return &kvrpcpb.RawScanResponse{}, nil
 }
 
-func (svr *Server) RawBatchDelete(context.Context, *kvrpcpb.RawBatchDeleteRequest) (*kvrpcpb.RawBatchDeleteResponse, error) {
-	return &kvrpcpb.RawBatchDeleteResponse{}, nil
-}
-
-func (svr *Server) RawBatchGet(context.Context, *kvrpcpb.RawBatchGetRequest) (*kvrpcpb.RawBatchGetResponse, error) {
-	return &kvrpcpb.RawBatchGetResponse{}, nil
-}
-
-func (svr *Server) RawBatchPut(context.Context, *kvrpcpb.RawBatchPutRequest) (*kvrpcpb.RawBatchPutResponse, error) {
-	return &kvrpcpb.RawBatchPutResponse{}, nil
-}
-
-func (svr *Server) RawBatchScan(context.Context, *kvrpcpb.RawBatchScanRequest) (*kvrpcpb.RawBatchScanResponse, error) {
-	return &kvrpcpb.RawBatchScanResponse{}, nil
-}
-
-func (svr *Server) RawDeleteRange(context.Context, *kvrpcpb.RawDeleteRangeRequest) (*kvrpcpb.RawDeleteRangeResponse, error) {
-	return &kvrpcpb.RawDeleteRangeResponse{}, nil
-}
-
 // Raft commands (tikv <-> tikv).
 func (svr *Server) Raft(stream tikvpb.Tikv_RaftServer) error {
 	return svr.innerServer.Raft(stream)
@@ -447,54 +382,6 @@ func (svr *Server) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
 
 func (svr *Server) BatchRaft(stream tikvpb.Tikv_BatchRaftServer) error {
 	return svr.innerServer.BatchRaft(stream)
-}
-
-// Region commands.
-func (svr *Server) SplitRegion(ctx context.Context, req *kvrpcpb.SplitRegionRequest) (*kvrpcpb.SplitRegionResponse, error) {
-	return svr.innerServer.SplitRegion(req), nil
-}
-
-// deadlock detection related services
-// GetWaitForEntries tries to get the waitFor entries
-func (svr *Server) GetWaitForEntries(ctx context.Context,
-	req *deadlockPb.WaitForEntriesRequest) (*deadlockPb.WaitForEntriesResponse, error) {
-	// TODO
-	return &deadlockPb.WaitForEntriesResponse{}, nil
-}
-
-// Detect will handle detection rpc from other nodes
-func (svr *Server) Detect(stream deadlockPb.Deadlock_DetectServer) error {
-	for {
-		req, err := stream.Recv()
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return err
-		}
-		if !svr.mvccStore.DeadlockDetectSvr.IsLeader() {
-			log.Warnf("detection requests received on non leader node")
-			break
-		}
-		switch req.Tp {
-		case deadlockPb.DeadlockRequestType_Detect:
-			err := svr.mvccStore.DeadlockDetectSvr.Detector.Detect(req.Entry.Txn, req.Entry.WaitForTxn, req.Entry.KeyHash)
-			if err != nil {
-				resp := convertErrToResp(err, req.Entry.Txn,
-					req.Entry.WaitForTxn, req.Entry.KeyHash)
-				sendErr := stream.Send(resp)
-				if sendErr != nil {
-					log.Errorf("send deadlock response failed, error=%v", sendErr)
-					break
-				}
-			}
-		case deadlockPb.DeadlockRequestType_CleanUpWaitFor:
-			svr.mvccStore.DeadlockDetectSvr.Detector.CleanUpWaitFor(req.Entry.Txn, req.Entry.WaitForTxn, req.Entry.KeyHash)
-		case deadlockPb.DeadlockRequestType_CleanUp:
-			svr.mvccStore.DeadlockDetectSvr.Detector.CleanUp(req.Entry.Txn)
-		}
-	}
-	return nil
 }
 
 func convertToKeyError(err error) *kvrpcpb.KeyError {
