@@ -702,16 +702,6 @@ func (ps *PeerStorage) clearExtraData(newRegion *metapb.Region) {
 	}
 }
 
-func getSyncLogFromEntry(entry eraftpb.Entry) bool {
-	if entry.SyncLog {
-		return true
-	}
-	if len(entry.Context) > 0 {
-		return entryCtx(entry.Context[0]).IsSyncLog()
-	}
-	return false
-}
-
 func fetchEntriesTo(engine *badger.DB, regionID, low, high, maxSize uint64, buf []eraftpb.Entry) ([]eraftpb.Entry, uint64, error) {
 	var totalSize uint64
 	nextIndex := low
