@@ -59,9 +59,7 @@ func TestEntryCtx(t *testing.T) {
 	tbl := [][]ProposalContext{
 		[]ProposalContext{ProposalContext_Split},
 		[]ProposalContext{ProposalContext_SyncLog},
-		[]ProposalContext{ProposalContext_PrepareMerge},
 		[]ProposalContext{ProposalContext_Split, ProposalContext_SyncLog},
-		[]ProposalContext{ProposalContext_PrepareMerge, ProposalContext_SyncLog},
 	}
 	for _, flags := range tbl {
 		var ctx ProposalContext

@@ -828,14 +828,11 @@ func ClearMeta(engines *Engines, kvWB, raftWB *WriteBatch, regionID uint64, last
 	return nil
 }
 
-func WritePeerState(kvWB *WriteBatch, region *metapb.Region, state rspb.PeerState, mergeState *rspb.MergeState) {
+func WritePeerState(kvWB *WriteBatch, region *metapb.Region, state rspb.PeerState) {
 	regionID := region.Id
 	regionState := new(rspb.RegionLocalState)
 	regionState.State = state
 	regionState.Region = region
-	if mergeState != nil {
-		regionState.MergeState = mergeState
-	}
 	data, _ := regionState.Marshal()
 	kvWB.Set(RegionStateKey(regionID), data)
 }
@@ -860,7 +857,7 @@ func (ps *PeerStorage) ApplySnapshot(ctx *InvokeContext, snap *eraftpb.Snapshot,
 		}
 	}
 
-	WritePeerState(kvWB, snapData.Region, rspb.PeerState_Applying, nil)
+	WritePeerState(kvWB, snapData.Region, rspb.PeerState_Applying)
 
 	lastIdx := snap.Metadata.Index
 

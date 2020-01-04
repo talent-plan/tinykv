@@ -12,7 +12,6 @@ import (
 	"github.com/ngaut/unistore/pkg/raft_cmdpb"
 	rspb "github.com/ngaut/unistore/pkg/raft_serverpb"
 	"github.com/ngaut/unistore/raft"
-	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/tablecodec"
 )
@@ -113,16 +112,8 @@ func (pf *peerFsm) stop() {
 	pf.stopped = true
 }
 
-func (pf *peerFsm) setPendingMergeState(state *rspb.MergeState) {
-	pf.peer.PendingMergeState = state
-}
-
 func (pf *peerFsm) scheduleApplyingSnapshot() {
 	pf.peer.Store().ScheduleApplyingSnapshot()
-}
-
-func (pf *peerFsm) hasPendingMergeApplyResult() bool {
-	return pf.peer.PendingMergeApplyResult != nil
 }
 
 func (pf *peerFsm) tag() string {
@@ -156,10 +147,6 @@ func (d *peerMsgHandler) HandleMsgs(msgs ...Msg) {
 			d.onTick()
 		case MsgTypeApplyRes:
 			res := msg.Data.(*applyTaskRes)
-			if state := d.peer.PendingMergeApplyResult; state != nil {
-				state.results = append(state.results, res)
-				continue
-			}
 			d.onApplyResult(res)
 		case MsgTypeSignificantMsg:
 			d.onSignificantMsg(msg.Data.(*MsgSignificant))
@@ -167,21 +154,8 @@ func (d *peerMsgHandler) HandleMsgs(msgs ...Msg) {
 			split := msg.Data.(*MsgSplitRegion)
 			log.Infof("%s on split with %v", d.peer.Tag, split.SplitKeys)
 			d.onPrepareSplitRegion(split.RegionEpoch, split.SplitKeys, split.Callback)
-		case MsgTypeComputeResult:
-			result := msg.Data.(*MsgComputeHashResult)
-			d.onHashComputed(result.Index, result.Hash)
 		case MsgTypeRegionApproximateSize:
 			d.onApproximateRegionSize(msg.Data.(uint64))
-		case MsgTypeRegionApproximateKeys:
-			d.onApproximateRegionKeys(msg.Data.(uint64))
-		case MsgTypeCompactionDeclineBytes:
-			d.onCompactionDeclinedBytes(msg.Data.(uint64))
-		case MsgTypeHalfSplitRegion:
-			half := msg.Data.(*MsgHalfSplitRegion)
-			d.onScheduleHalfSplitRegion(half.RegionEpoch)
-		case MsgTypeMergeResult:
-			result := msg.Data.(*MsgMergeResult)
-			d.onMergeResult(result.TargetPeer, result.Stale)
 		case MsgTypeGcSnap:
 			gcSnap := msg.Data.(*MsgGCSnap)
 			d.onGCSnap(gcSnap.Snaps)
@@ -211,9 +185,6 @@ func (d *peerMsgHandler) onTick() {
 	if d.ticker.isOnTick(PeerTickSplitRegionCheck) {
 		d.onSplitRegionCheckTick()
 	}
-	if d.ticker.isOnTick(PeerTickCheckMerge) {
-		d.onCheckMerge()
-	}
 	if d.ticker.isOnTick(PeerTickPeerStaleState) {
 		d.onCheckPeerStaleStateTick()
 	}
@@ -221,9 +192,6 @@ func (d *peerMsgHandler) onTick() {
 }
 
 func (d *peerMsgHandler) startTicker() {
-	if d.peer.PendingMergeState != nil {
-		d.notifyPrepareMerge()
-	}
 	d.ticker = newTicker(d.regionID(), d.ctx.cfg)
 	d.ctx.tickDriverSender <- d.regionID()
 	d.ticker.schedule(PeerTickRaft)
@@ -231,15 +199,6 @@ func (d *peerMsgHandler) startTicker() {
 	d.ticker.schedule(PeerTickSplitRegionCheck)
 	d.ticker.schedule(PeerTickPdHeartbeat)
 	d.ticker.schedule(PeerTickPeerStaleState)
-	d.onCheckMerge()
-}
-
-func (d *peerMsgHandler) notifyPrepareMerge() {
-	// TODO: merge func
-}
-
-func (d *peerMsgHandler) resumeHandlePendingApplyResult() bool {
-	return false // TODO: merge func
 }
 
 func (d *peerMsgHandler) onGCSnap(snaps []SnapKeyWithSending) {
@@ -280,7 +239,6 @@ func (d *peerMsgHandler) onGCSnap(snaps []SnapKeyWithSending) {
 
 func (d *peerMsgHandler) onClearRegionSize() {
 	d.peer.ApproximateSize = nil
-	d.peer.ApproximateKeys = nil
 }
 
 func (d *peerMsgHandler) onSignificantMsg(msg *MsgSignificant) {
@@ -327,17 +285,10 @@ func (d *peerMsgHandler) HandleRaftReadyAppend(proposals []*regionProposal) []*r
 }
 
 func (d *peerMsgHandler) PostRaftReadyPersistent(ready *raft.Ready, invokeCtx *InvokeContext) {
-	isMerging := d.peer.PendingMergeState != nil
 	res := d.peer.PostRaftReadyPersistent(d.ctx.trans, d.ctx.applyMsgs, ready, invokeCtx)
 	d.peer.HandleRaftReadyApply(d.ctx.engine.kv, d.ctx.applyMsgs, ready)
-	hasSnapshot := false
 	if res != nil {
 		d.onReadyApplySnapshot(res)
-		hasSnapshot = true
-	}
-	if isMerging && hasSnapshot {
-		// After applying a snapshot, merge is rollbacked implicitly.
-		d.onReadyRollbackMerge(0, nil)
 	}
 }
 
@@ -366,16 +317,7 @@ func (d *peerMsgHandler) onApplyResult(res *applyTaskRes) {
 		d.destroyPeer(false)
 	} else {
 		log.Debugf("%s async apply finished %v", d.tag(), res)
-		var readyToMerge *uint32
-		readyToMerge, res.execResults = d.onReadyResult(res.merged, res.execResults)
-		if readyToMerge != nil {
-			// There is a `CommitMerge` needed to wait
-			d.peer.PendingMergeApplyResult = &WaitApplyResultState{
-				results:      []*applyTaskRes{res},
-				readyToMerge: readyToMerge,
-			}
-			return
-		}
+		res.execResults = d.onReadyResult(res.merged, res.execResults)
 		if d.stopped {
 			return
 		}
@@ -397,16 +339,6 @@ func (d *peerMsgHandler) onRaftMsg(msg *rspb.RaftMessage) error {
 	if msg.GetIsTombstone() {
 		// we receive a message tells us to remove self.
 		d.handleGCPeerMsg(msg)
-		return nil
-	}
-	if msg.MergeTarget != nil {
-		need, err := d.needGCMerge(msg)
-		if err != nil {
-			return err
-		}
-		if need {
-			d.onStaleMerge()
-		}
 		return nil
 	}
 	if d.checkMessage(msg) {
@@ -487,7 +419,7 @@ func (d *peerMsgHandler) checkMessage(msg *rspb.RaftMessage) bool {
 	region := d.peer.Region()
 	if IsEpochStale(fromEpoch, region.RegionEpoch) && findPeer(region, fromStoreID) == nil {
 		// The message is stale and not in current region.
-		handleStaleMsg(d.ctx.trans, msg, region.RegionEpoch, isVoteMsg, nil)
+		handleStaleMsg(d.ctx.trans, msg, region.RegionEpoch, isVoteMsg)
 		return true
 	}
 	target := msg.GetToPeer()
@@ -508,7 +440,7 @@ func (d *peerMsgHandler) checkMessage(msg *rspb.RaftMessage) bool {
 }
 
 func handleStaleMsg(trans Transport, msg *rspb.RaftMessage, curEpoch *metapb.RegionEpoch,
-	needGC bool, targetRegion *metapb.Region) {
+	needGC bool) {
 	regionID := msg.RegionId
 	fromPeer := msg.FromPeer
 	toPeer := msg.ToPeer
@@ -524,19 +456,11 @@ func handleStaleMsg(trans Transport, msg *rspb.RaftMessage, curEpoch *metapb.Reg
 		FromPeer:    fromPeer,
 		ToPeer:      toPeer,
 		RegionEpoch: curEpoch,
-	}
-	if targetRegion != nil {
-		gcMsg.MergeTarget = targetRegion
-	} else {
-		gcMsg.IsTombstone = true
+		IsTombstone: true,
 	}
 	if err := trans.Send(gcMsg); err != nil {
 		log.Errorf("[region %d] send message failed %v", regionID, err)
 	}
-}
-
-func (d *peerMsgHandler) needGCMerge(msg *rspb.RaftMessage) (bool, error) {
-	return false, nil // TODO: merge func
 }
 
 func (d *peerMsgHandler) handleGCPeerMsg(msg *rspb.RaftMessage) {
@@ -598,6 +522,13 @@ func (d *peerMsgHandler) checkSnapshot(msg *rspb.RaftMessage) (*SnapKey, error) 
 			panic(fmt.Sprintf("%s meta corrupted %s != %s", d.tag(), meta.regions[d.regionID()], d.region()))
 		}
 	}
+
+	existRegions := d.findOverlapRegions(meta, snapRegion)
+	for _, existRegion := range existRegions {
+		log.Infof("%s region overlapped %s %s", d.tag(), existRegion, snapRegion)
+		return &key, nil
+	}
+
 	for _, region := range meta.pendingSnapshotRegions {
 		if bytes.Compare(region.StartKey, snapRegion.EndKey) < 0 &&
 			bytes.Compare(region.EndKey, snapRegion.StartKey) > 0 &&
@@ -609,27 +540,6 @@ func (d *peerMsgHandler) checkSnapshot(msg *rspb.RaftMessage) (*SnapKey, error) 
 		}
 	}
 
-	// In some extreme cases, it may cause source peer destroyed improperly so that a later
-	// CommitMerge may panic because source is already destroyed, so just drop the message:
-	// 1. A new snapshot is received whereas a snapshot is still in applying, and the snapshot
-	// under applying is generated before merge and the new snapshot is generated after merge.
-	// After the applying snapshot is finished, the log may able to catch up and so a
-	// CommitMerge will be applied.
-	// 2. There is a CommitMerge pending in apply thread.
-	ready := !d.peer.IsApplyingSnapshot() && !d.peer.HasPendingSnapshot() && d.peer.ReadyToHandlePendingSnap()
-
-	existRegions := d.findOverlapRegions(meta, snapRegion)
-	for _, existRegion := range existRegions {
-		log.Infof("%s region overlapped %s %s", d.tag(), existRegion, snapRegion)
-		if ready && maybeDestroySource(meta, d.regionID(), existRegion.Id, snapRegion.RegionEpoch) {
-			// The snapshot that we decide to whether destroy peer based on must can be applied.
-			// So here not to destroy peer immediately, or the snapshot maybe dropped in later
-			// check but the peer is already destroyed.
-			regionsToDestroy = append(regionsToDestroy, existRegion.Id)
-			continue
-		}
-		return &key, nil
-	}
 	// check if snapshot file exists.
 	_, err = d.ctx.snapMgr.GetSnapshotForApplying(key)
 	if err != nil {
@@ -903,42 +813,6 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 	d.ctx.peerEventObserver.OnSplitRegion(derived, regions, newPeers)
 }
 
-func (d *peerMsgHandler) validateMergePeer(targetRegion *metapb.Region) (bool, error) {
-	return false, nil // TODO: merge func
-}
-
-func (d *peerMsgHandler) scheduleMerge() error {
-	return nil // TODO: merge func
-}
-
-func (d *peerMsgHandler) rollbackMerge() {
-	// TODO: merge func
-}
-
-func (d *peerMsgHandler) onCheckMerge() {
-	// TODO: merge func
-}
-
-func (d *peerMsgHandler) onReadyPrepareMerge(region *metapb.Region, state *rspb.MergeState, merged bool) {
-	// TODO: merge func
-}
-
-func (d *peerMsgHandler) onReadyCommitMerge(region, source *metapb.Region) *uint32 {
-	return nil // TODO: merge func
-}
-
-func (d *peerMsgHandler) onReadyRollbackMerge(commit uint64, region *metapb.Region) {
-	// TODO: merge func
-}
-
-func (d *peerMsgHandler) onMergeResult(target *metapb.Peer, stale bool) {
-	// TODO: merge func
-}
-
-func (d *peerMsgHandler) onStaleMerge() {
-	// TODO: merge func
-}
-
 func (d *peerMsgHandler) onReadyApplySnapshot(applyResult *ApplySnapResult) {
 	prevRegion := applyResult.PrevRegion
 	region := applyResult.Region
@@ -960,13 +834,13 @@ func (d *peerMsgHandler) onReadyApplySnapshot(applyResult *ApplySnapResult) {
 	d.ctx.peerEventObserver.OnPeerApplySnap(d.peer.getEventContext(), region)
 }
 
-func (d *peerMsgHandler) onReadyResult(merged bool, execResults []execResult) (*uint32, []execResult) {
+func (d *peerMsgHandler) onReadyResult(merged bool, execResults []execResult) []execResult {
 	if len(execResults) == 0 {
-		return nil, nil
+		return nil
 	}
 
 	// handle executing committed log results
-	for i, result := range execResults {
+	for _, result := range execResults {
 		switch x := result.(type) {
 		case *execResultChangePeer:
 			d.onReadyChangePeer(x.cp)
@@ -976,27 +850,9 @@ func (d *peerMsgHandler) onReadyResult(merged bool, execResults []execResult) (*
 			}
 		case *execResultSplitRegion:
 			d.onReadySplitRegion(x.derived, x.regions)
-		case *execResultPrepareMerge:
-			d.onReadyPrepareMerge(x.region, x.state, merged)
-		case *execResultCommitMerge:
-			if readyToMerge := d.onReadyCommitMerge(x.region, x.source); readyToMerge != nil {
-				return readyToMerge, execResults[i:]
-			}
-		case *execResultRollbackMerge:
-			d.onReadyRollbackMerge(x.commit, x.region)
-		case *execResultComputeHash:
-			d.onReadyComputeHash(x.region, x.index, x.snap)
-		case *execResultVerifyHash:
-			d.onReadyVerifyHash(x.index, x.hash)
-		case *execResultDeleteRange:
-			// TODO: clean user properties?
 		}
 	}
-	return nil, nil
-}
-
-func (d *peerMsgHandler) checkMergeProposal(msg *raft_cmdpb.RaftCmdRequest) error {
-	return nil // TODO: merge func
+	return nil
 }
 
 func (d *peerMsgHandler) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.RaftCmdResponse, error) {
@@ -1052,12 +908,6 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 
 	if d.peer.PendingRemove {
 		NotifyReqRegionRemoved(d.regionID(), cb)
-		return
-	}
-
-	if err := d.checkMergeProposal(msg); err != nil {
-		log.Warnf("%s failed to process merge, message %s, err %v", d.tag(), msg, err)
-		cb.Done(ErrResp(err))
 		return
 	}
 
@@ -1210,7 +1060,6 @@ func (d *peerMsgHandler) onSplitRegionCheckTick() {
 		},
 	}
 	d.peer.SizeDiffHint = 0
-	d.peer.CompactionDeclinedBytes = 0
 }
 
 func isTableKey(key []byte) bool {
@@ -1286,32 +1135,6 @@ func (d *peerMsgHandler) onApproximateRegionSize(size uint64) {
 	d.peer.ApproximateSize = &size
 }
 
-func (d *peerMsgHandler) onApproximateRegionKeys(keys uint64) {
-	d.peer.ApproximateKeys = &keys
-}
-
-func (d *peerMsgHandler) onCompactionDeclinedBytes(declinedBytes uint64) {
-	d.peer.CompactionDeclinedBytes += declinedBytes
-}
-
-func (d *peerMsgHandler) onScheduleHalfSplitRegion(regionEpoch *metapb.RegionEpoch) {
-	if !d.peer.IsLeader() {
-		log.Warnf("%s not leader, skip", d.tag())
-		return
-	}
-	region := d.region()
-	if IsEpochStale(regionEpoch, region.RegionEpoch) {
-		log.Warnf("%s receive a stale halfsplit message", d.tag())
-		return
-	}
-	d.ctx.splitCheckTaskSender <- task{
-		tp: taskTypeHalfSplitCheck,
-		data: &splitCheckTask{
-			region: region,
-		},
-	}
-}
-
 func (d *peerMsgHandler) onPDHeartbeatTick() {
 	d.ticker.schedule(PeerTickPdHeartbeat)
 	d.peer.CheckPeers()
@@ -1367,82 +1190,6 @@ func (d *peerMsgHandler) onCheckPeerStaleStateTick() {
 	}
 }
 
-func (d *peerMsgHandler) onReadyComputeHash(region *metapb.Region, index uint64, snap *mvcc.DBSnapshot) {
-	d.peer.ConsistencyState.LastCheckTime = time.Now()
-	log.Infof("%s schedule compute hash task", d.tag())
-	d.ctx.computeHashTaskSender <- task{
-		tp: taskTypeComputeHash,
-		data: &computeHashTask{
-			region: region,
-			index:  index,
-			snap:   snap,
-		},
-	}
-}
-
-func (d *peerMsgHandler) onReadyVerifyHash(expectedIndex uint64, expectedHash []byte) {
-	d.verifyAndStoreHash(expectedIndex, expectedHash)
-}
-
-func (d *peerMsgHandler) onHashComputed(index uint64, hash []byte) {
-	if !d.verifyAndStoreHash(index, hash) {
-		return
-	}
-	req := newVerifyHashRequest(d.regionID(), d.peer.Meta, d.peer.ConsistencyState)
-	d.proposeRaftCommand(req, nil)
-}
-
-/// Verify and store the hash to state. return true means the hash has been stored successfully.
-func (d *peerMsgHandler) verifyAndStoreHash(expectedIndex uint64, expectedHash []byte) bool {
-	state := d.peer.ConsistencyState
-	index := state.Index
-	if expectedIndex < index {
-		log.Warnf("%s has scheduled a new hash, skip, index: %d, expected_index: %d, ",
-			d.tag(), d.peer.ConsistencyState.Index, expectedIndex)
-		return false
-	}
-	if expectedIndex == index {
-		if len(state.Hash) == 0 {
-			log.Warnf("%s duplicated consistency check detected, skip.", d.tag())
-			return false
-		}
-		if !bytes.Equal(state.Hash, expectedHash) {
-			panic(fmt.Sprintf("%s hash at %d not correct want %v, got %v",
-				d.tag(), index, expectedHash, state.Hash))
-		}
-		log.Infof("%s consistency check pass, index %d", d.tag(), index)
-		state.Hash = nil
-		return false
-	}
-	if state.Index != 0 && len(state.Hash) > 0 {
-		// Maybe computing is too slow or computed result is dropped due to channel full.
-		// If computing is too slow, miss count will be increased twice.
-		log.Warnf("%s hash belongs to wrong index, skip, index: %d, expected_index: %d",
-			d.tag(), index, expectedIndex)
-	}
-	log.Infof("%s save hash for consistency check later, index: %d", d.tag(), index)
-	state.Index = expectedIndex
-	state.Hash = expectedHash
-	return true
-}
-
-func maybeDestroySource(meta *storeMeta, targetID, sourceID uint64, epoch *metapb.RegionEpoch) bool {
-	if mergeTargets, ok := meta.pendingMergeTargets[targetID]; ok {
-		if targetEpoch, ok1 := mergeTargets[sourceID]; ok1 {
-			log.Infof("[region %d] checking source %d epoch: %s, merge target epoch: %s",
-				targetID, sourceID, epoch, targetEpoch)
-			// The target peer will move on, namely, it will apply a snapshot generated after merge,
-			// so destroy source peer.
-			if epoch.Version > targetEpoch.Version {
-				return true
-			}
-			// Wait till the target peer has caught up logs and source peer will be destroyed at that time.
-			return false
-		}
-	}
-	return false
-}
-
 func newAdminRequest(regionID uint64, peer *metapb.Peer) *raft_cmdpb.RaftCmdRequest {
 	return &raft_cmdpb.RaftCmdRequest{
 		Header: &raft_cmdpb.RaftRequestHeader{
@@ -1450,18 +1197,6 @@ func newAdminRequest(regionID uint64, peer *metapb.Peer) *raft_cmdpb.RaftCmdRequ
 			Peer:     peer,
 		},
 	}
-}
-
-func newVerifyHashRequest(regionID uint64, peer *metapb.Peer, state *ConsistencyState) *raft_cmdpb.RaftCmdRequest {
-	request := newAdminRequest(regionID, peer)
-	request.AdminRequest = &raft_cmdpb.AdminRequest{
-		CmdType: raft_cmdpb.AdminCmdType_VerifyHash,
-		VerifyHash: &raft_cmdpb.VerifyHashRequest{
-			Index: state.Index,
-			Hash:  state.Hash,
-		},
-	}
-	return request
 }
 
 func newCompactLogRequest(regionID uint64, peer *metapb.Peer, compactIndex, compactTerm uint64) *raft_cmdpb.RaftCmdRequest {

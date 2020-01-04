@@ -126,9 +126,8 @@ func (q *ProposalQueue) Clear() {
 }
 
 const (
-	ProposalContext_SyncLog      ProposalContext = 1
-	ProposalContext_Split        ProposalContext = 1 << 1
-	ProposalContext_PrepareMerge ProposalContext = 1 << 2
+	ProposalContext_SyncLog ProposalContext = 1
+	ProposalContext_Split   ProposalContext = 1 << 1
 )
 
 type ProposalContext byte
@@ -244,11 +243,6 @@ type Peer struct {
 	deleteKeysHint uint64
 	/// approximate size of the region.
 	ApproximateSize *uint64
-	/// approximate keys of the region.
-	ApproximateKeys         *uint64
-	CompactionDeclinedBytes uint64
-
-	ConsistencyState *ConsistencyState
 
 	Tag string
 
@@ -266,15 +260,13 @@ type Peer struct {
 
 	// The index of the latest committed prepare merge command.
 	lastCommittedPrepareMergeIdx uint64
-	PendingMergeState            *rspb.MergeState
 	leaderMissingTime            *time.Time
 	leaderLease                  *Lease
 	leaderChecker                leaderChecker
 
 	// If a snapshot is being applied asynchronously, messages should not be sent.
-	pendingMessages         []eraftpb.Message
-	PendingMergeApplyResult *WaitApplyResultState
-	PeerStat                PeerStat
+	pendingMessages []eraftpb.Message
+	PeerStat        PeerStat
 }
 
 func NewPeer(storeId uint64, cfg *Config, engines *Engines, region *metapb.Region, regionSched chan<- task,
@@ -319,10 +311,6 @@ func NewPeer(storeId uint64, cfg *Config, engines *Engines, region *metapb.Regio
 		PeerHeartbeats:        make(map[uint64]time.Time),
 		PeersStartPendingTime: make(map[uint64]time.Time),
 		RecentAddedPeer:       NewRecentAddedPeer(uint64(cfg.RaftRejectTransferLeaderDuration.Seconds())),
-		ConsistencyState: &ConsistencyState{
-			LastCheckTime: now,
-			Index:         RaftInvalidIndex,
-		},
 		leaderMissingTime:     &now,
 		Tag:                   tag,
 		LastApplyingIdx:       appliedIndex,
@@ -428,11 +416,7 @@ func (p *Peer) Destroy(engine *Engines, keepData bool) error {
 	if err := p.Store().clearMeta(kvWB, raftWB); err != nil {
 		return err
 	}
-	var mergeState *rspb.MergeState
-	if p.PendingMergeState != nil {
-		mergeState = p.PendingMergeState
-	}
-	WritePeerState(kvWB, region, rspb.PeerState_Tombstone, mergeState)
+	WritePeerState(kvWB, region, rspb.PeerState_Tombstone)
 	// write kv rocksdb first in case of restart happen between two write
 	// Todo: sync = ctx.cfg.sync_log
 	if err := kvWB.WriteToKV(engine.kv); err != nil {
@@ -743,15 +727,11 @@ func (p *Peer) readyToHandleRead() bool {
 	// applied commit merge, written new values, but the sibling peer in
 	// this store does not apply commit merge, so the leader is not ready
 	// to read, until the merge is rollbacked.
-	return p.Store().appliedIndexTerm == p.Term() && !p.isSplitting() && !p.isMerging()
+	return p.Store().appliedIndexTerm == p.Term() && !p.isSplitting()
 }
 
 func (p *Peer) isSplitting() bool {
 	return p.lastCommittedSplitIdx > p.Store().AppliedIndex()
-}
-
-func (p *Peer) isMerging() bool {
-	return p.lastCommittedPrepareMergeIdx > p.Store().AppliedIndex() || p.PendingMergeState != nil
 }
 
 func (p *Peer) TakeApplyProposals() *regionProposal {
@@ -879,7 +859,7 @@ func (p *Peer) MaybeRenewLeaderLease(ts time.Time) {
 	// // A merging leader should not renew its lease.
 	// Because we merge regions asynchronous, the leader may read stale results
 	// if commit merge runs slow on sibling peers.
-	if !p.IsLeader() || p.isSplitting() || p.isMerging() {
+	if !p.IsLeader() || p.isSplitting() {
 		return
 	}
 	p.leaderLease.Renew(ts)
@@ -932,7 +912,6 @@ func (p *Peer) HeartbeatPd(pdScheduler chan<- task) {
 			writtenBytes:    p.PeerStat.WrittenBytes,
 			writtenKeys:     p.PeerStat.WrittenKeys,
 			approximateSize: p.ApproximateSize,
-			approximateKeys: p.ApproximateKeys,
 		},
 	}
 }
@@ -987,7 +966,7 @@ func (p *Peer) HandleRaftReadyApply(kv *mvcc.DBBundle, applyMsgs *applyMsgs, rea
 		committedEntries := ready.CommittedEntries
 		ready.CommittedEntries = nil
 		// leader needs to update lease and last commited split index.
-		leaseToBeUpdated, splitToBeUpdated, mergeToBeUpdated := p.IsLeader(), p.IsLeader(), p.IsLeader()
+		leaseToBeUpdated, splitToBeUpdated := p.IsLeader(), p.IsLeader()
 		if !leaseToBeUpdated {
 			// It's not leader anymore, we are safe to clear proposals. If it becomes leader
 			// again, the lease should be updated when election is finished, old proposals
@@ -1006,7 +985,7 @@ func (p *Peer) HandleRaftReadyApply(kv *mvcc.DBBundle, applyMsgs *applyMsgs, rea
 			}
 
 			// We care about split/merge commands that are committed in the current term.
-			if entry.Term == p.Term() && (splitToBeUpdated || mergeToBeUpdated) {
+			if entry.Term == p.Term() && (splitToBeUpdated) {
 				//ctx := NewProposalContextFromBytes(entry.Context)
 				proposalCtx := NewProposalContextFromBytes([]byte{0})
 				if splitToBeUpdated && proposalCtx.contains(ProposalContext_Split) {
@@ -1017,17 +996,6 @@ func (p *Peer) HandleRaftReadyApply(kv *mvcc.DBBundle, applyMsgs *applyMsgs, rea
 					// safe to renew its lease.
 					p.lastCommittedSplitIdx = entry.Index
 					splitToBeUpdated = false
-				}
-				if mergeToBeUpdated && proposalCtx.contains(ProposalContext_PrepareMerge) {
-					// We committed prepare merge, to prevent unsafe read index,
-					// we must record its index.
-					p.lastCommittedPrepareMergeIdx = entry.Index
-					// After prepare_merge is committed, the leader can not know
-					// when the target region merges majority of this region, also
-					// it can not know when the target region writes new values.
-					// To prevent unsafe local read, we suspect its leader lease.
-					p.leaderLease.Suspect(time.Now())
-					mergeToBeUpdated = false
 				}
 			}
 		}
@@ -1362,9 +1330,6 @@ func (p *Peer) preReadIndex() error {
 	if p.isSplitting() {
 		return fmt.Errorf("can not read index due to split")
 	}
-	if p.isMerging() {
-		return fmt.Errorf("can not read index due to merge")
-	}
 	return nil
 }
 
@@ -1512,22 +1477,10 @@ func (p *Peer) PrePropose(cfg *Config, req *raft_cmdpb.RaftCmdRequest) (*Proposa
 	default:
 	}
 
-	if req.AdminRequest.PrepareMerge != nil {
-		err := p.preProposePrepareMerge(cfg, req)
-		if err != nil {
-			return nil, err
-		}
-		ctx.insert(ProposalContext_PrepareMerge)
-	}
-
 	return ctx, nil
 }
 
 func (p *Peer) ProposeNormal(cfg *Config, req *raft_cmdpb.RaftCmdRequest) (uint64, error) {
-	if p.PendingMergeState != nil && (req.AdminRequest.GetCmdType() != raft_cmdpb.AdminCmdType_RollbackMerge) {
-		return 0, fmt.Errorf("peer in merging mode, can't do proposal.")
-	}
-
 	// TODO: validate request for unexpected changes.
 	ctx, err := p.PrePropose(cfg, req)
 	if err != nil {
@@ -1585,10 +1538,6 @@ func (p *Peer) ProposeTransferLeader(cfg *Config, req *raft_cmdpb.RaftCmdRequest
 // 3. The conf change makes the raft group not healthy;
 // 4. The conf change is dropped by raft group internally.
 func (p *Peer) ProposeConfChange(cfg *Config, req *raft_cmdpb.RaftCmdRequest) (uint64, error) {
-	if p.PendingMergeState != nil {
-		return 0, fmt.Errorf("peer in merging mode, can't do proposal.")
-	}
-
 	if p.RaftGroup.Raft.PendingConfIndex > p.Store().AppliedIndex() {
 		log.Infof("%v there is a pending conf change, try later", p.Tag)
 		return 0, fmt.Errorf("%v there is a pending conf change, try later", p.Tag)

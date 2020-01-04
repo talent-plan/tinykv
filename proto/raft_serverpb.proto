@@ -17,8 +17,6 @@ message RaftMessage {
     // Region key range [start_key, end_key).
     bytes start_key = 7;
     bytes end_key = 8;
-    // If it has value, to_peer should be removed if merge is never going to complete.
-    metapb.Region merge_target = 9;
 }
 
 message RaftTruncatedState {
@@ -75,17 +73,9 @@ enum PeerState {
     Normal = 0;
     Applying = 1;
     Tombstone = 2;
-    Merging = 3;
-}
-
-message MergeState {
-    uint64 min_index = 1;
-    metapb.Region target = 2;
-    uint64 commit = 3;
 }
 
 message RegionLocalState {
     PeerState state = 1;
     metapb.Region region = 2;
-    MergeState merge_state = 3;
 }

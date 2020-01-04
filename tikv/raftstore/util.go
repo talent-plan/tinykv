@@ -11,10 +11,10 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/ngaut/log"
-	"github.com/pingcap/errors"
 	"github.com/ngaut/unistore/pkg/eraftpb"
 	"github.com/ngaut/unistore/pkg/metapb"
 	"github.com/ngaut/unistore/pkg/raft_cmdpb"
+	"github.com/pingcap/errors"
 )
 
 const RaftInvalidIndex uint64 = 0
@@ -402,13 +402,11 @@ func checkRegionEpoch(req *raft_cmdpb.RaftCmdRequest, region *metapb.Region, inc
 		checkVer = true
 	} else {
 		switch req.AdminRequest.CmdType {
-		case raft_cmdpb.AdminCmdType_CompactLog, raft_cmdpb.AdminCmdType_InvalidAdmin,
-			raft_cmdpb.AdminCmdType_ComputeHash, raft_cmdpb.AdminCmdType_VerifyHash:
+		case raft_cmdpb.AdminCmdType_CompactLog, raft_cmdpb.AdminCmdType_InvalidAdmin:
 		case raft_cmdpb.AdminCmdType_ChangePeer:
 			checkConfVer = true
-		case raft_cmdpb.AdminCmdType_Split, raft_cmdpb.AdminCmdType_BatchSplit,
-			raft_cmdpb.AdminCmdType_PrepareMerge, raft_cmdpb.AdminCmdType_CommitMerge,
-			raft_cmdpb.AdminCmdType_RollbackMerge, raft_cmdpb.AdminCmdType_TransferLeader:
+		case raft_cmdpb.AdminCmdType_BatchSplit,
+			raft_cmdpb.AdminCmdType_TransferLeader:
 			checkVer = true
 			checkConfVer = true
 		}

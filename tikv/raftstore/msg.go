@@ -98,8 +98,7 @@ const (
 	PeerTickRaftLogGC        PeerTick = 1
 	PeerTickSplitRegionCheck PeerTick = 2
 	PeerTickPdHeartbeat      PeerTick = 3
-	PeerTickCheckMerge       PeerTick = 4
-	PeerTickPeerStaleState   PeerTick = 5
+	PeerTickPeerStaleState   PeerTick = 4
 )
 
 type StoreTick int
