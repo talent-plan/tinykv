@@ -31,15 +31,6 @@ message DeleteRequest {
 
 message DeleteResponse {}
 
-message DeleteRangeRequest {
-    string cf = 1;
-    bytes start_key = 2;
-    bytes end_key = 3;
-    bool notify_only = 4;
-}
-
-message DeleteRangeResponse {}
-
 message SnapRequest {}
 
 message SnapResponse {
@@ -54,12 +45,6 @@ message PrewriteRequest {
 
 message PrewriteResponse {}
 
-message ReadIndexRequest {}
-
-message ReadIndexResponse{
-    uint64 read_index = 1;
-}
-
 enum CmdType {
     Invalid = 0;
     Get = 1;
@@ -67,7 +52,6 @@ enum CmdType {
     Delete = 4;
     Snap = 5;
     Prewrite = 6;
-    DeleteRange = 7;
 }
 
 message Request {
@@ -77,7 +61,6 @@ message Request {
     DeleteRequest delete = 5;
     SnapRequest snap = 6;
     PrewriteRequest prewrite = 7;
-    DeleteRangeRequest delete_range = 8;
 }
 
 message Response {
@@ -87,7 +70,6 @@ message Response {
     DeleteResponse delete = 5;
     SnapResponse snap = 6;
     PrewriteResponse prewrite = 7;
-    DeleteRangeResponse delte_range = 8;
 }
 
 message ChangePeerRequest {
@@ -110,22 +92,10 @@ message SplitRequest {
     uint64 new_region_id = 2;
     // The peer ids for the new split region.
     repeated uint64 new_peer_ids = 3;
-    // If true, right region derive the origin region_id, 
-    // left region use new_region_id.
-    // Will be ignored in batch split, use `BatchSplitRequest::right_derive` instead.
-    bool right_derive = 4 [deprecated=true];
-}
-
-message SplitResponse {
-    metapb.Region left = 1;
-    metapb.Region right = 2;
 }
 
 message BatchSplitRequest {
     repeated SplitRequest requests = 1;
-    // If true, the last region derive the origin region_id, 
-    // other regions use new ids.
-    bool right_derive = 2;
 }
 
 message BatchSplitResponse {
@@ -145,72 +115,27 @@ message TransferLeaderRequest {
 
 message TransferLeaderResponse {}
 
-message VerifyHashRequest {
-    uint64 index = 1;
-    bytes hash = 2;
-}
-
-message VerifyHashResponse {}
-
-message PrepareMergeRequest {
-    uint64 min_index = 1;
-    metapb.Region target = 2;
-}
-
-message PrepareMergeResponse {}
-
-message CommitMergeRequest {
-    metapb.Region source = 1;
-    uint64 commit = 2;
-    repeated eraftpb.Entry entries = 3;
-}
-
-message CommitMergeResponse {}
-
-message RollbackMergeRequest {
-    uint64 commit = 1;
-}
-
-message RollbackMergeResponse {}
-
 enum AdminCmdType {
     InvalidAdmin = 0;
     ChangePeer = 1;
-    // Use `BatchSplit` instead.
-    Split = 2 [deprecated=true];
     CompactLog = 3;
     TransferLeader = 4;
-    ComputeHash = 5;
-    VerifyHash = 6;
-    PrepareMerge = 7;
-    CommitMerge = 8;
-    RollbackMerge = 9;
     BatchSplit = 10;
 }
 
 message AdminRequest {
     AdminCmdType cmd_type = 1;
     ChangePeerRequest change_peer = 2;
-    SplitRequest split = 3 [deprecated=true];
     CompactLogRequest compact_log = 4;
     TransferLeaderRequest transfer_leader = 5;
-    VerifyHashRequest verify_hash = 6;
-    PrepareMergeRequest prepare_merge = 7;
-    CommitMergeRequest commit_merge = 8;
-    RollbackMergeRequest rollback_merge = 9;
     BatchSplitRequest splits = 10;
 }
 
 message AdminResponse {
     AdminCmdType cmd_type = 1;
     ChangePeerResponse change_peer = 2;
-    SplitResponse split = 3 [deprecated=true];
     CompactLogResponse compact_log = 4;
     TransferLeaderResponse transfer_leader = 5;
-    VerifyHashResponse verify_hash = 6;
-    PrepareMergeResponse prepare_merge = 7;
-    CommitMergeResponse commit_merge = 8;
-    RollbackMergeResponse rollback_merge = 9;
     BatchSplitResponse splits = 10;
 }
 

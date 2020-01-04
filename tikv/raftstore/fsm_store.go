@@ -14,7 +14,6 @@ import (
 	"github.com/ngaut/unistore/pd"
 	"github.com/ngaut/unistore/pkg/metapb"
 	"github.com/ngaut/unistore/pkg/pdpb"
-	"github.com/ngaut/unistore/pkg/raft_cmdpb"
 	rspb "github.com/ngaut/unistore/pkg/raft_serverpb"
 	"github.com/ngaut/unistore/rocksdb"
 	"github.com/ngaut/unistore/tikv/dbreader"
@@ -163,8 +162,6 @@ func (d *storeMsgHandler) onTick(tick StoreTick) {
 		d.onPDStoreHearbeatTick()
 	case StoreTickSnapGC:
 		d.onSnapMgrGC()
-	case StoreTickConsistencyCheck:
-		d.onComputeHashTick()
 	}
 }
 
@@ -730,51 +727,6 @@ func (d *storeMsgHandler) onSnapMgrGC() {
 		log.Errorf("handle snap GC failed store_id %d, err %s", d.storeFsm.id, err)
 	}
 	d.ticker.scheduleStore(StoreTickSnapGC)
-}
-
-func (d *storeMsgHandler) onComputeHashTick() {
-	d.ticker.scheduleStore(StoreTickConsistencyCheck)
-	if len(d.ctx.computeHashTaskSender) > 0 {
-		return
-	}
-	targetRegion := d.findTargetRegionForComputeHash()
-	if targetRegion == nil {
-		return
-	}
-	peer := findPeer(targetRegion, d.ctx.store.Id)
-	if peer == nil {
-		return
-	}
-	log.Infof("schedule consistency check for region %d, store %d", targetRegion.Id, peer.StoreId)
-	d.storeFsm.consistencyCheckTime[targetRegion.Id] = time.Now()
-	request := newAdminRequest(targetRegion.Id, peer)
-	request.AdminRequest = &raft_cmdpb.AdminRequest{
-		CmdType: raft_cmdpb.AdminCmdType_ComputeHash,
-	}
-	cmd := &MsgRaftCmd{
-		Request: request,
-	}
-	_ = d.ctx.router.sendRaftCommand(cmd)
-}
-
-func (d *storeMsgHandler) findTargetRegionForComputeHash() *metapb.Region {
-	oldest := time.Now()
-	var targetRegion *metapb.Region
-	d.ctx.storeMetaLock.RLock()
-	defer d.ctx.storeMetaLock.RUnlock()
-	meta := d.ctx.storeMeta
-	for regionID, region := range meta.regions {
-		if t, ok := d.storeFsm.consistencyCheckTime[regionID]; ok {
-			if t.Before(oldest) {
-				oldest = t
-				targetRegion = region
-			}
-		} else {
-			targetRegion = region
-			break
-		}
-	}
-	return targetRegion
 }
 
 func (d *storeMsgHandler) clearRegionSizeInRange(startKey, endKey []byte) {

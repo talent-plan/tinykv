@@ -1,13 +1,14 @@
 package raftstore
 
 import (
+	"testing"
+	"time"
+
 	"github.com/ngaut/unistore/pkg/eraftpb"
 	"github.com/ngaut/unistore/pkg/metapb"
 	"github.com/ngaut/unistore/pkg/raft_cmdpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"testing"
-	"time"
 )
 
 func TestLease(t *testing.T) {
@@ -201,8 +202,6 @@ func TestCheckRegionEpoch(t *testing.T) {
 	tys := []raft_cmdpb.AdminCmdType{
 		raft_cmdpb.AdminCmdType_CompactLog,
 		raft_cmdpb.AdminCmdType_InvalidAdmin,
-		raft_cmdpb.AdminCmdType_ComputeHash,
-		raft_cmdpb.AdminCmdType_VerifyHash,
 	}
 	for _, ty := range tys {
 		admin := new(raft_cmdpb.AdminRequest)
@@ -221,11 +220,7 @@ func TestCheckRegionEpoch(t *testing.T) {
 
 	// These admin commands requires epoch.version.
 	tys = []raft_cmdpb.AdminCmdType{
-		raft_cmdpb.AdminCmdType_Split,
 		raft_cmdpb.AdminCmdType_BatchSplit,
-		raft_cmdpb.AdminCmdType_PrepareMerge,
-		raft_cmdpb.AdminCmdType_CommitMerge,
-		raft_cmdpb.AdminCmdType_RollbackMerge,
 		raft_cmdpb.AdminCmdType_TransferLeader,
 	}
 	for _, ty := range tys {
@@ -260,12 +255,8 @@ func TestCheckRegionEpoch(t *testing.T) {
 
 	// These admin commands requires epoch.conf_version.
 	for _, ty := range []raft_cmdpb.AdminCmdType{
-		raft_cmdpb.AdminCmdType_Split,
 		raft_cmdpb.AdminCmdType_BatchSplit,
 		raft_cmdpb.AdminCmdType_ChangePeer,
-		raft_cmdpb.AdminCmdType_PrepareMerge,
-		raft_cmdpb.AdminCmdType_CommitMerge,
-		raft_cmdpb.AdminCmdType_RollbackMerge,
 		raft_cmdpb.AdminCmdType_TransferLeader,
 	} {
 		admin := new(raft_cmdpb.AdminRequest)

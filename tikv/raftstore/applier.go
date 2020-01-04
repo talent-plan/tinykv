@@ -19,7 +19,6 @@ import (
 )
 
 const (
-	WriteBatchMaxKeys  = 128
 	DefaultApplyWBSize = 4 * 1024
 
 	WriteTypeFlagPut      = 'P'
@@ -400,24 +399,6 @@ func notifyStaleReq(term uint64, cb *Callback) {
 	cb.Done(ErrRespStaleCommand(term))
 }
 
-/// Checks if a write is needed to be issued before handling the command.
-func shouldWriteToEngine(cmd *raft_cmdpb.RaftCmdRequest, wbKeys int) bool {
-	// When write batch contains more than `recommended` keys, write the batch
-	// to engine.
-	if wbKeys >= WriteBatchMaxKeys {
-		return true
-	}
-
-	// Some commands may modify keys covered by the current write batch, so we
-	// must write the current write batch to the engine first.
-	for _, req := range cmd.Requests {
-		if req.DeleteRange != nil {
-			return true
-		}
-	}
-	return false
-}
-
 /// The applier of a Region which is responsible for handling committed
 /// raft log entries of a Region.
 ///
@@ -528,9 +509,6 @@ func (a *applier) handleRaftEntryNormal(aCtx *applyContext, entry *eraftpb.Entry
 		err := cmd.Unmarshal(entry.Data)
 		if err != nil {
 			panic(err)
-		}
-		if shouldWriteToEngine(cmd, len(aCtx.wb.entries)) {
-			aCtx.commit(a)
 		}
 		return a.processRaftCmd(aCtx, index, term, cmd)
 	}
@@ -706,7 +684,7 @@ func (a *applier) execAdminCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdReques
 	resp *raft_cmdpb.RaftCmdResponse, result applyResult, err error) {
 	adminReq := req.AdminRequest
 	cmdType := adminReq.CmdType
-	if cmdType != raft_cmdpb.AdminCmdType_CompactLog && cmdType != raft_cmdpb.AdminCmdType_CommitMerge {
+	if cmdType != raft_cmdpb.AdminCmdType_CompactLog {
 		log.Infof("%s execute admin command. term %d, index %d, command %s",
 			a.tag, aCtx.execCtx.term, aCtx.execCtx.index, adminReq)
 	}
@@ -863,8 +841,6 @@ func createWriteCmdOps(requests []*raft_cmdpb.Request) (ops []interface{}) {
 					i++
 				}
 			}
-		case raft_cmdpb.CmdType_DeleteRange:
-			ops = append(ops, &req.DeleteRange)
 		case raft_cmdpb.CmdType_Snap, raft_cmdpb.CmdType_Get:
 			// Readonly commands are handled in raftstore directly.
 			// Don't panic here in case there are old entries need to be applied.
@@ -1085,7 +1061,6 @@ func (a *applier) execChangePeer(aCtx *applyContext, req *raft_cmdpb.AdminReques
 func (a *applier) execBatchSplit(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
 	resp *raft_cmdpb.AdminResponse, result applyResult, err error) {
 	splitReqs := req.Splits
-	rightDerive := splitReqs.RightDerive
 	if len(splitReqs.Requests) == 0 {
 		err = errors.New("missing split key")
 		return
@@ -1122,13 +1097,6 @@ func (a *applier) execBatchSplit(aCtx *applyContext, req *raft_cmdpb.AdminReques
 	}
 	log.Infof("%s split region %s, keys %v", a.tag, a.region, keys)
 	derived.RegionEpoch.Version += uint64(newRegionCnt)
-	// Note that the split requests only contain ids for new regions, so we need
-	// to handle new regions and old region separately.
-	if !rightDerive {
-		derived.EndKey = keys[1]
-		keys = keys[1:]
-		regions = append(regions, derived)
-	}
 	for i, request := range splitReqs.Requests {
 		newRegion := &metapb.Region{
 			Id:          request.NewRegionId,
@@ -1148,10 +1116,8 @@ func (a *applier) execBatchSplit(aCtx *applyContext, req *raft_cmdpb.AdminReques
 		writeInitialApplyState(aCtx.wb, newRegion.Id)
 		regions = append(regions, newRegion)
 	}
-	if rightDerive {
-		derived.StartKey = keys[len(keys)-2]
-		regions = append(regions, derived)
-	}
+	derived.StartKey = keys[len(keys)-2]
+	regions = append(regions, derived)
 	WritePeerState(aCtx.wb, derived, rspb.PeerState_Normal)
 
 	resp = &raft_cmdpb.AdminResponse{

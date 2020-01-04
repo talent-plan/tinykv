@@ -7,9 +7,9 @@ import (
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
 	"github.com/ngaut/unistore/lockstore"
-	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/ngaut/unistore/pkg/eraftpb"
 	"github.com/ngaut/unistore/pkg/raft_cmdpb"
+	"github.com/ngaut/unistore/tikv/mvcc"
 	"github.com/pingcap/tidb/util/codec"
 )
 
@@ -80,7 +80,6 @@ func restoreAppliedEntry(entry *eraftpb.Entry, txn *badger.Txn, lockStore, rollb
 			if rollbackStore != nil {
 				restoreRollback(*x, rollbackStore)
 			}
-		case *raft_cmdpb.DeleteRangeRequest:
 		default:
 			log.Fatalf("invalid input op=%v", x)
 		}

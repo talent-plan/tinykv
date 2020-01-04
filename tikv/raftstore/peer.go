@@ -1410,56 +1410,6 @@ func (p *Peer) GetMinProgress() uint64 {
 	return minMatch
 }
 
-func (p *Peer) preProposePrepareMerge(cfg *Config, req *raft_cmdpb.RaftCmdRequest) error {
-	lastIndex := p.RaftGroup.Raft.RaftLog.LastIndex()
-	minProgress := p.GetMinProgress()
-	minIndex := minProgress + 1
-	if minProgress == 0 || lastIndex-minProgress > cfg.MergeMaxLogGap {
-		return fmt.Errorf("log gap (%v, %v] is too large, skip merge", minProgress, lastIndex)
-	}
-
-	entrySize := 0
-
-	ents, err := p.RaftGroup.Raft.RaftLog.Entries(minIndex, math.MaxUint64)
-	if err != nil {
-		return err
-	}
-	for _, entry := range ents {
-		entrySize += len(entry.Data)
-		if entry.EntryType == eraftpb.EntryType_EntryConfChange {
-			return fmt.Errorf("log gap contains conf change, skip merging.")
-		}
-		if len(entry.Data) == 0 {
-			continue
-		}
-		cmd := raft_cmdpb.RaftCmdRequest{}
-		err := cmd.Unmarshal(entry.Data)
-		if err != nil {
-			panic(fmt.Sprintf("%v data is corrupted at %v, error: %v", p.Tag, entry.Index, err))
-		}
-		if cmd.AdminRequest == nil {
-			continue
-		}
-		cmdType := cmd.AdminRequest.GetCmdType()
-		switch cmdType {
-		case raft_cmdpb.AdminCmdType_TransferLeader, raft_cmdpb.AdminCmdType_ComputeHash,
-			raft_cmdpb.AdminCmdType_VerifyHash, raft_cmdpb.AdminCmdType_InvalidAdmin:
-			continue
-		default:
-		}
-
-		// Any command that can change epoch or log gap should be rejected.
-		return fmt.Errorf("log gap contains admin request %v, skip merging.", cmdType)
-	}
-
-	if float64(entrySize) > float64(cfg.RaftEntryMaxSize)*0.9 {
-		return fmt.Errorf("log gap size exceed entry size limit, skip merging.")
-	}
-
-	req.AdminRequest.PrepareMerge.MinIndex = minIndex
-	return nil
-}
-
 func (p *Peer) PrePropose(cfg *Config, req *raft_cmdpb.RaftCmdRequest) (*ProposalContext, error) {
 	ctx := new(ProposalContext)
 
@@ -1472,7 +1422,7 @@ func (p *Peer) PrePropose(cfg *Config, req *raft_cmdpb.RaftCmdRequest) (*Proposa
 	}
 
 	switch req.AdminRequest.GetCmdType() {
-	case raft_cmdpb.AdminCmdType_Split, raft_cmdpb.AdminCmdType_BatchSplit:
+	case raft_cmdpb.AdminCmdType_BatchSplit:
 		ctx.insert(ProposalContext_Split)
 	default:
 	}
@@ -1641,7 +1591,7 @@ func Inspect(i RequestInspector, req *raft_cmdpb.RaftCmdRequest) (RequestPolicy,
 		switch r.CmdType {
 		case raft_cmdpb.CmdType_Get, raft_cmdpb.CmdType_Snap:
 			hasRead = true
-		case raft_cmdpb.CmdType_Delete, raft_cmdpb.CmdType_Put, raft_cmdpb.CmdType_DeleteRange:
+		case raft_cmdpb.CmdType_Delete, raft_cmdpb.CmdType_Put:
 			hasWrite = true
 		case raft_cmdpb.CmdType_Prewrite, raft_cmdpb.CmdType_Invalid:
 			return RequestPolicy_Invalid, fmt.Errorf("invalid cmd type %v, message maybe corrupted", r.CmdType)
@@ -1765,7 +1715,7 @@ func (r *ReadExecutor) Execute(msg *raft_cmdpb.RaftCmdRequest, region *metapb.Re
 			needSnapshot = true
 			resp = new(raft_cmdpb.Response)
 		case raft_cmdpb.CmdType_Prewrite, raft_cmdpb.CmdType_Put, raft_cmdpb.CmdType_Delete,
-			raft_cmdpb.CmdType_DeleteRange, raft_cmdpb.CmdType_Invalid:
+			raft_cmdpb.CmdType_Invalid:
 			panic("unreachable")
 		}
 
@@ -1792,9 +1742,8 @@ func getTransferLeaderCmd(req *raft_cmdpb.RaftCmdRequest) *raft_cmdpb.TransferLe
 func getSyncLogFromRequest(req *raft_cmdpb.RaftCmdRequest) bool {
 	if req.AdminRequest != nil {
 		switch req.AdminRequest.GetCmdType() {
-		case raft_cmdpb.AdminCmdType_ChangePeer, raft_cmdpb.AdminCmdType_Split,
-			raft_cmdpb.AdminCmdType_BatchSplit, raft_cmdpb.AdminCmdType_PrepareMerge,
-			raft_cmdpb.AdminCmdType_CommitMerge, raft_cmdpb.AdminCmdType_RollbackMerge:
+		case raft_cmdpb.AdminCmdType_ChangePeer,
+			raft_cmdpb.AdminCmdType_BatchSplit:
 			return true
 		default:
 			return false
@@ -1812,14 +1761,9 @@ func IsUrgentRequest(req *raft_cmdpb.RaftCmdRequest) bool {
 		return false
 	}
 	switch req.AdminRequest.CmdType {
-	case raft_cmdpb.AdminCmdType_Split,
+	case
 		raft_cmdpb.AdminCmdType_BatchSplit,
-		raft_cmdpb.AdminCmdType_ChangePeer,
-		raft_cmdpb.AdminCmdType_ComputeHash,
-		raft_cmdpb.AdminCmdType_VerifyHash,
-		raft_cmdpb.AdminCmdType_PrepareMerge,
-		raft_cmdpb.AdminCmdType_CommitMerge,
-		raft_cmdpb.AdminCmdType_RollbackMerge:
+		raft_cmdpb.AdminCmdType_ChangePeer:
 		return true
 	default:
 		return false
