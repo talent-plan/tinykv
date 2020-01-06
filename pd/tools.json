@@ -1,0 +1,29 @@
+{
+  "Tools": [
+    {
+      "Repository": "github.com/mgechev/revive",
+      "Commit": "7773f47324c2bf1c8f7a5500aff2b6c01d3ed73b"
+    },
+    {
+      "Repository": "github.com/dnephin/govet",
+      "Commit": "4a96d43e39d340b63daa8bc5576985aa599885f6"
+    },
+    {
+      "Repository": "github.com/pingcap/failpoint/failpoint-ctl",
+      "Commit": "30cc7431d99c6a7f2836387d4bb255a3bd6a5e0a"
+    },
+    {
+      "Repository": "github.com/go-playground/overalls",
+      "Commit": "22ec1a223b7c9a2e56355bd500b539cba3784238"
+    },
+    {
+      "Repository": "github.com/golangci/golangci-lint/cmd/golangci-lint",
+      "Commit": "4ba2155996359eabd8800d1fbf3e3a9777c80490"
+    },
+    {
+      "Repository": "golang.org/x/tools/cmd/goimports",
+      "Commit": "04b5d21e00f1f47bd824a6ade581e7189bacde87"
+    }
+  ],
+  "RetoolVersion": "1.3.7"
+}

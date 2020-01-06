@@ -2,8 +2,8 @@ package mvcc
 
 import (
 	"github.com/coocood/badger/y"
-	"github.com/pingcap/errors"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
+	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/util/codec"
 )
 
