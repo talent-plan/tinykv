@@ -14,7 +14,7 @@
 
 package raft
 
-import pb "github.com/ngaut/unistore/pkg/eraftpb"
+import pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 
 // ReadState provides state for read only query.
 // It's caller's responsibility to call ReadIndex first before getting

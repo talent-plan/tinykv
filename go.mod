@@ -1,4 +1,4 @@
-module github.com/ngaut/unistore
+module github.com/pingcap-incubator/tinykv
 
 require (
 	github.com/BurntSushi/toml v0.3.1
@@ -14,23 +14,17 @@ require (
 	github.com/pierrec/lz4 v2.0.5+incompatible
 	github.com/pingcap/check v0.0.0-20190102082844-67f458068fc8
 	github.com/pingcap/errors v0.11.4
-	github.com/pingcap/kvproto v0.0.0-20191202044712-32be31591b03
 	github.com/pingcap/parser v0.0.0-20190903084634-0daf3f706c76
 	github.com/pingcap/tidb v1.1.0-beta.0.20190904060835-0872b65ff1f9
-	github.com/pingcap/tipb v0.0.0-20191203131953-a35f738b4796
 	github.com/prometheus/client_golang v0.9.0
 	github.com/shirou/gopsutil v2.18.10+incompatible
 	github.com/stretchr/testify v1.3.0
 	github.com/uber-go/atomic v1.3.2
-	github.com/zhangjinpeng1987/raft v0.0.0-20190624145930-deeb32d6553d
-	go.etcd.io/etcd v0.0.0-20190320044326-77d4b742cdbf
 	golang.org/x/net v0.0.0-20190620200207-3b0461eec859
 	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4
 	google.golang.org/grpc v1.17.0
 	gopkg.in/mgo.v2 v2.0.0-20180705113604-9856a29383ce // indirect
 	gopkg.in/stretchr/testify.v1 v1.2.2 // indirect
 )
-
-replace go.etcd.io/etcd => github.com/zhangjinpeng1987/etcd v0.0.0-20190226085253-137eac022b64
 
 go 1.13

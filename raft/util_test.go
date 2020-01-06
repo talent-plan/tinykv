@@ -20,7 +20,7 @@ import (
 	"strings"
 	"testing"
 
-	pb "github.com/ngaut/unistore/pkg/eraftpb"
+	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
 var testFormatter EntryFormatter = func(data []byte) string {

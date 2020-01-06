@@ -20,7 +20,7 @@ import (
 	"reflect"
 	"testing"
 
-	pb "github.com/ngaut/unistore/pkg/eraftpb"
+	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
 // TestRawNodeStep ensures that RawNode.Step ignore local message.

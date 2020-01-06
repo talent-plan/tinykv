@@ -18,7 +18,7 @@ import (
 	"bytes"
 	"fmt"
 
-	pb "github.com/ngaut/unistore/pkg/eraftpb"
+	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
 func (st StateType) MarshalJSON() ([]byte, error) {

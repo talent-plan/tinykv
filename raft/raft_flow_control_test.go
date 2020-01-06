@@ -17,7 +17,7 @@ package raft
 import (
 	"testing"
 
-	pb "github.com/ngaut/unistore/pkg/eraftpb"
+	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
 // TestMessageType_MsgAppendFlowControlFull ensures:

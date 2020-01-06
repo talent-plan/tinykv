@@ -28,16 +28,11 @@ test:
 	$(GOTEST) -cover $(PACKAGES)
 
 build:
-	$(GOBUILD) -ldflags '$(LDFLAGS)' -o bin/unistore-server unistore-server/main.go
-
-linux:
-	GOOS=linux $(GOBUILD) -ldflags "-X main.gitHash=`git rev-parse HEAD`" -o bin/unistore-server-linux unistore-server/main.go
-
+	$(GOBUILD) -ldflags '$(LDFLAGS)' -o bin/unistore-server kv/unistore-server/main.go
 
 CURDIR := $(shell pwd)
 export PATH := $(CURDIR)/bin/:$(PATH)
-
 proto:
 	mkdir -p $(CURDIR)/bin
-	./generate_go.sh
-	GO111MODULE=on go build ./pkg/...
+	(cd proto && ./generate_go.sh)
+	GO111MODULE=on go build ./proto/pkg/...

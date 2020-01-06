@@ -14,7 +14,7 @@
 
 package raft
 
-import pb "github.com/ngaut/unistore/pkg/eraftpb"
+import pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 
 // unstable.entries[i] has raft log position i+unstable.offset.
 // Note that unstable.offset may be less than the highest log

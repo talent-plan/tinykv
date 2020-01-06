@@ -25,7 +25,7 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/ngaut/unistore/pkg/eraftpb"
+	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
 // None is a placeholder node ID used when there is no leader.

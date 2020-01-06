@@ -17,7 +17,7 @@ package raft
 import (
 	"errors"
 
-	pb "github.com/ngaut/unistore/pkg/eraftpb"
+	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
 // ErrStepLocalMsg is returned when try to step a local raft message

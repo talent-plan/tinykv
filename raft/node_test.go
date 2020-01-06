@@ -24,8 +24,7 @@ import (
 	"testing"
 	"time"
 
-	pb "github.com/ngaut/unistore/pkg/eraftpb"
-	"go.etcd.io/etcd/pkg/testutil"
+	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
 // readyWithTimeout selects from n.Ready() with a 1-second timeout. It
@@ -431,7 +430,8 @@ func TestBlockProposal(t *testing.T) {
 		errc <- n.Propose(context.TODO(), []byte("somedata"))
 	}()
 
-	testutil.WaitSchedule()
+	// briefly sleeps in order to invoke the go scheduler.
+	time.Sleep(10 * time.Millisecond)
 	select {
 	case err := <-errc:
 		t.Errorf("err = %v, want blocking", err)
