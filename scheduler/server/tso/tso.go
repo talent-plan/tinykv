@@ -19,14 +19,13 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/pingcap/failpoint"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
-	"github.com/pingcap/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/etcdutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/tsoutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/typeutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/member"
+	"github.com/pingcap/log"
 	"github.com/pkg/errors"
 	"go.etcd.io/etcd/clientv3"
 	"go.uber.org/zap"
@@ -116,9 +115,6 @@ func (t *TimestampOracle) SyncTimestamp(lease *member.LeaderLease) error {
 	}
 
 	next := time.Now()
-	failpoint.Inject("fallBackSync", func() {
-		next = next.Add(time.Hour)
-	})
 
 	// If the current system time minus the saved etcd timestamp is less than `updateTimestampGuard`,
 	// the timestamp allocation will start from the saved etcd timestamp temporarily.
@@ -193,10 +189,6 @@ func (t *TimestampOracle) ResetUserTimestamp(tso uint64) error {
 func (t *TimestampOracle) UpdateTimestamp() error {
 	prev := (*atomicObject)(atomic.LoadPointer(&t.ts))
 	now := time.Now()
-
-	failpoint.Inject("fallBackUpdate", func() {
-		now = now.Add(time.Hour)
-	})
 
 	tsoCounter.WithLabelValues("save").Inc()
 

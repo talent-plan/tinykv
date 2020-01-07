@@ -18,17 +18,14 @@ import (
 	"fmt"
 	"math/rand"
 	"sync"
-	"time"
 
-	"github.com/coreos/go-semver/semver"
-	. "github.com/pingcap/check"
-	"github.com/pingcap/failpoint"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockid"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/testutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
+	. "github.com/pingcap/check"
 	"github.com/pkg/errors"
 )
 
@@ -433,36 +430,6 @@ func (s *testClusterSuite) TestRaftClusterRestart(c *C) {
 	cluster.stop()
 }
 
-// Make sure PD will not deadlock if it start and stop again and again.
-func (s *testClusterSuite) TestRaftClusterMultipleRestart(c *C) {
-	var err error
-	var cleanup func()
-	s.svr, cleanup, err = NewTestServer(c)
-	defer cleanup()
-	c.Assert(err, IsNil)
-	mustWaitLeader(c, []*Server{s.svr})
-	_, err = s.svr.bootstrapCluster(s.newBootstrapRequest(c, s.svr.clusterID, "127.0.0.1:0"))
-	c.Assert(err, IsNil)
-	// add an offline store
-	store := s.newStore(c, s.allocID(c), "127.0.0.1:4", "2.1.0")
-	store.State = metapb.StoreState_Offline
-	cluster := s.svr.GetRaftCluster()
-	err = cluster.putStore(store)
-	c.Assert(err, IsNil)
-	c.Assert(cluster, NotNil)
-
-	// let the job run at small interval
-	c.Assert(failpoint.Enable("github.com/pingcap-incubator/tinykv/scheduler/server/highFrequencyClusterJobs", `return(true)`), IsNil)
-	for i := 0; i < 100; i++ {
-		err = s.svr.createRaftCluster()
-		c.Assert(err, IsNil)
-		time.Sleep(time.Millisecond)
-		cluster = s.svr.GetRaftCluster()
-		c.Assert(cluster, NotNil)
-		cluster.stop()
-	}
-}
-
 func (s *testClusterSuite) TestGetPDMembers(c *C) {
 	var err error
 	var cleanup func()
@@ -479,36 +446,6 @@ func (s *testClusterSuite) TestGetPDMembers(c *C) {
 	c.Assert(err, IsNil)
 	// A more strict test can be found at api/member_test.go
 	c.Assert(len(resp.GetMembers()), Not(Equals), 0)
-}
-
-func (s *testClusterSuite) TestStoreVersionChange(c *C) {
-	var err error
-	var cleanup func()
-	s.svr, cleanup, err = NewTestServer(c)
-	defer cleanup()
-	c.Assert(err, IsNil)
-	mustWaitLeader(c, []*Server{s.svr})
-	s.grpcPDClient = testutil.MustNewGrpcClient(c, s.svr.GetAddr())
-	_, err = s.svr.bootstrapCluster(s.newBootstrapRequest(c, s.svr.clusterID, "127.0.0.1:0"))
-	c.Assert(err, IsNil)
-	s.svr.SetClusterVersion("2.0.0")
-	store := s.newStore(c, s.allocID(c), "127.0.0.1:4", "2.1.0")
-	store.State = metapb.StoreState_Up
-	var wg sync.WaitGroup
-	c.Assert(failpoint.Enable("github.com/pingcap-incubator/tinykv/scheduler/server/versionChangeConcurrency", `return(true)`), IsNil)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		_, err = putStore(c, s.grpcPDClient, s.svr.clusterID, store)
-		c.Assert(err, IsNil)
-	}()
-	time.Sleep(100 * time.Millisecond)
-	s.svr.SetClusterVersion("1.0.0")
-	wg.Wait()
-	v, err := semver.NewVersion("1.0.0")
-	c.Assert(err, IsNil)
-	c.Assert(s.svr.GetClusterVersion(), Equals, *v)
-	c.Assert(failpoint.Disable("github.com/pingcap-incubator/tinykv/scheduler/server/versionChangeConcurrency"), IsNil)
 }
 
 func (s *testClusterSuite) TestConcurrentHandleRegion(c *C) {

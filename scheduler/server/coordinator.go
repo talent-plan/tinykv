@@ -19,12 +19,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pingcap/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/logutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/config"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/operator"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/statistics"
+	"github.com/pingcap/log"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )

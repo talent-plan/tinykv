@@ -23,15 +23,14 @@ import (
 	"time"
 
 	"github.com/juju/ratelimit"
-	"github.com/pingcap/failpoint"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
-	"github.com/pingcap/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/cache"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/operator"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/opt"
+	"github.com/pingcap/log"
 	"go.uber.org/zap"
 )
 
@@ -101,9 +100,6 @@ func (oc *OperatorController) Ctx() context.Context {
 func (oc *OperatorController) Dispatch(region *core.RegionInfo, source string) {
 	// Check existed operator.
 	if op := oc.GetOperator(region.GetID()); op != nil {
-		failpoint.Inject("concurrentRemoveOperator", func() {
-			time.Sleep(500 * time.Millisecond)
-		})
 		timeout := op.IsTimeout()
 		if step := op.Check(region); step != nil && !timeout {
 			operatorCounter.WithLabelValues(op.Desc(), "check").Inc()

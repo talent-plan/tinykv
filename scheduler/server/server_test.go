@@ -18,9 +18,9 @@ import (
 	"fmt"
 	"testing"
 
-	. "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/testutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/config"
+	. "github.com/pingcap/check"
 )
 
 func TestServer(t *testing.T) {
@@ -70,7 +70,7 @@ func (s *testLeaderServerSuite) SetUpSuite(c *C) {
 		cfg := cfgs[i]
 
 		go func() {
-			svr, err := CreateServer(cfg, nil)
+			svr, err := CreateServer(cfg)
 			c.Assert(err, IsNil)
 			err = svr.Run(s.ctx)
 			c.Assert(err, IsNil)
@@ -103,7 +103,7 @@ func newTestServersWithCfgs(ctx context.Context, c *C, cfgs []*config.Config) ([
 	ch := make(chan *Server)
 	for _, cfg := range cfgs {
 		go func(cfg *config.Config) {
-			svr, err := CreateServer(cfg, nil)
+			svr, err := CreateServer(cfg)
 			c.Assert(err, IsNil)
 			err = svr.Run(ctx)
 			c.Assert(err, IsNil)
@@ -159,7 +159,7 @@ func (s *testServerSuite) TestCheckClusterID(c *C) {
 
 	// Start previous cluster, expect an error.
 	cfgA.InitialCluster = originInitial
-	svr, err := CreateServer(cfgA, nil)
+	svr, err := CreateServer(cfgA)
 	c.Assert(err, IsNil)
 	err = svr.Run(ctx)
 	c.Assert(err, NotNil)

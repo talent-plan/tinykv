@@ -20,8 +20,8 @@ import (
 	"time"
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
+	"github.com/pingcap/log"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )

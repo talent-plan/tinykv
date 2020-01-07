@@ -22,11 +22,8 @@ import (
 
 	"github.com/coreos/go-semver/semver"
 	"github.com/gogo/protobuf/proto"
-	"github.com/pingcap/errcode"
-	"github.com/pingcap/failpoint"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
-	"github.com/pingcap/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/logutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/typeutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/config"
@@ -36,6 +33,8 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/checker"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/statistics"
+	"github.com/pingcap/errcode"
+	"github.com/pingcap/log"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )
@@ -178,9 +177,6 @@ func (c *RaftCluster) start() error {
 
 	c.wg.Add(3)
 	go c.runCoordinator()
-	failpoint.Inject("highFrequencyClusterJobs", func() {
-		backgroundJobInterval = 100 * time.Microsecond
-	})
 	go c.runBackgroundJobs(backgroundJobInterval)
 	go c.syncRegions()
 	c.running = true
@@ -1136,11 +1132,6 @@ func (c *RaftCluster) OnStoreVersionChange() {
 		}
 	}
 	clusterVersion = c.opt.LoadClusterVersion()
-	// If the cluster version of PD is less than the minimum version of all stores,
-	// it will update the cluster version.
-	failpoint.Inject("versionChangeConcurrency", func() {
-		time.Sleep(500 * time.Millisecond)
-	})
 
 	if (*clusterVersion).LessThan(*minVersion) {
 		if !c.opt.CASClusterVersion(clusterVersion, minVersion) {

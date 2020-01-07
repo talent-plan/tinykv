@@ -18,11 +18,11 @@ import (
 	"sync"
 	"testing"
 
-	. "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/testutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server"
 	"github.com/pingcap-incubator/tinykv/scheduler/tests"
+	. "github.com/pingcap/check"
 )
 
 func Test(t *testing.T) {

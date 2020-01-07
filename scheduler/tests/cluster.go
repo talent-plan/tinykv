@@ -22,13 +22,12 @@ import (
 	"github.com/coreos/go-semver/semver"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
-	"github.com/pingcap/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/server"
-	"github.com/pingcap-incubator/tinykv/scheduler/server/api"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/config"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/id"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/join"
+	"github.com/pingcap/log"
 	"github.com/pkg/errors"
 	"go.etcd.io/etcd/clientv3"
 	"go.uber.org/zap"
@@ -66,7 +65,7 @@ func NewTestServer(cfg *config.Config) (*TestServer, error) {
 	if err != nil {
 		return nil, err
 	}
-	svr, err := server.CreateServer(cfg, api.NewHandler)
+	svr, err := server.CreateServer(cfg)
 	if err != nil {
 		return nil, err
 	}

@@ -21,11 +21,9 @@ import (
 	"testing"
 	"time"
 
-	. "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
-	"github.com/pingcap/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockhbstream"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockid"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/testutil"
@@ -39,6 +37,8 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/opt"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedulers"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/statistics"
+	. "github.com/pingcap/check"
+	"github.com/pingcap/log"
 	"go.uber.org/zap"
 )
 
@@ -1270,7 +1270,7 @@ func waitNoResponse(c *C, stream mockhbstream.HeartbeatStream) {
 
 func getHeartBeatStreams(ctx context.Context, c *C, tc *testCluster) (*heartbeatStreams, func()) {
 	config := NewTestSingleConfig(c)
-	svr, err := CreateServer(config, nil)
+	svr, err := CreateServer(config)
 	c.Assert(err, IsNil)
 	kvBase := kv.NewEtcdKVBase(svr.client, svr.rootPath)
 	path := filepath.Join(svr.cfg.DataDir, "region-meta")

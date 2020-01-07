@@ -17,9 +17,9 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/pingcap/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
+	"github.com/pingcap/log"
 	"go.uber.org/zap"
 )
 

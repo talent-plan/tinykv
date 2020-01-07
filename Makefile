@@ -1,4 +1,4 @@
-PROJECT=unistore
+PROJECT=tinykv
 GOPATH ?= $(shell go env GOPATH)
 
 # Ensure GOPATH is set before running build process.
@@ -18,17 +18,16 @@ PACKAGES            := $$($(PACKAGE_LIST))
 PACKAGE_DIRECTORIES := $(PACKAGE_LIST) | sed 's|github.com/pingcap/$(PROJECT)/||'
 
 # Targets
-.PHONY: build clean test proto
+.PHONY: clean test proto kv scheduler dev
 
-default: build
+default: kv scheduler
+
+dev: default test
 
 test:
 	@echo "Running tests in native mode."
 	@export TZ='Asia/Shanghai'; \
 	$(GOTEST) -cover $(PACKAGES)
-
-build:
-	$(GOBUILD) -ldflags '$(LDFLAGS)' -o bin/unistore-server kv/unistore-server/main.go
 
 CURDIR := $(shell pwd)
 export PATH := $(CURDIR)/bin/:$(PATH)
@@ -36,3 +35,9 @@ proto:
 	mkdir -p $(CURDIR)/bin
 	(cd proto && ./generate_go.sh)
 	GO111MODULE=on go build ./proto/pkg/...
+
+kv:
+	$(GOBUILD) -ldflags '$(LDFLAGS)' -o bin/unistore-server kv/unistore-server/main.go
+
+scheduler:
+	$(GOBUILD) -ldflags '$(LDFLAGS)' -o bin/pd-server scheduler/cmd/pd-server/main.go

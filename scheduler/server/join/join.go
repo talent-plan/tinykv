@@ -21,10 +21,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pingcap/failpoint"
-	"github.com/pingcap/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/etcdutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/config"
+	"github.com/pingcap/log"
 	"github.com/pkg/errors"
 	"go.etcd.io/etcd/clientv3"
 	"go.etcd.io/etcd/embed"
@@ -145,10 +144,6 @@ func PrepareJoinCluster(cfg *config.Config) error {
 
 	var addResp *clientv3.MemberAddResponse
 
-	failpoint.Inject("add-member-failed", func() {
-		listMemberRetryTimes = 2
-		failpoint.Goto("LabelSkipAddMember")
-	})
 	// - A new PD joins an existing cluster.
 	// - A deleted PD joins to previous cluster.
 	{
@@ -158,7 +153,6 @@ func PrepareJoinCluster(cfg *config.Config) error {
 			return err
 		}
 	}
-	failpoint.Label("LabelSkipAddMember")
 
 	var (
 		pds      []string

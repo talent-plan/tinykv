@@ -16,12 +16,9 @@ package schedule
 import (
 	"container/heap"
 	"context"
-	"sync"
 	"testing"
 	"time"
 
-	. "github.com/pingcap/check"
-	"github.com/pingcap/failpoint"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockcluster"
@@ -30,6 +27,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/checker"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/operator"
+	. "github.com/pingcap/check"
 )
 
 func Test(t *testing.T) {
@@ -123,46 +121,6 @@ func (t *testOperatorControllerSuite) TestOperatorStatus(c *C) {
 	ApplyOperator(tc, op2)
 	oc.Dispatch(region2, "test")
 	c.Assert(oc.GetOperatorStatus(2).Status, Equals, pdpb.OperatorStatus_SUCCESS)
-}
-
-// issue #1716
-func (t *testOperatorControllerSuite) TestConcurrentRemoveOperator(c *C) {
-	opt := mockoption.NewScheduleOptions()
-	tc := mockcluster.NewCluster(opt)
-	oc := NewOperatorController(t.ctx, tc, mockhbstream.NewHeartbeatStream())
-	tc.AddLeaderStore(1, 0)
-	tc.AddLeaderStore(2, 1)
-	tc.AddLeaderRegion(1, 2, 1)
-	region1 := tc.GetRegion(1)
-	steps := []operator.OpStep{
-		operator.RemovePeer{FromStore: 1},
-		operator.AddPeer{ToStore: 1, PeerID: 4},
-	}
-	// finished op with normal priority
-	op1 := operator.NewOperator("test", "test", 1, &metapb.RegionEpoch{}, operator.OpRegion, operator.TransferLeader{ToStore: 2})
-	// unfinished op with high priority
-	op2 := operator.NewOperator("test", "test", 1, &metapb.RegionEpoch{}, operator.OpRegion|operator.OpAdmin, steps...)
-
-	oc.SetOperator(op1)
-
-	c.Assert(failpoint.Enable("github.com/pingcap-incubator/tinykv/scheduler/server/schedule/concurrentRemoveOperator", "return(true)"), IsNil)
-
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		oc.Dispatch(region1, "test")
-		wg.Done()
-	}()
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		success := oc.AddOperator(op2)
-		// If the assert failed before wg.Done, the test will be blocked.
-		defer c.Assert(success, IsTrue)
-		wg.Done()
-	}()
-	wg.Wait()
-
-	c.Assert(oc.GetOperator(1), Equals, op2)
 }
 
 func (t *testOperatorControllerSuite) TestPollDispatchRegion(c *C) {

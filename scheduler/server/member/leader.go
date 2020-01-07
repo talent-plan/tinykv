@@ -23,12 +23,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/pingcap/failpoint"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
-	"github.com/pingcap/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/etcdutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/config"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
+	"github.com/pingcap/log"
 	"github.com/pkg/errors"
 	"go.etcd.io/etcd/clientv3"
 	"go.etcd.io/etcd/embed"
@@ -363,7 +362,6 @@ func (m *Member) WatchLeader(serverCtx context.Context, leader *pdpb.Member, rev
 	// If the revision is compacted, will meet required revision has been compacted error.
 	// In this case, use the compact revision to re-watch the key.
 	for {
-		failpoint.Inject("delayWatcher", nil)
 		rch := watcher.Watch(ctx, m.GetLeaderPath(), clientv3.WithRev(revision))
 		for wresp := range rch {
 			// meet compacted error, use the compact revision.

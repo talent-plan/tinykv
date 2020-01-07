@@ -21,12 +21,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pingcap/check"
-	"github.com/pingcap/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/tempurl"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/testutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/typeutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/config"
+	"github.com/pingcap/check"
+	"github.com/pingcap/log"
 	"go.etcd.io/etcd/embed"
 
 	// Register schedulers
@@ -40,7 +40,7 @@ type CleanupFunc func()
 func NewTestServer(c *check.C) (*Server, CleanupFunc, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cfg := NewTestSingleConfig(c)
-	s, err := CreateServer(cfg, nil)
+	s, err := CreateServer(cfg)
 	if err != nil {
 		return nil, nil, err
 	}

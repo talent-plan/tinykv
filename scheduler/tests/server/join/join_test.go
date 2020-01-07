@@ -20,11 +20,11 @@ import (
 	"testing"
 	"time"
 
-	. "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/etcdutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/join"
 	"github.com/pingcap-incubator/tinykv/scheduler/tests"
+	. "github.com/pingcap/check"
 )
 
 func Test(t *testing.T) {

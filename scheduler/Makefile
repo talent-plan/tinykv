@@ -13,20 +13,6 @@ OVERALLS := overalls
 FAILPOINT_ENABLE  := $$(find $$PWD/ -type d | grep -vE "(\.git|\.retools)" | xargs ./scripts/retool do failpoint-ctl enable)
 FAILPOINT_DISABLE := $$(find $$PWD/ -type d | grep -vE "(\.git|\.retools)" | xargs ./scripts/retool do failpoint-ctl disable)
 
-DEADLOCK_ENABLE := $$(\
-						find . -name "*.go" | grep -vE "(vendor|\.retools)" \
-						| xargs -n 1 sed -i.bak 's/sync\.RWMutex/deadlock.RWMutex/;s/sync\.Mutex/deadlock.Mutex/' && \
-						find . -name "*.go" | grep -vE "(vendor|\.retools)" | xargs grep -lE "(deadlock\.RWMutex|deadlock\.Mutex)" \
-						| xargs ./scripts/retool do goimports -w)
-DEADLOCK_DISABLE := $$(\
-						find . -name "*.go" | grep -vE "(vendor|\.retools)" \
-						| xargs -n 1 sed -i.bak 's/deadlock\.RWMutex/sync.RWMutex/;s/deadlock\.Mutex/sync.Mutex/' && \
-						find . -name "*.go" | grep -vE "(vendor|\.retools)" | xargs grep -lE "(sync\.RWMutex|sync\.Mutex)" \
-						| xargs ./scripts/retool do goimports -w && \
-						find . -name "*.bak" | grep -vE "(vendor|\.retools)" | xargs rm && \
-						go mod tidy)
-
-
 GOVER_MAJOR := $(shell go version | sed -E -e "s/.*go([0-9]+)[.]([0-9]+).*/\1/")
 GOVER_MINOR := $(shell go version | sed -E -e "s/.*go([0-9]+)[.]([0-9]+).*/\2/")
 GO111 := $(shell [ $(GOVER_MAJOR) -gt 1 ] || [ $(GOVER_MAJOR) -eq 1 ] && [ $(GOVER_MINOR) -ge 11 ]; echo $$?)
@@ -38,12 +24,11 @@ default: build
 
 all: dev
 
-dev: build tools check test
+dev: build check test
 
 ci: build check basic-test
 
-build: pd-server pd-ctl
-tools: pd-tso-bench pd-recover pd-analysis pd-heartbeat-bench
+build: pd-server
 pd-server: export GO111MODULE=on
 pd-server:
 ifeq ("$(WITH_RACE)", "1")
@@ -52,7 +37,7 @@ else
 	CGO_ENABLED=0 go build -gcflags '$(GCFLAGS)' -ldflags '$(LDFLAGS)' -o bin/pd-server cmd/pd-server/main.go
 endif
 
-test: retool-setup deadlock-setup
+test: retool-setup
 	# testing...
 	@$(DEADLOCK_ENABLE)
 	@$(FAILPOINT_ENABLE)

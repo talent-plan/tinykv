@@ -28,10 +28,8 @@ import (
 
 	"github.com/coreos/go-semver/semver"
 	"github.com/golang/protobuf/proto"
-	"github.com/pingcap/failpoint"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
-	"github.com/pingcap/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/etcdutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/logutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/typeutil"
@@ -41,6 +39,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/member"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/tso"
+	"github.com/pingcap/log"
 	"github.com/pkg/errors"
 	"go.etcd.io/etcd/clientv3"
 	"go.etcd.io/etcd/embed"
@@ -102,7 +101,7 @@ type Server struct {
 }
 
 // CreateServer creates the UNINITIALIZED pd server with given configuration.
-func CreateServer(cfg *config.Config, apiRegister func(*Server) http.Handler) (*Server, error) {
+func CreateServer(cfg *config.Config) (*Server, error) {
 	log.Info("PD Config", zap.Reflect("config", cfg))
 	rand.Seed(time.Now().UnixNano())
 
@@ -117,11 +116,6 @@ func CreateServer(cfg *config.Config, apiRegister func(*Server) http.Handler) (*
 	etcdCfg, err := s.cfg.GenEmbedEtcdConfig()
 	if err != nil {
 		return nil, err
-	}
-	if apiRegister != nil {
-		etcdCfg.UserHandlers = map[string]http.Handler{
-			pdAPIPrefix: apiRegister(s),
-		}
 	}
 	etcdCfg.ServiceRegister = func(gs *grpc.Server) { pdpb.RegisterPDServer(gs, s) }
 	s.etcdCfg = etcdCfg
@@ -197,9 +191,6 @@ func (s *Server) startEtcd(ctx context.Context) error {
 		}
 	}
 	s.client = client
-	failpoint.Inject("memberNil", func() {
-		time.Sleep(1500 * time.Millisecond)
-	})
 	s.member = member.NewMember(etcd, client, etcdServerID)
 	return nil
 }
