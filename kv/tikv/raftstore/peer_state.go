@@ -8,7 +8,6 @@ import (
 	"unsafe"
 
 	"github.com/ngaut/log"
-	"github.com/pingcap-incubator/tinykv/kv/metrics"
 )
 
 // peerState contains the peer states that needs to run raft command and apply command.
@@ -76,23 +75,12 @@ type applyBatch struct {
 	proposals []*regionProposal
 }
 
-func (b *applyBatch) iterCallbacks(f func(cb *Callback)) {
-	for _, rp := range b.proposals {
-		for _, p := range rp.Props {
-			if p.cb != nil {
-				f(p.cb)
-			}
-		}
-	}
-}
-
 // raftWorker is responsible for run raft commands and apply raft logs.
 type raftWorker struct {
 	pr *router
 
-	raftCh        chan Msg
-	raftCtx       *RaftContext
-	raftStartTime time.Time
+	raftCh  chan Msg
+	raftCtx *RaftContext
 
 	applyCh  chan *applyBatch
 	applyCtx *applyContext
@@ -109,7 +97,6 @@ func newRaftWorker(ctx *GlobalContext, ch chan Msg, pm *router) *raftWorker {
 		queuedSnaps:   make(map[uint64]struct{}),
 		kvWB:          new(WriteBatch),
 		raftWB:        new(WriteBatch),
-		localStats:    new(storeStats),
 	}
 	return &raftWorker{
 		raftCh:   ch,
@@ -139,12 +126,10 @@ func (rw *raftWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
 		for i := 0; i < pending; i++ {
 			msgs = append(msgs, <-rw.raftCh)
 		}
-		metrics.RaftBatchSize.Observe(float64(len(msgs)))
 		atomic.AddUint64(&rw.msgCnt, uint64(len(msgs)))
 		peerStateMap := make(map[uint64]*peerState)
 		rw.raftCtx.pendingCount = 0
 		rw.raftCtx.hasReady = false
-		rw.raftStartTime = time.Now()
 		batch := &applyBatch{
 			peers: peerStateMap,
 		}
@@ -166,12 +151,6 @@ func (rw *raftWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
 		if rw.raftCtx.hasReady {
 			rw.handleRaftReady(peerStateMap, batch)
 		}
-		rw.raftCtx.flushLocalStats()
-		doneRaftTime := time.Now()
-		batch.iterCallbacks(func(cb *Callback) {
-			cb.raftBeginTime = rw.raftStartTime
-			cb.raftDoneTime = doneRaftTime
-		})
 		applyMsgs := rw.raftCtx.applyMsgs
 		batch.msgs = append(batch.msgs, applyMsgs.msgs...)
 		applyMsgs.msgs = applyMsgs.msgs[:0]
@@ -218,13 +197,6 @@ func (rw *raftWorker) handleRaftReady(peers map[uint64]*peerState, batch *applyB
 			newRaftMsgHandler(peers[regionID].peer, rw.raftCtx).PostRaftReadyPersistent(&pair.Ready, pair.IC)
 		}
 	}
-	dur := time.Since(rw.raftStartTime)
-	if !rw.raftCtx.isBusy {
-		electionTimeout := rw.raftCtx.cfg.RaftBaseTickInterval * time.Duration(rw.raftCtx.cfg.RaftElectionTimeoutTicks)
-		if dur > electionTimeout {
-			rw.raftCtx.isBusy = true
-		}
-	}
 }
 
 func (rw *raftWorker) removeQueuedSnapshots() {
@@ -251,10 +223,6 @@ func (rw *raftWorker) runApply(wg *sync.WaitGroup) {
 			wg.Done()
 			return
 		}
-		begin := time.Now()
-		batch.iterCallbacks(func(cb *Callback) {
-			cb.applyBeginTime = begin
-		})
 		for _, peer := range batch.peers {
 			peer.apply.redoIndex = peer.apply.applyState.appliedIndex + 1
 		}

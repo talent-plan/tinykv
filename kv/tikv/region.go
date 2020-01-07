@@ -12,14 +12,13 @@ import (
 	"github.com/coocood/badger"
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
-	"github.com/pingcap-incubator/tinykv/kv/metrics"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/raft"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
 	"github.com/pingcap/tidb/util/codec"
 	"golang.org/x/net/context"
 )
@@ -163,7 +162,6 @@ func (ri *regionCtx) AcquireLatches(hashVals []uint64) {
 		ok, wg := ri.tryAcquireLatches(hashVals)
 		if ok {
 			dur := time.Since(start)
-			metrics.LatchWait.Observe(dur.Seconds())
 			if dur > time.Millisecond*50 {
 				log.Warnf("region %d acquire %d locks takes %v", ri.meta.Id, len(hashVals), dur)
 			}

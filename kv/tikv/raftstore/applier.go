@@ -84,20 +84,12 @@ type apply struct {
 	entries  []eraftpb.Entry
 }
 
-type applyMetrics struct {
-	sizeDiffHint   uint64
-	deleteKeysHint uint64
-	writtenBytes   uint64
-	writtenKeys    uint64
-}
-
 type applyTaskRes struct {
 	regionID         uint64
 	applyState       applyState
 	appliedIndexTerm uint64
 	execResults      []execResult
-	metrics          applyMetrics
-	merged           bool
+	sizeDiffHint     uint64
 
 	destroyPeerID uint64
 }
@@ -144,7 +136,6 @@ type applyCallback struct {
 func (c *applyCallback) invokeAll(doneApplyTime time.Time) {
 	for _, cb := range c.cbs {
 		if cb != nil {
-			cb.applyDoneTime = doneApplyTime
 			cb.wg.Done()
 		}
 	}
@@ -295,7 +286,6 @@ func (ac *applyContext) commit(d *applier) {
 }
 
 func (ac *applyContext) commitOpt(d *applier, persistent bool) {
-	d.updateMetrics(ac)
 	if persistent {
 		ac.writeToDB()
 		ac.prepareFor(d)
@@ -331,7 +321,6 @@ func (ac *applyContext) finishFor(d *applier, results []execResult) {
 		regionID:         d.region.Id,
 		applyState:       d.applyState,
 		execResults:      results,
-		metrics:          d.metrics,
 		appliedIndexTerm: d.appliedIndexTerm,
 	}
 	ac.applyTaskResList = append(ac.applyTaskResList, res)
@@ -439,8 +428,7 @@ type applier struct {
 	// redoIdx is the raft log index starts redo for lockStore.
 	redoIndex uint64
 
-	/// The local metrics, and it will be flushed periodically.
-	metrics applyMetrics
+	sizeDiffHint uint64
 }
 
 func newApplier(reg *registration) *applier {
@@ -490,11 +478,6 @@ func (a *applier) handleRaftCommittedEntries(aCtx *applyContext, committedEntrie
 		}
 	}
 	aCtx.finishFor(a, results)
-}
-
-func (a *applier) updateMetrics(aCtx *applyContext) {
-	a.metrics.writtenBytes += aCtx.deltaBytes()
-	a.metrics.writtenKeys += aCtx.deltaKeys()
 }
 
 func (a *applier) writeApplyState(wb *WriteBatch) {
@@ -640,8 +623,6 @@ func (a *applier) applyRaftCmd(aCtx *applyContext, index, term uint64,
 			a.region = x.cp.region
 		case *execResultSplitRegion:
 			a.region = x.derived
-			a.metrics.sizeDiffHint = 0
-			a.metrics.deleteKeysHint = 0
 		default:
 		}
 	}
@@ -923,7 +904,7 @@ func (a *applier) execCommit(aCtx *applyContext, op commitOp) {
 		}
 	}
 	if sizeDiff > 0 {
-		a.metrics.sizeDiffHint += uint64(sizeDiff)
+		a.sizeDiffHint += uint64(sizeDiff)
 	}
 	if op.delLock != nil {
 		aCtx.wb.DeleteLock(rawKey, val)
@@ -1185,7 +1166,6 @@ func (a *applier) handleApply(aCtx *applyContext, apply *apply) {
 	if len(apply.entries) == 0 || a.pendingRemove || a.stopped {
 		return
 	}
-	a.metrics = applyMetrics{}
 	a.term = apply.term
 	a.handleRaftCommittedEntries(aCtx, apply.entries)
 	apply.entries = apply.entries[:0]

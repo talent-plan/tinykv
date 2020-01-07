@@ -25,10 +25,9 @@ import (
 	"time"
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
-	"github.com/pingcap/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/opt"
+	"github.com/pingcap/log"
 	"go.uber.org/zap"
 )
 
@@ -343,38 +342,6 @@ func (mr MergeRegion) Influence(opInfluence OpInfluence, region *core.RegionInfo
 			if region.GetLeader().GetId() == p.GetId() {
 				o.LeaderCount--
 			}
-		}
-	}
-}
-
-// SplitRegion is an OpStep that splits a region.
-type SplitRegion struct {
-	StartKey, EndKey []byte
-	Policy           pdpb.CheckPolicy
-	SplitKeys        [][]byte
-}
-
-// ConfVerChanged returns true if the conf version has been changed by this step
-func (sr SplitRegion) ConfVerChanged(region *core.RegionInfo) bool {
-	return false
-}
-
-func (sr SplitRegion) String() string {
-	return fmt.Sprintf("split region with policy %s", sr.Policy.String())
-}
-
-// IsFinish checks if current step is finished.
-func (sr SplitRegion) IsFinish(region *core.RegionInfo) bool {
-	return !bytes.Equal(region.GetStartKey(), sr.StartKey) || !bytes.Equal(region.GetEndKey(), sr.EndKey)
-}
-
-// Influence calculates the store difference that current step makes.
-func (sr SplitRegion) Influence(opInfluence OpInfluence, region *core.RegionInfo) {
-	for _, p := range region.GetPeers() {
-		inf := opInfluence.GetStoreInfluence(p.GetStoreId())
-		inf.RegionCount++
-		if region.GetLeader().GetId() == p.GetId() {
-			inf.LeaderCount++
 		}
 	}
 }
@@ -922,18 +889,6 @@ func CreateMoveLeaderOperator(desc string, cluster Cluster, region *core.RegionI
 	steps = append(st, steps...)
 	brief := fmt.Sprintf("mv leader: store %v to %v", oldStore, newStore)
 	return NewOperator(desc, brief, region.GetID(), region.GetRegionEpoch(), removeKind|kind|OpLeader|OpRegion, steps...), nil
-}
-
-// CreateSplitRegionOperator creates an operator that splits a region.
-func CreateSplitRegionOperator(desc string, region *core.RegionInfo, kind OpKind, policy pdpb.CheckPolicy, keys [][]byte) *Operator {
-	step := SplitRegion{
-		StartKey:  region.GetStartKey(),
-		EndKey:    region.GetEndKey(),
-		Policy:    policy,
-		SplitKeys: keys,
-	}
-	brief := fmt.Sprintf("split: region %v", region.GetID())
-	return NewOperator(desc, brief, region.GetID(), region.GetRegionEpoch(), kind, step)
 }
 
 func getRegionFollowerIDs(region *core.RegionInfo) []uint64 {

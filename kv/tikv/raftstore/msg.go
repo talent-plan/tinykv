@@ -2,7 +2,6 @@ package raftstore
 
 import (
 	"sync"
-	"time"
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
@@ -70,12 +69,8 @@ func NewMsg(tp MsgType, data interface{}) Msg {
 }
 
 type Callback struct {
-	resp           *raft_cmdpb.RaftCmdResponse
-	wg             sync.WaitGroup
-	raftBeginTime  time.Time
-	raftDoneTime   time.Time
-	applyBeginTime time.Time
-	applyDoneTime  time.Time
+	resp *raft_cmdpb.RaftCmdResponse
+	wg   sync.WaitGroup
 }
 
 func (cb *Callback) Done(resp *raft_cmdpb.RaftCmdResponse) {
@@ -104,10 +99,8 @@ const (
 type StoreTick int
 
 const (
-	StoreTickCompactCheck     StoreTick = 0
 	StoreTickPdStoreHeartbeat StoreTick = 1
 	StoreTickSnapGC           StoreTick = 2
-	StoreTickConsistencyCheck StoreTick = 3
 )
 
 type MsgSignificantType int
@@ -124,7 +117,6 @@ type MsgSignificant struct {
 }
 
 type MsgRaftCmd struct {
-	SendTime time.Time
 	Request  *raft_cmdpb.RaftCmdRequest
 	Callback *Callback
 }
@@ -135,20 +127,6 @@ type MsgSplitRegion struct {
 	// TODO: support meta key.
 	SplitKeys [][]byte
 	Callback  *Callback
-}
-
-type MsgComputeHashResult struct {
-	Index uint64
-	Hash  []byte
-}
-
-type MsgHalfSplitRegion struct {
-	RegionEpoch *metapb.RegionEpoch
-}
-
-type MsgMergeResult struct {
-	TargetPeer *metapb.Peer
-	Stale      bool
 }
 
 type SnapKeyWithSending struct {

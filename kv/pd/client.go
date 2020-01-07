@@ -42,7 +42,6 @@ type Client interface {
 	GetRegion(ctx context.Context, key []byte) (*metapb.Region, *metapb.Peer, error)
 	GetRegionByID(ctx context.Context, regionID uint64) (*metapb.Region, *metapb.Peer, error)
 	ReportRegion(*pdpb.RegionHeartbeatRequest)
-	AskSplit(ctx context.Context, region *metapb.Region) (*pdpb.AskSplitResponse, error)
 	AskBatchSplit(ctx context.Context, region *metapb.Region, count int) (*pdpb.AskBatchSplitResponse, error)
 	ReportBatchSplit(ctx context.Context, regions []*metapb.Region) error
 	GetGCSafePoint(ctx context.Context) (uint64, error)
@@ -539,24 +538,6 @@ func (c *client) GetRegionByID(ctx context.Context, regionID uint64) (*metapb.Re
 		return nil, nil, errors.New(herr.String())
 	}
 	return resp.Region, resp.Leader, nil
-}
-
-func (c *client) AskSplit(ctx context.Context, region *metapb.Region) (resp *pdpb.AskSplitResponse, err error) {
-	err = c.doRequest(ctx, func(ctx context.Context, client pdpb.PDClient) error {
-		var err1 error
-		resp, err1 = client.AskSplit(ctx, &pdpb.AskSplitRequest{
-			Header: c.requestHeader(),
-			Region: region,
-		})
-		return err1
-	})
-	if err != nil {
-		return nil, err
-	}
-	if herr := resp.Header.GetError(); herr != nil {
-		return nil, errors.New(herr.String())
-	}
-	return resp, nil
 }
 
 func (c *client) AskBatchSplit(ctx context.Context, region *metapb.Region, count int) (resp *pdpb.AskBatchSplitResponse, err error) {

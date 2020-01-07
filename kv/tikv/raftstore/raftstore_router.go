@@ -1,8 +1,6 @@
 package raftstore
 
 import (
-	"time"
-
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/raft"
@@ -24,7 +22,6 @@ func (r *RaftstoreRouter) SendRaftMessage(msg *raft_serverpb.RaftMessage) {
 func (r *RaftstoreRouter) SendCommand(req *raft_cmdpb.RaftCmdRequest, cb *Callback) error {
 	// TODO: support local reader
 	msg := &MsgRaftCmd{
-		SendTime: time.Now(),
 		Request:  req,
 		Callback: cb,
 	}

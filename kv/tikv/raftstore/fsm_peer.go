@@ -317,11 +317,11 @@ func (d *peerMsgHandler) onApplyResult(res *applyTaskRes) {
 		d.destroyPeer(false)
 	} else {
 		log.Debugf("%s async apply finished %v", d.tag(), res)
-		res.execResults = d.onReadyResult(res.merged, res.execResults)
+		res.execResults = d.onReadyResult(res.execResults)
 		if d.stopped {
 			return
 		}
-		if d.peer.PostApply(d.ctx.engine.kv, res.applyState, res.appliedIndexTerm, res.merged, res.metrics) {
+		if d.peer.PostApply(d.ctx.engine.kv, res.applyState, res.appliedIndexTerm, res.sizeDiffHint) {
 			d.hasReady = true
 		}
 	}
@@ -506,12 +506,9 @@ func (d *peerMsgHandler) checkSnapshot(msg *rspb.RaftMessage) (*SnapKey, error) 
 		log.Infof("%s %s doesn't contains peer %d, skip", d.tag(), snapRegion, peerID)
 		return &key, nil
 	}
-	var regionsToDestroy []uint64
 	d.ctx.storeMetaLock.Lock()
 	defer func() {
 		d.ctx.storeMetaLock.Unlock()
-		// destroy regions out of lock to avoid dead lock.
-		destroyRegions(d.ctx.router, regionsToDestroy, d.getPeer().Meta)
 	}()
 	meta := d.ctx.storeMeta
 	if !RegionEqual(meta.regions[d.regionID()], d.region()) {
@@ -834,7 +831,7 @@ func (d *peerMsgHandler) onReadyApplySnapshot(applyResult *ApplySnapResult) {
 	d.ctx.peerEventObserver.OnPeerApplySnap(d.peer.getEventContext(), region)
 }
 
-func (d *peerMsgHandler) onReadyResult(merged bool, execResults []execResult) []execResult {
+func (d *peerMsgHandler) onReadyResult(execResults []execResult) []execResult {
 	if len(execResults) == 0 {
 		return nil
 	}
@@ -845,9 +842,7 @@ func (d *peerMsgHandler) onReadyResult(merged bool, execResults []execResult) []
 		case *execResultChangePeer:
 			d.onReadyChangePeer(x.cp)
 		case *execResultCompactLog:
-			if !merged {
-				d.onReadyCompactLog(x.firstIndex, x.truncatedIndex)
-			}
+			d.onReadyCompactLog(x.firstIndex, x.truncatedIndex)
 		case *execResultSplitRegion:
 			d.onReadySplitRegion(x.derived, x.regions)
 		}
@@ -1083,11 +1078,10 @@ func (d *peerMsgHandler) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, s
 	d.ctx.pdTaskSender <- task{
 		tp: taskTypePDAskBatchSplit,
 		data: &pdAskBatchSplitTask{
-			region:      region,
-			splitKeys:   splitKeys,
-			peer:        d.peer.Meta,
-			rightDerive: d.ctx.cfg.RightDeriveWhenSplit,
-			callback:    cb,
+			region:    region,
+			splitKeys: splitKeys,
+			peer:      d.peer.Meta,
+			callback:  cb,
 		},
 	}
 }

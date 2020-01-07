@@ -1,14 +1,11 @@
 package raftstore
 
 import (
-	"time"
-
-	"github.com/pingcap-incubator/tinykv/kv/metrics"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/mvcc"
-	"github.com/pingcap/errors"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	rcpb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
+	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/util/codec"
 )
 
@@ -163,25 +160,15 @@ func (writer *raftDBWriter) Write(batch mvcc.WriteBatch) error {
 		Requests: b.requests,
 	}
 	cmd := &MsgRaftCmd{
-		SendTime: time.Now(),
 		Request:  request,
 		Callback: NewCallback(),
 	}
-	start := time.Now()
 	err := writer.router.sendRaftCommand(cmd)
 	if err != nil {
 		return err
 	}
 	cmd.Callback.wg.Wait()
-	waitDoneTime := time.Now()
-	metrics.RaftWriterWait.Observe(waitDoneTime.Sub(start).Seconds())
 	cb := cmd.Callback
-	if !cb.raftBeginTime.IsZero() {
-		metrics.WriteWaiteStepOne.Observe(cb.raftBeginTime.Sub(start).Seconds())
-		metrics.WriteWaiteStepTwo.Observe(cb.raftDoneTime.Sub(cb.raftBeginTime).Seconds())
-		metrics.WriteWaiteStepThree.Observe(cb.applyBeginTime.Sub(cb.raftDoneTime).Seconds())
-		metrics.WriteWaiteStepFour.Observe(cb.applyDoneTime.Sub(cb.applyBeginTime).Seconds())
-	}
 	return writer.checkResponse(cb.resp, len(b.requests))
 }
 
