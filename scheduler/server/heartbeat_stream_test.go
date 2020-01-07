@@ -17,12 +17,12 @@ import (
 	"context"
 	"time"
 
-	. "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
-	"github.com/pingcap/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/testutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/typeutil"
+	. "github.com/pingcap/check"
+	"github.com/pingcap/log"
 	"go.uber.org/zap"
 )
 
@@ -52,8 +52,6 @@ func (s *testHeartbeatStreamSuite) TestActivity(c *C) {
 	storeID, err := s.svr.idAllocator.Alloc()
 	c.Assert(err, IsNil)
 	_, err = putStore(c, s.grpcPDClient, s.svr.clusterID, &metapb.Store{Id: storeID, Address: "127.0.0.1:1"})
-	c.Assert(err, IsNil)
-	err = newHandler(s.svr).AddAddPeerOperator(s.region.GetId(), storeID)
 	c.Assert(err, IsNil)
 
 	stream1, stream2 := newRegionheartbeatClient(c, s.grpcPDClient), newRegionheartbeatClient(c, s.grpcPDClient)
