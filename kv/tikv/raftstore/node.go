@@ -9,10 +9,10 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
-	"github.com/pingcap/errors"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
+	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/util/codec"
 )
 

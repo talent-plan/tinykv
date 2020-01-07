@@ -518,14 +518,6 @@ func (oc *OperatorController) SendScheduleCommand(region *core.RegionInfo, step 
 			},
 		}
 		oc.hbStreams.SendMsg(region, cmd)
-	case operator.SplitRegion:
-		cmd := &pdpb.RegionHeartbeatResponse{
-			SplitRegion: &pdpb.SplitRegion{
-				Policy: st.Policy,
-				Keys:   st.SplitKeys,
-			},
-		}
-		oc.hbStreams.SendMsg(region, cmd)
 	default:
 		log.Error("unknown operator step", zap.Reflect("step", step))
 	}

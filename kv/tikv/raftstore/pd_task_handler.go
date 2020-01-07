@@ -73,14 +73,6 @@ func (r *pdTaskHandler) onRegionHeartbeatResponse(resp *pdpb.RegionHeartbeatResp
 				Peer: transferLeader.Peer,
 			},
 		}, NewCallback())
-	} else if splitRegion := resp.GetSplitRegion(); splitRegion != nil {
-		r.router.send(resp.RegionId, Msg{
-			Type:     MsgTypeHalfSplitRegion,
-			RegionID: resp.RegionId,
-			Data: &MsgHalfSplitRegion{
-				RegionEpoch: resp.RegionEpoch,
-			},
-		})
 	}
 }
 
@@ -111,9 +103,6 @@ func (r *pdTaskHandler) onHeartbeat(t *pdRegionHeartbeatTask) {
 	var size, keys int64
 	if t.approximateSize != nil {
 		size = int64(*t.approximateSize)
-	}
-	if t.approximateKeys != nil {
-		keys = int64(*t.approximateKeys)
 	}
 
 	req := &pdpb.RegionHeartbeatRequest{
@@ -205,11 +194,7 @@ func (r *pdTaskHandler) onValidatePeer(t *pdValidatePeerTask) {
 		}
 	}
 	log.Infof("peer is not a valid member of region, to be destroyed soon. regionID: %v, peerID: %v, pdRegion: %s", t.region.GetId(), t.peer.GetId(), resp)
-	if t.mergeSource != nil {
-		r.sendMergeFail(*t.mergeSource, t.peer)
-	} else {
-		r.sendDestroyPeer(t.region, t.peer, resp)
-	}
+	r.sendDestroyPeer(t.region, t.peer, resp)
 }
 
 func (r *pdTaskHandler) onReadStats(t readStats) {
@@ -233,7 +218,6 @@ func (r *pdTaskHandler) onDestroyPeer(t *pdDestroyPeerTask) {
 
 func (r *pdTaskHandler) sendAdminRequest(regionID uint64, epoch *metapb.RegionEpoch, peer *metapb.Peer, req *raft_cmdpb.AdminRequest, callback *Callback) {
 	cmd := &MsgRaftCmd{
-		SendTime: time.Now(),
 		Request: &raft_cmdpb.RaftCmdRequest{
 			Header: &raft_cmdpb.RaftRequestHeader{
 				RegionId:    regionID,
@@ -245,17 +229,6 @@ func (r *pdTaskHandler) sendAdminRequest(regionID uint64, epoch *metapb.RegionEp
 		Callback: callback,
 	}
 	r.router.sendRaftCommand(cmd)
-}
-
-func (r *pdTaskHandler) sendMergeFail(source uint64, target *metapb.Peer) {
-	r.router.send(source, Msg{
-		Type:     MsgTypeMergeResult,
-		RegionID: source,
-		Data: &MsgMergeResult{
-			TargetPeer: target,
-			Stale:      true,
-		},
-	})
 }
 
 func (r *pdTaskHandler) sendDestroyPeer(local *metapb.Region, peer *metapb.Peer, pdRegion *metapb.Region) {

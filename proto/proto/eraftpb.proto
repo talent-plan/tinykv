@@ -22,10 +22,6 @@ message Entry {
     uint64 index = 3;
     bytes data = 4;
     bytes context = 6;
-
-    // Deprecated! It is kept for backward compatibility.
-    // TODO: remove it in the next major release.
-    bool sync_log = 5;
 }
 
 message SnapshotMetadata {

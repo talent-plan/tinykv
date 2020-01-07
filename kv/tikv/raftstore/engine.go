@@ -3,17 +3,15 @@ package raftstore
 import (
 	"bytes"
 	"math"
-	"time"
 
 	"github.com/coocood/badger"
 	"github.com/cznic/mathutil"
 	"github.com/golang/protobuf/proto"
 	"github.com/pingcap-incubator/tinykv/kv/lockstore"
-	"github.com/pingcap-incubator/tinykv/kv/metrics"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/mvcc"
-	"github.com/pingcap/errors"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
+	"github.com/pingcap/errors"
 )
 
 type regionSnapshot struct {
@@ -219,7 +217,6 @@ func (wb *WriteBatch) RollbackToSafePoint() {
 //	2. Update lockStore, the date in lockStore may be older than the DB, so we need to restore then entries from raft log.
 func (wb *WriteBatch) WriteToKV(bundle *mvcc.DBBundle) error {
 	if len(wb.entries) > 0 {
-		start := time.Now()
 		err := bundle.DB.Update(func(txn *badger.Txn) error {
 			for _, entry := range wb.entries {
 				var err1 error
@@ -234,13 +231,11 @@ func (wb *WriteBatch) WriteToKV(bundle *mvcc.DBBundle) error {
 			}
 			return nil
 		})
-		metrics.KVDBUpdate.Observe(time.Since(start).Seconds())
 		if err != nil {
 			return errors.WithStack(err)
 		}
 	}
 	if len(wb.lockEntries) > 0 {
-		start := time.Now()
 		bundle.MemStoreMu.Lock()
 		for _, entry := range wb.lockEntries {
 			switch entry.UserMeta[0] {
@@ -259,14 +254,12 @@ func (wb *WriteBatch) WriteToKV(bundle *mvcc.DBBundle) error {
 			}
 		}
 		bundle.MemStoreMu.Unlock()
-		metrics.LockUpdate.Observe(time.Since(start).Seconds())
 	}
 	return nil
 }
 
 func (wb *WriteBatch) WriteToRaft(db *badger.DB) error {
 	if len(wb.entries) > 0 {
-		start := time.Now()
 		err := db.Update(func(txn *badger.Txn) error {
 			var err1 error
 			for _, entry := range wb.entries {
@@ -281,7 +274,6 @@ func (wb *WriteBatch) WriteToRaft(db *badger.DB) error {
 			}
 			return nil
 		})
-		metrics.RaftDBUpdate.Observe(time.Since(start).Seconds())
 		if err != nil {
 			return errors.WithStack(err)
 		}

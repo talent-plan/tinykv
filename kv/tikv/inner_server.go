@@ -14,7 +14,6 @@ type InnerServer interface {
 	Raft(stream tikvpb.Tikv_RaftServer) error
 	BatchRaft(stream tikvpb.Tikv_BatchRaftServer) error
 	Snapshot(stream tikvpb.Tikv_SnapshotServer) error
-	SplitRegion(req *kvrpcpb.SplitRegionRequest) *kvrpcpb.SplitRegionResponse
 }
 
 type StandAlongInnerServer struct {

@@ -18,27 +18,23 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/lockstore"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/mvcc"
-	"github.com/pingcap/errors"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
+	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/util/codec"
 )
 
 type taskType int64
 
 const (
-	taskTypeStop           taskType = 0
-	taskTypeRaftLogGC      taskType = 1
-	taskTypeSplitCheck     taskType = 2
-	taskTypeComputeHash    taskType = 3
-	taskTypeHalfSplitCheck taskType = 4
+	taskTypeStop       taskType = 0
+	taskTypeRaftLogGC  taskType = 1
+	taskTypeSplitCheck taskType = 2
 
-	taskTypePDAskSplit         taskType = 101
 	taskTypePDAskBatchSplit    taskType = 102
 	taskTypePDHeartbeat        taskType = 103
 	taskTypePDStoreHeartbeat   taskType = 104
@@ -46,9 +42,6 @@ const (
 	taskTypePDValidatePeer     taskType = 106
 	taskTypePDReadStats        taskType = 107
 	taskTypePDDestroyPeer      taskType = 108
-
-	taskTypeCompact         taskType = 201
-	taskTypeCheckAndCompact taskType = 202
 
 	taskTypeRegionGen   taskType = 401
 	taskTypeRegionApply taskType = 402
@@ -88,28 +81,11 @@ type splitCheckTask struct {
 	region *metapb.Region
 }
 
-type computeHashTask struct {
-	index  uint64
-	region *metapb.Region
-	snap   *mvcc.DBSnapshot
-}
-
-type pdAskSplitTask struct {
-	region   *metapb.Region
-	splitKey []byte
-	peer     *metapb.Peer
-	// If true, right Region derives origin region_id.
-	rightDerive bool
-	callback    *Callback
-}
-
 type pdAskBatchSplitTask struct {
 	region    *metapb.Region
 	splitKeys [][]byte
 	peer      *metapb.Peer
-	// If true, right Region derives origin region_id.
-	rightDerive bool
-	callback    *Callback
+	callback  *Callback
 }
 
 type pdRegionHeartbeatTask struct {
@@ -120,7 +96,6 @@ type pdRegionHeartbeatTask struct {
 	writtenBytes    uint64
 	writtenKeys     uint64
 	approximateSize *uint64
-	approximateKeys *uint64
 }
 
 type pdStoreHeartbeatTask struct {
@@ -135,9 +110,8 @@ type pdReportBatchSplitTask struct {
 }
 
 type pdValidatePeerTask struct {
-	region      *metapb.Region
-	peer        *metapb.Peer
-	mergeSource *uint64
+	region *metapb.Region
+	peer   *metapb.Peer
 }
 
 type readStats map[uint64]flowStats
@@ -153,12 +127,6 @@ type flowStats struct {
 
 type compactTask struct {
 	keyRange keyRange
-}
-
-type checkAndCompactTask struct {
-	ranges                    []keyRange
-	tombStoneNumThreshold     uint64 // The minimum RocksDB tombstones a range that need compacting has
-	tombStonePercentThreshold uint64
 }
 
 type resolveAddrTask struct {
@@ -247,8 +215,6 @@ func (r *splitCheckHandler) newCheckers() {
 	// the checker append order is the priority order
 	sizeChecker := newSizeSplitChecker(r.config.regionMaxSize, r.config.regionSplitSize, r.config.batchSplitLimit)
 	r.checkers = append(r.checkers, sizeChecker)
-	keysChecker := newKeysSplitChecker(r.config.RegionMaxKeys, r.config.RegionSplitKeys, r.config.batchSplitLimit)
-	r.checkers = append(r.checkers, keysChecker)
 }
 
 /// run checks a region with split checkers to produce split keys and generates split admin command.
@@ -271,13 +237,7 @@ func (r *splitCheckHandler) handle(t task) {
 	txn := r.engine.NewTransaction(false)
 	reader := dbreader.NewDBReader(startKey, endKey, txn, 0)
 	defer reader.Close()
-	var keys [][]byte
-	switch t.tp {
-	case taskTypeHalfSplitCheck:
-		keys = r.halfSplitCheck(startKey, endKey, reader)
-	case taskTypeSplitCheck:
-		keys = r.splitCheck(startKey, endKey, reader)
-	}
+	keys := r.splitCheck(startKey, endKey, reader)
 	if len(keys) != 0 {
 		regionEpoch := region.GetRegionEpoch()
 		for i, k := range keys {
@@ -429,70 +389,6 @@ func (checker *sizeSplitChecker) getSplitKeys() [][]byte {
 	keys := checker.splitKeys
 	checker.splitKeys = nil
 	return keys
-}
-
-func newKeysSplitChecker(regionMaxKeys, regionSplitKeys, batchSplitLimit uint64) *keysSplitChecker {
-	checker := &keysSplitChecker{
-		regionMaxKeys:   regionMaxKeys,
-		regionSplitKeys: regionSplitKeys,
-		batchSplitLimit: batchSplitLimit,
-	}
-	return checker
-}
-
-type keysSplitChecker struct {
-	regionMaxKeys   uint64
-	regionSplitKeys uint64
-	batchSplitLimit uint64
-	curCnt          uint64
-	splitKeys       [][]byte
-}
-
-func (c *keysSplitChecker) onKv(key []byte, item *badger.Item) bool {
-	c.curCnt++
-	overLimit := uint64(len(c.splitKeys)) >= c.batchSplitLimit
-	if c.curCnt > c.regionSplitKeys && !overLimit {
-		// if for previous on_kv() self.current_count == self.split_threshold,
-		// the split key would be pushed this time, but the entry for this time should not be ignored.
-		c.splitKeys = append(c.splitKeys, safeCopy(key))
-		c.curCnt = 1
-		overLimit = uint64(len(c.splitKeys)) >= c.batchSplitLimit
-	}
-	return overLimit && c.curCnt+c.regionSplitKeys >= c.regionMaxKeys
-}
-
-func (c *keysSplitChecker) getSplitKeys() [][]byte {
-	// make sure not to split when less than max_keys_count for last part
-	if c.curCnt+c.regionSplitKeys < c.regionMaxKeys {
-		if len(c.splitKeys) > 0 {
-			c.splitKeys = c.splitKeys[:len(c.splitKeys)-1]
-		}
-	}
-	keys := c.splitKeys
-	c.splitKeys = nil
-	return keys
-}
-
-func (r *splitCheckHandler) halfSplitCheck(startKey, endKey []byte, reader *dbreader.DBReader) [][]byte {
-	var sampleKeys [][]byte
-	cnt := 0
-	ite := reader.GetIter()
-	for ite.Seek(startKey); ite.Valid(); ite.Next() {
-		cnt++
-		key := ite.Item().Key()
-		if exceedEndKey(key, endKey) {
-			break
-		}
-		if cnt%r.config.rowsPerSample == 0 {
-			sampleKeys = append(sampleKeys, safeCopy(key))
-		}
-	}
-	mid := len(sampleKeys) / 2
-	if len(sampleKeys) > mid {
-		splitKey := sampleKeys[mid]
-		return [][]byte{splitKey}
-	}
-	return nil
 }
 
 type pendingDeleteRanges struct {
@@ -1033,20 +929,4 @@ func (r *raftLogGCTaskHandler) handle(t task) {
 		log.Debugf("collected log entries. [regionId: %d, entryCount: %d]", logGcTask.regionID, collected)
 	}
 	r.reportCollected(collected)
-}
-
-type compactTaskHandler struct {
-	engine *badger.DB
-}
-
-func (r *compactTaskHandler) handle(t task) {
-	// TODO: stub
-}
-
-type computeHashTaskHandler struct {
-	router *router
-}
-
-func (r *computeHashTaskHandler) handle(t task) {
-	// TODO: stub
 }

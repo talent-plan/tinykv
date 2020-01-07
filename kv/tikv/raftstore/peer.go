@@ -10,13 +10,13 @@ import (
 	"unsafe"
 
 	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/mvcc"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/raft"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/mvcc"
 )
 
 type ReadyICPair struct {
@@ -239,8 +239,6 @@ type Peer struct {
 
 	/// an inaccurate difference in region size since last reset.
 	SizeDiffHint uint64
-	/// delete keys' count since last reset.
-	deleteKeysHint uint64
 	/// approximate size of the region.
 	ApproximateSize *uint64
 
@@ -1073,24 +1071,18 @@ func (p *Peer) ApplyReads(kv *mvcc.DBBundle, ready *raft.Ready) {
 	}
 }
 
-func (p *Peer) PostApply(kv *mvcc.DBBundle, applyState applyState, appliedIndexTerm uint64, merged bool, applyMetrics applyMetrics) bool {
+func (p *Peer) PostApply(kv *mvcc.DBBundle, applyState applyState, appliedIndexTerm uint64, sizeDiffHint uint64) bool {
 	hasReady := false
 	if p.IsApplyingSnapshot() {
 		panic("should not applying snapshot")
 	}
-
-	if !merged {
-		p.RaftGroup.AdvanceApply(applyState.appliedIndex)
-	}
+	p.RaftGroup.AdvanceApply(applyState.appliedIndex)
 
 	progressToBeUpdated := p.Store().appliedIndexTerm != appliedIndexTerm
 	p.Store().applyState = applyState
 	p.Store().appliedIndexTerm = appliedIndexTerm
 
-	p.PeerStat.WrittenBytes += applyMetrics.writtenBytes
-	p.PeerStat.WrittenKeys += applyMetrics.writtenKeys
-	p.deleteKeysHint += applyMetrics.deleteKeysHint
-	diff := p.SizeDiffHint + applyMetrics.sizeDiffHint
+	diff := p.SizeDiffHint + sizeDiffHint
 	if diff > 0 {
 		p.SizeDiffHint = diff
 	} else {
@@ -1125,8 +1117,7 @@ func (p *Peer) PostApply(kv *mvcc.DBBundle, applyState applyState, appliedIndexT
 }
 
 func (p *Peer) PostSplit() {
-	// Reset delete_keys_hint and size_diff_hint.
-	p.deleteKeysHint = 0
+	// Reset size_diff_hint.
 	p.SizeDiffHint = 0
 }
 

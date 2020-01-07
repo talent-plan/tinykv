@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/coocood/badger"
@@ -12,11 +11,11 @@ import (
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/lockstore"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
+	"github.com/pingcap-incubator/tinykv/kv/rocksdb"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
-	"github.com/pingcap-incubator/tinykv/kv/rocksdb"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap/errors"
 )
 
@@ -78,7 +77,6 @@ type GlobalContext struct {
 	compactTaskSender     chan<- task
 	pdClient              pd.Client
 	peerEventObserver     PeerEventObserver
-	globalStats           *storeStats
 	tickDriverSender      chan uint64
 }
 
@@ -96,51 +94,26 @@ type RaftContext struct {
 	pendingCount int
 	hasReady     bool
 	queuedSnaps  map[uint64]struct{}
-	isBusy       bool
-	localStats   *storeStats
-}
-
-type storeStats struct {
-	engineTotalBytesWritten uint64
-	engineTotalKeysWritten  uint64
-	isBusy                  uint64
 }
 
 type Transport interface {
 	Send(msg *rspb.RaftMessage) error
 }
 
-func (pc *RaftContext) flushLocalStats() {
-	if pc.localStats.engineTotalBytesWritten > 0 {
-		atomic.AddUint64(&pc.globalStats.engineTotalBytesWritten, pc.localStats.engineTotalBytesWritten)
-		pc.localStats.engineTotalBytesWritten = 0
-	}
-	if pc.localStats.engineTotalKeysWritten > 0 {
-		atomic.AddUint64(&pc.globalStats.engineTotalKeysWritten, pc.localStats.engineTotalKeysWritten)
-		pc.localStats.engineTotalKeysWritten = 0
-	}
-	if pc.localStats.isBusy > 0 {
-		atomic.StoreUint64(&pc.globalStats.isBusy, pc.localStats.isBusy)
-		pc.localStats.isBusy = 0
-	}
-}
-
 type storeFsm struct {
-	id                   uint64
-	lastCompactCheckKey  []byte
-	stopped              bool
-	startTime            *time.Time
-	consistencyCheckTime map[uint64]time.Time
-	receiver             <-chan Msg
-	ticker               *ticker
+	id                  uint64
+	lastCompactCheckKey []byte
+	stopped             bool
+	startTime           *time.Time
+	receiver            <-chan Msg
+	ticker              *ticker
 }
 
 func newStoreFsm(cfg *Config) (chan<- Msg, *storeFsm) {
 	ch := make(chan Msg, cfg.NotifyCapacity)
 	fsm := &storeFsm{
-		consistencyCheckTime: map[uint64]time.Time{},
-		receiver:             (<-chan Msg)(ch),
-		ticker:               newStoreTicker(cfg),
+		receiver: (<-chan Msg)(ch),
+		ticker:   newStoreTicker(cfg),
 	}
 	return (chan<- Msg)(ch), fsm
 }
@@ -156,8 +129,6 @@ func newStoreFsmDelegate(store *storeFsm, ctx *StoreContext) *storeMsgHandler {
 
 func (d *storeMsgHandler) onTick(tick StoreTick) {
 	switch tick {
-	case StoreTickCompactCheck:
-		d.onCompactCheckTick()
 	case StoreTickPdStoreHeartbeat:
 		d.onPDStoreHearbeatTick()
 	case StoreTickSnapGC:
@@ -176,8 +147,6 @@ func (d *storeMsgHandler) handleMsg(msg Msg) {
 	case MsgTypeStoreClearRegionSizeInRange:
 		data := msg.Data.(*MsgStoreClearRegionSizeInRange)
 		d.clearRegionSizeInRange(data.StartKey, data.EndKey)
-	case MsgTypeStoreCompactedEvent:
-		d.onCompactionFinished(msg.Data.(*rocksdb.CompactedEvent))
 	case MsgTypeStoreTick:
 		d.onTick(msg.Data.(StoreTick))
 	case MsgTypeStoreStart:
@@ -192,10 +161,8 @@ func (d *storeMsgHandler) start(store *metapb.Store) {
 	d.id = store.Id
 	now := time.Now()
 	d.startTime = &now
-	d.ticker.scheduleStore(StoreTickCompactCheck)
 	d.ticker.scheduleStore(StoreTickPdStoreHeartbeat)
 	d.ticker.scheduleStore(StoreTickSnapGC)
-	d.ticker.scheduleStore(StoreTickConsistencyCheck)
 }
 
 /// loadPeers loads peers in this store. It scans the db engine, loads all regions
@@ -383,7 +350,6 @@ func (bs *raftBatchSystem) start(
 		compactTaskSender:     bs.workers.compactWorker.sender,
 		pdClient:              pdClient,
 		peerEventObserver:     observer,
-		globalStats:           new(storeStats),
 		tickDriverSender:      bs.tickDriver.newRegionCh,
 	}
 	regionPeers, err := bs.loadPeers()
@@ -429,9 +395,7 @@ func (bs *raftBatchSystem) startWorkers(peers []*peerFsm) {
 	workers.splitCheckWorker.start(newSplitCheckRunner(engines.kv.DB, router, cfg.SplitCheck))
 	workers.regionWorker.start(newRegionTaskHandler(engines, ctx.snapMgr, cfg.SnapApplyBatchSize, cfg.CleanStalePeerDelay))
 	workers.raftLogGCWorker.start(&raftLogGCTaskHandler{})
-	workers.compactWorker.start(&compactTaskHandler{engine: engines.kv.DB})
 	workers.pdWorker.start(newPDTaskHandler(ctx.store.Id, ctx.pdClient, bs.router))
-	workers.computeHashWorker.start(&computeHashTaskHandler{router: bs.router})
 	bs.wg.Add(1)
 	go bs.tickDriver.run(bs.closeCh, bs.wg) // TODO: temp workaround.
 }
@@ -565,14 +529,11 @@ func (d *storeMsgHandler) onRaftMessage(msg *rspb.RaftMessage) error {
 /// return false to indicate that target peer is in invalid state or
 /// doesn't exist and can't be created.
 func (d *storeMsgHandler) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage) (bool, error) {
-	var regionsToDestroy []uint64
 	// we may encounter a message with larger peer id, which means
 	// current peer is stale, then we should remove current peer
 	d.ctx.storeMetaLock.Lock()
 	defer func() {
 		d.ctx.storeMetaLock.Unlock()
-		// send message out of store meta lock, to avoid dead lock.
-		destroyRegions(d.ctx.router, regionsToDestroy, msg.ToPeer)
 	}()
 	meta := d.ctx.storeMeta
 	if _, ok := meta.regions[regionID]; ok {
@@ -616,39 +577,12 @@ func (d *storeMsgHandler) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage
 	return true, nil
 }
 
-func destroyRegions(router *router, regionsToDestroy []uint64, toPeer *metapb.Peer) {
-	for _, id := range regionsToDestroy {
-		_ = router.send(id, Msg{Type: MsgTypeMergeResult, Data: &MsgMergeResult{
-			TargetPeer: toPeer,
-			Stale:      true,
-		}})
-	}
-}
-
-func (d *storeMsgHandler) onCompactionFinished(event *rocksdb.CompactedEvent) {
-	// TODO: not supported.
-}
-
-func (d *storeMsgHandler) onCompactCheckTick() {
-	// TODO: not supported.
-}
-
 func (d *storeMsgHandler) storeHeartbeatPD() {
 	stats := new(pdpb.StoreStats)
-	stats.UsedSize = d.ctx.snapMgr.GetTotalSnapSize()
 	stats.StoreId = d.ctx.store.Id
 	d.ctx.storeMetaLock.RLock()
 	stats.RegionCount = uint32(len(d.ctx.storeMeta.regions))
 	d.ctx.storeMetaLock.RUnlock()
-	snapStats := d.ctx.snapMgr.Stats()
-	stats.SendingSnapCount = uint32(snapStats.SendingCount)
-	stats.ReceivingSnapCount = uint32(snapStats.ReceivingCount)
-	stats.ApplyingSnapCount = uint32(atomic.LoadUint64(d.ctx.applyingSnapCount))
-	stats.StartTime = uint32(d.startTime.Second())
-	globalStats := d.ctx.globalStats
-	stats.BytesWritten = atomic.SwapUint64(&globalStats.engineTotalBytesWritten, 0)
-	stats.KeysWritten = atomic.SwapUint64(&globalStats.engineTotalKeysWritten, 0)
-	stats.IsBusy = atomic.SwapUint64(&globalStats.isBusy, 0) > 0
 	storeInfo := &pdStoreHeartbeatTask{
 		stats:    stats,
 		engine:   d.ctx.engine.kv.DB,

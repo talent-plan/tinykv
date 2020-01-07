@@ -9,11 +9,8 @@ import (
 
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
-	"github.com/pingcap/tidb/util/codec"
 )
 
 type RaftInnerServer struct {
@@ -69,26 +66,6 @@ func (ris *RaftInnerServer) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
 	}
 	<-done
 	return err
-}
-
-func (ris *RaftInnerServer) SplitRegion(req *kvrpcpb.SplitRegionRequest) *kvrpcpb.SplitRegionResponse {
-	cb := NewCallback()
-	splitKeys := make([][]byte, 0, len(req.SplitKeys))
-	for _, rawKey := range req.SplitKeys {
-		splitKeys = append(splitKeys, codec.EncodeBytes(nil, rawKey))
-	}
-	msg := &MsgSplitRegion{
-		RegionEpoch: req.Context.RegionEpoch,
-		SplitKeys:   splitKeys,
-		Callback:    cb,
-	}
-	err := ris.raftRouter.router.send(req.Context.RegionId, Msg{Type: MsgTypeSplitRegion, Data: msg})
-	if err != nil {
-		return &kvrpcpb.SplitRegionResponse{RegionError: &errorpb.Error{Message: err.Error()}}
-	}
-	cb.wg.Wait()
-	regions := cb.resp.GetAdminResponse().GetSplits().GetRegions()
-	return &kvrpcpb.SplitRegionResponse{Regions: regions}
 }
 
 func NewRaftInnerServer(engines *Engines, raftConfig *Config) *RaftInnerServer {

@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/pingcap-incubator/tinykv/kv/pd"
-	"github.com/pingcap/errors"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
+	"github.com/pingcap/errors"
 )
 
 const storeAddressRefreshSeconds = 60
