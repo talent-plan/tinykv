@@ -48,6 +48,35 @@ import (
 	"google.golang.org/grpc"
 )
 
+var (
+	// ErrNotBootstrapped is error info for cluster not bootstrapped.
+	ErrNotBootstrapped = errors.New("TiKV cluster not bootstrapped, please start TiKV first")
+	// ErrServerNotStarted is error info for server not started.
+	ErrServerNotStarted = errors.New("The server has not been started")
+	// ErrOperatorNotFound is error info for operator not found.
+	ErrOperatorNotFound = errors.New("operator not found")
+	// ErrAddOperator is error info for already have an operator when adding operator.
+	ErrAddOperator = errors.New("failed to add operator, maybe already have one")
+	// ErrRegionNotAdjacent is error info for region not adjacent.
+	ErrRegionNotAdjacent = errors.New("two regions are not adjacent")
+	// ErrRegionNotFound is error info for region not found.
+	ErrRegionNotFound = func(regionID uint64) error {
+		return errors.Errorf("region %v not found", regionID)
+	}
+	// ErrRegionAbnormalPeer is error info for region has abonormal peer.
+	ErrRegionAbnormalPeer = func(regionID uint64) error {
+		return errors.Errorf("region %v has abnormal peer", regionID)
+	}
+	// ErrRegionIsStale is error info for region is stale.
+	ErrRegionIsStale = func(region *metapb.Region, origin *metapb.Region) error {
+		return errors.Errorf("region is stale: region %v origin %v", region, origin)
+	}
+	// ErrStoreNotFound is error info for store not found.
+	ErrStoreNotFound = func(storeID uint64) error {
+		return errors.Errorf("store %v not found", storeID)
+	}
+)
+
 const (
 	etcdTimeout           = time.Second * 3
 	etcdStartTimeout      = time.Minute * 5
@@ -71,7 +100,6 @@ type Server struct {
 	cfg         *config.Config
 	etcdCfg     *embed.Config
 	scheduleOpt *config.ScheduleOption
-	handler     *Handler
 
 	serverLoopCtx    context.Context
 	serverLoopCancel func()
@@ -110,7 +138,6 @@ func CreateServer(cfg *config.Config) (*Server, error) {
 		scheduleOpt: config.NewScheduleOption(cfg),
 		member:      &member.Member{},
 	}
-	s.handler = newHandler(s)
 
 	// Adjust etcd config.
 	etcdCfg, err := s.cfg.GenEmbedEtcdConfig()
@@ -439,11 +466,6 @@ func (s *Server) GetAddr() string {
 // GetMemberInfo returns the server member information.
 func (s *Server) GetMemberInfo() *pdpb.Member {
 	return proto.Clone(s.member.Member()).(*pdpb.Member)
-}
-
-// GetHandler returns the handler for API.
-func (s *Server) GetHandler() *Handler {
-	return s.handler
 }
 
 // GetEndpoints returns the etcd endpoints for outer use.
