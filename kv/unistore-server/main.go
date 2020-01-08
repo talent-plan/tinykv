@@ -22,10 +22,10 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/lockstore"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 	"github.com/pingcap-incubator/tinykv/kv/tikv"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/mvcc"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 )
@@ -161,10 +161,6 @@ func setupRaftStoreConf(raftConf *raftstore.Config, conf *config.Config) {
 	raftConf.RaftBaseTickInterval = config.ParseDuration(conf.RaftStore.RaftBaseTickInterval)
 	raftConf.RaftHeartbeatTicks = conf.RaftStore.RaftHeartbeatTicks
 	raftConf.RaftElectionTimeoutTicks = conf.RaftStore.RaftElectionTimeoutTicks
-
-	// coprocessor block
-	raftConf.SplitCheck.RegionMaxKeys = uint64(conf.Coprocessor.RegionMaxKeys)
-	raftConf.SplitCheck.RegionSplitKeys = uint64(conf.Coprocessor.RegionSplitKeys)
 }
 
 func setupRaftInnerServer(bundle *mvcc.DBBundle, safePoint *tikv.SafePoint, pdClient pd.Client, conf *config.Config) (tikv.InnerServer, *tikv.MVCCStore, tikv.RegionManager) {

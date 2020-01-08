@@ -7,8 +7,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/pingcap-incubator/tinykv/kv/tikv/mvcc"
-
 	"github.com/golang/protobuf/proto"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
@@ -474,7 +472,10 @@ func CloneMsg(origin, cloned proto.Message) error {
 	return proto.Unmarshal(data, cloned)
 }
 
-func deleteAllFilesInRange(db *mvcc.DBBundle, startKey, endKey []byte) error {
-	// todo, needs badger to export api to support delete files.
-	return nil
+func safeCopy(b []byte) []byte {
+	return append([]byte{}, b...)
+}
+
+func exceedEndKey(current, endKey []byte) bool {
+	return bytes.Compare(current, endKey) >= 0
 }

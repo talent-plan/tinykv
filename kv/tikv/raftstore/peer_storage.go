@@ -12,11 +12,11 @@ import (
 	"github.com/cznic/mathutil"
 	"github.com/golang/protobuf/proto"
 	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/raft"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap/errors"
 )
 
