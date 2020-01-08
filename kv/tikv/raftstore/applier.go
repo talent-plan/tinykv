@@ -236,12 +236,8 @@ type applyContext struct {
 	lastAppliedIndex uint64
 	committedCount   int
 
-	// Indicates that WAL can be synchronized when data is written to KV engine.
-	enableSyncLog bool
 	// Whether synchronize WAL is preferred.
 	syncLogHint bool
-	// Whether to use the delete range API instead of deleting one by one.
-	useDeleteRange bool
 }
 
 func newApplyContext(tag string, regionScheduler chan<- task, engines *Engines,
@@ -251,8 +247,6 @@ func newApplyContext(tag string, regionScheduler chan<- task, engines *Engines,
 		regionScheduler: regionScheduler,
 		engines:         engines,
 		notifier:        notifier,
-		enableSyncLog:   cfg.SyncLog,
-		useDeleteRange:  cfg.UseDeleteRange,
 		wb:              new(WriteBatch),
 	}
 }

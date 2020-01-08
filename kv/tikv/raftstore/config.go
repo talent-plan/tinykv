@@ -14,10 +14,6 @@ const (
 )
 
 type Config struct {
-	// true for high reliability, prevent data loss when power failure.
-	SyncLog bool
-	// minimizes disruption when a partitioned node rejoins the cluster by using a two phase election.
-	Prevote    bool
 	RaftdbPath string
 
 	SnapPath string
@@ -56,21 +52,12 @@ type Config struct {
 	/// When size change of region exceed the diff since last check, it
 	/// will be checked again whether it should be split.
 	RegionSplitCheckDiff uint64
-	/// Interval (ms) to check whether start compaction for a region.
-	RegionCompactCheckInterval time.Duration
 	// delay time before deleting a stale peer
-	CleanStalePeerDelay time.Duration
-	/// Number of regions for each time checking.
-	RegionCompactCheckStep uint64
-	/// Minimum number of tombstones to trigger manual compaction.
-	RegionCompactMinTombstones uint64
-	/// Minimum percentage of tombstones to trigger manual compaction.
-	/// Should between 1 and 100.
-	RegionCompactTombstonesPencent uint64
-	PdHeartbeatTickInterval        time.Duration
-	PdStoreHeartbeatTickInterval   time.Duration
-	SnapMgrGcTickInterval          time.Duration
-	SnapGcTimeout                  time.Duration
+	CleanStalePeerDelay          time.Duration
+	PdHeartbeatTickInterval      time.Duration
+	PdStoreHeartbeatTickInterval time.Duration
+	SnapMgrGcTickInterval        time.Duration
+	SnapGcTimeout                time.Duration
 
 	NotifyCapacity  uint64
 	MessagesPerTick uint64
@@ -92,11 +79,6 @@ type Config struct {
 
 	SnapApplyBatchSize uint64
 
-	// Interval (ms) to check region whether the data is consistent.
-	ConsistencyCheckInterval time.Duration
-
-	ReportRegionFlowInterval time.Duration
-
 	// The lease provided by a successfully proposed and applied entry.
 	RaftStoreMaxLeaderLease time.Duration
 
@@ -104,14 +86,6 @@ type Config struct {
 	RightDeriveWhenSplit bool
 
 	AllowRemoveLeader bool
-
-	/// Max log gap allowed to propose merge.
-	MergeMaxLogGap uint64
-
-	/// Interval to re-propose merge.
-	MergeCheckTickInterval time.Duration
-
-	UseDeleteRange bool
 
 	ApplyMaxBatchSize uint64
 	ApplyPoolSize     uint64
@@ -135,11 +109,6 @@ type Config struct {
 }
 
 type splitCheckConfig struct {
-
-	// When it is true, it will try to split a region with table prefix if
-	// that region crosses tables.
-	splitRegionOnTable bool
-
 	// For once split check, there are several splitKey produced for batch.
 	// batchSplitLimit limits the number of produced split-key for one batch.
 	batchSplitLimit uint64
@@ -149,15 +118,6 @@ type splitCheckConfig struct {
 	// [b,c), [c,d) will be regionSplitSize (maybe a little larger).
 	regionMaxSize   uint64
 	regionSplitSize uint64
-
-	// When the number of keys in region [a,e) meets the region_max_keys,
-	// it will be split into two several regions [a,b), [b,c), [c,d), [d,e).
-	// And the number of keys in [a,b), [b,c), [c,d) will be region_split_keys.
-	RegionMaxKeys   uint64
-	RegionSplitKeys uint64
-
-	// number of rows per sample key for half split.
-	rowsPerSample int
 }
 
 type StoreLabel struct {
@@ -167,8 +127,6 @@ type StoreLabel struct {
 func NewDefaultConfig() *Config {
 	splitSize := SplitSizeMb * MB
 	return &Config{
-		SyncLog:                     true,
-		Prevote:                     true,
 		RaftdbPath:                  "",
 		SnapPath:                    "snap",
 		Capacity:                    0,
@@ -190,10 +148,6 @@ func NewDefaultConfig() *Config {
 		SplitRegionCheckTickInterval:     10 * time.Second,
 		RegionSplitCheckDiff:             splitSize / 8,
 		CleanStalePeerDelay:              10 * time.Minute,
-		RegionCompactCheckInterval:       5 * time.Minute,
-		RegionCompactCheckStep:           100,
-		RegionCompactMinTombstones:       10000,
-		RegionCompactTombstonesPencent:   30,
 		PdHeartbeatTickInterval:          20 * time.Second,
 		PdStoreHeartbeatTickInterval:     10 * time.Second,
 		NotifyCapacity:                   40960,
@@ -208,26 +162,21 @@ func NewDefaultConfig() *Config {
 		SnapApplyBatchSize:               10 * MB,
 		// Disable consistency check by default as it will hurt performance.
 		// We should turn on this only in our tests.
-		ConsistencyCheckInterval: 0,
-		ReportRegionFlowInterval: 1 * time.Minute,
-		RaftStoreMaxLeaderLease:  9 * time.Second,
-		RightDeriveWhenSplit:     true,
-		AllowRemoveLeader:        false,
-		MergeMaxLogGap:           10,
-		MergeCheckTickInterval:   10 * time.Second,
-		UseDeleteRange:           false,
-		ApplyMaxBatchSize:        1024,
-		ApplyPoolSize:            2,
-		StoreMaxBatchSize:        1024,
-		RaftWorkerCnt:            2,
-		ConcurrentSendSnapLimit:  32,
-		ConcurrentRecvSnapLimit:  32,
-		GrpcInitialWindowSize:    2 * 1024 * 1024,
-		GrpcKeepAliveTime:        3 * time.Second,
-		GrpcKeepAliveTimeout:     60 * time.Second,
-		GrpcRaftConnNum:          1,
-		Addr:                     "127.0.0.1:20160",
-		SplitCheck:               newDefaultSplitCheckConfig(),
+		RaftStoreMaxLeaderLease: 9 * time.Second,
+		RightDeriveWhenSplit:    true,
+		AllowRemoveLeader:       false,
+		ApplyMaxBatchSize:       1024,
+		ApplyPoolSize:           2,
+		StoreMaxBatchSize:       1024,
+		RaftWorkerCnt:           2,
+		ConcurrentSendSnapLimit: 32,
+		ConcurrentRecvSnapLimit: 32,
+		GrpcInitialWindowSize:   2 * 1024 * 1024,
+		GrpcKeepAliveTime:       3 * time.Second,
+		GrpcKeepAliveTimeout:    60 * time.Second,
+		GrpcRaftConnNum:         1,
+		Addr:                    "127.0.0.1:20160",
+		SplitCheck:              newDefaultSplitCheckConfig(),
 	}
 }
 
@@ -243,13 +192,9 @@ const (
 func newDefaultSplitCheckConfig() *splitCheckConfig {
 	splitSize := splitSizeMB * MB
 	return &splitCheckConfig{
-		splitRegionOnTable: true,
-		batchSplitLimit:    batchSplitLimit,
-		regionSplitSize:    splitSize,
-		regionMaxSize:      splitSize / 2 * 3,
-		RegionSplitKeys:    splitKeys,
-		RegionMaxKeys:      splitKeys / 2 * 3,
-		rowsPerSample:      1024,
+		batchSplitLimit: batchSplitLimit,
+		regionSplitSize: splitSize,
+		regionMaxSize:   splitSize / 2 * 3,
 	}
 }
 
@@ -294,14 +239,6 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("election timeout %v ns is less than % v ns", electionTimeout, c.RaftStoreMaxLeaderLease)
 	}
 
-	if c.MergeMaxLogGap >= c.RaftLogGcCountLimit {
-		return fmt.Errorf("Merge log gap %v should be less than log gc limit %v", c.MergeMaxLogGap, c.RaftLogGcCountLimit)
-	}
-
-	if c.MergeCheckTickInterval == 0 {
-		return fmt.Errorf("raftstore.merge-check-tick-interval can't be 0.")
-	}
-
 	if c.PeerStaleStateCheckInterval < electionTimeout*2 {
 		return fmt.Errorf("peer stale state check interval %v ns is less than election timeout x 2 %v ns",
 			c.PeerStaleStateCheckInterval, electionTimeout*2)
@@ -319,11 +256,6 @@ func (c *Config) Validate() error {
 	if c.MaxLeaderMissingDuration < c.AbnormalLeaderMissingDuration {
 		return fmt.Errorf("max leader missing %v ns is less than abnormal leader missing %v ns",
 			c.MaxLeaderMissingDuration, c.AbnormalLeaderMissingDuration)
-	}
-
-	if c.RegionCompactTombstonesPencent < 1 || c.RegionCompactTombstonesPencent > 100 {
-		return fmt.Errorf("region-compact-tombstones-percent must between 1 and 100, current vlaue is %v",
-			c.RegionCompactTombstonesPencent)
 	}
 
 	if c.ApplyPoolSize == 0 {

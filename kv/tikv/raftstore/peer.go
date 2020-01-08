@@ -289,7 +289,6 @@ func NewPeer(storeId uint64, cfg *Config, engines *Engines, region *metapb.Regio
 		MaxInflightMsgs: cfg.RaftMaxInflightMsgs,
 		Applied:         appliedIndex,
 		CheckQuorum:     true,
-		PreVote:         cfg.Prevote,
 		Storage:         ps,
 	}
 

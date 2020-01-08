@@ -195,26 +195,20 @@ func newWorker(name string, wg *sync.WaitGroup) *worker {
 }
 
 type splitCheckHandler struct {
-	engine   *badger.DB
-	router   *router
-	config   *splitCheckConfig
-	checkers []splitChecker
+	engine  *badger.DB
+	router  *router
+	config  *splitCheckConfig
+	checker *sizeSplitChecker
 }
 
-func newSplitCheckRunner(engine *badger.DB, router *router, config *splitCheckConfig) *splitCheckHandler {
+func newSplitCheckHandler(engine *badger.DB, router *router, config *splitCheckConfig) *splitCheckHandler {
 	runner := &splitCheckHandler{
-		engine: engine,
-		router: router,
-		config: config,
+		engine:  engine,
+		router:  router,
+		config:  config,
+		checker: newSizeSplitChecker(config.regionMaxSize, config.regionSplitSize, config.batchSplitLimit),
 	}
 	return runner
-}
-
-func (r *splitCheckHandler) newCheckers() {
-	r.checkers = r.checkers[:0]
-	// the checker append order is the priority order
-	sizeChecker := newSizeSplitChecker(r.config.regionMaxSize, r.config.regionSplitSize, r.config.batchSplitLimit)
-	r.checkers = append(r.checkers, sizeChecker)
 }
 
 /// run checks a region with split checkers to produce split keys and generates split admin command.
@@ -261,79 +255,24 @@ func (r *splitCheckHandler) handle(t task) {
 	}
 }
 
-func exceedEndKey(current, endKey []byte) bool {
-	return bytes.Compare(current, endKey) >= 0
-}
-
-// doCheck checks kvs using every checker
-func (r *splitCheckHandler) doCheck(startKey, endKey []byte, ite *badger.Iterator) {
-	r.newCheckers()
+/// SplitCheck gets the split keys by scanning the range.
+func (r *splitCheckHandler) splitCheck(startKey, endKey []byte, reader *dbreader.DBReader) [][]byte {
+	ite := reader.GetIter()
 	for ite.Seek(startKey); ite.Valid(); ite.Next() {
 		item := ite.Item()
 		key := item.Key()
 		if exceedEndKey(key, endKey) {
 			break
 		}
-		for _, checker := range r.checkers {
-			if checker.onKv(key, item) {
-				return
-			}
+		if r.checker.onKv(key, item) {
+			break
 		}
 	}
-}
-
-/// SplitCheck gets the split keys by scanning the range.
-func (r *splitCheckHandler) splitCheck(startKey, endKey []byte, reader *dbreader.DBReader) [][]byte {
-	ite := reader.GetIter()
-	splitKeys := r.tryTableSplit(startKey, endKey, ite)
-	if len(splitKeys) > 0 {
-		return splitKeys
-	}
-	r.doCheck(startKey, endKey, ite)
-	for _, checker := range r.checkers {
-		keys := checker.getSplitKeys()
-		if len(keys) > 0 {
-			return keys
-		}
+	keys := r.checker.getSplitKeys()
+	if len(keys) > 0 {
+		return keys
 	}
 	return nil
-}
-
-func (r *splitCheckHandler) tryTableSplit(startKey, endKey []byte, it *badger.Iterator) [][]byte {
-	if !isTableKey(startKey) || isSameTable(startKey, endKey) {
-		return nil
-	}
-	var splitKeys [][]byte
-	prevKey := startKey
-	for {
-		it.Seek(nextTableKey(prevKey))
-		if !it.Valid() {
-			break
-		}
-		key := it.Item().Key()
-		if exceedEndKey(key, endKey) {
-			break
-		}
-		splitKey := safeCopy(key)
-		splitKeys = append(splitKeys, splitKey)
-		prevKey = splitKey
-	}
-	return splitKeys
-}
-
-func nextTableKey(key []byte) []byte {
-	result := make([]byte, 9)
-	result[0] = 't'
-	if len(key) >= 9 {
-		curTableID := binary.BigEndian.Uint64(key[1:])
-		binary.BigEndian.PutUint64(result[1:], curTableID+1)
-	}
-	return result
-}
-
-type splitChecker interface {
-	onKv(key []byte, item *badger.Item) bool
-	getSplitKeys() [][]byte
 }
 
 type sizeSplitChecker struct {
@@ -350,10 +289,6 @@ func newSizeSplitChecker(maxSize, splitSize, batchSplitLimit uint64) *sizeSplitC
 		splitSize:       splitSize,
 		batchSplitLimit: batchSplitLimit,
 	}
-}
-
-func safeCopy(b []byte) []byte {
-	return append([]byte{}, b...)
 }
 
 func (checker *sizeSplitChecker) onKv(key []byte, item *badger.Item) bool {
@@ -611,24 +546,11 @@ func (snapCtx *snapContext) handleApply(regionId uint64, status *JobStatus, buil
 	return result, err
 }
 
-/// ingestMaybeStall checks the number of files at level 0 to avoid write stall after ingesting sst.
-/// Returns true if the ingestion causes write stall.
-func (snapCtx *snapContext) ingestMaybeStall() bool {
-	for _, cf := range snapshotCFs {
-		if plainFileUsed(cf) {
-			continue
-		}
-		// todo, related to cf.
-	}
-	return false
-}
-
 // cleanupOverlapRanges gets the overlapping ranges and cleans them up.
 func (snapCtx *snapContext) cleanUpOverlapRanges(startKey, endKey []byte) {
 	overlapRanges := snapCtx.pendingDeleteRanges.drainOverlapRanges(startKey, endKey)
-	useDeleteFiles := false
 	for _, r := range overlapRanges {
-		snapCtx.cleanUpRange(r.regionId, r.startKey, r.endKey, useDeleteFiles)
+		snapCtx.cleanUpRange(r.regionId, r.startKey, r.endKey)
 	}
 }
 
@@ -646,14 +568,7 @@ func (snapCtx *snapContext) insertPendingDeleteRange(regionId uint64, startKey, 
 }
 
 // cleanUpRange cleans up the data within the range.
-func (snapCtx *snapContext) cleanUpRange(regionId uint64, startKey, endKey []byte, useDeleteFiles bool) {
-	if useDeleteFiles {
-		if err := deleteAllFilesInRange(snapCtx.engiens.kv, startKey, endKey); err != nil {
-			log.Errorf("failed to delete files in range, [regionId: %d, startKey: %s, endKey: %s, err: %v]", regionId,
-				hex.EncodeToString(startKey), hex.EncodeToString(endKey), err)
-			return
-		}
-	}
+func (snapCtx *snapContext) cleanUpRange(regionId uint64, startKey, endKey []byte) {
 	if err := deleteRange(snapCtx.engiens.kv, startKey, endKey); err != nil {
 		log.Errorf("failed to delete data in range, [regionId: %d, startKey: %s, endKey: %s, err: %v]", regionId,
 			hex.EncodeToString(startKey), hex.EncodeToString(endKey), err)
@@ -798,11 +713,6 @@ func (r *regionTaskHandler) finishApply() error {
 // handlePendingApplies tries to apply pending tasks if there is some.
 func (r *regionTaskHandler) handlePendingApplies() {
 	for len(r.pendingApplies) > 0 {
-		// Should not handle too many applies than the number of files that can be ingested.
-		// Check level 0 every time because we can not make sure how does the number of level 0 files change.
-		if r.ctx.ingestMaybeStall() {
-			break
-		}
 		// Try to apply task, if apply failed, throw away this task and let sender retry
 		apply := r.pendingApplies[0]
 		r.pendingApplies = r.pendingApplies[1:]
@@ -843,7 +753,7 @@ func (r *regionTaskHandler) handle(t task) {
 		regionTask := t.data.(regionTask)
 		if !r.ctx.insertPendingDeleteRange(regionTask.regionId, regionTask.startKey, regionTask.endKey) {
 			// Use delete files
-			r.ctx.cleanUpRange(regionTask.regionId, regionTask.startKey, regionTask.endKey, false)
+			r.ctx.cleanUpRange(regionTask.regionId, regionTask.startKey, regionTask.endKey)
 		}
 	}
 }

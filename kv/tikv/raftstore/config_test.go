@@ -45,15 +45,6 @@ func TestConfigValidate(t *testing.T) {
 	require.NotNil(t, cfg.Validate())
 
 	cfg = NewDefaultConfig()
-	cfg.RaftLogGcCountLimit = 100
-	cfg.MergeMaxLogGap = 110
-	require.NotNil(t, cfg.Validate())
-
-	cfg = NewDefaultConfig()
-	cfg.MergeCheckTickInterval = 0
-	require.NotNil(t, cfg.Validate())
-
-	cfg = NewDefaultConfig()
 	cfg.RaftBaseTickInterval = 1 * time.Second
 	cfg.RaftElectionTimeoutTicks = 10
 	cfg.PeerStaleStateCheckInterval = 5 * time.Second
