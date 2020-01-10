@@ -8,6 +8,7 @@ import (
 	"unsafe"
 
 	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 )
 
 // peerState contains the peer states that needs to run raft command and apply command.
@@ -95,8 +96,8 @@ func newRaftWorker(ctx *GlobalContext, ch chan Msg, pm *router) *raftWorker {
 		GlobalContext: ctx,
 		applyMsgs:     new(applyMsgs),
 		queuedSnaps:   make(map[uint64]struct{}),
-		kvWB:          new(WriteBatch),
-		raftWB:        new(WriteBatch),
+		kvWB:          new(engine_util.WriteBatch),
+		raftWB:        new(engine_util.WriteBatch),
 	}
 	return &raftWorker{
 		raftCh:   ch,
@@ -174,21 +175,11 @@ func (rw *raftWorker) handleRaftReady(peers map[uint64]*peerState, batch *applyB
 		rw.raftCtx.applyMsgs.appendMsg(proposal.RegionId, msg)
 	}
 	kvWB := rw.raftCtx.kvWB
-	if len(kvWB.entries) > 0 {
-		err := kvWB.WriteToKV(rw.raftCtx.engine.kv)
-		if err != nil {
-			panic(err)
-		}
-		kvWB.Reset()
-	}
+	kvWB.MustWriteToKV(rw.raftCtx.engine.kv)
+	kvWB.Reset()
 	raftWB := rw.raftCtx.raftWB
-	if len(raftWB.entries) > 0 {
-		err := raftWB.WriteToRaft(rw.raftCtx.engine.raft)
-		if err != nil {
-			panic(err)
-		}
-		raftWB.Reset()
-	}
+	raftWB.MustWriteToRaft(rw.raftCtx.engine.raft)
+	raftWB.Reset()
 	readyRes := rw.raftCtx.ReadyRes
 	rw.raftCtx.ReadyRes = nil
 	if len(readyRes) > 0 {
@@ -222,9 +213,6 @@ func (rw *raftWorker) runApply(wg *sync.WaitGroup) {
 		if batch == nil {
 			wg.Done()
 			return
-		}
-		for _, peer := range batch.peers {
-			peer.apply.redoIndex = peer.apply.applyState.appliedIndex + 1
 		}
 		for _, msg := range batch.msgs {
 			ps := batch.peers[msg.RegionID]

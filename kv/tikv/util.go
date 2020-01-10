@@ -9,6 +9,9 @@ import (
 )
 
 func exceedEndKey(current, endKey []byte) bool {
+	if len(endKey) == 0 {
+		return false
+	}
 	return bytes.Compare(current, endKey) >= 0
 }
 

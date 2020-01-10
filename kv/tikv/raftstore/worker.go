@@ -5,19 +5,15 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/coocood/badger"
-	"github.com/coocood/badger/table"
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
-	"github.com/pingcap-incubator/tinykv/kv/config"
+	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/lockstore"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
@@ -67,7 +63,6 @@ type regionTask struct {
 	status   *JobStatus
 	startKey []byte
 	endKey   []byte
-	redoIdx  uint64
 }
 
 type raftLogGCTask struct {
@@ -228,10 +223,7 @@ func (r *splitCheckHandler) handle(t task) {
 	}
 	log.Debugf("executing split check task: [regionId: %d, startKey: %s, endKey: %s]", regionId,
 		hex.EncodeToString(startKey), hex.EncodeToString(endKey))
-	txn := r.engine.NewTransaction(false)
-	reader := dbreader.NewDBReader(startKey, endKey, txn, 0)
-	defer reader.Close()
-	keys := r.splitCheck(startKey, endKey, reader)
+	keys := r.splitCheck(startKey, endKey)
 	if len(keys) != 0 {
 		regionEpoch := region.GetRegionEpoch()
 		for i, k := range keys {
@@ -256,10 +248,14 @@ func (r *splitCheckHandler) handle(t task) {
 }
 
 /// SplitCheck gets the split keys by scanning the range.
-func (r *splitCheckHandler) splitCheck(startKey, endKey []byte, reader *dbreader.DBReader) [][]byte {
-	ite := reader.GetIter()
-	for ite.Seek(startKey); ite.Valid(); ite.Next() {
-		item := ite.Item()
+func (r *splitCheckHandler) splitCheck(startKey, endKey []byte) [][]byte {
+	txn := r.engine.NewTransaction(false)
+	defer txn.Discard()
+
+	it := engine_util.NewCFIterator(engine_util.CF_DEFAULT, txn)
+	defer it.Close()
+	for it.Seek(startKey); it.Valid(); it.Next() {
+		item := it.Item()
 		key := item.Key()
 		if exceedEndKey(key, endKey) {
 			break
@@ -291,7 +287,7 @@ func newSizeSplitChecker(maxSize, splitSize, batchSplitLimit uint64) *sizeSplitC
 	}
 }
 
-func (checker *sizeSplitChecker) onKv(key []byte, item *badger.Item) bool {
+func (checker *sizeSplitChecker) onKv(key []byte, item *engine_util.CFItem) bool {
 	valueSize := uint64(item.ValueSize())
 	size := uint64(len(key)) + valueSize
 	checker.currentSize += size
@@ -442,7 +438,7 @@ func (pendDelRanges *pendingDeleteRanges) drainOverlapRanges(startKey, endKey []
 }
 
 type snapContext struct {
-	engiens             *Engines
+	engines             *Engines
 	batchSize           uint64
 	mgr                 *SnapManager
 	cleanStalePeerDelay time.Duration
@@ -450,16 +446,16 @@ type snapContext struct {
 }
 
 // handleGen handles the task of generating snapshot of the Region. It calls `generateSnap` to do the actual work.
-func (snapCtx *snapContext) handleGen(regionId, redoIdx uint64, notifier chan<- *eraftpb.Snapshot) {
-	if err := snapCtx.generateSnap(regionId, redoIdx, notifier); err != nil {
+func (snapCtx *snapContext) handleGen(regionId uint64, notifier chan<- *eraftpb.Snapshot) {
+	if err := snapCtx.generateSnap(regionId, notifier); err != nil {
 		log.Errorf("failed to generate snapshot!!!, [regionId: %d, err : %v]", regionId, err)
 	}
 }
 
 // generateSnap generates the snapshots of the Region
-func (snapCtx *snapContext) generateSnap(regionId, redoIdx uint64, notifier chan<- *eraftpb.Snapshot) error {
+func (snapCtx *snapContext) generateSnap(regionId uint64, notifier chan<- *eraftpb.Snapshot) error {
 	// do we need to check leader here?
-	snap, err := doSnapshot(snapCtx.engiens, snapCtx.mgr, regionId, redoIdx)
+	snap, err := doSnapshot(snapCtx.engines, snapCtx.mgr, regionId)
 	if err != nil {
 		return err
 	}
@@ -475,7 +471,7 @@ func (snapCtx *snapContext) cleanUpOriginData(regionState *rspb.RegionLocalState
 		return err
 	}
 	snapCtx.cleanUpOverlapRanges(startKey, endKey)
-	if err := deleteRange(snapCtx.engiens.kv, startKey, endKey); err != nil {
+	if err := engine_util.DeleteRange(snapCtx.engines.kv, startKey, endKey); err != nil {
 		return err
 	}
 	if err := checkAbort(status); err != nil {
@@ -485,27 +481,26 @@ func (snapCtx *snapContext) cleanUpOriginData(regionState *rspb.RegionLocalState
 }
 
 // applySnap applies snapshot data of the Region.
-func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus, builder, oldBuilder *table.Builder) (ApplyResult, error) {
+func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus) error {
 	log.Infof("begin apply snap data. [regionId: %d]", regionId)
-	var result ApplyResult
 	if err := checkAbort(status); err != nil {
-		return result, err
+		return err
 	}
 
 	regionKey := RegionStateKey(regionId)
-	regionState, err := getRegionLocalState(snapCtx.engiens.kv.DB, regionId)
+	regionState, err := getRegionLocalState(snapCtx.engines.kv, regionId)
 	if err != nil {
-		return result, errors.New(fmt.Sprintf("failed to get regionState from %v", regionKey))
+		return errors.New(fmt.Sprintf("failed to get regionState from %v", regionKey))
 	}
 
 	// Clean up origin data
 	if err := snapCtx.cleanUpOriginData(regionState, status); err != nil {
-		return result, err
+		return err
 	}
 
-	applyState, err := getApplyState(snapCtx.engiens.kv.DB, regionId)
+	applyState, err := getApplyState(snapCtx.engines.kv, regionId)
 	if err != nil {
-		return result, errors.New(fmt.Sprintf("failed to get raftState from %v", ApplyStateKey(regionId)))
+		return errors.New(fmt.Sprintf("failed to get raftState from %v", ApplyStateKey(regionId)))
 	}
 	snapKey := SnapKey{RegionID: regionId, Index: applyState.truncatedIndex, Term: applyState.truncatedTerm}
 	snapCtx.mgr.Register(snapKey, SnapEntryApplying)
@@ -513,26 +508,31 @@ func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus, builde
 
 	snap, err := snapCtx.mgr.GetSnapshotForApplying(snapKey)
 	if err != nil {
-		return result, errors.New(fmt.Sprintf("missing snapshot file %s", snap.Path()))
+		return errors.New(fmt.Sprintf("missing snapshot file %s", snap.Path()))
 	}
 
 	t := time.Now()
-	applyOptions := newApplyOptions(snapCtx.engiens.kv, regionState.GetRegion(), status, builder, oldBuilder)
-	if result, err = snap.Apply(*applyOptions); err != nil {
-		return result, err
+	applyOptions := newApplyOptions(snapCtx.engines.kv, regionState.GetRegion(), status)
+	if err := snap.Apply(*applyOptions); err != nil {
+		return err
 	}
 
 	regionState.State = rspb.PeerState_Normal
-	result.RegionState = regionState
+	wb := new(engine_util.WriteBatch)
+	wb.SetMsg(RegionStateKey(regionId), regionState)
+	wb.Delete(SnapshotRaftStateKey(regionId))
+	if err := wb.WriteToKV(snapCtx.engines.kv); err != nil {
+		log.Errorf("update region status failed: %s", err)
+	}
 
 	log.Infof("applying new data. [regionId: %d, timeTakes: %v]", regionId, time.Now().Sub(t))
-	return result, nil
+	return nil
 }
 
 // handleApply tries to apply the snapshot of the specified Region. It calls `applySnap` to do the actual work.
-func (snapCtx *snapContext) handleApply(regionId uint64, status *JobStatus, builder, oldBuilder *table.Builder) (ApplyResult, error) {
+func (snapCtx *snapContext) handleApply(regionId uint64, status *JobStatus) error {
 	atomic.CompareAndSwapUint32(status, JobStatus_Pending, JobStatus_Running)
-	result, err := snapCtx.applySnap(regionId, status, builder, oldBuilder)
+	err := snapCtx.applySnap(regionId, status)
 	switch err.(type) {
 	case nil:
 		atomic.SwapUint32(status, JobStatus_Finished)
@@ -543,7 +543,7 @@ func (snapCtx *snapContext) handleApply(regionId uint64, status *JobStatus, buil
 		log.Errorf("failed to apply snap!!!. err: %v", err)
 		atomic.SwapUint32(status, JobStatus_Failed)
 	}
-	return result, err
+	return err
 }
 
 // cleanupOverlapRanges gets the overlapping ranges and cleans them up.
@@ -569,7 +569,7 @@ func (snapCtx *snapContext) insertPendingDeleteRange(regionId uint64, startKey, 
 
 // cleanUpRange cleans up the data within the range.
 func (snapCtx *snapContext) cleanUpRange(regionId uint64, startKey, endKey []byte) {
-	if err := deleteRange(snapCtx.engiens.kv, startKey, endKey); err != nil {
+	if err := engine_util.DeleteRange(snapCtx.engines.kv, startKey, endKey); err != nil {
 		log.Errorf("failed to delete data in range, [regionId: %d, startKey: %s, endKey: %s, err: %v]", regionId,
 			hex.EncodeToString(startKey), hex.EncodeToString(endKey), err)
 	} else {
@@ -589,19 +589,13 @@ type regionTaskHandler struct {
 	// pending_applies records all delayed apply task, and will check again later
 	pendingApplies []task
 
-	builderFile    *os.File
-	builder        *table.Builder
-	oldBuilderFile *os.File
-	oldBuilder     *table.Builder
-
-	tableFiles  []*os.File
 	applyStates []regionApplyState
 }
 
 func newRegionTaskHandler(engines *Engines, mgr *SnapManager, batchSize uint64, cleanStalePeerDelay time.Duration) *regionTaskHandler {
 	return &regionTaskHandler{
 		ctx: &snapContext{
-			engiens:             engines,
+			engines:             engines,
 			mgr:                 mgr,
 			batchSize:           batchSize,
 			cleanStalePeerDelay: cleanStalePeerDelay,
@@ -612,127 +606,19 @@ func newRegionTaskHandler(engines *Engines, mgr *SnapManager, batchSize uint64, 
 	}
 }
 
-func (r *regionTaskHandler) tempFile() (*os.File, error) {
-	return ioutil.TempFile(r.ctx.engiens.kvPath, "ingest_convert_*.sst")
-}
-
-func (r *regionTaskHandler) resetBuilder() error {
-	var err error
-	if r.builderFile, err = r.tempFile(); err != nil {
-		return err
-	}
-	compressionType := config.ParseCompression(config.GetGlobalConf().Engine.IngestCompression)
-	if r.builder == nil {
-		r.builder = r.ctx.engiens.kv.DB.NewExternalTableBuilder(r.builderFile, compressionType, r.ctx.mgr.limiter)
-	} else {
-		r.builder.Reset(r.builderFile)
-	}
-
-	if r.oldBuilderFile, err = r.tempFile(); err != nil {
-		return err
-	}
-	if r.oldBuilder == nil {
-		r.oldBuilder = r.ctx.engiens.kv.DB.NewExternalTableBuilder(r.oldBuilderFile, compressionType, r.ctx.mgr.limiter)
-	} else {
-		r.oldBuilder.Reset(r.oldBuilderFile)
-	}
-
-	return nil
-}
-
-func (r *regionTaskHandler) handleApplyResult(result ApplyResult) error {
-	if result.HasPut {
-		if err := r.builder.Finish(); err != nil {
-			return err
-		}
-	} else {
-		os.Remove(r.builderFile.Name())
-	}
-
-	if result.HasOldPut {
-		if err := r.oldBuilder.Finish(); err != nil {
-			return err
-		}
-	} else {
-		os.Remove(r.oldBuilderFile.Name())
-	}
-
-	state := regionApplyState{localState: result.RegionState}
-	if result.HasPut {
-		state.tableCount++
-		r.tableFiles = append(r.tableFiles, r.builderFile)
-	}
-	if result.HasOldPut {
-		state.tableCount++
-		r.tableFiles = append(r.tableFiles, r.oldBuilderFile)
-	}
-	r.applyStates = append(r.applyStates, state)
-
-	return nil
-}
-
-func (r *regionTaskHandler) finishApply() error {
-	log.Infof("apply snapshot ingesting %d tables", len(r.tableFiles))
-	compression := config.ParseCompression(config.GetGlobalConf().Engine.IngestCompression)
-	externalFiles := make([]badger.ExternalTableSpec, len(r.tableFiles))
-	for i, file := range r.tableFiles {
-		externalFiles[i] = badger.ExternalTableSpec{Compression: compression, Filename: file.Name()}
-	}
-	n, err := r.ctx.engiens.kv.DB.IngestExternalFiles(externalFiles)
-	if err != nil {
-		log.Errorf("ingest sst failed (first %d files succeeded): %s", n, err)
-	}
-
-	wb := new(WriteBatch)
-	var cnt int
-	for _, state := range r.applyStates {
-		if cnt >= n {
-			break
-		}
-		cnt += state.tableCount
-		rs := state.localState
-		regionID := rs.Region.Id
-		wb.SetMsg(RegionStateKey(regionID), rs)
-		wb.Delete(SnapshotRaftStateKey(regionID))
-	}
-
-	if err := wb.WriteToKV(r.ctx.engiens.kv); err != nil {
-		log.Errorf("update region status failed: %s", err)
-	}
-
-	log.Infof("apply snapshot ingested %d tables", len(r.tableFiles))
-
-	for _, f := range r.tableFiles {
-		os.Remove(f.Name())
-	}
-	r.tableFiles = nil
-	r.applyStates = nil
-	return nil
-}
-
 // handlePendingApplies tries to apply pending tasks if there is some.
 func (r *regionTaskHandler) handlePendingApplies() {
 	for len(r.pendingApplies) > 0 {
 		// Try to apply task, if apply failed, throw away this task and let sender retry
 		apply := r.pendingApplies[0]
 		r.pendingApplies = r.pendingApplies[1:]
-		if err := r.resetBuilder(); err != nil {
-			log.Error(err)
-			continue
-		}
 
 		task := apply.data.(*regionTask)
-		result, err := r.ctx.handleApply(task.regionId, task.status, r.builder, r.oldBuilder)
+		err := r.ctx.handleApply(task.regionId, task.status)
 		if err != nil {
 			log.Error(err)
 			continue
 		}
-		if err := r.handleApplyResult(result); err != nil {
-			log.Error(err)
-		}
-	}
-	if err := r.finishApply(); err != nil {
-		log.Error(err)
 	}
 }
 
@@ -742,7 +628,7 @@ func (r *regionTaskHandler) handle(t task) {
 		// It is safe for now to handle generating and applying snapshot concurrently,
 		// but it may not when merge is implemented.
 		regionTask := t.data.(*regionTask)
-		r.ctx.handleGen(regionTask.regionId, regionTask.redoIdx, regionTask.notifier)
+		r.ctx.handleGen(regionTask.regionId, regionTask.notifier)
 	case taskTypeRegionApply:
 		// To make sure applying snapshots in order.
 		r.pendingApplies = append(r.pendingApplies, t)
@@ -801,17 +687,10 @@ func (r *raftLogGCTaskHandler) gcRaftLog(raftDb *badger.DB, regionId, startIdx, 
 		return 0, nil
 	}
 
-	raftWb := WriteBatch{}
+	raftWb := engine_util.WriteBatch{}
 	for idx := firstIdx; idx < endIdx; idx += 1 {
 		key := RaftLogKey(regionId, idx)
 		raftWb.Delete(key)
-		if raftWb.size >= MaxDeleteBatchSize {
-			// Avoid large write batch to reduce latency.
-			if err := raftWb.WriteToRaft(raftDb); err != nil {
-				return 0, err
-			}
-			raftWb.Reset()
-		}
 	}
 	// todo, disable WAL here.
 	if raftWb.Len() != 0 {

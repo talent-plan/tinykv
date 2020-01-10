@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/ngaut/log"
-	"github.com/pingcap/errors"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
+	"github.com/pingcap/errors"
 )
 
 type SnapEntry int

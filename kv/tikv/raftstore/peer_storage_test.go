@@ -40,7 +40,7 @@ func TestPeerStorageTerm(t *testing.T) {
 
 func appendEnts(t *testing.T, peerStore *PeerStorage, ents []eraftpb.Entry) {
 	ctx := NewInvokeContext(peerStore)
-	raftWB := new(WriteBatch)
+	raftWB := new(engine_util.WriteBatch)
 	require.Nil(t, peerStore.Append(ctx, ents, raftWB))
 	ctx.saveRaftStateTo(raftWB)
 	require.Nil(t, peerStore.Engines.WriteRaft(raftWB))
@@ -114,8 +114,8 @@ func TestPeerStorageClearMeta(t *testing.T) {
 		newTestEntry(6, 6),
 	})
 	assert.Equal(t, 6, getMetaKeyCount(t, peerStore))
-	kvWB := new(WriteBatch)
-	raftWB := new(WriteBatch)
+	kvWB := new(engine_util.WriteBatch)
+	raftWB := new(engine_util.WriteBatch)
 	require.Nil(t, peerStore.clearMeta(kvWB, raftWB))
 	require.Nil(t, peerStore.Engines.WriteKV(kvWB))
 	require.Nil(t, peerStore.Engines.WriteRaft(raftWB))
@@ -203,7 +203,7 @@ func TestPeerStorageCompact(t *testing.T) {
 		}
 		if tt.err == nil {
 			assert.Nil(t, err)
-			kvWB := new(WriteBatch)
+			kvWB := new(engine_util.WriteBatch)
 			ctx.saveApplyStateTo(kvWB)
 			require.Nil(t, peerStore.Engines.WriteKV(kvWB))
 		} else {

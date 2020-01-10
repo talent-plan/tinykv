@@ -37,21 +37,12 @@ message SnapResponse {
     metapb.Region region = 1;
 }
 
-message PrewriteRequest {
-    bytes key = 1;
-    bytes value = 2;
-    bytes lock = 3;
-}
-
-message PrewriteResponse {}
-
 enum CmdType {
     Invalid = 0;
     Get = 1;
     Put = 3;
     Delete = 4;
     Snap = 5;
-    Prewrite = 6;
 }
 
 message Request {
@@ -60,7 +51,6 @@ message Request {
     PutRequest put = 4;
     DeleteRequest delete = 5;
     SnapRequest snap = 6;
-    PrewriteRequest prewrite = 7;
 }
 
 message Response {
@@ -69,7 +59,6 @@ message Response {
     PutResponse put = 4;
     DeleteResponse delete = 5;
     SnapResponse snap = 6;
-    PrewriteResponse prewrite = 7;
 }
 
 message ChangePeerRequest {

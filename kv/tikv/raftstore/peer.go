@@ -9,8 +9,9 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/coocood/badger"
 	"github.com/ngaut/log"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/mvcc"
+	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
@@ -408,8 +409,8 @@ func (p *Peer) Destroy(engine *Engines, keepData bool) error {
 	log.Infof("%v begin to destroy", p.Tag)
 
 	// Set Tombstone state explicitly
-	kvWB := new(WriteBatch)
-	raftWB := new(WriteBatch)
+	kvWB := new(engine_util.WriteBatch)
+	raftWB := new(engine_util.WriteBatch)
 	if err := p.Store().clearMeta(kvWB, raftWB); err != nil {
 		return err
 	}
@@ -740,7 +741,7 @@ func (p *Peer) TakeApplyProposals() *regionProposal {
 	return newRegionProposal(p.PeerId(), p.regionId, props)
 }
 
-func (p *Peer) HandleRaftReadyAppend(trans Transport, applyMsgs *applyMsgs, kvWB, raftWB *WriteBatch, observer PeerEventObserver) *ReadyICPair {
+func (p *Peer) HandleRaftReadyAppend(trans Transport, applyMsgs *applyMsgs, kvWB, raftWB *engine_util.WriteBatch, observer PeerEventObserver) *ReadyICPair {
 	if p.PendingRemove {
 		return nil
 	}
@@ -948,7 +949,7 @@ func (p *Peer) sendRaftMessage(msg eraftpb.Message, trans Transport) error {
 	return trans.Send(sendMsg)
 }
 
-func (p *Peer) HandleRaftReadyApply(kv *mvcc.DBBundle, applyMsgs *applyMsgs, ready *raft.Ready) {
+func (p *Peer) HandleRaftReadyApply(kv *badger.DB, applyMsgs *applyMsgs, ready *raft.Ready) {
 	// Call `HandleRaftCommittedEntries` directly here may lead to inconsistency.
 	// In some cases, there will be some pending committed entries when applying a
 	// snapshot. If we call `HandleRaftCommittedEntries` directly, these updates
@@ -1024,7 +1025,7 @@ func (p *Peer) HandleRaftReadyApply(kv *mvcc.DBBundle, applyMsgs *applyMsgs, rea
 	}
 }
 
-func (p *Peer) ApplyReads(kv *mvcc.DBBundle, ready *raft.Ready) {
+func (p *Peer) ApplyReads(kv *badger.DB, ready *raft.Ready) {
 	var proposeTime *time.Time
 	if p.readyToHandleRead() {
 		for _, state := range ready.ReadStates {
@@ -1070,7 +1071,7 @@ func (p *Peer) ApplyReads(kv *mvcc.DBBundle, ready *raft.Ready) {
 	}
 }
 
-func (p *Peer) PostApply(kv *mvcc.DBBundle, applyState applyState, appliedIndexTerm uint64, sizeDiffHint uint64) bool {
+func (p *Peer) PostApply(kv *badger.DB, applyState applyState, appliedIndexTerm uint64, sizeDiffHint uint64) bool {
 	hasReady := false
 	if p.IsApplyingSnapshot() {
 		panic("should not applying snapshot")
@@ -1123,7 +1124,7 @@ func (p *Peer) PostSplit() {
 // Propose a request.
 //
 // Return true means the request has been proposed successfully.
-func (p *Peer) Propose(kv *mvcc.DBBundle, cfg *Config, cb *Callback, req *raft_cmdpb.RaftCmdRequest, errResp *raft_cmdpb.RaftCmdResponse) bool {
+func (p *Peer) Propose(kv *badger.DB, cfg *Config, cb *Callback, req *raft_cmdpb.RaftCmdRequest, errResp *raft_cmdpb.RaftCmdResponse) bool {
 	if p.PendingRemove {
 		return false
 	}
@@ -1310,7 +1311,7 @@ func (p *Peer) readyToTransferLeader(cfg *Config, peer *metapb.Peer) bool {
 	return lastIndex <= status.Progress[peerId].Match+cfg.LeaderTransferMaxLogLag
 }
 
-func (p *Peer) readLocal(kv *mvcc.DBBundle, req *raft_cmdpb.RaftCmdRequest, cb *Callback) {
+func (p *Peer) readLocal(kv *badger.DB, req *raft_cmdpb.RaftCmdRequest, cb *Callback) {
 	resp, _ := p.handleRead(kv, req, false)
 	cb.Done(resp)
 }
@@ -1514,7 +1515,7 @@ func (p *Peer) ProposeConfChange(cfg *Config, req *raft_cmdpb.RaftCmdRequest) (u
 	return proposeIndex, nil
 }
 
-func (p *Peer) handleRead(kv *mvcc.DBBundle, req *raft_cmdpb.RaftCmdRequest, checkEpoch bool) (*raft_cmdpb.RaftCmdResponse, *mvcc.DBSnapshot) {
+func (p *Peer) handleRead(kv *badger.DB, req *raft_cmdpb.RaftCmdRequest, checkEpoch bool) (*raft_cmdpb.RaftCmdResponse, *badger.Txn) {
 	readExecutor := NewReadExecutor(kv, checkEpoch, false)
 	resp, snap := readExecutor.Execute(req, p.Region())
 	BindRespTerm(resp, p.Term())
@@ -1583,7 +1584,7 @@ func Inspect(i RequestInspector, req *raft_cmdpb.RaftCmdRequest) (RequestPolicy,
 			hasRead = true
 		case raft_cmdpb.CmdType_Delete, raft_cmdpb.CmdType_Put:
 			hasWrite = true
-		case raft_cmdpb.CmdType_Prewrite, raft_cmdpb.CmdType_Invalid:
+		case raft_cmdpb.CmdType_Invalid:
 			return RequestPolicy_Invalid, fmt.Errorf("invalid cmd type %v, message maybe corrupted", r.CmdType)
 		}
 
@@ -1620,13 +1621,13 @@ func Inspect(i RequestInspector, req *raft_cmdpb.RaftCmdRequest) (RequestPolicy,
 
 type ReadExecutor struct {
 	checkEpoch       bool
-	engine           *mvcc.DBBundle
-	snapshot         *mvcc.DBSnapshot
+	engine           *badger.DB
+	snapshot         *badger.Txn
 	snapshotTime     *time.Time
 	needSnapshotTime bool
 }
 
-func NewReadExecutor(engine *mvcc.DBBundle, checkEpoch bool, needSnapshotTime bool) *ReadExecutor {
+func NewReadExecutor(engine *badger.DB, checkEpoch bool, needSnapshotTime bool) *ReadExecutor {
 	return &ReadExecutor{
 		checkEpoch:       checkEpoch,
 		engine:           engine,
@@ -1645,11 +1646,7 @@ func (r *ReadExecutor) MaybeUpdateSnapshot() {
 	if r.snapshot != nil {
 		return
 	}
-	r.snapshot = &mvcc.DBSnapshot{
-		Txn:           r.engine.DB.NewTransaction(false),
-		LockStore:     r.engine.LockStore,
-		RollbackStore: r.engine.RollbackStore,
-	}
+	r.snapshot = r.engine.NewTransaction(false)
 	// Reading current timespec after snapshot, in case we do not
 	// expire lease in time.
 	// Todo: atomic::fence(atomic::Ordering::Release)
@@ -1666,7 +1663,7 @@ func (r *ReadExecutor) DoGet(req *raft_cmdpb.Request, region *metapb.Region) (*r
 	}
 
 	resp := new(raft_cmdpb.Response)
-	item, err := r.snapshot.Txn.Get(DataKey(req.Get.Key))
+	item, err := r.snapshot.Get(DataKey(req.Get.Key))
 	if err != nil {
 		panic(fmt.Sprintf("[region %v] failed to get %v, err: %v", region.Id, req.Get.Key, err))
 	}
@@ -1681,7 +1678,7 @@ func (r *ReadExecutor) DoGet(req *raft_cmdpb.Request, region *metapb.Region) (*r
 	return resp, nil
 }
 
-func (r *ReadExecutor) Execute(msg *raft_cmdpb.RaftCmdRequest, region *metapb.Region) (*raft_cmdpb.RaftCmdResponse, *mvcc.DBSnapshot) {
+func (r *ReadExecutor) Execute(msg *raft_cmdpb.RaftCmdRequest, region *metapb.Region) (*raft_cmdpb.RaftCmdResponse, *badger.Txn) {
 	if r.checkEpoch {
 		if err := CheckRegionEpoch(msg, region, true); err != nil {
 			log.Debugf("[region %v] epoch not match, err: %v", region.Id, err)
@@ -1704,7 +1701,7 @@ func (r *ReadExecutor) Execute(msg *raft_cmdpb.RaftCmdRequest, region *metapb.Re
 		case raft_cmdpb.CmdType_Snap:
 			needSnapshot = true
 			resp = new(raft_cmdpb.Response)
-		case raft_cmdpb.CmdType_Prewrite, raft_cmdpb.CmdType_Put, raft_cmdpb.CmdType_Delete,
+		case raft_cmdpb.CmdType_Put, raft_cmdpb.CmdType_Delete,
 			raft_cmdpb.CmdType_Invalid:
 			panic("unreachable")
 		}

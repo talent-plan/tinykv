@@ -170,7 +170,7 @@ func TestPendingApplies(t *testing.T) {
 		require.Nil(t, copySnapshot(s3, s2))
 
 		// set applying state
-		wb := new(WriteBatch)
+		wb := new(engine_util.WriteBatch)
 		regionLocalState, err := getRegionLocalState(engines.kv.DB, regionId)
 		require.Nil(t, err)
 		regionLocalState.State = rspb.PeerState_Applying
@@ -259,7 +259,7 @@ func TestGcRaftLog(t *testing.T) {
 
 	//  generate raft logs
 	regionId := uint64(1)
-	raftWb := new(WriteBatch)
+	raftWb := new(engine_util.WriteBatch)
 	for i := uint64(0); i < 100; i++ {
 		k := RaftLogKey(regionId, i)
 		raftWb.Set(k, []byte("entry"))

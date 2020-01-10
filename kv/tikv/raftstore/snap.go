@@ -1,7 +1,6 @@
 package raftstore
 
 import (
-	"bytes"
 	"fmt"
 	"hash"
 	"hash/crc32"
@@ -12,27 +11,20 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/coocood/badger"
 	"github.com/coocood/badger/table"
-	"github.com/coocood/badger/y"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/mvcc"
 
 	"github.com/ngaut/log"
-	"github.com/pingcap-incubator/tinykv/kv/rocksdb"
+	"github.com/pingcap-incubator/tinykv/kv/config"
+	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/util"
-	"github.com/pingcap/errors"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
+	"github.com/pingcap/errors"
 )
 
-type CFName = string
-
 const (
-	CFDefault CFName = "default"
-	CFLock    CFName = "lock"
-	CFWrite   CFName = "write"
-	CFRaft    CFName = "raft"
-
 	snapGenPrefix       = "gen" // Name prefix for the self-generated snapshot file.
 	snapRevPrefix       = "rev" // Name prefix for the received snapshot file.
 	sstFileSuffix       = ".sst"
@@ -51,11 +43,6 @@ func (e applySnapAbortError) Error() string {
 }
 
 var (
-	snapshotCFs  = []CFName{CFDefault, CFLock, CFWrite}
-	defaultCFIdx = 0
-	lockCFIdx    = 1
-	writeCFIdx   = 2
-
 	errAbort = applySnapAbortError("abort")
 )
 
@@ -92,27 +79,17 @@ type SnapStatistics struct {
 }
 
 type ApplyOptions struct {
-	DBBundle   *mvcc.DBBundle
-	Region     *metapb.Region
-	Abort      *uint32
-	Builder    *table.Builder
-	OldBuilder *table.Builder
+	db     *badger.DB
+	Region *metapb.Region
+	Abort  *uint32
 }
 
-func newApplyOptions(db *mvcc.DBBundle, region *metapb.Region, abort *uint32, builder, oldBuilder *table.Builder) *ApplyOptions {
+func newApplyOptions(db *badger.DB, region *metapb.Region, abort *uint32) *ApplyOptions {
 	return &ApplyOptions{
-		DBBundle:   db,
-		Region:     region,
-		Abort:      abort,
-		Builder:    builder,
-		OldBuilder: oldBuilder,
+		db:     db,
+		Region: region,
+		Abort:  abort,
 	}
-}
-
-type ApplyResult struct {
-	HasPut      bool
-	HasOldPut   bool
-	RegionState *rspb.RegionLocalState
 }
 
 // `Snapshot` is an interface for snapshot.
@@ -132,7 +109,7 @@ type Snapshot interface {
 	Meta() (os.FileInfo, error)
 	TotalSize() uint64
 	Save() error
-	Apply(option ApplyOptions) (ApplyResult, error)
+	Apply(option ApplyOptions) error
 }
 
 // copySnapshot is a helper function to copy snapshot.
@@ -167,10 +144,10 @@ func retryDeleteSnapshot(deleter SnapshotDeleter, key SnapKey, snap Snapshot) bo
 }
 
 func genSnapshotMeta(cfFiles []*CFFile) (*rspb.SnapshotMeta, error) {
-	cfMetas := make([]*rspb.SnapshotCFFile, 0, len(snapshotCFs))
+	cfMetas := make([]*rspb.SnapshotCFFile, 0, len(engine_util.CFs))
 	for _, cfFile := range cfFiles {
 		var found bool
-		for _, snapCF := range snapshotCFs {
+		for _, snapCF := range engine_util.CFs {
 			if snapCF == cfFile.CF {
 				found = true
 				break
@@ -223,11 +200,11 @@ func checkFileSizeAndChecksum(path string, expectedSize uint64, expectedChecksum
 }
 
 type CFFile struct {
-	CF          CFName
+	CF          string
 	Path        string
 	TmpPath     string
 	ClonePath   string
-	SstWriter   *rocksdb.SstFileWriter
+	SstWriter   *table.Builder
 	File        *os.File
 	KVCount     int
 	Size        uint64
@@ -275,8 +252,8 @@ func NewSnap(dir string, key SnapKey, sizeTrack *int64, isSending, toBuild bool,
 	}
 	prefix := fmt.Sprintf("%s_%s", snapPrefix, key)
 	displayPath := getDisplayPath(dir, prefix)
-	cfFiles := make([]*CFFile, 0, len(snapshotCFs))
-	for _, cf := range snapshotCFs {
+	cfFiles := make([]*CFFile, 0, len(engine_util.CFs))
+	for _, cf := range engine_util.CFs {
 		fileName := fmt.Sprintf("%s_%s%s", prefix, cf, sstFileSuffix)
 		path := filepath.Join(dir, fileName)
 		tmpPath := path + tmpFileSuffix
@@ -408,18 +385,9 @@ func (s *Snap) initForBuilding() error {
 		if err != nil {
 			return err
 		}
-		if plainFileUsed(cfFile.CF) {
-			cfFile.File = file
-		} else {
-			opts := rocksdb.NewDefaultBlockBasedTableOptions(bytes.Compare)
-			cfFile.SstWriter = rocksdb.NewSstFileWriter(file, opts)
-		}
+		cfFile.SstWriter = table.NewExternalTableBuilder(file, nil, badger.DefaultOptions.TableBuilderOptions, config.ParseCompression(config.GetGlobalConf().Engine.IngestCompression))
 	}
 	return nil
-}
-
-func plainFileUsed(cf string) bool {
-	return cf == CFLock
 }
 
 func (s *Snap) readSnapshotMeta() (*rspb.SnapshotMeta, error) {
@@ -487,7 +455,7 @@ func (s *Snap) loadSnapMeta() error {
 }
 
 func getDisplayPath(dir string, prefix string) string {
-	cfNames := "(" + strings.Join(snapshotCFs, "|") + ")"
+	cfNames := "(" + strings.Join(engine_util.CFs[:], "|") + ")"
 	return fmt.Sprintf("%s/%s_%s%s", dir, prefix, cfNames, sstFileSuffix)
 }
 
@@ -498,31 +466,20 @@ func (s *Snap) validate() error {
 			// this is checked when loading the snapshot meta.
 			continue
 		}
-		if plainFileUsed(cfFile.CF) {
-			err := checkFileSizeAndChecksum(cfFile.Path, cfFile.Size, cfFile.Checksum)
-			if err != nil {
-				return err
-			}
-		} else {
-			// TODO: prepare and validate for ingestion
-		}
+		// TODO: prepare and validate for ingestion
 	}
 	return nil
 }
 
 func (s *Snap) saveCFFiles() error {
 	for _, cfFile := range s.CFFiles {
-		if plainFileUsed(cfFile.CF) {
-			cfFile.File.Close()
-		} else {
-			if cfFile.KVCount > 0 {
-				err := cfFile.SstWriter.Finish()
-				if err != nil {
-					return err
-				}
+		if cfFile.KVCount > 0 {
+			err := cfFile.SstWriter.Finish()
+			if err != nil {
+				return err
 			}
-			cfFile.SstWriter.Close()
 		}
+		cfFile.SstWriter.Close()
 		size, err := util.GetFileSize(cfFile.TmpPath)
 		if err != nil {
 			return err
@@ -585,11 +542,8 @@ func (s *Snap) Build(dbSnap *regionSnapshot, region *metapb.Region, snapData *rs
 		}
 	}
 
-	builder, err := newSnapBuilder(s.CFFiles, dbSnap, region)
-	if err != nil {
-		return err
-	}
-	err = builder.build()
+	builder := newSnapBuilder(s.CFFiles, dbSnap, region)
+	err := builder.build()
 	if err != nil {
 		return err
 	}
@@ -722,51 +676,33 @@ func (s *Snap) Save() error {
 	return nil
 }
 
-func (s *Snap) Apply(opts ApplyOptions) (ApplyResult, error) {
-	var result ApplyResult
+func (s *Snap) Apply(opts ApplyOptions) error {
 	err := s.validate()
 	if err != nil {
-		return result, err
+		return err
 	}
 	err = checkAbort(opts.Abort)
 	if err != nil {
-		return result, err
+		return err
 	}
-	applier, err := newSnapApplier(s.CFFiles)
+
+	compression := config.ParseCompression(config.GetGlobalConf().Engine.IngestCompression)
+	externalFiles := make([]badger.ExternalTableSpec, len(s.CFFiles))
+	for i, cfFile := range s.CFFiles {
+		if cfFile.Size == 0 {
+			// Skip empty cf file
+			continue
+		}
+		externalFiles[i] = badger.ExternalTableSpec{Compression: compression, Filename: cfFile.File.Name()}
+	}
+
+	n, err := opts.db.IngestExternalFiles(externalFiles)
 	if err != nil {
-		return result, err
+		log.Errorf("ingest sst failed (first %d files succeeded): %s", n, err)
+		return err
 	}
-	defer applier.close()
-
-	for {
-		item, err1 := applier.next()
-		if err1 != nil {
-			return result, err1
-		}
-		if item == nil {
-			break
-		}
-		switch item.applySnapType {
-		case applySnapTypePut:
-			result.HasPut = true
-			opts.Builder.Add(item.key, y.ValueStruct{
-				Value:    item.val,
-				UserMeta: item.userMeta,
-			})
-		case applySnapTypePutOld:
-			result.HasOldPut = true
-			opts.OldBuilder.Add(item.key, y.ValueStruct{
-				Value:    item.val,
-				UserMeta: item.userMeta,
-			})
-		case applySnapTypeLock:
-			opts.DBBundle.LockStore.Insert(item.key, item.val)
-		case applySnapTypeRollback:
-			opts.DBBundle.RollbackStore.Insert(item.key, item.val)
-		}
-	}
-
-	return result, nil
+	log.Infof("apply snapshot ingested %d tables", n)
+	return nil
 }
 
 func checkAbort(status *uint32) error {

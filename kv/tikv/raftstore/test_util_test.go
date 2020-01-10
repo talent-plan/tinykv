@@ -53,9 +53,9 @@ func newTestPeerStorage(t *testing.T) *PeerStorage {
 
 func newTestPeerStorageFromEnts(t *testing.T, ents []eraftpb.Entry) *PeerStorage {
 	peerStore := newTestPeerStorage(t)
-	kvWB := new(WriteBatch)
+	kvWB := new(engine_util.WriteBatch)
 	ctx := NewInvokeContext(peerStore)
-	raftWB := new(WriteBatch)
+	raftWB := new(engine_util.WriteBatch)
 	require.Nil(t, peerStore.Append(ctx, ents[1:], raftWB))
 	ctx.ApplyState.truncatedIndex = ents[0].Index
 	ctx.ApplyState.truncatedTerm = ents[0].Term

@@ -12,7 +12,7 @@ import (
 	"github.com/cznic/mathutil"
 	"github.com/golang/protobuf/proto"
 	"github.com/ngaut/log"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
+	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
@@ -182,17 +182,17 @@ func (ic *InvokeContext) hasSnapshot() bool {
 	return ic.SnapRegion != nil
 }
 
-func (ic *InvokeContext) saveRaftStateTo(wb *WriteBatch) {
+func (ic *InvokeContext) saveRaftStateTo(wb *engine_util.WriteBatch) {
 	key := RaftStateKey(ic.RegionID)
 	wb.Set(key, ic.RaftState.Marshal())
 }
 
-func (ic *InvokeContext) saveApplyStateTo(wb *WriteBatch) {
+func (ic *InvokeContext) saveApplyStateTo(wb *engine_util.WriteBatch) {
 	key := ApplyStateKey(ic.RegionID)
 	wb.Set(key, ic.ApplyState.Marshal())
 }
 
-func (ic *InvokeContext) saveSnapshotRaftStateTo(snapshotIdx uint64, wb *WriteBatch) {
+func (ic *InvokeContext) saveSnapshotRaftStateTo(snapshotIdx uint64, wb *engine_util.WriteBatch) {
 	snapshotRaftState := ic.RaftState
 	snapshotRaftState.commit = snapshotIdx
 	snapshotRaftState.lastIndex = snapshotIdx
@@ -200,10 +200,10 @@ func (ic *InvokeContext) saveSnapshotRaftStateTo(snapshotIdx uint64, wb *WriteBa
 	wb.Set(key, snapshotRaftState.Marshal())
 }
 
-func recoverFromApplyingState(engines *Engines, raftWB *WriteBatch, regionID uint64) error {
+func recoverFromApplyingState(engines *Engines, raftWB *engine_util.WriteBatch, regionID uint64) error {
 	snapRaftStateKey := SnapshotRaftStateKey(regionID)
 	snapRaftState := raftState{}
-	val, err := getValue(engines.kv.DB, snapRaftStateKey)
+	val, err := getValue(engines.kv, snapRaftStateKey)
 	if err != nil {
 		return errors.Errorf("region %d failed to get raftstate from kv engine when recover from applying state", regionID)
 	}
@@ -211,7 +211,7 @@ func recoverFromApplyingState(engines *Engines, raftWB *WriteBatch, regionID uin
 
 	raftStateKey := RaftStateKey(regionID)
 	raftState := raftState{}
-	val, err = getValue(engines.kv.DB, raftStateKey)
+	val, err = getValue(engines.kv, raftStateKey)
 	if err != nil && err != badger.ErrKeyNotFound {
 		return errors.WithStack(err)
 	}
@@ -258,7 +258,7 @@ func NewPeerStorage(engines *Engines, region *metapb.Region, regionSched chan<- 
 	if err != nil {
 		return nil, err
 	}
-	applyState, err := initApplyState(engines.kv.DB, region)
+	applyState, err := initApplyState(engines.kv, region)
 	if err != nil {
 		return nil, err
 	}
@@ -617,7 +617,7 @@ func (ps *PeerStorage) Snapshot() (eraftpb.Snapshot, error) {
 // Append the given entries to the raft log using previous last index or self.last_index.
 // Return the new last index for later update. After we commit in engine, we can set last_index
 // to the return one.
-func (ps *PeerStorage) Append(invokeCtx *InvokeContext, entries []eraftpb.Entry, raftWB *WriteBatch) error {
+func (ps *PeerStorage) Append(invokeCtx *InvokeContext, entries []eraftpb.Entry, raftWB *engine_util.WriteBatch) error {
 	log.Debugf("%s append %d entries", ps.Tag, len(entries))
 	prevLastIndex := invokeCtx.RaftState.lastIndex
 	if len(entries) == 0 {
@@ -666,7 +666,7 @@ func (ps *PeerStorage) MaybeGCCache(replicatedIdx, appliedIdx uint64) {
 	}
 }
 
-func (ps *PeerStorage) clearMeta(kvWB, raftWB *WriteBatch) error {
+func (ps *PeerStorage) clearMeta(kvWB, raftWB *engine_util.WriteBatch) error {
 	return ClearMeta(ps.Engines, kvWB, raftWB, ps.region.Id, ps.raftState.lastIndex)
 }
 
@@ -742,7 +742,7 @@ func fetchEntriesTo(engine *badger.DB, regionID, low, high, maxSize uint64, buf 
 	}
 	startKey := RaftLogKey(regionID, low)
 	endKey := RaftLogKey(regionID, high)
-	iter := dbreader.NewIterator(txn, false, startKey, endKey)
+	iter := txn.NewIterator(badger.DefaultIteratorOptions)
 	defer iter.Close()
 	for iter.Seek(startKey); iter.Valid(); iter.Next() {
 		item := iter.Item()
@@ -781,7 +781,7 @@ func fetchEntriesTo(engine *badger.DB, regionID, low, high, maxSize uint64, buf 
 	return nil, 0, raft.ErrUnavailable
 }
 
-func ClearMeta(engines *Engines, kvWB, raftWB *WriteBatch, regionID uint64, lastIndex uint64) error {
+func ClearMeta(engines *Engines, kvWB, raftWB *engine_util.WriteBatch, regionID uint64, lastIndex uint64) error {
 	start := time.Now()
 	kvWB.Delete(RegionStateKey(regionID))
 	kvWB.Delete(ApplyStateKey(regionID))
@@ -818,7 +818,7 @@ func ClearMeta(engines *Engines, kvWB, raftWB *WriteBatch, regionID uint64, last
 	return nil
 }
 
-func WritePeerState(kvWB *WriteBatch, region *metapb.Region, state rspb.PeerState) {
+func WritePeerState(kvWB *engine_util.WriteBatch, region *metapb.Region, state rspb.PeerState) {
 	regionID := region.Id
 	regionState := new(rspb.RegionLocalState)
 	regionState.State = state
@@ -828,7 +828,7 @@ func WritePeerState(kvWB *WriteBatch, region *metapb.Region, state rspb.PeerStat
 }
 
 // Apply the peer with given snapshot.
-func (ps *PeerStorage) ApplySnapshot(ctx *InvokeContext, snap *eraftpb.Snapshot, kvWB *WriteBatch, raftWB *WriteBatch) error {
+func (ps *PeerStorage) ApplySnapshot(ctx *InvokeContext, snap *eraftpb.Snapshot, kvWB *engine_util.WriteBatch, raftWB *engine_util.WriteBatch) error {
 	log.Infof("%v begin to apply snapshot", ps.Tag)
 
 	snapData := new(rspb.RaftSnapshotData)
@@ -872,7 +872,7 @@ func (ps *PeerStorage) ApplySnapshot(ctx *InvokeContext, snap *eraftpb.Snapshot,
 /// it explicitly to disk. If it's flushed to disk successfully, `post_ready` should be called
 /// to update the memory states properly.
 /// Do not modify ready in this function, this is a requirement to advance the ready object properly later.
-func (ps *PeerStorage) SaveReadyState(kvWB, raftWB *WriteBatch, ready *raft.Ready) (*InvokeContext, error) {
+func (ps *PeerStorage) SaveReadyState(kvWB, raftWB *engine_util.WriteBatch, ready *raft.Ready) (*InvokeContext, error) {
 	ctx := NewInvokeContext(ps)
 	var snapshotIdx uint64 = 0
 	if !raft.IsEmptySnap(&ready.Snapshot) {
@@ -1049,10 +1049,10 @@ func getAppliedIdxTermForSnapshot(raft *badger.DB, kv *badger.Txn, regionId uint
 	return idx, term, nil
 }
 
-func doSnapshot(engines *Engines, mgr *SnapManager, regionId, redoIdx uint64) (*eraftpb.Snapshot, error) {
+func doSnapshot(engines *Engines, mgr *SnapManager, regionId uint64) (*eraftpb.Snapshot, error) {
 	log.Debugf("begin to generate a snapshot. [regionId: %d]", regionId)
 
-	snap, err := engines.newRegionSnapshot(regionId, redoIdx)
+	snap, err := engines.newRegionSnapshot(regionId)
 	if err != nil {
 		return nil, err
 	}

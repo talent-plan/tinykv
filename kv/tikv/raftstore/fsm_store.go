@@ -9,10 +9,10 @@ import (
 	"github.com/coocood/badger"
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/lockstore"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/rocksdb"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
@@ -89,8 +89,8 @@ type RaftContext struct {
 	*GlobalContext
 	applyMsgs    *applyMsgs
 	ReadyRes     []*ReadyICPair
-	kvWB         *WriteBatch
-	raftWB       *WriteBatch
+	kvWB         *engine_util.WriteBatch
+	raftWB       *engine_util.WriteBatch
 	pendingCount int
 	hasReady     bool
 	queuedSnaps  map[uint64]struct{}
@@ -173,22 +173,22 @@ func (bs *raftBatchSystem) loadPeers() ([]*peerFsm, error) {
 	startKey := RegionMetaMinKey
 	endKey := RegionMetaMaxKey
 	ctx := bs.ctx
-	kvEngine := ctx.engine.kv.DB
+	kvEngine := ctx.engine.kv
 	storeID := ctx.store.Id
 
 	var totalCount, tombStoneCount, applyingCount int
 	var regionPeers []*peerFsm
 
 	t := time.Now()
-	kvWB := new(WriteBatch)
-	raftWB := new(WriteBatch)
+	kvWB := new(engine_util.WriteBatch)
+	raftWB := new(engine_util.WriteBatch)
 	var applyingRegions []*metapb.Region
 	var mergingCount int
 	ctx.storeMetaLock.Lock()
 	defer ctx.storeMetaLock.Unlock()
 	meta := ctx.storeMeta
 	err := kvEngine.View(func(txn *badger.Txn) error {
-		it := dbreader.NewIterator(txn, false, startKey, endKey)
+		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
 		for it.Seek(startKey); it.Valid(); it.Next() {
 			item := it.Item()
@@ -242,12 +242,8 @@ func (bs *raftBatchSystem) loadPeers() ([]*peerFsm, error) {
 	if err != nil {
 		return nil, err
 	}
-	if kvWB.size > 0 {
-		kvWB.MustWriteToKV(ctx.engine.kv)
-	}
-	if raftWB.size > 0 {
-		raftWB.MustWriteToRaft(ctx.engine.raft)
-	}
+	kvWB.MustWriteToKV(ctx.engine.kv)
+	raftWB.MustWriteToRaft(ctx.engine.raft)
 
 	// schedule applying snapshot after raft write batch were written.
 	for _, region := range applyingRegions {
@@ -266,7 +262,7 @@ func (bs *raftBatchSystem) loadPeers() ([]*peerFsm, error) {
 	return regionPeers, nil
 }
 
-func (bs *raftBatchSystem) clearStaleMeta(kvWB, raftWB *WriteBatch, originState *rspb.RegionLocalState) {
+func (bs *raftBatchSystem) clearStaleMeta(kvWB, raftWB *engine_util.WriteBatch, originState *rspb.RegionLocalState) {
 	region := originState.Region
 	raftKey := RaftStateKey(region.Id)
 	raftState := raftState{}
@@ -392,7 +388,7 @@ func (bs *raftBatchSystem) startWorkers(peers []*peerFsm) {
 	}
 	engines := ctx.engine
 	cfg := ctx.cfg
-	workers.splitCheckWorker.start(newSplitCheckHandler(engines.kv.DB, router, cfg.SplitCheck))
+	workers.splitCheckWorker.start(newSplitCheckHandler(engines.kv, router, cfg.SplitCheck))
 	workers.regionWorker.start(newRegionTaskHandler(engines, ctx.snapMgr, cfg.SnapApplyBatchSize, cfg.CleanStalePeerDelay))
 	workers.raftLogGCWorker.start(&raftLogGCTaskHandler{})
 	workers.pdWorker.start(newPDTaskHandler(ctx.store.Id, ctx.pdClient, bs.router))
@@ -443,7 +439,7 @@ func (d *storeMsgHandler) checkMsg(msg *rspb.RaftMessage) (bool, error) {
 	// Check if the target is tombstone,
 	stateKey := RegionStateKey(regionID)
 	localState := new(rspb.RegionLocalState)
-	err := getMsg(d.ctx.engine.kv.DB, stateKey, localState)
+	err := getMsg(d.ctx.engine.kv, stateKey, localState)
 	if err != nil {
 		if err == badger.ErrKeyNotFound {
 			return false, nil
@@ -585,7 +581,7 @@ func (d *storeMsgHandler) storeHeartbeatPD() {
 	d.ctx.storeMetaLock.RUnlock()
 	storeInfo := &pdStoreHeartbeatTask{
 		stats:    stats,
-		engine:   d.ctx.engine.kv.DB,
+		engine:   d.ctx.engine.kv,
 		capacity: d.ctx.cfg.Capacity,
 		path:     d.ctx.engine.kvPath,
 	}
