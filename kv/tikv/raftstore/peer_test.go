@@ -165,7 +165,7 @@ func TestRequestInspector(t *testing.T) {
 
 	// Err(_)
 	var errTbl []*raft_cmdpb.RaftCmdRequest
-	for _, op := range []raft_cmdpb.CmdType{raft_cmdpb.CmdType_Prewrite, raft_cmdpb.CmdType_Invalid} {
+	for _, op := range []raft_cmdpb.CmdType{raft_cmdpb.CmdType_Invalid} {
 		request := new(raft_cmdpb.Request)
 		request.CmdType = op
 		req = new(raft_cmdpb.RaftCmdRequest)

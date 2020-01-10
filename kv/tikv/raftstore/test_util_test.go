@@ -5,19 +5,14 @@ import (
 	"os"
 	"testing"
 
-	"github.com/pingcap-incubator/tinykv/kv/tikv/mvcc"
-
-	"github.com/pingcap-incubator/tinykv/kv/lockstore"
-
 	"github.com/coocood/badger"
+	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
-	"github.com/pingcap/tidb/util/codec"
 	"github.com/stretchr/testify/require"
 )
 
 func newTestEngines(t *testing.T) *Engines {
 	engines := new(Engines)
-	engines.kv = new(mvcc.DBBundle)
 	var err error
 	engines.kvPath, err = ioutil.TempDir("", "unistore_kv")
 	require.Nil(t, err)
@@ -25,9 +20,7 @@ func newTestEngines(t *testing.T) *Engines {
 	kvOpts.Dir = engines.kvPath
 	kvOpts.ValueDir = engines.kvPath
 	kvOpts.ValueThreshold = 256
-	engines.kv.DB, err = badger.Open(kvOpts)
-	engines.kv.LockStore = lockstore.NewMemStore(16 * 1024)
-	engines.kv.RollbackStore = lockstore.NewMemStore(16 * 1024)
+	engines.kv, err = badger.Open(kvOpts)
 	require.Nil(t, err)
 	engines.raftPath, err = ioutil.TempDir("", "unistore_raft")
 	require.Nil(t, err)
@@ -84,11 +77,4 @@ func newTestEntry(index, term uint64) eraftpb.Entry {
 		Term:  term,
 		Data:  []byte{0},
 	}
-}
-
-func encodeOldKey(key []byte, ts uint64) []byte {
-	b := append([]byte{}, key...)
-	ret := codec.EncodeUintDesc(b, ts)
-	ret[0]++
-	return ret
 }

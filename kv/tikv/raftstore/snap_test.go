@@ -8,11 +8,8 @@ import (
 	"testing"
 
 	"github.com/coocood/badger"
-	"github.com/pingcap-incubator/tinykv/kv/lockstore"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/mvcc"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
+	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,7 +17,6 @@ import (
 
 var (
 	snapTestKey        = []byte("tkey")
-	snapTestKeyOld     = encodeOldKey(snapTestKey, 100)
 	regionTestBegin    = []byte("ta")
 	regionTestBeginOld = []byte("ua")
 	regionTestEnd      = []byte("tz")
@@ -38,29 +34,29 @@ func (d *dummyDeleter) DeleteSnapshot(key SnapKey, snapshot Snapshot, checkEntry
 	return true
 }
 
-func getTestDBForRegions(t *testing.T, path string, regions []uint64) *mvcc.DBBundle {
-	kv := openDBBundle(t, path)
-	fillDBBundleData(t, kv)
-	for _, regionID := range regions {
-		// Put apply state into kv engine.
-		applyState := applyState{
-			appliedIndex:   10,
-			truncatedIndex: 10,
-		}
-		require.Nil(t, putValue(kv.DB, ApplyStateKey(regionID), applyState.Marshal()))
+// func getTestDBForRegions(t *testing.T, path string, regions []uint64) *badger.DB {
+// 	kv := openDBBundle(t, path)
+// 	fillDBBundleData(t, kv)
+// 	for _, regionID := range regions {
+// 		// Put apply state into kv engine.
+// 		applyState := applyState{
+// 			appliedIndex:   10,
+// 			truncatedIndex: 10,
+// 		}
+// 		require.Nil(t, putValue(kv.DB, ApplyStateKey(regionID), applyState.Marshal()))
 
-		// Put region ifno into kv engine.
-		region := genTestRegion(regionID, 1, 1)
-		regionState := new(rspb.RegionLocalState)
-		regionState.Region = region
-		require.Nil(t, putMsg(kv.DB, RegionStateKey(regionID), regionState))
-	}
-	return kv
-}
+// 		// Put region info into kv engine.
+// 		region := genTestRegion(regionID, 1, 1)
+// 		regionState := new(rspb.RegionLocalState)
+// 		regionState.Region = region
+// 		require.Nil(t, putMsg(kv.DB, RegionStateKey(regionID), regionState))
+// 	}
+// 	return kv
+// }
 
-func getKVCount(t *testing.T, db *mvcc.DBBundle) int {
+func getKVCount(t *testing.T, db *badger.DB) int {
 	count := 0
-	err := db.DB.View(func(txn *badger.Txn) error {
+	err := db.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
 		for it.Seek(regionTestBegin); it.Valid(); it.Next() {
@@ -77,13 +73,7 @@ func getKVCount(t *testing.T, db *mvcc.DBBundle) int {
 		}
 		return nil
 	})
-	lockIterator := db.LockStore.NewIterator()
-	for lockIterator.Seek(regionTestBegin); lockIterator.Valid(); lockIterator.Next() {
-		if bytes.Compare(lockIterator.Key(), regionTestEnd) >= 0 {
-			break
-		}
-		count++
-	}
+
 	assert.Nil(t, err)
 	return count
 }
@@ -103,16 +93,10 @@ func genTestRegion(regionID, storeID, peerID uint64) *metapb.Region {
 	}
 }
 
-func assertEqDB(t *testing.T, expected, actual *mvcc.DBBundle) {
-	expectedVal := getDBValue(t, expected.DB, snapTestKey)
-	actualVal := getDBValue(t, actual.DB, snapTestKey)
+func assertEqDB(t *testing.T, expected, actual *badger.DB) {
+	expectedVal := getDBValue(t, expected, snapTestKey)
+	actualVal := getDBValue(t, actual, snapTestKey)
 	assert.Equal(t, expectedVal, actualVal)
-	expectedVal = getDBValue(t, expected.DB, snapTestKeyOld)
-	actualVal = getDBValue(t, actual.DB, snapTestKeyOld)
-	assert.Equal(t, expectedVal, actualVal)
-	expectedLock := expected.LockStore.Get(snapTestKey, nil)
-	actualLock := actual.LockStore.Get(snapTestKey, nil)
-	assert.Equal(t, expectedLock, actualLock)
 }
 
 func getDBValue(t *testing.T, db *badger.DB, key []byte) (val []byte) {
@@ -126,51 +110,29 @@ func getDBValue(t *testing.T, db *badger.DB, key []byte) (val []byte) {
 	return
 }
 
-func openDBBundle(t *testing.T, dir string) *mvcc.DBBundle {
+func openDB(t *testing.T, dir string) *badger.DB {
 	opts := badger.DefaultOptions
 	opts.Dir = dir
 	opts.ValueDir = dir
 	db, err := badger.Open(opts)
 	require.Nil(t, err)
-	lockStore := lockstore.NewMemStore(1024)
-	rollbackStore := lockstore.NewMemStore(1024)
-	return &mvcc.DBBundle{
-		DB:            db,
-		LockStore:     lockStore,
-		RollbackStore: rollbackStore,
-	}
+	return db
 }
 
-func fillDBBundleData(t *testing.T, dbBundle *mvcc.DBBundle) {
+func fillDBBundleData(t *testing.T, db *badger.DB) {
 	// write some data.
 	// Put an new version key and an old version key.
-	err := dbBundle.DB.Update(func(txn *badger.Txn) error {
+	err := db.Update(func(txn *badger.Txn) error {
 		value := make([]byte, 32)
-		require.Nil(t, txn.SetWithMetaSlice(snapTestKey, value, mvcc.NewDBUserMeta(150, 200)))
-		oldUseMeta := mvcc.NewDBUserMeta(50, 100).ToOldUserMeta(200)
-		require.Nil(t, txn.SetWithMetaSlice(snapTestKeyOld, make([]byte, 128), oldUseMeta))
+		require.Nil(t, txn.Set(snapTestKey, value))
 		return nil
 	})
 	require.Nil(t, err)
-	lockVal := &mvcc.MvccLock{
-		MvccLockHdr: mvcc.MvccLockHdr{
-			StartTS:    250,
-			TTL:        100,
-			Op:         byte(kvrpcpb.Op_Put),
-			PrimaryLen: uint16(len(snapTestKey)),
-			HasOldVer:  true,
-		},
-		Primary: snapTestKey,
-		Value:   make([]byte, 128),
-		OldVal:  make([]byte, 32),
-		OldMeta: mvcc.NewDBUserMeta(150, 200),
-	}
-	dbBundle.LockStore.Insert(snapTestKey, lockVal.MarshalBinary())
 }
 
 func TestSnapGenMeta(t *testing.T) {
-	cfFiles := make([]*CFFile, 0, len(snapshotCFs))
-	for i, cf := range snapshotCFs {
+	cfFiles := make([]*CFFile, 0, len(engine_util.CFs))
+	for i, cf := range engine_util.CFs {
 		f := &CFFile{
 			CF:       cf,
 			Size:     100 * uint64(i+1),

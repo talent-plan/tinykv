@@ -6,10 +6,11 @@ import (
 	"testing"
 
 	"github.com/coocood/badger"
+	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	"github.com/pingcap-incubator/tinykv/raft"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/pingcap-incubator/tinykv/raft"
 )
 
 func TestPeerStorageTerm(t *testing.T) {
@@ -62,7 +63,7 @@ func getMetaKeyCount(t *testing.T, peerStore *PeerStorage) int {
 	count := 0
 	metaStart := RegionMetaPrefixKey(regionID)
 	metaEnd := RegionMetaPrefixKey(regionID + 1)
-	err := peerStore.Engines.kv.DB.View(func(txn *badger.Txn) error {
+	err := peerStore.Engines.kv.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
 		for it.Seek(metaStart); it.Valid(); it.Next() {
@@ -76,7 +77,7 @@ func getMetaKeyCount(t *testing.T, peerStore *PeerStorage) int {
 	require.Nil(t, err)
 	raftStart := RegionRaftPrefixKey(regionID)
 	raftEnd := RegionRaftPrefixKey(regionID + 1)
-	err = peerStore.Engines.kv.DB.View(func(txn *badger.Txn) error {
+	err = peerStore.Engines.kv.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
 		for it.Seek(metaStart); it.Valid(); it.Next() {
