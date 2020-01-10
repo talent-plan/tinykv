@@ -1,8 +1,8 @@
 package tikv
 
 import (
+	"github.com/coocood/badger"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/mvcc"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 )
@@ -17,12 +17,12 @@ type InnerServer interface {
 }
 
 type StandAlongInnerServer struct {
-	bundle *mvcc.DBBundle
+	db *badger.DB
 }
 
-func NewStandAlongInnerServer(bundle *mvcc.DBBundle) *StandAlongInnerServer {
+func NewStandAlongInnerServer(db *badger.DB) *StandAlongInnerServer {
 	return &StandAlongInnerServer{
-		bundle: bundle,
+		db: db,
 	}
 }
 
@@ -49,5 +49,5 @@ func (is *StandAlongInnerServer) Start(pdClient pd.Client) error {
 }
 
 func (is *StandAlongInnerServer) Stop() error {
-	return is.bundle.DB.Close()
+	return is.db.Close()
 }

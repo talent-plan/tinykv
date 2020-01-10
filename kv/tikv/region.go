@@ -258,20 +258,18 @@ func (rm *regionManager) isEpochStale(lhs, rhs *metapb.RegionEpoch) bool {
 
 type RaftRegionManager struct {
 	regionManager
-	router   *raftstore.RaftstoreRouter
-	eventCh  chan interface{}
-	detector *DetectorServer
+	router  *raftstore.RaftstoreRouter
+	eventCh chan interface{}
 }
 
-func NewRaftRegionManager(store *metapb.Store, router *raftstore.RaftstoreRouter, detector *DetectorServer) *RaftRegionManager {
+func NewRaftRegionManager(store *metapb.Store, router *raftstore.RaftstoreRouter) *RaftRegionManager {
 	m := &RaftRegionManager{
 		router: router,
 		regionManager: regionManager{
 			storeMeta: store,
 			regions:   make(map[uint64]*regionCtx),
 		},
-		eventCh:  make(chan interface{}, 1024),
-		detector: detector,
+		eventCh: make(chan interface{}, 1024),
 	}
 	go m.runEventHandler()
 	return m
@@ -410,7 +408,6 @@ func (rm *RaftRegionManager) runEventHandler() {
 					newRole = Leader
 				}
 				log.Infof("first region role change to newRole=%v", newRole)
-				rm.detector.ChangeRole(int32(newRole))
 			}
 		}
 	}

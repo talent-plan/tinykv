@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/ngaut/log"
-	"github.com/pingcap/errors"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
+	"github.com/pingcap/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 )

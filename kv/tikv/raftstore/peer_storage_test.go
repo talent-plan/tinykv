@@ -6,10 +6,11 @@ import (
 	"testing"
 
 	"github.com/coocood/badger"
+	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	"github.com/pingcap-incubator/tinykv/raft"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/pingcap-incubator/tinykv/raft"
 )
 
 func TestPeerStorageTerm(t *testing.T) {
@@ -40,7 +41,7 @@ func TestPeerStorageTerm(t *testing.T) {
 
 func appendEnts(t *testing.T, peerStore *PeerStorage, ents []eraftpb.Entry) {
 	ctx := NewInvokeContext(peerStore)
-	raftWB := new(WriteBatch)
+	raftWB := new(engine_util.WriteBatch)
 	require.Nil(t, peerStore.Append(ctx, ents, raftWB))
 	ctx.saveRaftStateTo(raftWB)
 	require.Nil(t, peerStore.Engines.WriteRaft(raftWB))
@@ -62,7 +63,7 @@ func getMetaKeyCount(t *testing.T, peerStore *PeerStorage) int {
 	count := 0
 	metaStart := RegionMetaPrefixKey(regionID)
 	metaEnd := RegionMetaPrefixKey(regionID + 1)
-	err := peerStore.Engines.kv.DB.View(func(txn *badger.Txn) error {
+	err := peerStore.Engines.kv.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
 		for it.Seek(metaStart); it.Valid(); it.Next() {
@@ -76,7 +77,7 @@ func getMetaKeyCount(t *testing.T, peerStore *PeerStorage) int {
 	require.Nil(t, err)
 	raftStart := RegionRaftPrefixKey(regionID)
 	raftEnd := RegionRaftPrefixKey(regionID + 1)
-	err = peerStore.Engines.kv.DB.View(func(txn *badger.Txn) error {
+	err = peerStore.Engines.kv.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
 		for it.Seek(metaStart); it.Valid(); it.Next() {
@@ -114,8 +115,8 @@ func TestPeerStorageClearMeta(t *testing.T) {
 		newTestEntry(6, 6),
 	})
 	assert.Equal(t, 6, getMetaKeyCount(t, peerStore))
-	kvWB := new(WriteBatch)
-	raftWB := new(WriteBatch)
+	kvWB := new(engine_util.WriteBatch)
+	raftWB := new(engine_util.WriteBatch)
 	require.Nil(t, peerStore.clearMeta(kvWB, raftWB))
 	require.Nil(t, peerStore.Engines.WriteKV(kvWB))
 	require.Nil(t, peerStore.Engines.WriteRaft(raftWB))
@@ -203,7 +204,7 @@ func TestPeerStorageCompact(t *testing.T) {
 		}
 		if tt.err == nil {
 			assert.Nil(t, err)
-			kvWB := new(WriteBatch)
+			kvWB := new(engine_util.WriteBatch)
 			ctx.saveApplyStateTo(kvWB)
 			require.Nil(t, peerStore.Engines.WriteKV(kvWB))
 		} else {

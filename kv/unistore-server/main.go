@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/binary"
 	"flag"
 	"net"
 	"net/http"
@@ -20,10 +19,8 @@ import (
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/lockstore"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/mvcc"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 	"google.golang.org/grpc"
@@ -61,15 +58,9 @@ func main() {
 	log.Info("gitHash:", gitHash)
 	log.SetLevelByString(conf.Server.LogLevel)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
-	safePoint := &tikv.SafePoint{}
 	log.Infof("conf %v", conf)
 	config.SetGlobalConf(conf)
-	db := createDB(subPathKV, safePoint, &conf.Engine)
-	bundle := &mvcc.DBBundle{
-		DB:            db,
-		LockStore:     lockstore.NewMemStore(8 << 20),
-		RollbackStore: lockstore.NewMemStore(256 << 10),
-	}
+	db := createDB(subPathKV, &conf.Engine)
 
 	pdClient, err := pd.NewClient(strings.Split(conf.Server.PDAddr, ","), "")
 	if err != nil {
@@ -78,15 +69,14 @@ func main() {
 
 	var (
 		innerServer   tikv.InnerServer
-		store         *tikv.MVCCStore
 		regionManager tikv.RegionManager
 	)
 	if conf.Server.Raft {
-		innerServer, store, regionManager = setupRaftInnerServer(bundle, safePoint, pdClient, conf)
+		innerServer, regionManager = setupRaftInnerServer(db, pdClient, conf)
 	} else {
-		innerServer, store, regionManager = setupStandAlongInnerServer(bundle, safePoint, pdClient, conf)
+		innerServer, regionManager = setupStandAlongInnerServer(db, pdClient, conf)
 	}
-	tikvServer := tikv.NewServer(regionManager, store, innerServer)
+	tikvServer := tikv.NewServer(regionManager, innerServer)
 
 	var alivePolicy = keepalive.EnforcementPolicy{
 		MinTime:             2 * time.Second, // If a client pings more than once every 2 seconds, terminate the connection
@@ -123,11 +113,11 @@ func main() {
 	tikvServer.Stop()
 	log.Info("Server stopped.")
 
-	err = store.Close()
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Info("Store closed.")
+	// err = store.Close()
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// log.Info("Store closed.")
 
 	if err = regionManager.Close(); err != nil {
 		log.Fatal(err)
@@ -163,7 +153,7 @@ func setupRaftStoreConf(raftConf *raftstore.Config, conf *config.Config) {
 	raftConf.RaftElectionTimeoutTicks = conf.RaftStore.RaftElectionTimeoutTicks
 }
 
-func setupRaftInnerServer(bundle *mvcc.DBBundle, safePoint *tikv.SafePoint, pdClient pd.Client, conf *config.Config) (tikv.InnerServer, *tikv.MVCCStore, tikv.RegionManager) {
+func setupRaftInnerServer(kvDB *badger.DB, pdClient pd.Client, conf *config.Config) (tikv.InnerServer, tikv.RegionManager) {
 	dbPath := conf.Engine.DBPath
 	kvPath := filepath.Join(dbPath, "kv")
 	raftPath := filepath.Join(dbPath, "raft")
@@ -177,58 +167,43 @@ func setupRaftInnerServer(bundle *mvcc.DBBundle, safePoint *tikv.SafePoint, pdCl
 	raftConf.SnapPath = snapPath
 	setupRaftStoreConf(raftConf, conf)
 
-	raftDB := createDB(subPathRaft, nil, &conf.Engine)
-	meta, err := bundle.LockStore.LoadFromFile(filepath.Join(kvPath, raftstore.LockstoreFileName))
-	if err != nil {
-		log.Fatal(err)
-	}
-	var offset uint64
-	if meta != nil {
-		offset = binary.LittleEndian.Uint64(meta)
-	}
-	err = raftstore.RestoreLockStore(offset, bundle, raftDB)
-	if err != nil {
-		log.Fatal(err)
-	}
+	raftDB := createDB(subPathRaft, &conf.Engine)
 
-	engines := raftstore.NewEngines(bundle, raftDB, kvPath, raftPath)
+	engines := raftstore.NewEngines(kvDB, raftDB, kvPath, raftPath)
 
 	innerServer := raftstore.NewRaftInnerServer(engines, raftConf)
 	innerServer.Setup(pdClient)
 	router := innerServer.GetRaftstoreRouter()
 	storeMeta := innerServer.GetStoreMeta()
-	store := tikv.NewMVCCStore(bundle, dbPath, safePoint, raftstore.NewDBWriter(router), pdClient)
-	rm := tikv.NewRaftRegionManager(storeMeta, router, store.DeadlockDetectSvr)
+	rm := tikv.NewRaftRegionManager(storeMeta, router)
 	innerServer.SetPeerEventObserver(rm)
 
 	if err := innerServer.Start(pdClient); err != nil {
 		log.Fatal(err)
 	}
 
-	return innerServer, store, rm
+	return innerServer, rm
 }
 
-func setupStandAlongInnerServer(bundle *mvcc.DBBundle, safePoint *tikv.SafePoint, pdClient pd.Client, conf *config.Config) (tikv.InnerServer, *tikv.MVCCStore, tikv.RegionManager) {
+func setupStandAlongInnerServer(db *badger.DB, pdClient pd.Client, conf *config.Config) (tikv.InnerServer, tikv.RegionManager) {
 	regionOpts := tikv.RegionOptions{
 		StoreAddr:  conf.Server.StoreAddr,
 		PDAddr:     conf.Server.PDAddr,
 		RegionSize: conf.Server.RegionSize,
 	}
 
-	innerServer := tikv.NewStandAlongInnerServer(bundle)
+	innerServer := tikv.NewStandAlongInnerServer(db)
 	innerServer.Setup(pdClient)
-	store := tikv.NewMVCCStore(bundle, conf.Engine.DBPath, safePoint, tikv.NewDBWriter(bundle, safePoint), pdClient)
-	store.DeadlockDetectSvr.ChangeRole(tikv.Leader)
-	rm := tikv.NewStandAloneRegionManager(bundle.DB, regionOpts, pdClient)
+	rm := tikv.NewStandAloneRegionManager(db, regionOpts, pdClient)
 
 	if err := innerServer.Start(pdClient); err != nil {
 		log.Fatal(err)
 	}
 
-	return innerServer, store, rm
+	return innerServer, rm
 }
 
-func createDB(subPath string, safePoint *tikv.SafePoint, conf *config.Engine) *badger.DB {
+func createDB(subPath string, conf *config.Engine) *badger.DB {
 	opts := badger.DefaultOptions
 	opts.NumCompactors = conf.NumCompactors
 	opts.ValueThreshold = conf.ValueThreshold
@@ -252,9 +227,6 @@ func createDB(subPath string, safePoint *tikv.SafePoint, conf *config.Engine) *b
 	opts.TableBuilderOptions.CompressionPerLevel = compressionPerLevel
 	opts.MaxCacheSize = conf.BlockCacheSize
 	opts.TableBuilderOptions.SuRFStartLevel = conf.SurfStartLevel
-	if safePoint != nil {
-		opts.CompactionFilterFactory = safePoint.CreateCompactionFilter
-	}
 	db, err := badger.Open(opts)
 	if err != nil {
 		log.Fatal(err)

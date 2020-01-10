@@ -3,9 +3,10 @@ package raftstore
 import (
 	"bytes"
 	"encoding/binary"
+
 	"github.com/coocood/badger/y"
-	"github.com/pingcap/errors"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
+	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/util/codec"
 )
 
@@ -124,9 +125,9 @@ func RegionStateKey(regionID uint64) []byte {
 	return key
 }
 
-func ValidateDataKey(key []byte) bool {
-	return len(key) > 0 && key[0] == DataPrefix
-}
+// func ValidateDataKey(key []byte) bool {
+// 	return len(key) > 0 && key[0] == DataPrefix
+// }
 
 func DataKey(key []byte) []byte {
 	v := make([]byte, 0, 1+len(key))
@@ -134,10 +135,10 @@ func DataKey(key []byte) []byte {
 	return append(v, key...)
 }
 
-func OriginKey(key []byte) []byte {
-	y.AssertTruef(ValidateDataKey(key), "invalid data key %v", key)
-	return key[1:]
-}
+// func OriginKey(key []byte) []byte {
+// 	y.AssertTruef(ValidateDataKey(key), "invalid data key %v", key)
+// 	return key[1:]
+// }
 
 // Get the `start_key` of current region in encoded form.
 func EncStartKey(region *metapb.Region) []byte {

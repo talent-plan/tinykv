@@ -8,14 +8,12 @@ import (
 	"github.com/coocood/badger"
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/mvcc"
+	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/tidb/util/codec"
 )
 
 const (
@@ -199,13 +197,12 @@ func newGenSnapTask(regionID uint64, notifier chan *eraftpb.Snapshot) *GenSnapTa
 	}
 }
 
-func (t *GenSnapTask) generateAndScheduleSnapshot(regionSched chan<- task, redoIdx uint64) {
+func (t *GenSnapTask) generateAndScheduleSnapshot(regionSched chan<- task) {
 	regionSched <- task{
 		tp: taskTypeRegionGen,
 		data: &regionTask{
 			regionId: t.regionID,
 			notifier: t.snapNotifier,
-			redoIdx:  redoIdx,
 		},
 	}
 }
@@ -230,9 +227,7 @@ type applyContext struct {
 	cbs              []applyCallback
 	applyTaskResList []*applyTaskRes
 	execCtx          *applyExecContext
-	wb               *WriteBatch
-	wbLastBytes      uint64
-	wbLastKeys       uint64
+	wb               *engine_util.WriteBatch
 	lastAppliedIndex uint64
 	committedCount   int
 
@@ -247,7 +242,7 @@ func newApplyContext(tag string, regionScheduler chan<- task, engines *Engines,
 		regionScheduler: regionScheduler,
 		engines:         engines,
 		notifier:        notifier,
-		wb:              new(WriteBatch),
+		wb:              new(engine_util.WriteBatch),
 	}
 }
 
@@ -258,9 +253,7 @@ func newApplyContext(tag string, regionScheduler chan<- task, engines *Engines,
 /// After all appliers are handled, `write_to_db` method should be called.
 func (ac *applyContext) prepareFor(d *applier) {
 	if ac.wb == nil {
-		ac.wb = new(WriteBatch)
-		ac.wbLastBytes = 0
-		ac.wbLastKeys = 0
+		ac.wb = new(engine_util.WriteBatch)
 	}
 	ac.cbs = append(ac.cbs, applyCallback{region: d.region})
 	ac.lastAppliedIndex = d.applyState.appliedIndex
@@ -284,20 +277,14 @@ func (ac *applyContext) commitOpt(d *applier, persistent bool) {
 		ac.writeToDB()
 		ac.prepareFor(d)
 	}
-	ac.wbLastBytes = uint64(ac.wb.size)
-	ac.wbLastKeys = uint64(len(ac.wb.entries))
 }
 
 /// Writes all the changes into badger.
 func (ac *applyContext) writeToDB() {
-	if ac.wb.size != 0 {
-		if err := ac.wb.WriteToKV(ac.engines.kv); err != nil {
-			panic(err)
-		}
-		ac.wb.Reset()
-		ac.wbLastBytes = 0
-		ac.wbLastKeys = 0
+	if err := ac.wb.WriteToKV(ac.engines.kv); err != nil {
+		panic(err)
 	}
+	ac.wb.Reset()
 	doneApply := time.Now()
 	for _, cb := range ac.cbs {
 		cb.invokeAll(doneApply)
@@ -320,23 +307,15 @@ func (ac *applyContext) finishFor(d *applier, results []execResult) {
 	ac.applyTaskResList = append(ac.applyTaskResList, res)
 }
 
-func (ac *applyContext) deltaBytes() uint64 {
-	return uint64(ac.wb.size) - ac.wbLastBytes
-}
-
-func (ac *applyContext) deltaKeys() uint64 {
-	return uint64(len(ac.wb.entries)) - ac.wbLastKeys
-}
-
 func (ac *applyContext) getTxn() *badger.Txn {
 	if ac.txn == nil {
-		ac.txn = ac.engines.kv.DB.NewTransaction(false)
+		// TODO: check when discard this txn
+		ac.txn = ac.engines.kv.NewTransaction(false)
 	}
 	return ac.txn
 }
 
 func (ac *applyContext) flush() {
-	// TODO: this check is too hacky, need to be more verbose and less buggy.
 	t := ac.timer
 	ac.timer = nil
 	if t == nil {
@@ -419,9 +398,6 @@ type applier struct {
 	/// The term of the raft log at applied index.
 	appliedIndexTerm uint64
 
-	// redoIdx is the raft log index starts redo for lockStore.
-	redoIndex uint64
-
 	sizeDiffHint uint64
 }
 
@@ -474,7 +450,7 @@ func (a *applier) handleRaftCommittedEntries(aCtx *applyContext, committedEntrie
 	aCtx.finishFor(a, results)
 }
 
-func (a *applier) writeApplyState(wb *WriteBatch) {
+func (a *applier) writeApplyState(wb *engine_util.WriteBatch) {
 	wb.Set(ApplyStateKey(a.region.Id), a.applyState.Marshal())
 }
 
@@ -688,17 +664,17 @@ func (a *applier) execAdminCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdReques
 func (a *applier) execWriteCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdRequest) (
 	resp *raft_cmdpb.RaftCmdResponse, result applyResult, err error) {
 	requests := req.GetRequests()
-	writeCmdOps := createWriteCmdOps(requests)
-	for _, op := range writeCmdOps {
-		switch x := op.(type) {
-		case *prewriteOp:
-			a.execPrewrite(aCtx, *x)
-		case *commitOp:
-			a.execCommit(aCtx, *x)
-		case *rollbackOp:
-			a.execRollback(aCtx, *x)
+	for _, req := range requests {
+		switch req.CmdType {
+		case raft_cmdpb.CmdType_Put:
+			a.handlePut(aCtx, req.GetPut())
+		case raft_cmdpb.CmdType_Delete:
+			a.handleDelete(aCtx, req.GetDelete())
+		case raft_cmdpb.CmdType_Get, raft_cmdpb.CmdType_Snap:
+			// TODO: implement get through raft
+			log.Fatal("unimplemented")
 		default:
-			log.Fatalf("invalid input op=%v", x)
+			log.Fatalf("invalid cmd type=%v", req.CmdType)
 		}
 	}
 	resps := make([]raft_cmdpb.Response, len(requests))
@@ -713,230 +689,23 @@ func (a *applier) execWriteCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdReques
 	return
 }
 
-// every commit must followed with a delete lock.
-type commitOp struct {
-	putWrite *raft_cmdpb.PutRequest
-	delLock  *raft_cmdpb.DeleteRequest
+func (a *applier) handlePut(aCtx *applyContext, req *raft_cmdpb.PutRequest) {
+	key, value := req.GetKey(), req.GetValue()
+
+	if cf := req.GetCf(); len(cf) != 0 {
+		aCtx.wb.SetCF(cf, key, value)
+	} else {
+		aCtx.wb.SetCF(engine_util.CF_DEFAULT, key, value)
+	}
 }
 
-// a prewrite may optionally has a put Default.
-// a put default must follows a put lock.
-type prewriteOp struct {
-	putDefault *raft_cmdpb.PutRequest // optional
-	putLock    *raft_cmdpb.PutRequest
-}
+func (a *applier) handleDelete(aCtx *applyContext, req *raft_cmdpb.DeleteRequest) {
+	key := req.GetKey()
 
-// a Rollback optionally has a delete Default.
-type rollbackOp struct {
-	delDefault *raft_cmdpb.DeleteRequest
-	putWrite   *raft_cmdpb.PutRequest
-	delLock    *raft_cmdpb.DeleteRequest
-}
-
-// createWriteCmdOps regroups requests into operations.
-func createWriteCmdOps(requests []*raft_cmdpb.Request) (ops []interface{}) {
-	// If first request is delete write, then this is a GC command, we can ignore it.
-	if del := requests[0].Delete; del != nil {
-		if del.Cf == CFWrite {
-			return
-		}
-	}
-	for i := 0; i < len(requests); i++ {
-		req := requests[i]
-		switch req.CmdType {
-		case raft_cmdpb.CmdType_Delete:
-			del := req.Delete
-			switch del.Cf {
-			case "":
-				// Rollback large value, must followed by put write and delete lock
-				putWriteReq := requests[i+1]
-				y.Assert(putWriteReq.Put != nil && putWriteReq.Put.Cf == CFWrite)
-				delLockReq := requests[i+2]
-				y.Assert(delLockReq.Delete != nil && delLockReq.Delete.Cf == CFLock)
-				ops = append(ops, &rollbackOp{
-					delDefault: req.Delete,
-					putWrite:   putWriteReq.Put,
-					delLock:    delLockReq.Delete,
-				})
-				i += 2
-			case CFWrite:
-				// This is collapse rollback, since we do local rollback GC, we can ignore it.
-			case CFLock:
-				// This is pessimistic rollback.
-				ops = append(ops, &rollbackOp{
-					delLock: req.Delete,
-				})
-			default:
-				panic("unreachable")
-			}
-		case raft_cmdpb.CmdType_Put:
-			put := req.Put
-			switch put.Cf {
-			case "":
-				// Prewrite with large value, the next req must be put lock.
-				nextPut := requests[i+1].Put
-				y.Assert(nextPut != nil && nextPut.Cf == CFLock)
-				ops = append(ops, &prewriteOp{
-					putDefault: put,
-					putLock:    nextPut,
-				})
-				i++
-			case CFLock:
-				// Prewrite with short value.
-				ops = append(ops, &prewriteOp{putLock: put})
-			case CFWrite:
-				writeType := put.Value[0]
-				if writeType == mvcc.WriteTypeRollback {
-					// Rollback optionally followed by a delete lock.
-					var nextDel *raft_cmdpb.DeleteRequest
-					if i+1 < len(requests) {
-						if tmpDel := requests[i+1].Delete; tmpDel != nil && tmpDel.Cf == CFLock {
-							nextDel = tmpDel
-						}
-					}
-					if nextDel != nil {
-						ops = append(ops, &rollbackOp{
-							putWrite: put,
-							delLock:  nextDel,
-						})
-						i++
-					} else {
-						ops = append(ops, &rollbackOp{
-							putWrite: put,
-						})
-					}
-				} else {
-					// Commit must followed by del lock
-					nextDel := requests[i+1].Delete
-					y.Assert(nextDel != nil && nextDel.Cf == CFLock)
-					ops = append(ops, &commitOp{
-						putWrite: put,
-						delLock:  nextDel,
-					})
-					i++
-				}
-			}
-		case raft_cmdpb.CmdType_Snap, raft_cmdpb.CmdType_Get:
-			// Readonly commands are handled in raftstore directly.
-			// Don't panic here in case there are old entries need to be applied.
-			// It's also safe to skip them here, because a restart must have happened,
-			// hence there is no callback to be called.
-			log.Warnf("skip read-only command %s", req)
-		default:
-			panic("unreachable")
-		}
-	}
-	return
-}
-
-func (a *applier) execPrewrite(aCtx *applyContext, op prewriteOp) {
-	key, value := convertPrewriteToLock(op, aCtx.getTxn())
-	aCtx.wb.SetLock(key, value)
-	return
-}
-
-func convertPrewriteToLock(op prewriteOp, txn *badger.Txn) (key, value []byte) {
-	_, rawKey, err := codec.DecodeBytes(op.putLock.Key, nil)
-	if err != nil {
-		panic(op.putLock.Key)
-	}
-	lock, err := mvcc.ParseLockCFValue(op.putLock.Value)
-	if err != nil {
-		panic(op.putLock.Value)
-	}
-	if item, err := txn.Get(rawKey); err == nil {
-		val, err1 := item.Value()
-		if err1 != nil {
-			panic(err1)
-		}
-		lock.HasOldVer = true
-		lock.OldMeta = item.UserMeta()
-		lock.OldVal = val
-	}
-	if op.putDefault != nil {
-		lock.Value = op.putDefault.Value
-	}
-	return rawKey, lock.MarshalBinary()
-}
-
-func (a *applier) execCommit(aCtx *applyContext, op commitOp) {
-	remain, rawKey, err := codec.DecodeBytes(op.putWrite.Key, nil)
-	if err != nil {
-		panic(op.putWrite.Key)
-	}
-	_, commitTS, err := codec.DecodeUintDesc(remain)
-	if err != nil {
-		panic(remain)
-	}
-	val := a.getLock(aCtx, rawKey)
-	y.Assert(len(val) > 0)
-	lock := mvcc.DecodeLock(val)
-	var sizeDiff int64
-	userMeta := mvcc.NewDBUserMeta(lock.StartTS, commitTS)
-	if lock.Op != uint8(kvrpcpb.Op_Lock) {
-		aCtx.wb.SetWithUserMeta(rawKey, lock.Value, userMeta)
-		sizeDiff = int64(len(rawKey) + len(lock.Value))
-		if lock.HasOldVer {
-			oldKey := mvcc.EncodeOldKey(rawKey, lock.OldMeta.CommitTS())
-			aCtx.wb.SetWithUserMeta(oldKey, lock.OldVal, lock.OldMeta.ToOldUserMeta(commitTS))
-			sizeDiff -= int64(len(rawKey) + len(lock.OldVal))
-		}
-	} else if bytes.Equal(lock.Primary, rawKey) {
-		// For primary key with Op_Lock type, the value need to be skipped, but we need to keep the transaction status.
-		// So we put it as old key directly.
-		if lock.HasOldVer {
-			// There is a latest value, we don't want to move the value to the old key space for performance and simplicity.
-			// Write the lock as old key directly to store the transaction status.
-			// The old entry doesn't have value as Delete entry, but we can compare the commitTS in key and NextCommitTS
-			// in the user meta to determine if the entry is Delete or Op_Lock.
-			// If NextCommitTS equals CommitTS, it is Op_Lock, otherwise, it is Delete.
-			oldKey := mvcc.EncodeOldKey(rawKey, commitTS)
-			aCtx.wb.SetWithUserMeta(oldKey, nil, userMeta)
-		} else {
-			// Convert the lock to a delete to store the transaction status.
-			aCtx.wb.SetWithUserMeta(rawKey, nil, userMeta)
-		}
-	}
-	if sizeDiff > 0 {
-		a.sizeDiffHint += uint64(sizeDiff)
-	}
-	if op.delLock != nil {
-		aCtx.wb.DeleteLock(rawKey, val)
-	}
-	return
-}
-
-func (a *applier) getLock(aCtx *applyContext, rawKey []byte) []byte {
-	if val := aCtx.engines.kv.LockStore.Get(rawKey, nil); len(val) > 0 {
-		return val
-	}
-	lockEntries := aCtx.wb.lockEntries
-	for i := len(lockEntries) - 1; i >= 0; i-- {
-		if bytes.Equal(lockEntries[i].Key, rawKey) {
-			return lockEntries[i].Value
-		}
-	}
-	return nil
-}
-
-func (a *applier) execRollback(aCtx *applyContext, op rollbackOp) {
-	if op.putWrite != nil {
-		remain, rawKey, err := codec.DecodeBytes(op.putWrite.Key, nil)
-		if err != nil {
-			panic(op.putWrite.Key)
-		}
-		aCtx.wb.Rollback(append(rawKey, remain...))
-		if op.delLock != nil {
-			aCtx.wb.DeleteLock(rawKey, a.getLock(aCtx, rawKey))
-		}
-		return
-	}
-	if op.delLock != nil {
-		_, rawKey, err := codec.DecodeBytes(op.delLock.Key, nil)
-		if err != nil {
-			panic(op.delLock.Key)
-		}
-		aCtx.wb.DeleteLock(rawKey, a.getLock(aCtx, rawKey))
+	if cf := req.GetCf(); len(cf) != 0 {
+		aCtx.wb.DeleteCF(cf, key)
+	} else {
+		aCtx.wb.DeleteCF(engine_util.CF_DEFAULT, key)
 	}
 }
 
@@ -1237,7 +1006,7 @@ func (a *applier) handleGenSnapshot(aCtx *applyContext, snapTask *GenSnapTask) {
 			break
 		}
 	}
-	snapTask.generateAndScheduleSnapshot(aCtx.regionScheduler, a.redoIndex)
+	snapTask.generateAndScheduleSnapshot(aCtx.regionScheduler)
 }
 
 func (a *applier) handleTask(aCtx *applyContext, msg Msg) {

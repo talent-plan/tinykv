@@ -112,7 +112,7 @@ func (n *Node) Start(ctx context.Context, engines *Engines, trans Transport, sna
 }
 
 func (n *Node) checkStore(engines *Engines) (uint64, error) {
-	val, err := getValue(engines.kv.DB, storeIdentKey)
+	val, err := getValue(engines.kv, storeIdentKey)
 	if err != nil {
 		if err == badger.ErrKeyNotFound {
 			return 0, nil
@@ -154,7 +154,7 @@ func (n *Node) allocID(ctx context.Context) (uint64, error) {
 
 func (n *Node) checkOrPrepareBootstrapCluster(ctx context.Context, engines *Engines, storeID uint64) (*metapb.Region, error) {
 	var state raft_serverpb.RegionLocalState
-	if err := getMsg(engines.kv.DB, prepareBootstrapKey, &state); err == nil {
+	if err := getMsg(engines.kv, prepareBootstrapKey, &state); err == nil {
 		return state.Region, nil
 	}
 	bootstrapped, err := n.checkClusterBootstrapped(ctx)
