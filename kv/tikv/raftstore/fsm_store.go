@@ -12,7 +12,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/lockstore"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
-	"github.com/pingcap-incubator/tinykv/kv/rocksdb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
@@ -684,16 +683,6 @@ func (d *storeMsgHandler) findRegionsInRange(startKey, endKey []byte) []*metapb.
 		regions = append(regions, meta.regions[regionID])
 	}
 	return regions
-}
-
-type regionIDDeclinedBytesPair struct {
-	regionID      uint64
-	declinedBytes uint64
-}
-
-func calcRegionDeclinedBytes(event *rocksdb.CompactedEvent,
-	regionRanges *lockstore.MemStore, bytesThreshold uint64) []regionIDDeclinedBytesPair {
-	return nil // TODO: not supported.
 }
 
 func isRangeCovered(meta *storeMeta, start, end []byte) bool {
