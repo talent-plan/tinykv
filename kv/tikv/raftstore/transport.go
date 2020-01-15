@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/raft"
@@ -18,12 +19,12 @@ type RaftRouter interface {
 type ServerTransport struct {
 	raftClient        *RaftClient
 	raftRouter        RaftRouter
-	resolverScheduler chan<- task
-	snapScheduler     chan<- task
+	resolverScheduler chan<- worker.Task
+	snapScheduler     chan<- worker.Task
 	resolving         sync.Map
 }
 
-func NewServerTransport(raftClient *RaftClient, snapScheduler chan<- task, raftRouter RaftRouter, resolverScheduler chan<- task) *ServerTransport {
+func NewServerTransport(raftClient *RaftClient, snapScheduler chan<- worker.Task, raftRouter RaftRouter, resolverScheduler chan<- worker.Task) *ServerTransport {
 	return &ServerTransport{
 		raftClient:        raftClient,
 		raftRouter:        raftRouter,
@@ -67,9 +68,9 @@ func (t *ServerTransport) Resolve(storeID uint64, msg *raft_serverpb.RaftMessage
 		t.WriteData(storeID, addr, msg)
 		t.raftClient.Flush()
 	}
-	t.resolverScheduler <- task{
-		tp: taskTypeResolveAddr,
-		data: resolveAddrTask{
+	t.resolverScheduler <- worker.Task{
+		Tp: worker.TaskTypeResolveAddr,
+		Data: resolveAddrTask{
 			storeID:  storeID,
 			callback: callback,
 		},
@@ -95,9 +96,9 @@ func (t *ServerTransport) SendSnapshotSock(addr string, msg *raft_serverpb.RaftM
 		}
 	}
 
-	task := task{
-		tp: taskTypeSnapSend,
-		data: sendSnapTask{
+	task := worker.Task{
+		Tp: worker.TaskTypeSnapSend,
+		Data: sendSnapTask{
 			addr:     addr,
 			msg:      msg,
 			callback: callback,

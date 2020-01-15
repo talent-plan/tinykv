@@ -7,6 +7,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 )
@@ -21,9 +22,9 @@ type RaftInnerServer struct {
 	snapManager   *SnapManager
 	raftRouter    *RaftstoreRouter
 	batchSystem   *raftBatchSystem
-	pdWorker      *worker
-	resolveWorker *worker
-	snapWorker    *worker
+	pdWorker      *worker.Worker
+	resolveWorker *worker.Worker
+	snapWorker    *worker.Worker
 }
 
 func (ris *RaftInnerServer) Raft(stream tikvpb.Tikv_RaftServer) error {
@@ -51,9 +52,9 @@ func (ris *RaftInnerServer) BatchRaft(stream tikvpb.Tikv_BatchRaftServer) error 
 func (ris *RaftInnerServer) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
 	var err error
 	done := make(chan struct{})
-	ris.snapWorker.sender <- task{
-		tp: taskTypeSnapRecv,
-		data: recvSnapTask{
+	ris.snapWorker.Sender() <- worker.Task{
+		Tp: worker.TaskTypeSnapRecv,
+		Data: recvSnapTask{
 			stream: stream,
 			callback: func(e error) {
 				err = e
@@ -71,9 +72,9 @@ func NewRaftInnerServer(engines *engine_util.Engines, raftConfig *config.Config)
 
 func (ris *RaftInnerServer) Setup(pdClient pd.Client) {
 	var wg sync.WaitGroup
-	ris.pdWorker = newWorker("pd-worker", &wg)
-	ris.resolveWorker = newWorker("resolver", &wg)
-	ris.snapWorker = newWorker("snap-worker", &wg)
+	ris.pdWorker = worker.NewWorker("pd-worker", &wg)
+	ris.resolveWorker = worker.NewWorker("resolver", &wg)
+	ris.snapWorker = worker.NewWorker("snap-worker", &wg)
 
 	// TODO: create local reader
 	// TODO: create storage read pool
@@ -104,24 +105,24 @@ func (ris *RaftInnerServer) Start(pdClient pd.Client) error {
 	ris.node = NewNode(ris.batchSystem, &ris.storeMeta, ris.raftConfig, pdClient, ris.eventObserver)
 
 	raftClient := newRaftClient(ris.raftConfig)
-	resolveSender := ris.resolveWorker.sender
-	trans := NewServerTransport(raftClient, ris.snapWorker.sender, ris.raftRouter, resolveSender)
+	resolveSender := ris.resolveWorker.Sender()
+	trans := NewServerTransport(raftClient, ris.snapWorker.Sender(), ris.raftRouter, resolveSender)
 
 	resolveRunner := newResolverRunner(pdClient)
-	ris.resolveWorker.start(resolveRunner)
+	ris.resolveWorker.Start(resolveRunner)
 	err := ris.node.Start(context.TODO(), ris.engines, trans, ris.snapManager, ris.pdWorker, ris.raftRouter)
 	if err != nil {
 		return err
 	}
 	snapRunner := newSnapRunner(ris.snapManager, ris.raftConfig, ris.raftRouter)
-	ris.snapWorker.start(snapRunner)
+	ris.snapWorker.Start(snapRunner)
 	return nil
 }
 
 func (ris *RaftInnerServer) Stop() error {
-	ris.snapWorker.stop()
+	ris.snapWorker.Stop()
 	ris.node.stop()
-	ris.resolveWorker.stop()
+	ris.resolveWorker.Stop()
 	if err := ris.engines.Raft.Close(); err != nil {
 		return err
 	}

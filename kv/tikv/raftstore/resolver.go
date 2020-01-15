@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/pingcap-incubator/tinykv/kv/pd"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap/errors"
 )
@@ -28,8 +29,8 @@ func newResolverRunner(pdClient pd.Client) *resolverRunner {
 	}
 }
 
-func (r *resolverRunner) handle(t task) {
-	data := t.data.(resolveAddrTask)
+func (r *resolverRunner) Handle(t worker.Task) {
+	data := t.Data.(resolveAddrTask)
 	data.callback(r.getAddr(data.storeID))
 }
 

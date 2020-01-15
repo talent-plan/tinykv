@@ -13,6 +13,7 @@ import (
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
@@ -269,7 +270,7 @@ type Peer struct {
 	PeerStat        PeerStat
 }
 
-func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, region *metapb.Region, regionSched chan<- task,
+func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, region *metapb.Region, regionSched chan<- worker.Task,
 	peer *metapb.Peer) (*Peer, error) {
 	if peer.GetId() == InvalidID {
 		return nil, fmt.Errorf("invalid peer id")
@@ -400,7 +401,7 @@ func (p *Peer) MaybeDestroy() *DestroyPeerJob {
 	}
 }
 
-/// Does the real destroy task which includes:
+/// Does the real destroy worker.Task which includes:
 /// 1. Set the region to tombstone;
 /// 2. Clear data;
 /// 3. Notify all pending requests.
@@ -429,7 +430,7 @@ func (p *Peer) Destroy(engine *engine_util.Engines, keepData bool) error {
 		// If we meet panic when deleting data and raft log, the dirty data
 		// will be cleared by a newer snapshot applying or restart.
 		if err := p.Store().ClearData(); err != nil {
-			log.Errorf("%v failed to schedule clear data task %v", p.Tag, err)
+			log.Errorf("%v failed to schedule clear data worker.Task %v", p.Tag, err)
 		}
 	}
 
@@ -900,10 +901,10 @@ func (p *Peer) Stop() {
 	p.Store().CancelApplyingSnap()
 }
 
-func (p *Peer) HeartbeatPd(pdScheduler chan<- task) {
-	pdScheduler <- task{
-		tp: taskTypePDHeartbeat,
-		data: &pdRegionHeartbeatTask{
+func (p *Peer) HeartbeatPd(pdScheduler chan<- worker.Task) {
+	pdScheduler <- worker.Task{
+		Tp: worker.TaskTypePDHeartbeat,
+		Data: &pdRegionHeartbeatTask{
 			region:          p.Region(),
 			peer:            p.Meta,
 			downPeers:       p.CollectDownPeers(time.Minute * 5),
