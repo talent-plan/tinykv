@@ -21,6 +21,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv"
+	tikvConf "github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 	"google.golang.org/grpc"
@@ -141,7 +142,7 @@ func loadConfig() *config.Config {
 	return &conf
 }
 
-func setupRaftStoreConf(raftConf *raftstore.Config, conf *config.Config) {
+func setupRaftStoreConf(raftConf *tikvConf.Config, conf *config.Config) {
 	raftConf.Addr = conf.Server.StoreAddr
 	raftConf.RaftWorkerCnt = conf.RaftStore.RaftWorkers
 
@@ -163,7 +164,7 @@ func setupRaftInnerServer(kvDB *badger.DB, pdClient pd.Client, conf *config.Conf
 	os.MkdirAll(raftPath, os.ModePerm)
 	os.Mkdir(snapPath, os.ModePerm)
 
-	raftConf := raftstore.NewDefaultConfig()
+	raftConf := tikvConf.NewDefaultConfig()
 	raftConf.SnapPath = snapPath
 	setupRaftStoreConf(raftConf, conf)
 

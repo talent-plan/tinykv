@@ -9,6 +9,7 @@ import (
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
@@ -236,7 +237,7 @@ type applyContext struct {
 }
 
 func newApplyContext(tag string, regionScheduler chan<- task, engines *Engines,
-	notifier chan<- Msg, cfg *Config) *applyContext {
+	notifier chan<- Msg, cfg *config.Config) *applyContext {
 	return &applyContext{
 		tag:             tag,
 		regionScheduler: regionScheduler,

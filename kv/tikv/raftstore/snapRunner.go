@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 	"github.com/pingcap/errors"
@@ -16,14 +17,14 @@ import (
 )
 
 type snapRunner struct {
-	config         *Config
+	config         *config.Config
 	snapManager    *SnapManager
 	router         RaftRouter
 	sendingCount   int64
 	receivingCount int64
 }
 
-func newSnapRunner(snapManager *SnapManager, config *Config, router RaftRouter) *snapRunner {
+func newSnapRunner(snapManager *SnapManager, config *config.Config, router RaftRouter) *snapRunner {
 	return &snapRunner{
 		config:      config,
 		snapManager: snapManager,
