@@ -30,26 +30,12 @@ type storeMeta struct {
 	pendingVotes []*rspb.RaftMessage
 	/// The regions with pending snapshots.
 	pendingSnapshotRegions []*metapb.Region
-	/// A marker used to indicate the peer of a Region has received a merge target message and waits to be destroyed.
-	/// target_region_id -> (source_region_id -> merge_target_epoch)
-	pendingMergeTargets map[uint64]map[uint64]*metapb.RegionEpoch
-	/// An inverse mapping of `pending_merge_targets` used to let source peer help target peer to clean up related entry.
-	/// source_region_id -> target_region_id
-	targetsMap map[uint64]uint64
-	/// In raftstore, the execute order of `PrepareMerge` and `CommitMerge` is not certain because of the messages
-	/// belongs two regions. To make them in order, `PrepareMerge` will set this structure and `CommitMerge` will retry
-	/// later if there is no related lock.
-	/// source_region_id -> (version, BiLock).
-	mergeLocks map[uint64]*mergeLock
 }
 
 func newStoreMeta() *storeMeta {
 	return &storeMeta{
-		regionRanges:        lockstore.NewMemStore(32 * 1024),
-		regions:             map[uint64]*metapb.Region{},
-		pendingMergeTargets: map[uint64]map[uint64]*metapb.RegionEpoch{},
-		targetsMap:          map[uint64]uint64{},
-		mergeLocks:          map[uint64]*mergeLock{},
+		regionRanges: lockstore.NewMemStore(32 * 1024),
+		regions:      map[uint64]*metapb.Region{},
 	}
 }
 
@@ -58,27 +44,22 @@ func (m *storeMeta) setRegion(region *metapb.Region, peer *Peer) {
 	peer.SetRegion(region)
 }
 
-type mergeLock struct {
-}
-
 type GlobalContext struct {
-	cfg                   *config.Config
-	engine                *engine_util.Engines
-	store                 *metapb.Store
-	storeMeta             *storeMeta
-	storeMetaLock         *sync.RWMutex
-	snapMgr               *SnapManager
-	router                *router
-	trans                 Transport
-	pdTaskSender          chan<- worker.Task
-	regionTaskSender      chan<- worker.Task
-	computeHashTaskSender chan<- worker.Task
-	raftLogGCTaskSender   chan<- worker.Task
-	splitCheckTaskSender  chan<- worker.Task
-	compactTaskSender     chan<- worker.Task
-	pdClient              pd.Client
-	peerEventObserver     PeerEventObserver
-	tickDriverSender      chan uint64
+	cfg                  *config.Config
+	engine               *engine_util.Engines
+	store                *metapb.Store
+	storeMeta            *storeMeta
+	storeMetaLock        *sync.RWMutex
+	snapMgr              *SnapManager
+	router               *router
+	trans                Transport
+	pdTaskSender         chan<- worker.Task
+	regionTaskSender     chan<- worker.Task
+	raftLogGCTaskSender  chan<- worker.Task
+	splitCheckTaskSender chan<- worker.Task
+	pdClient             pd.Client
+	peerEventObserver    PeerEventObserver
+	tickDriverSender     chan uint64
 }
 
 type StoreContext struct {
@@ -145,9 +126,6 @@ func (d *storeMsgHandler) handleMsg(msg Msg) {
 		}
 	case MsgTypeStoreSnapshotStats:
 		d.storeHeartbeatPD()
-	case MsgTypeStoreClearRegionSizeInRange:
-		data := msg.Data.(*MsgStoreClearRegionSizeInRange)
-		d.clearRegionSizeInRange(data.StartKey, data.EndKey)
 	case MsgTypeStoreTick:
 		d.onTick(msg.Data.(StoreTick))
 	case MsgTypeStoreStart:
@@ -284,13 +262,11 @@ func (bs *RaftBatchSystem) clearStaleMeta(kvWB, raftWB *engine_util.WriteBatch, 
 }
 
 type workers struct {
-	raftLogGCWorker   *worker.Worker
-	pdWorker          *worker.Worker
-	computeHashWorker *worker.Worker
-	splitCheckWorker  *worker.Worker
-	regionWorker      *worker.Worker
-	compactWorker     *worker.Worker
-	wg                *sync.WaitGroup
+	raftLogGCWorker  *worker.Worker
+	pdWorker         *worker.Worker
+	splitCheckWorker *worker.Worker
+	regionWorker     *worker.Worker
+	wg               *sync.WaitGroup
 }
 
 type RaftBatchSystem struct {
@@ -325,7 +301,6 @@ func (bs *RaftBatchSystem) start(
 		splitCheckWorker: worker.NewWorker("split-check", wg),
 		regionWorker:     worker.NewWorker("snapshot-worker", wg),
 		raftLogGCWorker:  worker.NewWorker("raft-gc-worker", wg),
-		compactWorker:    worker.NewWorker("compact-worker", wg),
 		pdWorker:         pdWorker,
 		wg:               wg,
 	}
@@ -342,7 +317,6 @@ func (bs *RaftBatchSystem) start(
 		regionTaskSender:     bs.workers.regionWorker.Sender(),
 		splitCheckTaskSender: bs.workers.splitCheckWorker.Sender(),
 		raftLogGCTaskSender:  bs.workers.raftLogGCWorker.Sender(),
-		compactTaskSender:    bs.workers.compactWorker.Sender(),
 		pdClient:             pdClient,
 		peerEventObserver:    observer,
 		tickDriverSender:     bs.tickDriver.newRegionCh,
@@ -407,9 +381,7 @@ func (bs *RaftBatchSystem) shutDown() {
 	workers.splitCheckWorker.Sender() <- stopTask
 	workers.regionWorker.Sender() <- stopTask
 	workers.raftLogGCWorker.Sender() <- stopTask
-	workers.computeHashWorker.Sender() <- stopTask
 	workers.pdWorker.Sender() <- stopTask
-	workers.compactWorker.Sender() <- stopTask
 	workers.wg.Wait()
 }
 
@@ -656,55 +628,4 @@ func (d *storeMsgHandler) onSnapMgrGC() {
 		log.Errorf("handle snap GC failed store_id %d, err %s", d.storeFsm.id, err)
 	}
 	d.ticker.scheduleStore(StoreTickSnapGC)
-}
-
-func (d *storeMsgHandler) clearRegionSizeInRange(startKey, endKey []byte) {
-	regions := d.findRegionsInRange(startKey, endKey)
-	for _, region := range regions {
-		_ = d.ctx.router.send(region.Id, NewPeerMsg(MsgTypeClearRegionSize, region.Id, nil))
-	}
-}
-
-func (d *storeMsgHandler) findRegionsInRange(startKey, endKey []byte) []*metapb.Region {
-	d.ctx.storeMetaLock.RLock()
-	defer d.ctx.storeMetaLock.RUnlock()
-	meta := d.ctx.storeMeta
-	it := meta.regionRanges.NewIterator()
-	it.Seek(startKey)
-	if it.Valid() && bytes.Equal(it.Key(), startKey) {
-		it.Next()
-	}
-	var regions []*metapb.Region
-	for ; it.Valid(); it.Next() {
-		if bytes.Compare(it.Key(), endKey) > 0 {
-			break
-		}
-		regionID := regionIDFromBytes(it.Value())
-		regions = append(regions, meta.regions[regionID])
-	}
-	return regions
-}
-
-func isRangeCovered(meta *storeMeta, start, end []byte) bool {
-	it := meta.regionRanges.NewIterator()
-	it.Seek(start)
-	if it.Valid() && bytes.Equal(it.Key(), start) {
-		it.Next()
-	}
-	for ; it.Valid(); it.Next() {
-		if bytes.Compare(it.Key(), end) > 0 {
-			break
-		}
-		regionID := regionIDFromBytes(it.Value())
-		region := meta.regions[regionID]
-		// find a missing range
-		if bytes.Compare(start, region.StartKey) < 0 {
-			return false
-		}
-		if bytes.Compare(region.EndKey, end) >= 0 {
-			return true
-		}
-		start = region.EndKey
-	}
-	return false
 }

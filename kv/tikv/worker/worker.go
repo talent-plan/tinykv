@@ -13,8 +13,6 @@ const (
 	TaskTypePDHeartbeat        TaskType = 103
 	TaskTypePDStoreHeartbeat   TaskType = 104
 	TaskTypePDReportBatchSplit TaskType = 105
-	TaskTypePDValidatePeer     TaskType = 106
-	TaskTypePDReadStats        TaskType = 107
 	TaskTypePDDestroyPeer      TaskType = 108
 
 	TaskTypeRegionGen   TaskType = 401

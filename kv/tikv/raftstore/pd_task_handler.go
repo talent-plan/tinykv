@@ -18,18 +18,13 @@ type pdTaskHandler struct {
 	storeID  uint64
 	pdClient pd.Client
 	router   *router
-
-	// statistics
-	storeStats storeStatistics
-	peerStats  map[uint64]*peerStatistics
 }
 
 func newPDTaskHandler(storeID uint64, pdClient pd.Client, router *router) *pdTaskHandler {
 	return &pdTaskHandler{
-		storeID:   storeID,
-		pdClient:  pdClient,
-		router:    router,
-		peerStats: make(map[uint64]*peerStatistics),
+		storeID:  storeID,
+		pdClient: pdClient,
+		router:   router,
 	}
 }
 
@@ -43,10 +38,6 @@ func (r *pdTaskHandler) Handle(t worker.Task) {
 		r.onStoreHeartbeat(t.Data.(*pdStoreHeartbeatTask))
 	case worker.TaskTypePDReportBatchSplit:
 		r.onReportBatchSplit(t.Data.(*pdReportBatchSplitTask))
-	case worker.TaskTypePDValidatePeer:
-		r.onValidatePeer(t.Data.(*pdValidatePeerTask))
-	case worker.TaskTypePDReadStats:
-		r.onReadStats(t.Data.(readStats))
 	case worker.TaskTypePDDestroyPeer:
 		r.onDestroyPeer(t.Data.(*pdDestroyPeerTask))
 	default:
@@ -114,27 +105,6 @@ func (r *pdTaskHandler) onHeartbeat(t *pdRegionHeartbeatTask) {
 		ApproximateSize: uint64(size),
 		ApproximateKeys: uint64(keys),
 	}
-
-	s, ok := r.peerStats[t.region.GetId()]
-	if !ok {
-		s = &peerStatistics{}
-		r.peerStats[t.region.GetId()] = s
-	}
-	req.BytesWritten = t.writtenBytes - s.lastWrittenBytes
-	req.KeysWritten = t.writtenKeys - s.lastWrittenKeys
-	req.BytesRead = s.readBytes - s.lastReadBytes
-	req.KeysRead = s.readKeys - s.lastReadKeys
-	req.Interval = &pdpb.TimeInterval{
-		StartTimestamp: uint64(s.lastReport.Unix()),
-		EndTimestamp:   uint64(time.Now().Unix()),
-	}
-
-	s.lastReadBytes = s.readBytes
-	s.lastReadKeys = s.readKeys
-	s.lastWrittenBytes = t.writtenBytes
-	s.lastWrittenKeys = t.writtenKeys
-	s.lastReport = time.Now()
-
 	r.pdClient.ReportRegion(req)
 }
 
@@ -159,17 +129,6 @@ func (r *pdTaskHandler) onStoreHeartbeat(t *pdStoreHeartbeatTask) {
 	t.stats.Capacity = capacity
 	t.stats.UsedSize = usedSize
 	t.stats.Available = available
-
-	t.stats.BytesRead = r.storeStats.totalReadBytes - r.storeStats.lastTotalReadBytes
-	t.stats.KeysRead = r.storeStats.totalReadKeys - r.storeStats.lastTotalReadKeys
-	t.stats.Interval = &pdpb.TimeInterval{
-		StartTimestamp: uint64(r.storeStats.lastReport.Unix()),
-		EndTimestamp:   uint64(time.Now().Unix()),
-	}
-
-	r.storeStats.lastTotalReadBytes = r.storeStats.totalReadBytes
-	r.storeStats.lastTotalReadKeys = r.storeStats.totalReadKeys
-	r.storeStats.lastReport = time.Now()
 
 	r.pdClient.StoreHeartbeat(context.TODO(), t.stats)
 }
@@ -198,23 +157,8 @@ func (r *pdTaskHandler) onValidatePeer(t *pdValidatePeerTask) {
 	r.sendDestroyPeer(t.region, t.peer, resp)
 }
 
-func (r *pdTaskHandler) onReadStats(t readStats) {
-	for id, stats := range t {
-		s, ok := r.peerStats[id]
-		if !ok {
-			s = &peerStatistics{}
-			r.peerStats[id] = s
-		}
-		s.readBytes += stats.readBytes
-		s.readKeys += stats.readKeys
-
-		r.storeStats.totalReadBytes += stats.readBytes
-		r.storeStats.totalReadKeys += stats.readKeys
-	}
-}
-
 func (r *pdTaskHandler) onDestroyPeer(t *pdDestroyPeerTask) {
-	delete(r.peerStats, t.regionID)
+	// TODO: delete it
 }
 
 func (r *pdTaskHandler) sendAdminRequest(regionID uint64, epoch *metapb.RegionEpoch, peer *metapb.Peer, req *raft_cmdpb.AdminRequest, callback *Callback) {

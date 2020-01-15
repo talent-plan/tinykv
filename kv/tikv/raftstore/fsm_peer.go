@@ -157,13 +157,12 @@ func (d *peerMsgHandler) HandleMsgs(msgs ...Msg) {
 			split := msg.Data.(*MsgSplitRegion)
 			log.Infof("%s on split with %v", d.peer.Tag, split.SplitKeys)
 			d.onPrepareSplitRegion(split.RegionEpoch, split.SplitKeys, split.Callback)
+		// TODO: should update approximate size in split checker
 		case MsgTypeRegionApproximateSize:
 			d.onApproximateRegionSize(msg.Data.(uint64))
 		case MsgTypeGcSnap:
 			gcSnap := msg.Data.(*MsgGCSnap)
 			d.onGCSnap(gcSnap.Snaps)
-		case MsgTypeClearRegionSize:
-			d.onClearRegionSize()
 		case MsgTypeStart:
 			d.startTicker()
 		case MsgTypeNoop:
@@ -188,9 +187,6 @@ func (d *peerMsgHandler) onTick() {
 	if d.ticker.isOnTick(PeerTickSplitRegionCheck) {
 		d.onSplitRegionCheckTick()
 	}
-	if d.ticker.isOnTick(PeerTickPeerStaleState) {
-		d.onCheckPeerStaleStateTick()
-	}
 	d.ctx.tickDriverSender <- d.regionID()
 }
 
@@ -201,7 +197,6 @@ func (d *peerMsgHandler) startTicker() {
 	d.ticker.schedule(PeerTickRaftLogGC)
 	d.ticker.schedule(PeerTickSplitRegionCheck)
 	d.ticker.schedule(PeerTickPdHeartbeat)
-	d.ticker.schedule(PeerTickPeerStaleState)
 }
 
 func (d *peerMsgHandler) onGCSnap(snaps []SnapKeyWithSending) {
@@ -599,21 +594,8 @@ func (d *peerMsgHandler) destroyPeer(mergeByTarget bool) {
 		}
 	}()
 	meta := d.ctx.storeMeta
-	delete(meta.pendingMergeTargets, regionID)
-	if targetID, ok := meta.targetsMap[regionID]; ok {
-		delete(meta.targetsMap, regionID)
-		if target, ok1 := meta.pendingMergeTargets[targetID]; ok1 {
-			delete(target, regionID)
-			// When the target doesn't exist(add peer but the store is isolated), source peer decide to destroy by itself.
-			// Without target, the `pending_merge_targets` for target won't be removed, so here source peer help target to clear.
-			if meta.regions[targetID] == nil && len(meta.pendingMergeTargets[targetID]) == 0 {
-				delete(meta.pendingMergeTargets, targetID)
-			}
-		}
-	}
-	delete(meta.mergeLocks, regionID)
 	isInitialized := d.peer.isInitialized()
-	if err := d.peer.Destroy(d.ctx.engine, mergeByTarget); err != nil {
+	if err := d.peer.Destroy(d.ctx.engine, false); err != nil {
 		// If not panic here, the peer will be recreated in the next restart,
 		// then it will be gc again. But if some overlap region is created
 		// before restarting, the gc action will delete the overlap region's
@@ -622,10 +604,10 @@ func (d *peerMsgHandler) destroyPeer(mergeByTarget bool) {
 	}
 	d.ctx.router.close(regionID)
 	d.stop()
-	if isInitialized && !mergeByTarget && !meta.regionRanges.Delete(d.region().EndKey) {
+	if isInitialized && !meta.regionRanges.Delete(d.region().EndKey) {
 		panic(d.tag() + " meta corruption detected")
 	}
-	if _, ok := meta.regions[regionID]; !ok && !mergeByTarget {
+	if _, ok := meta.regions[regionID]; !ok {
 		panic(d.tag() + " meta corruption detected")
 	}
 	delete(meta.regions, regionID)
@@ -1129,51 +1111,6 @@ func (d *peerMsgHandler) onPDHeartbeatTick() {
 		return
 	}
 	d.peer.HeartbeatPd(d.ctx.pdTaskSender)
-}
-
-func (d *peerMsgHandler) onCheckPeerStaleStateTick() {
-	if d.peer.PendingRemove {
-		return
-	}
-	d.ticker.schedule(PeerTickPeerStaleState)
-
-	if d.peer.IsApplyingSnapshot() || d.peer.HasPendingSnapshot() {
-		return
-	}
-
-	// If this peer detects the leader is missing for a long long time,
-	// it should consider itself as a stale peer which is removed from
-	// the original cluster.
-	// This most likely happens in the following scenario:
-	// At first, there are three peer A, B, C in the cluster, and A is leader.
-	// Peer B gets down. And then A adds D, E, F into the cluster.
-	// Peer D becomes leader of the new cluster, and then removes peer A, B, C.
-	// After all these peer in and out, now the cluster has peer D, E, F.
-	// If peer B goes up at this moment, it still thinks it is one of the cluster
-	// and has peers A, C. However, it could not reach A, C since they are removed
-	// from the cluster or probably destroyed.
-	// Meantime, D, E, F would not reach B, since it's not in the cluster anymore.
-	// In this case, peer B would notice that the leader is missing for a long time,
-	// and it would check with pd to confirm whether it's still a member of the cluster.
-	// If not, it destroys itself as a stale peer which is removed out already.
-	state := d.peer.CheckStaleState(d.ctx.cfg)
-	switch state {
-	case StaleStateValid:
-	case StaleStateLeaderMissing:
-		log.Warnf("%s leader missing longer than abnormal_leader_missing_duration %v",
-			d.tag(), d.ctx.cfg.AbnormalLeaderMissingDuration)
-	case StaleStateToValidate:
-		// for peer B in case 1 above
-		log.Warnf("%s leader missing longer than max_leader_missing_duration %v. To check with pd whether it's still valid",
-			d.tag(), d.ctx.cfg.AbnormalLeaderMissingDuration)
-		d.ctx.pdTaskSender <- worker.Task{
-			Tp: worker.TaskTypePDValidatePeer,
-			Data: &pdValidatePeerTask{
-				region: d.region(),
-				peer:   d.peer.Meta,
-			},
-		}
-	}
 }
 
 func newAdminRequest(regionID uint64, peer *metapb.Peer) *raft_cmdpb.RaftCmdRequest {
