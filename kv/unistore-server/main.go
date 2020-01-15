@@ -23,7 +23,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv"
 	tikvConf "github.com/pingcap-incubator/tinykv/kv/tikv/config"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
@@ -173,7 +173,7 @@ func setupRaftInnerServer(kvDB *badger.DB, pdClient pd.Client, conf *config.Conf
 
 	engines := engine_util.NewEngines(kvDB, raftDB, kvPath, raftPath)
 
-	innerServer := raftstore.NewRaftInnerServer(engines, raftConf)
+	innerServer := inner_server.NewRaftInnerServer(engines, raftConf)
 	innerServer.Setup(pdClient)
 	router := innerServer.GetRaftstoreRouter()
 	storeMeta := innerServer.GetStoreMeta()
@@ -194,7 +194,7 @@ func setupStandAlongInnerServer(db *badger.DB, pdClient pd.Client, conf *config.
 		RegionSize: conf.Server.RegionSize,
 	}
 
-	innerServer := tikv.NewStandAlongInnerServer(db)
+	innerServer := inner_server.NewStandAlongInnerServer(db)
 	innerServer.Setup(pdClient)
 	rm := tikv.NewStandAloneRegionManager(db, regionOpts, pdClient)
 

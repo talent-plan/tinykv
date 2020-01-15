@@ -169,7 +169,7 @@ func (d *storeMsgHandler) start(store *metapb.Store) {
 /// loadPeers loads peers in this store. It scans the db engine, loads all regions
 /// and their peers from it, and schedules snapshot worker if necessary.
 /// WARN: This store should not be used before initialized.
-func (bs *raftBatchSystem) loadPeers() ([]*peerFsm, error) {
+func (bs *RaftBatchSystem) loadPeers() ([]*peerFsm, error) {
 	// Scan region meta to get saved regions.
 	startKey := RegionMetaMinKey
 	endKey := RegionMetaMaxKey
@@ -263,7 +263,7 @@ func (bs *raftBatchSystem) loadPeers() ([]*peerFsm, error) {
 	return regionPeers, nil
 }
 
-func (bs *raftBatchSystem) clearStaleMeta(kvWB, raftWB *engine_util.WriteBatch, originState *rspb.RegionLocalState) {
+func (bs *RaftBatchSystem) clearStaleMeta(kvWB, raftWB *engine_util.WriteBatch, originState *rspb.RegionLocalState) {
 	region := originState.Region
 	raftKey := RaftStateKey(region.Id)
 	raftState := raftState{}
@@ -293,7 +293,7 @@ type workers struct {
 	wg                *sync.WaitGroup
 }
 
-type raftBatchSystem struct {
+type RaftBatchSystem struct {
 	ctx        *GlobalContext
 	router     *router
 	workers    *workers
@@ -302,7 +302,7 @@ type raftBatchSystem struct {
 	wg         *sync.WaitGroup
 }
 
-func (bs *raftBatchSystem) start(
+func (bs *RaftBatchSystem) start(
 	meta *metapb.Store,
 	cfg *config.Config,
 	engines *engine_util.Engines,
@@ -359,7 +359,7 @@ func (bs *raftBatchSystem) start(
 	return nil
 }
 
-func (bs *raftBatchSystem) startWorkers(peers []*peerFsm) {
+func (bs *RaftBatchSystem) startWorkers(peers []*peerFsm) {
 	ctx := bs.ctx
 	workers := bs.workers
 	router := bs.router
@@ -395,7 +395,7 @@ func (bs *raftBatchSystem) startWorkers(peers []*peerFsm) {
 	go bs.tickDriver.run(bs.closeCh, bs.wg) // TODO: temp workaround.
 }
 
-func (bs *raftBatchSystem) shutDown() {
+func (bs *RaftBatchSystem) shutDown() {
 	if bs.workers == nil {
 		return
 	}
@@ -413,10 +413,10 @@ func (bs *raftBatchSystem) shutDown() {
 	workers.wg.Wait()
 }
 
-func createRaftBatchSystem(cfg *config.Config) (*router, *raftBatchSystem) {
+func CreateRaftBatchSystem(cfg *config.Config) (*router, *RaftBatchSystem) {
 	storeSender, storeFsm := newStoreFsm(cfg)
 	router := newRouter(cfg.RaftWorkerCnt, storeSender, storeFsm)
-	raftBatchSystem := &raftBatchSystem{
+	raftBatchSystem := &RaftBatchSystem{
 		router:     router,
 		tickDriver: newTickDriver(cfg.RaftBaseTickInterval, router, storeFsm.ticker),
 		closeCh:    make(chan struct{}),

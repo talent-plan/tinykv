@@ -1,4 +1,4 @@
-package raftstore
+package inner_server
 
 import (
 	"sync"

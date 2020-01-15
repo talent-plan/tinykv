@@ -18,9 +18,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/util/codec"
 )
@@ -90,22 +88,6 @@ type flowStats struct {
 
 type compactTask struct {
 	keyRange keyRange
-}
-
-type resolveAddrTask struct {
-	storeID  uint64
-	callback func(addr string, err error)
-}
-
-type sendSnapTask struct {
-	addr     string
-	msg      *raft_serverpb.RaftMessage
-	callback func(error)
-}
-
-type recvSnapTask struct {
-	stream   tikvpb.Tikv_SnapshotServer
-	callback func(error)
 }
 
 type splitCheckHandler struct {

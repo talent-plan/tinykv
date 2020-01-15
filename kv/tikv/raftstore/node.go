@@ -24,12 +24,12 @@ type Node struct {
 	store     *metapb.Store
 	cfg       *config.Config
 	storeWg   *sync.WaitGroup
-	system    *raftBatchSystem
+	system    *RaftBatchSystem
 	pdClient  pd.Client
 	observer  PeerEventObserver
 }
 
-func NewNode(system *raftBatchSystem, store *metapb.Store, cfg *config.Config, pdClient pd.Client, observer PeerEventObserver) *Node {
+func NewNode(system *RaftBatchSystem, store *metapb.Store, cfg *config.Config, pdClient pd.Client, observer PeerEventObserver) *Node {
 	if cfg.AdvertiseAddr != "" {
 		store.Address = cfg.AdvertiseAddr
 	} else {
@@ -246,6 +246,6 @@ func (n *Node) stopNode(storeID uint64) {
 	n.system.shutDown()
 }
 
-func (n *Node) stop() {
+func (n *Node) Stop() {
 	n.stopNode(n.store.GetId())
 }

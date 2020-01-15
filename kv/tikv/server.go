@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/juju/errors"
+	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/rowcodec"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
@@ -23,6 +24,19 @@ type Server struct {
 	wg            sync.WaitGroup
 	refCount      int32
 	stopped       int32
+}
+
+type InnerServer interface {
+	Setup(pdClient pd.Client)
+	Start(pdClient pd.Client) error
+	Stop() error
+	// TODO:
+	// Put(...)
+	// Delete(...)
+	// Snapshot(...) used for get and scan
+	Raft(stream tikvpb.Tikv_RaftServer) error
+	BatchRaft(stream tikvpb.Tikv_BatchRaftServer) error
+	Snapshot(stream tikvpb.Tikv_SnapshotServer) error
 }
 
 func NewServer(rm RegionManager, innerServer InnerServer) *Server {

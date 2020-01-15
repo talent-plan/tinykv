@@ -1,4 +1,4 @@
-package tikv
+package inner_server
 
 import (
 	"github.com/coocood/badger"
@@ -6,15 +6,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 )
-
-type InnerServer interface {
-	Setup(pdClient pd.Client)
-	Start(pdClient pd.Client) error
-	Stop() error
-	Raft(stream tikvpb.Tikv_RaftServer) error
-	BatchRaft(stream tikvpb.Tikv_BatchRaftServer) error
-	Snapshot(stream tikvpb.Tikv_SnapshotServer) error
-}
 
 type StandAlongInnerServer struct {
 	db *badger.DB
