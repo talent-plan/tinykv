@@ -12,8 +12,8 @@ import (
 func TestBootstrapStore(t *testing.T) {
 	engines := newTestEngines(t)
 	defer func() {
-		os.RemoveAll(engines.kvPath)
-		os.RemoveAll(engines.raftPath)
+		os.RemoveAll(engines.KvPath)
+		os.RemoveAll(engines.RaftPath)
 	}()
 	require.Nil(t, BootstrapStore(engines, 1, 1))
 	require.NotNil(t, BootstrapStore(engines, 1, 1))

@@ -97,15 +97,15 @@ func TestPendingDeleteRanges(t *testing.T) {
 	assert.Equal(t, delRange.ranges.Len(), 0)
 }
 
-func newEnginesWithKVDb(t *testing.T, kv *badger.DB) *Engines {
-	engines := new(Engines)
+func newEnginesWithKVDb(t *testing.T, kv *badger.DB) *engine_util.Engines {
+	engines := new(engine_util.Engines)
 	engines.Kv = kv
 	var err error
-	engines.raftPath, err = ioutil.TempDir("", "unistore_raft")
+	engines.RaftPath, err = ioutil.TempDir("", "unistore_raft")
 	require.Nil(t, err)
 	raftOpts := badger.DefaultOptions
-	raftOpts.Dir = engines.raftPath
-	raftOpts.ValueDir = engines.raftPath
+	raftOpts.Dir = engines.RaftPath
+	raftOpts.ValueDir = engines.RaftPath
 	raftOpts.ValueThreshold = 256
 	engines.Raft, err = badger.Open(raftOpts)
 	require.Nil(t, err)
@@ -128,7 +128,7 @@ func newEnginesWithKVDb(t *testing.T, kv *badger.DB) *Engines {
 // 	}
 
 // 	engines := newEnginesWithKVDb(t, db)
-// 	engines.kvPath = kvPath
+// 	engines.KvPath = kvPath
 // 	defer cleanUpTestEngineData(engines)
 
 // 	snapPath, err := ioutil.TempDir("", "unistore_snap")
