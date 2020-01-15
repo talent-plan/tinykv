@@ -14,6 +14,7 @@ import (
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/lockstore"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
@@ -192,16 +193,16 @@ func newWorker(name string, wg *sync.WaitGroup) *worker {
 type splitCheckHandler struct {
 	engine  *badger.DB
 	router  *router
-	config  *splitCheckConfig
+	config  *config.SplitCheckConfig
 	checker *sizeSplitChecker
 }
 
-func newSplitCheckHandler(engine *badger.DB, router *router, config *splitCheckConfig) *splitCheckHandler {
+func newSplitCheckHandler(engine *badger.DB, router *router, config *config.SplitCheckConfig) *splitCheckHandler {
 	runner := &splitCheckHandler{
 		engine:  engine,
 		router:  router,
 		config:  config,
-		checker: newSizeSplitChecker(config.regionMaxSize, config.regionSplitSize, config.batchSplitLimit),
+		checker: newSizeSplitChecker(config.RegionMaxSize, config.RegionSplitSize, config.BatchSplitLimit),
 	}
 	return runner
 }

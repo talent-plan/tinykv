@@ -3,6 +3,8 @@ package raftstore
 import (
 	"sync"
 	"time"
+
+	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 )
 
 type ticker struct {
@@ -16,7 +18,7 @@ type tickSchedule struct {
 	interval int64
 }
 
-func newTicker(regionID uint64, cfg *Config) *ticker {
+func newTicker(regionID uint64, cfg *config.Config) *ticker {
 	baseInterval := cfg.RaftBaseTickInterval
 	t := &ticker{
 		regionID:  regionID,
@@ -30,7 +32,7 @@ func newTicker(regionID uint64, cfg *Config) *ticker {
 	return t
 }
 
-func newStoreTicker(cfg *Config) *ticker {
+func newStoreTicker(cfg *config.Config) *ticker {
 	baseInterval := cfg.RaftBaseTickInterval
 	t := &ticker{
 		schedules: make([]tickSchedule, 4),

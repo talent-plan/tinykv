@@ -9,6 +9,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
@@ -19,14 +20,14 @@ import (
 type Node struct {
 	clusterID uint64
 	store     *metapb.Store
-	cfg       *Config
+	cfg       *config.Config
 	storeWg   *sync.WaitGroup
 	system    *raftBatchSystem
 	pdClient  pd.Client
 	observer  PeerEventObserver
 }
 
-func NewNode(system *raftBatchSystem, store *metapb.Store, cfg *Config, pdClient pd.Client, observer PeerEventObserver) *Node {
+func NewNode(system *raftBatchSystem, store *metapb.Store, cfg *config.Config, pdClient pd.Client, observer PeerEventObserver) *Node {
 	if cfg.AdvertiseAddr != "" {
 		store.Address = cfg.AdvertiseAddr
 	} else {

@@ -1,4 +1,4 @@
-package raftstore
+package config
 
 import (
 	"fmt"
@@ -82,9 +82,6 @@ type Config struct {
 	// The lease provided by a successfully proposed and applied entry.
 	RaftStoreMaxLeaderLease time.Duration
 
-	// Right region derive origin region id when split.
-	RightDeriveWhenSplit bool
-
 	AllowRemoveLeader bool
 
 	ApplyMaxBatchSize uint64
@@ -105,19 +102,19 @@ type Config struct {
 	AdvertiseAddr string
 	Labels        []StoreLabel
 
-	SplitCheck *splitCheckConfig
+	SplitCheck *SplitCheckConfig
 }
 
-type splitCheckConfig struct {
+type SplitCheckConfig struct {
 	// For once split check, there are several splitKey produced for batch.
 	// batchSplitLimit limits the number of produced split-key for one batch.
-	batchSplitLimit uint64
+	BatchSplitLimit uint64
 
 	// When region [a,e) size meets regionMaxSize, it will be split into
 	// several regions [a,b), [b,c), [c,d), [d,e). And the size of [a,b),
 	// [b,c), [c,d) will be regionSplitSize (maybe a little larger).
-	regionMaxSize   uint64
-	regionSplitSize uint64
+	RegionMaxSize   uint64
+	RegionSplitSize uint64
 }
 
 type StoreLabel struct {
@@ -163,7 +160,6 @@ func NewDefaultConfig() *Config {
 		// Disable consistency check by default as it will hurt performance.
 		// We should turn on this only in our tests.
 		RaftStoreMaxLeaderLease: 9 * time.Second,
-		RightDeriveWhenSplit:    true,
 		AllowRemoveLeader:       false,
 		ApplyMaxBatchSize:       1024,
 		ApplyPoolSize:           2,
@@ -176,7 +172,7 @@ func NewDefaultConfig() *Config {
 		GrpcKeepAliveTimeout:    60 * time.Second,
 		GrpcRaftConnNum:         1,
 		Addr:                    "127.0.0.1:20160",
-		SplitCheck:              newDefaultSplitCheckConfig(),
+		SplitCheck:              NewDefaultSplitCheckConfig(),
 	}
 }
 
@@ -189,12 +185,12 @@ const (
 	batchSplitLimit uint64 = 10
 )
 
-func newDefaultSplitCheckConfig() *splitCheckConfig {
+func NewDefaultSplitCheckConfig() *SplitCheckConfig {
 	splitSize := splitSizeMB * MB
-	return &splitCheckConfig{
-		batchSplitLimit: batchSplitLimit,
-		regionSplitSize: splitSize,
-		regionMaxSize:   splitSize / 2 * 3,
+	return &SplitCheckConfig{
+		BatchSplitLimit: batchSplitLimit,
+		RegionSplitSize: splitSize,
+		RegionMaxSize:   splitSize / 2 * 3,
 	}
 }
 

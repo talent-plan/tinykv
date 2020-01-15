@@ -5,13 +5,14 @@ import (
 	"sync"
 
 	"github.com/pingcap-incubator/tinykv/kv/pd"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 )
 
 type RaftInnerServer struct {
 	engines       *Engines
-	raftConfig    *Config
+	raftConfig    *config.Config
 	storeMeta     metapb.Store
 	eventObserver PeerEventObserver
 
@@ -63,7 +64,7 @@ func (ris *RaftInnerServer) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
 	return err
 }
 
-func NewRaftInnerServer(engines *Engines, raftConfig *Config) *RaftInnerServer {
+func NewRaftInnerServer(engines *Engines, raftConfig *config.Config) *RaftInnerServer {
 	return &RaftInnerServer{engines: engines, raftConfig: raftConfig}
 }
 

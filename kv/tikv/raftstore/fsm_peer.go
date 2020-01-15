@@ -7,6 +7,7 @@ import (
 
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
@@ -46,7 +47,7 @@ type PeerEventObserver interface {
 // If we create the peer actively, like bootstrap/split/merge region, we should
 // use this function to create the peer. The region must contain the peer info
 // for this store.
-func createPeerFsm(storeID uint64, cfg *Config, sched chan<- task,
+func createPeerFsm(storeID uint64, cfg *config.Config, sched chan<- task,
 	engines *Engines, region *metapb.Region) (*peerFsm, error) {
 	metaPeer := findPeer(region, storeID)
 	if metaPeer == nil {
@@ -66,7 +67,7 @@ func createPeerFsm(storeID uint64, cfg *Config, sched chan<- task,
 // The peer can be created from another node with raft membership changes, and we only
 // know the region_id and peer_id when creating this replicated peer, the region info
 // will be retrieved later after applying snapshot.
-func replicatePeerFsm(storeID uint64, cfg *Config, sched chan<- task,
+func replicatePeerFsm(storeID uint64, cfg *config.Config, sched chan<- task,
 	engines *Engines, regionID uint64, metaPeer *metapb.Peer) (*peerFsm, error) {
 	// We will remove tombstone key when apply snapshot
 	log.Infof("[region %v] replicates peer with ID %d", regionID, metaPeer.GetId())
@@ -923,24 +924,13 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 
 func (d *peerMsgHandler) findSiblingRegion() *metapb.Region {
 	var start []byte
-	var skipFirst bool
-	if d.ctx.cfg.RightDeriveWhenSplit {
-		start = d.region().StartKey
-	} else {
-		start = d.region().EndKey
-		skipFirst = true
-	}
+	start = d.region().StartKey
 	d.ctx.storeMetaLock.Lock()
 	defer d.ctx.storeMetaLock.Unlock()
 	meta := d.ctx.storeMeta
 	it := meta.regionRanges.NewIterator()
 	it.Seek(start)
-	valid := it.Valid()
-	if valid && skipFirst {
-		it.Next()
-		valid = it.Valid()
-	}
-	if !valid {
+	if !it.Valid() {
 		return nil
 	}
 	regionID := regionIDFromBytes(it.Value())

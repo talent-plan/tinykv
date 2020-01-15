@@ -12,6 +12,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/lockstore"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
@@ -60,7 +61,7 @@ type mergeLock struct {
 }
 
 type GlobalContext struct {
-	cfg                   *Config
+	cfg                   *config.Config
 	engine                *Engines
 	store                 *metapb.Store
 	storeMeta             *storeMeta
@@ -108,7 +109,7 @@ type storeFsm struct {
 	ticker              *ticker
 }
 
-func newStoreFsm(cfg *Config) (chan<- Msg, *storeFsm) {
+func newStoreFsm(cfg *config.Config) (chan<- Msg, *storeFsm) {
 	ch := make(chan Msg, cfg.NotifyCapacity)
 	fsm := &storeFsm{
 		receiver: (<-chan Msg)(ch),
@@ -302,7 +303,7 @@ type raftBatchSystem struct {
 
 func (bs *raftBatchSystem) start(
 	meta *metapb.Store,
-	cfg *Config,
+	cfg *config.Config,
 	engines *Engines,
 	trans Transport,
 	pdClient pd.Client,
@@ -413,7 +414,7 @@ func (bs *raftBatchSystem) shutDown() {
 	workers.wg.Wait()
 }
 
-func createRaftBatchSystem(cfg *Config) (*router, *raftBatchSystem) {
+func createRaftBatchSystem(cfg *config.Config) (*router, *raftBatchSystem) {
 	storeSender, storeFsm := newStoreFsm(cfg)
 	router := newRouter(cfg.RaftWorkerCnt, storeSender, storeFsm)
 	raftBatchSystem := &raftBatchSystem{

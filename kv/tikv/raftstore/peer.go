@@ -12,6 +12,7 @@ import (
 	"github.com/coocood/badger"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
@@ -268,7 +269,7 @@ type Peer struct {
 	PeerStat        PeerStat
 }
 
-func NewPeer(storeId uint64, cfg *Config, engines *Engines, region *metapb.Region, regionSched chan<- task,
+func NewPeer(storeId uint64, cfg *config.Config, engines *Engines, region *metapb.Region, regionSched chan<- task,
 	peer *metapb.Peer) (*Peer, error) {
 	if peer.GetId() == InvalidID {
 		return nil, fmt.Errorf("invalid peer id")
@@ -644,7 +645,7 @@ func (p *Peer) AnyNewPeerCatchUp(peerId uint64) bool {
 	return false
 }
 
-func (p *Peer) CheckStaleState(cfg *Config) StaleState {
+func (p *Peer) CheckStaleState(cfg *config.Config) StaleState {
 	if p.IsLeader() {
 		// Leaders always have valid state.
 		//
@@ -1124,7 +1125,7 @@ func (p *Peer) PostSplit() {
 // Propose a request.
 //
 // Return true means the request has been proposed successfully.
-func (p *Peer) Propose(kv *badger.DB, cfg *Config, cb *Callback, req *raft_cmdpb.RaftCmdRequest, errResp *raft_cmdpb.RaftCmdResponse) bool {
+func (p *Peer) Propose(kv *badger.DB, cfg *config.Config, cb *Callback, req *raft_cmdpb.RaftCmdRequest, errResp *raft_cmdpb.RaftCmdResponse) bool {
 	if p.PendingRemove {
 		return false
 	}
@@ -1217,7 +1218,7 @@ func (p *Peer) countHealthyNode(progress map[uint64]raft.Progress) int {
 ///    Then at least '(total - 1)/2 + 1' other nodes (the node about to be removed is excluded)
 ///    need to be up to date for now. If 'allow_remove_leader' is false then
 ///    the peer to be removed should not be the leader.
-func (p *Peer) checkConfChange(cfg *Config, cmd *raft_cmdpb.RaftCmdRequest) error {
+func (p *Peer) checkConfChange(cfg *config.Config, cmd *raft_cmdpb.RaftCmdRequest) error {
 	changePeer := GetChangePeerCmd(cmd)
 	changeType := changePeer.GetChangeType()
 	peer := changePeer.GetPeer()
@@ -1288,7 +1289,7 @@ func (p *Peer) transferLeader(peer *metapb.Peer) {
 	p.RaftGroup.TransferLeader(peer.GetId())
 }
 
-func (p *Peer) readyToTransferLeader(cfg *Config, peer *metapb.Peer) bool {
+func (p *Peer) readyToTransferLeader(cfg *config.Config, peer *metapb.Peer) bool {
 	peerId := peer.GetId()
 	status := p.RaftGroup.Status()
 
@@ -1329,7 +1330,7 @@ func (p *Peer) preReadIndex() error {
 // 1. The region is in merging or splitting;
 // 2. The message is stale and dropped by the Raft group internally;
 // 3. There is already a read request proposed in the current lease;
-func (p *Peer) readIndex(cfg *Config, req *raft_cmdpb.RaftCmdRequest, errResp *raft_cmdpb.RaftCmdResponse, cb *Callback) bool {
+func (p *Peer) readIndex(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest, errResp *raft_cmdpb.RaftCmdResponse, cb *Callback) bool {
 	err := p.preReadIndex()
 	if err != nil {
 		log.Debugf("%v prevents unsafe read index, err: %v", p.Tag, err)
@@ -1401,7 +1402,7 @@ func (p *Peer) GetMinProgress() uint64 {
 	return minMatch
 }
 
-func (p *Peer) PrePropose(cfg *Config, req *raft_cmdpb.RaftCmdRequest) (*ProposalContext, error) {
+func (p *Peer) PrePropose(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest) (*ProposalContext, error) {
 	ctx := new(ProposalContext)
 
 	if getSyncLogFromRequest(req) {
@@ -1421,7 +1422,7 @@ func (p *Peer) PrePropose(cfg *Config, req *raft_cmdpb.RaftCmdRequest) (*Proposa
 	return ctx, nil
 }
 
-func (p *Peer) ProposeNormal(cfg *Config, req *raft_cmdpb.RaftCmdRequest) (uint64, error) {
+func (p *Peer) ProposeNormal(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest) (uint64, error) {
 	// TODO: validate request for unexpected changes.
 	ctx, err := p.PrePropose(cfg, req)
 	if err != nil {
@@ -1453,7 +1454,7 @@ func (p *Peer) ProposeNormal(cfg *Config, req *raft_cmdpb.RaftCmdRequest) (uint6
 }
 
 // Return true if the transfer leader request is accepted.
-func (p *Peer) ProposeTransferLeader(cfg *Config, req *raft_cmdpb.RaftCmdRequest, cb *Callback) bool {
+func (p *Peer) ProposeTransferLeader(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest, cb *Callback) bool {
 	transferLeader := getTransferLeaderCmd(req)
 	peer := transferLeader.Peer
 
@@ -1478,7 +1479,7 @@ func (p *Peer) ProposeTransferLeader(cfg *Config, req *raft_cmdpb.RaftCmdRequest
 // 2. Removing the leader is not allowed in the configuration;
 // 3. The conf change makes the raft group not healthy;
 // 4. The conf change is dropped by raft group internally.
-func (p *Peer) ProposeConfChange(cfg *Config, req *raft_cmdpb.RaftCmdRequest) (uint64, error) {
+func (p *Peer) ProposeConfChange(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest) (uint64, error) {
 	if p.RaftGroup.Raft.PendingConfIndex > p.Store().AppliedIndex() {
 		log.Infof("%v there is a pending conf change, try later", p.Tag)
 		return 0, fmt.Errorf("%v there is a pending conf change, try later", p.Tag)
