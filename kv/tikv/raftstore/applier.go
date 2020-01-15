@@ -10,6 +10,7 @@ import (
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
@@ -198,10 +199,10 @@ func newGenSnapTask(regionID uint64, notifier chan *eraftpb.Snapshot) *GenSnapTa
 	}
 }
 
-func (t *GenSnapTask) generateAndScheduleSnapshot(regionSched chan<- task) {
-	regionSched <- task{
-		tp: taskTypeRegionGen,
-		data: &regionTask{
+func (t *GenSnapTask) generateAndScheduleSnapshot(regionSched chan<- worker.Task) {
+	regionSched <- worker.Task{
+		Tp: worker.TaskTypeRegionGen,
+		Data: &regionTask{
 			regionId: t.regionID,
 			notifier: t.snapNotifier,
 		},
@@ -221,7 +222,7 @@ func (r *applyMsgs) appendMsg(regionID uint64, msg Msg) {
 type applyContext struct {
 	tag              string
 	timer            *time.Time
-	regionScheduler  chan<- task
+	regionScheduler  chan<- worker.Task
 	notifier         chan<- Msg
 	engines          *engine_util.Engines
 	txn              *badger.Txn
@@ -236,7 +237,7 @@ type applyContext struct {
 	syncLogHint bool
 }
 
-func newApplyContext(tag string, regionScheduler chan<- task, engines *engine_util.Engines,
+func newApplyContext(tag string, regionScheduler chan<- worker.Task, engines *engine_util.Engines,
 	notifier chan<- Msg, cfg *config.Config) *applyContext {
 	return &applyContext{
 		tag:             tag,
@@ -373,7 +374,7 @@ func notifyStaleReq(term uint64, cb *Callback) {
 ///
 /// The raft worker receives all the apply tasks of different Regions
 /// located at this store, and it will get the corresponding applier to
-/// handle the apply task to make the code logic more clear.
+/// handle the apply worker.Task to make the code logic more clear.
 type applier struct {
 	id     uint64
 	term   uint64

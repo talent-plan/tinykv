@@ -6,6 +6,7 @@ import (
 
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
@@ -32,24 +33,24 @@ func newPDTaskHandler(storeID uint64, pdClient pd.Client, router *router) *pdTas
 	}
 }
 
-func (r *pdTaskHandler) handle(t task) {
-	switch t.tp {
-	case taskTypePDAskBatchSplit:
-		r.onAskBatchSplit(t.data.(*pdAskBatchSplitTask))
-	case taskTypePDHeartbeat:
-		r.onHeartbeat(t.data.(*pdRegionHeartbeatTask))
-	case taskTypePDStoreHeartbeat:
-		r.onStoreHeartbeat(t.data.(*pdStoreHeartbeatTask))
-	case taskTypePDReportBatchSplit:
-		r.onReportBatchSplit(t.data.(*pdReportBatchSplitTask))
-	case taskTypePDValidatePeer:
-		r.onValidatePeer(t.data.(*pdValidatePeerTask))
-	case taskTypePDReadStats:
-		r.onReadStats(t.data.(readStats))
-	case taskTypePDDestroyPeer:
-		r.onDestroyPeer(t.data.(*pdDestroyPeerTask))
+func (r *pdTaskHandler) Handle(t worker.Task) {
+	switch t.Tp {
+	case worker.TaskTypePDAskBatchSplit:
+		r.onAskBatchSplit(t.Data.(*pdAskBatchSplitTask))
+	case worker.TaskTypePDHeartbeat:
+		r.onHeartbeat(t.Data.(*pdRegionHeartbeatTask))
+	case worker.TaskTypePDStoreHeartbeat:
+		r.onStoreHeartbeat(t.Data.(*pdStoreHeartbeatTask))
+	case worker.TaskTypePDReportBatchSplit:
+		r.onReportBatchSplit(t.Data.(*pdReportBatchSplitTask))
+	case worker.TaskTypePDValidatePeer:
+		r.onValidatePeer(t.Data.(*pdValidatePeerTask))
+	case worker.TaskTypePDReadStats:
+		r.onReadStats(t.Data.(readStats))
+	case worker.TaskTypePDDestroyPeer:
+		r.onDestroyPeer(t.Data.(*pdDestroyPeerTask))
 	default:
-		log.Error("unsupported task type:", t.tp)
+		log.Error("unsupported worker.Task type:", t.Tp)
 	}
 }
 

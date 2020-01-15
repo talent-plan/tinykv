@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/lockstore"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
@@ -24,39 +24,6 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/util/codec"
 )
-
-type taskType int64
-
-const (
-	taskTypeStop       taskType = 0
-	taskTypeRaftLogGC  taskType = 1
-	taskTypeSplitCheck taskType = 2
-
-	taskTypePDAskBatchSplit    taskType = 102
-	taskTypePDHeartbeat        taskType = 103
-	taskTypePDStoreHeartbeat   taskType = 104
-	taskTypePDReportBatchSplit taskType = 105
-	taskTypePDValidatePeer     taskType = 106
-	taskTypePDReadStats        taskType = 107
-	taskTypePDDestroyPeer      taskType = 108
-
-	taskTypeRegionGen   taskType = 401
-	taskTypeRegionApply taskType = 402
-	/// Destroy data between [start_key, end_key).
-	///
-	/// The deletion may and may not succeed.
-	taskTypeRegionDestroy taskType = 403
-
-	taskTypeResolveAddr taskType = 501
-
-	taskTypeSnapSend taskType = 601
-	taskTypeSnapRecv taskType = 602
-)
-
-type task struct {
-	tp   taskType
-	data interface{}
-}
 
 type regionTask struct {
 	regionId uint64
@@ -141,55 +108,6 @@ type recvSnapTask struct {
 	callback func(error)
 }
 
-type worker struct {
-	name     string
-	sender   chan<- task
-	receiver <-chan task
-	closeCh  chan struct{}
-	wg       *sync.WaitGroup
-}
-
-type taskHandler interface {
-	handle(t task)
-}
-
-type starter interface {
-	start()
-}
-
-func (w *worker) start(handler taskHandler) {
-	w.wg.Add(1)
-	go func() {
-		defer w.wg.Done()
-		if s, ok := handler.(starter); ok {
-			s.start()
-		}
-		for {
-			task := <-w.receiver
-			if task.tp == taskTypeStop {
-				return
-			}
-			handler.handle(task)
-		}
-	}()
-}
-
-func (w *worker) stop() {
-	w.sender <- task{tp: taskTypeStop}
-}
-
-const defaultWorkerCapacity = 128
-
-func newWorker(name string, wg *sync.WaitGroup) *worker {
-	ch := make(chan task, defaultWorkerCapacity)
-	return &worker{
-		sender:   (chan<- task)(ch),
-		receiver: (<-chan task)(ch),
-		name:     name,
-		wg:       wg,
-	}
-}
-
 type splitCheckHandler struct {
 	engine  *badger.DB
 	router  *router
@@ -208,8 +126,8 @@ func newSplitCheckHandler(engine *badger.DB, router *router, config *config.Spli
 }
 
 /// run checks a region with split checkers to produce split keys and generates split admin command.
-func (r *splitCheckHandler) handle(t task) {
-	spCheckTask := t.data.(*splitCheckTask)
+func (r *splitCheckHandler) Handle(t worker.Task) {
+	spCheckTask := t.Data.(*splitCheckTask)
 	region := spCheckTask.region
 	regionId := region.Id
 	_, startKey, err := codec.DecodeBytes(region.StartKey, nil)
@@ -222,7 +140,7 @@ func (r *splitCheckHandler) handle(t task) {
 		log.Errorf("failed to decode region key %x, err:%v", region.EndKey, err)
 		return
 	}
-	log.Debugf("executing split check task: [regionId: %d, startKey: %s, endKey: %s]", regionId,
+	log.Debugf("executing split check worker.Task: [regionId: %d, startKey: %s, endKey: %s]", regionId,
 		hex.EncodeToString(startKey), hex.EncodeToString(endKey))
 	keys := r.splitCheck(startKey, endKey)
 	if len(keys) != 0 {
@@ -446,7 +364,7 @@ type snapContext struct {
 	pendingDeleteRanges *pendingDeleteRanges
 }
 
-// handleGen handles the task of generating snapshot of the Region. It calls `generateSnap` to do the actual work.
+// handleGen handles the worker.Task of generating snapshot of the Region. It calls `generateSnap` to do the actual work.
 func (snapCtx *snapContext) handleGen(regionId uint64, notifier chan<- *eraftpb.Snapshot) {
 	if err := snapCtx.generateSnap(regionId, notifier); err != nil {
 		log.Errorf("failed to generate snapshot!!!, [regionId: %d, err : %v]", regionId, err)
@@ -587,8 +505,8 @@ type regionApplyState struct {
 type regionTaskHandler struct {
 	ctx *snapContext
 	// we may delay some apply tasks if level 0 files to write stall threshold,
-	// pending_applies records all delayed apply task, and will check again later
-	pendingApplies []task
+	// pending_applies records all delayed apply worker.Task, and will check again later
+	pendingApplies []worker.Task
 
 	applyStates []regionApplyState
 }
@@ -610,11 +528,11 @@ func newRegionTaskHandler(engines *engine_util.Engines, mgr *SnapManager, batchS
 // handlePendingApplies tries to apply pending tasks if there is some.
 func (r *regionTaskHandler) handlePendingApplies() {
 	for len(r.pendingApplies) > 0 {
-		// Try to apply task, if apply failed, throw away this task and let sender retry
+		// Try to apply worker.Task, if apply failed, throw away this worker.Task and let sender retry
 		apply := r.pendingApplies[0]
 		r.pendingApplies = r.pendingApplies[1:]
 
-		task := apply.data.(*regionTask)
+		task := apply.Data.(*regionTask)
 		err := r.ctx.handleApply(task.regionId, task.status)
 		if err != nil {
 			log.Error(err)
@@ -623,21 +541,21 @@ func (r *regionTaskHandler) handlePendingApplies() {
 	}
 }
 
-func (r *regionTaskHandler) handle(t task) {
-	switch t.tp {
-	case taskTypeRegionGen:
+func (r *regionTaskHandler) Handle(t worker.Task) {
+	switch t.Tp {
+	case worker.TaskTypeRegionGen:
 		// It is safe for now to handle generating and applying snapshot concurrently,
 		// but it may not when merge is implemented.
-		regionTask := t.data.(*regionTask)
+		regionTask := t.Data.(*regionTask)
 		r.ctx.handleGen(regionTask.regionId, regionTask.notifier)
-	case taskTypeRegionApply:
+	case worker.TaskTypeRegionApply:
 		// To make sure applying snapshots in order.
 		r.pendingApplies = append(r.pendingApplies, t)
 		r.handlePendingApplies()
-	case taskTypeRegionDestroy:
+	case worker.TaskTypeRegionDestroy:
 		// Try to delay the range deletion because
 		// there might be a coprocessor request related to this range
-		regionTask := t.data.(regionTask)
+		regionTask := t.Data.(regionTask)
 		if !r.ctx.insertPendingDeleteRange(regionTask.regionId, regionTask.startKey, regionTask.endKey) {
 			// Use delete files
 			r.ctx.cleanUpRange(regionTask.regionId, regionTask.startKey, regionTask.endKey)
@@ -709,8 +627,8 @@ func (r *raftLogGCTaskHandler) reportCollected(collected uint64) {
 	r.taskResCh <- raftLogGcTaskRes(collected)
 }
 
-func (r *raftLogGCTaskHandler) handle(t task) {
-	logGcTask := t.data.(*raftLogGCTask)
+func (r *raftLogGCTaskHandler) Handle(t worker.Task) {
+	logGcTask := t.Data.(*raftLogGCTask)
 	log.Debugf("execute gc log. [regionId: %d, endIndex: %d]", logGcTask.regionID, logGcTask.endIdx)
 	collected, err := r.gcRaftLog(logGcTask.raftEngine, logGcTask.regionID, logGcTask.startIdx, logGcTask.endIdx)
 	if err != nil {

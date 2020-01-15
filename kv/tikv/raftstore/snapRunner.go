@@ -9,6 +9,7 @@ import (
 
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 	"github.com/pingcap/errors"
@@ -32,12 +33,12 @@ func newSnapRunner(snapManager *SnapManager, config *config.Config, router RaftR
 	}
 }
 
-func (r *snapRunner) handle(t task) {
-	switch t.tp {
-	case taskTypeSnapSend:
-		r.send(t.data.(sendSnapTask))
-	case taskTypeSnapRecv:
-		r.recv(t.data.(recvSnapTask))
+func (r *snapRunner) Handle(t worker.Task) {
+	switch t.Tp {
+	case worker.TaskTypeSnapSend:
+		r.send(t.Data.(sendSnapTask))
+	case worker.TaskTypeSnapRecv:
+		r.recv(t.Data.(recvSnapTask))
 	}
 }
 

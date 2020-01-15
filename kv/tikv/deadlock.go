@@ -83,7 +83,7 @@ func (dt *DetectorClient) rebuildStreamClient() error {
 
 // NewDeadlockDetector will create a new detector util, entryTTL is used for
 // recycling the lock wait edge in detector wait wap. chSize is the pending
-// detection sending task size(used on non leader node)
+// detection sending worker.Task size(used on non leader node)
 func NewDetectorClient(waiterMgr *lockwaiter.Manager, pdClient pd.Client) *DetectorClient {
 	chSize := 10000
 	newDetector := &DetectorClient{
@@ -154,7 +154,7 @@ func (dt *DetectorClient) handleRemoteTask(requestType deadlockPb.DeadlockReques
 }
 
 // user interfaces
-// Cleanup processes cleaup task on local detector
+// Cleanup processes cleaup worker.Task on local detector
 func (dt *DetectorClient) CleanUp(startTs uint64) {
 	dt.handleRemoteTask(deadlockPb.DeadlockRequestType_CleanUp, startTs, 0, 0)
 }

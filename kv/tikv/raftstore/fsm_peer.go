@@ -9,6 +9,7 @@ import (
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
@@ -48,7 +49,7 @@ type PeerEventObserver interface {
 // If we create the peer actively, like bootstrap/split/merge region, we should
 // use this function to create the peer. The region must contain the peer info
 // for this store.
-func createPeerFsm(storeID uint64, cfg *config.Config, sched chan<- task,
+func createPeerFsm(storeID uint64, cfg *config.Config, sched chan<- worker.Task,
 	engines *engine_util.Engines, region *metapb.Region) (*peerFsm, error) {
 	metaPeer := findPeer(region, storeID)
 	if metaPeer == nil {
@@ -68,7 +69,7 @@ func createPeerFsm(storeID uint64, cfg *config.Config, sched chan<- task,
 // The peer can be created from another node with raft membership changes, and we only
 // know the region_id and peer_id when creating this replicated peer, the region info
 // will be retrieved later after applying snapshot.
-func replicatePeerFsm(storeID uint64, cfg *config.Config, sched chan<- task,
+func replicatePeerFsm(storeID uint64, cfg *config.Config, sched chan<- worker.Task,
 	engines *engine_util.Engines, regionID uint64, metaPeer *metapb.Peer) (*peerFsm, error) {
 	// We will remove tombstone key when apply snapshot
 	log.Infof("[region %v] replicates peer with ID %d", regionID, metaPeer.GetId())
@@ -590,9 +591,9 @@ func (d *peerMsgHandler) destroyPeer(mergeByTarget bool) {
 		d.ctx.storeMetaLock.Unlock()
 		// send messages out of store meta lock.
 		d.ctx.applyMsgs.appendMsg(regionID, NewPeerMsg(MsgTypeApplyDestroy, regionID, nil))
-		d.ctx.pdTaskSender <- task{
-			tp: taskTypePDDestroyPeer,
-			data: &pdDestroyPeerTask{
+		d.ctx.pdTaskSender <- worker.Task{
+			Tp: worker.TaskTypePDDestroyPeer,
+			Data: &pdDestroyPeerTask{
 				regionID: regionID,
 			},
 		}
@@ -704,9 +705,9 @@ func (d *peerMsgHandler) onReadyCompactLog(firstIndex uint64, truncatedIndex uin
 	}
 	d.peer.LastCompactedIdx = raftLogGCTask.endIdx
 	d.peer.Store().CompactTo(raftLogGCTask.endIdx)
-	d.ctx.raftLogGCTaskSender <- task{
-		tp:   taskTypeRaftLogGC,
-		data: raftLogGCTask,
+	d.ctx.raftLogGCTaskSender <- worker.Task{
+		Tp:   worker.TaskTypeRaftLogGC,
+		Data: raftLogGCTask,
 	}
 }
 
@@ -724,9 +725,9 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 		log.Infof("%s notify pd with split count %d", d.tag(), len(regions))
 		// Now pd only uses ReportBatchSplit for history operation show,
 		// so we send it independently here.
-		d.ctx.pdTaskSender <- task{
-			tp:   taskTypePDReportBatchSplit,
-			data: &pdReportBatchSplitTask{regions: regions},
+		d.ctx.pdTaskSender <- worker.Task{
+			Tp:   worker.TaskTypePDReportBatchSplit,
+			Data: &pdReportBatchSplitTask{regions: regions},
 		}
 	}
 
@@ -1039,9 +1040,9 @@ func (d *peerMsgHandler) onSplitRegionCheckTick() {
 	if d.peer.SizeDiffHint < d.ctx.cfg.RegionSplitCheckDiff {
 		return
 	}
-	d.ctx.splitCheckTaskSender <- task{
-		tp: taskTypeSplitCheck,
-		data: &splitCheckTask{
+	d.ctx.splitCheckTaskSender <- worker.Task{
+		Tp: worker.TaskTypeSplitCheck,
+		Data: &splitCheckTask{
 			region: d.region(),
 		},
 	}
@@ -1066,9 +1067,9 @@ func (d *peerMsgHandler) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, s
 		return
 	}
 	region := d.region()
-	d.ctx.pdTaskSender <- task{
-		tp: taskTypePDAskBatchSplit,
-		data: &pdAskBatchSplitTask{
+	d.ctx.pdTaskSender <- worker.Task{
+		Tp: worker.TaskTypePDAskBatchSplit,
+		Data: &pdAskBatchSplitTask{
 			region:    region,
 			splitKeys: splitKeys,
 			peer:      d.peer.Meta,
@@ -1165,9 +1166,9 @@ func (d *peerMsgHandler) onCheckPeerStaleStateTick() {
 		// for peer B in case 1 above
 		log.Warnf("%s leader missing longer than max_leader_missing_duration %v. To check with pd whether it's still valid",
 			d.tag(), d.ctx.cfg.AbnormalLeaderMissingDuration)
-		d.ctx.pdTaskSender <- task{
-			tp: taskTypePDValidatePeer,
-			data: &pdValidatePeerTask{
+		d.ctx.pdTaskSender <- worker.Task{
+			Tp: worker.TaskTypePDValidatePeer,
+			Data: &pdValidatePeerTask{
 				region: d.region(),
 				peer:   d.peer.Meta,
 			},

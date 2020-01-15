@@ -13,6 +13,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/lockstore"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
@@ -69,12 +70,12 @@ type GlobalContext struct {
 	snapMgr               *SnapManager
 	router                *router
 	trans                 Transport
-	pdTaskSender          chan<- task
-	regionTaskSender      chan<- task
-	computeHashTaskSender chan<- task
-	raftLogGCTaskSender   chan<- task
-	splitCheckTaskSender  chan<- task
-	compactTaskSender     chan<- task
+	pdTaskSender          chan<- worker.Task
+	regionTaskSender      chan<- worker.Task
+	computeHashTaskSender chan<- worker.Task
+	raftLogGCTaskSender   chan<- worker.Task
+	splitCheckTaskSender  chan<- worker.Task
+	compactTaskSender     chan<- worker.Task
 	pdClient              pd.Client
 	peerEventObserver     PeerEventObserver
 	tickDriverSender      chan uint64
@@ -283,12 +284,12 @@ func (bs *raftBatchSystem) clearStaleMeta(kvWB, raftWB *engine_util.WriteBatch, 
 }
 
 type workers struct {
-	pdWorker          *worker
-	raftLogGCWorker   *worker
-	computeHashWorker *worker
-	splitCheckWorker  *worker
-	regionWorker      *worker
-	compactWorker     *worker
+	raftLogGCWorker   *worker.Worker
+	pdWorker          *worker.Worker
+	computeHashWorker *worker.Worker
+	splitCheckWorker  *worker.Worker
+	regionWorker      *worker.Worker
+	compactWorker     *worker.Worker
 	wg                *sync.WaitGroup
 }
 
@@ -308,7 +309,7 @@ func (bs *raftBatchSystem) start(
 	trans Transport,
 	pdClient pd.Client,
 	snapMgr *SnapManager,
-	pdWorker *worker,
+	pdWorker *worker.Worker,
 	observer PeerEventObserver) error {
 	y.Assert(bs.workers == nil)
 	// TODO: we can get cluster meta regularly too later.
@@ -321,32 +322,30 @@ func (bs *raftBatchSystem) start(
 	}
 	wg := new(sync.WaitGroup)
 	bs.workers = &workers{
-		splitCheckWorker:  newWorker("split-check", wg),
-		regionWorker:      newWorker("snapshot-worker", wg),
-		raftLogGCWorker:   newWorker("raft-gc-worker", wg),
-		compactWorker:     newWorker("compact-worker", wg),
-		pdWorker:          pdWorker,
-		computeHashWorker: newWorker("compute-hash", wg),
-		wg:                wg,
+		splitCheckWorker: worker.NewWorker("split-check", wg),
+		regionWorker:     worker.NewWorker("snapshot-worker", wg),
+		raftLogGCWorker:  worker.NewWorker("raft-gc-worker", wg),
+		compactWorker:    worker.NewWorker("compact-worker", wg),
+		pdWorker:         pdWorker,
+		wg:               wg,
 	}
 	bs.ctx = &GlobalContext{
-		cfg:                   cfg,
-		engine:                engines,
-		store:                 meta,
-		storeMeta:             newStoreMeta(),
-		storeMetaLock:         new(sync.RWMutex),
-		snapMgr:               snapMgr,
-		router:                bs.router,
-		trans:                 trans,
-		pdTaskSender:          bs.workers.pdWorker.sender,
-		regionTaskSender:      bs.workers.regionWorker.sender,
-		computeHashTaskSender: bs.workers.computeHashWorker.sender,
-		splitCheckTaskSender:  bs.workers.splitCheckWorker.sender,
-		raftLogGCTaskSender:   bs.workers.raftLogGCWorker.sender,
-		compactTaskSender:     bs.workers.compactWorker.sender,
-		pdClient:              pdClient,
-		peerEventObserver:     observer,
-		tickDriverSender:      bs.tickDriver.newRegionCh,
+		cfg:                  cfg,
+		engine:               engines,
+		store:                meta,
+		storeMeta:            newStoreMeta(),
+		storeMetaLock:        new(sync.RWMutex),
+		snapMgr:              snapMgr,
+		router:               bs.router,
+		trans:                trans,
+		pdTaskSender:         bs.workers.pdWorker.Sender(),
+		regionTaskSender:     bs.workers.regionWorker.Sender(),
+		splitCheckTaskSender: bs.workers.splitCheckWorker.Sender(),
+		raftLogGCTaskSender:  bs.workers.raftLogGCWorker.Sender(),
+		compactTaskSender:    bs.workers.compactWorker.Sender(),
+		pdClient:             pdClient,
+		peerEventObserver:    observer,
+		tickDriverSender:     bs.tickDriver.newRegionCh,
 	}
 	regionPeers, err := bs.loadPeers()
 	if err != nil {
@@ -388,10 +387,10 @@ func (bs *raftBatchSystem) startWorkers(peers []*peerFsm) {
 	}
 	engines := ctx.engine
 	cfg := ctx.cfg
-	workers.splitCheckWorker.start(newSplitCheckHandler(engines.Kv, router, cfg.SplitCheck))
-	workers.regionWorker.start(newRegionTaskHandler(engines, ctx.snapMgr, cfg.SnapApplyBatchSize, cfg.CleanStalePeerDelay))
-	workers.raftLogGCWorker.start(&raftLogGCTaskHandler{})
-	workers.pdWorker.start(newPDTaskHandler(ctx.store.Id, ctx.pdClient, bs.router))
+	workers.splitCheckWorker.Start(newSplitCheckHandler(engines.Kv, router, cfg.SplitCheck))
+	workers.regionWorker.Start(newRegionTaskHandler(engines, ctx.snapMgr, cfg.SnapApplyBatchSize, cfg.CleanStalePeerDelay))
+	workers.raftLogGCWorker.Start(&raftLogGCTaskHandler{})
+	workers.pdWorker.Start(newPDTaskHandler(ctx.store.Id, ctx.pdClient, bs.router))
 	bs.wg.Add(1)
 	go bs.tickDriver.run(bs.closeCh, bs.wg) // TODO: temp workaround.
 }
@@ -404,13 +403,13 @@ func (bs *raftBatchSystem) shutDown() {
 	bs.wg.Wait()
 	workers := bs.workers
 	bs.workers = nil
-	stopTask := task{tp: taskTypeStop}
-	workers.splitCheckWorker.sender <- stopTask
-	workers.regionWorker.sender <- stopTask
-	workers.raftLogGCWorker.sender <- stopTask
-	workers.computeHashWorker.sender <- stopTask
-	workers.pdWorker.sender <- stopTask
-	workers.compactWorker.sender <- stopTask
+	stopTask := worker.Task{Tp: worker.TaskTypeStop}
+	workers.splitCheckWorker.Sender() <- stopTask
+	workers.regionWorker.Sender() <- stopTask
+	workers.raftLogGCWorker.Sender() <- stopTask
+	workers.computeHashWorker.Sender() <- stopTask
+	workers.pdWorker.Sender() <- stopTask
+	workers.compactWorker.Sender() <- stopTask
 	workers.wg.Wait()
 }
 
@@ -585,7 +584,7 @@ func (d *storeMsgHandler) storeHeartbeatPD() {
 		capacity: d.ctx.cfg.Capacity,
 		path:     d.ctx.engine.KvPath,
 	}
-	d.ctx.pdTaskSender <- task{tp: taskTypePDStoreHeartbeat, data: storeInfo}
+	d.ctx.pdTaskSender <- worker.Task{Tp: worker.TaskTypePDStoreHeartbeat, Data: storeInfo}
 }
 
 func (d *storeMsgHandler) onPDStoreHearbeatTick() {

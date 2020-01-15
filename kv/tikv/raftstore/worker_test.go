@@ -8,6 +8,7 @@ import (
 	"github.com/coocood/badger"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/lockstore"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -141,8 +142,8 @@ func newEnginesWithKVDb(t *testing.T, kv *badger.DB) *engine_util.Engines {
 // 	worker.start(regionRunner)
 // 	genAndApplySnap := func(regionId uint64) {
 // 		tx := make(chan *eraftpb.Snapshot, 1)
-// 		tsk := &task{
-// 			tp: taskTypeRegionGen,
+// 		tsk := &worker.Task{
+// 			Tp: worker.TaskTypeRegionGen,
 // 		}
 // 		rgTsk := &regionTask{
 // 			regionId: regionId,
@@ -175,9 +176,9 @@ func newEnginesWithKVDb(t *testing.T, kv *badger.DB) *engine_util.Engines {
 
 // 		// apply snapshot
 // 		var status = JobStatus_Pending
-// 		tsk2 := &task{
-// 			tp: taskTypeRegionApply,
-// 			data: &regionTask{
+// 		tsk2 := &worker.Task{
+// 			Tp: worker.TaskTypeRegionApply,
+// 			Data: &regionTask{
 // 				regionId: regionId,
 // 				status:   &status,
 // 			},
@@ -204,7 +205,7 @@ func newEnginesWithKVDb(t *testing.T, kv *badger.DB) *engine_util.Engines {
 // 	// todo, compact files and then check that cf num files at level 0 should be 0.
 // 	waitApplyFinish(1)
 
-// 	// the pending apply task should be finished and snapshots are ingested.
+// 	// the pending apply worker.Task should be finished and snapshots are ingested.
 // 	// note that when ingest sst, it may flush memtable if overlap,
 // 	// so here will two level 0 files.
 // 	// todo, check cf num files at level 0 is 2.
@@ -242,7 +243,7 @@ func newEnginesWithKVDb(t *testing.T, kv *badger.DB) *engine_util.Engines {
 // 		waitApplyFinish(5)
 // 	*/
 
-// 	// the last one pending task finished
+// 	// the last one pending worker.Task finished
 // 	// todo, check cf num files at level 0 is 2
 // }
 
@@ -263,7 +264,7 @@ func TestGcRaftLog(t *testing.T) {
 	raftWb.WriteToRaft(raftDb)
 
 	type tempHolder struct {
-		raftLogGcTask     task
+		raftLogGcTask     worker.Task
 		expectedCollected uint64
 		nonExistRange     [2]uint64
 		existRange        [2]uint64
@@ -271,14 +272,14 @@ func TestGcRaftLog(t *testing.T) {
 
 	tbls := []tempHolder{
 		{
-			raftLogGcTask: task{
-				data: &raftLogGCTask{
+			raftLogGcTask: worker.Task{
+				Data: &raftLogGCTask{
 					raftEngine: raftDb,
 					regionID:   regionId,
 					startIdx:   uint64(0),
 					endIdx:     uint64(10),
 				},
-				tp: taskTypeRaftLogGC,
+				Tp: worker.TaskTypeRaftLogGC,
 			},
 			expectedCollected: uint64(10),
 			nonExistRange:     [...]uint64{0, 10},
@@ -286,14 +287,14 @@ func TestGcRaftLog(t *testing.T) {
 		},
 
 		{
-			raftLogGcTask: task{
-				data: &raftLogGCTask{
+			raftLogGcTask: worker.Task{
+				Data: &raftLogGCTask{
 					raftEngine: raftDb,
 					regionID:   regionId,
 					startIdx:   uint64(0),
 					endIdx:     uint64(50),
 				},
-				tp: taskTypeRaftLogGC,
+				Tp: worker.TaskTypeRaftLogGC,
 			},
 			expectedCollected: uint64(40),
 			nonExistRange:     [...]uint64{0, 50},
@@ -301,14 +302,14 @@ func TestGcRaftLog(t *testing.T) {
 		},
 
 		{
-			raftLogGcTask: task{
-				data: &raftLogGCTask{
+			raftLogGcTask: worker.Task{
+				Data: &raftLogGCTask{
 					raftEngine: raftDb,
 					regionID:   regionId,
 					startIdx:   uint64(50),
 					endIdx:     uint64(50),
 				},
-				tp: taskTypeRaftLogGC,
+				Tp: worker.TaskTypeRaftLogGC,
 			},
 			expectedCollected: uint64(0),
 			nonExistRange:     [...]uint64{0, 50},
@@ -316,14 +317,14 @@ func TestGcRaftLog(t *testing.T) {
 		},
 
 		{
-			raftLogGcTask: task{
-				data: &raftLogGCTask{
+			raftLogGcTask: worker.Task{
+				Data: &raftLogGCTask{
 					raftEngine: raftDb,
 					regionID:   regionId,
 					startIdx:   uint64(50),
 					endIdx:     uint64(60),
 				},
-				tp: taskTypeRaftLogGC,
+				Tp: worker.TaskTypeRaftLogGC,
 			},
 			expectedCollected: uint64(10),
 			nonExistRange:     [...]uint64{0, 60},
@@ -332,7 +333,7 @@ func TestGcRaftLog(t *testing.T) {
 	}
 
 	for _, h := range tbls {
-		runner.handle(h.raftLogGcTask)
+		runner.Handle(h.raftLogGcTask)
 		res := <-taskResCh
 		assert.Equal(t, h.expectedCollected, uint64(res))
 		raftLogMustNotExist(t, raftDb, 1, h.nonExistRange[0], h.nonExistRange[1])

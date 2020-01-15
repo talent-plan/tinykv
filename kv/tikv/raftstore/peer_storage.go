@@ -13,6 +13,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
@@ -243,7 +244,7 @@ type PeerStorage struct {
 
 	snapState    SnapState
 	genSnapTask  *GenSnapTask
-	regionSched  chan<- task
+	regionSched  chan<- worker.Task
 	snapTriedCnt int
 
 	cache *EntryCache
@@ -252,7 +253,7 @@ type PeerStorage struct {
 	Tag string
 }
 
-func NewPeerStorage(engines *engine_util.Engines, region *metapb.Region, regionSched chan<- task, peerID uint64, tag string) (*PeerStorage, error) {
+func NewPeerStorage(engines *engine_util.Engines, region *metapb.Region, regionSched chan<- worker.Task, peerID uint64, tag string) (*PeerStorage, error) {
 	log.Debugf("%s creating storage for %s", tag, region.String())
 	raftState, err := initRaftState(engines.Raft, region)
 	if err != nil {
@@ -681,9 +682,9 @@ func (ps *PeerStorage) clearExtraData(newRegion *metapb.Region) {
 	newStartKey, newEndKey := EncStartKey(newRegion), EncEndKey(newRegion)
 	regionId := newRegion.Id
 	if bytes.Compare(oldStartKey, newStartKey) < 0 {
-		ps.regionSched <- task{
-			tp: taskTypeRegionDestroy,
-			data: &regionTask{
+		ps.regionSched <- worker.Task{
+			Tp: worker.TaskTypeRegionDestroy,
+			Data: &regionTask{
 				regionId: regionId,
 				startKey: oldStartKey,
 				endKey:   newStartKey,
@@ -691,9 +692,9 @@ func (ps *PeerStorage) clearExtraData(newRegion *metapb.Region) {
 		}
 	}
 	if bytes.Compare(newEndKey, oldEndKey) < 0 {
-		ps.regionSched <- task{
-			tp: taskTypeRegionDestroy,
-			data: &regionTask{
+		ps.regionSched <- worker.Task{
+			Tp: worker.TaskTypeRegionDestroy,
+			Data: &regionTask{
 				regionId: regionId,
 				startKey: newEndKey,
 				endKey:   oldEndKey,
@@ -938,7 +939,7 @@ func (ps *PeerStorage) PostReadyPersistent(ctx *InvokeContext) *ApplySnapResult 
 	if ctx.SnapRegion == nil {
 		return nil
 	}
-	// cleanup data before scheduling apply task
+	// cleanup data before scheduling apply worker.Task
 	if ps.isInitialized() {
 		ps.clearExtraData(ps.region)
 	}
@@ -960,9 +961,9 @@ func (ps *PeerStorage) ScheduleApplyingSnapshot() {
 		StateType: SnapState_Applying,
 		Status:    &status,
 	}
-	ps.regionSched <- task{
-		tp: taskTypeRegionApply,
-		data: &regionTask{
+	ps.regionSched <- worker.Task{
+		Tp: worker.TaskTypeRegionApply,
+		Data: &regionTask{
 			regionId: ps.region.Id,
 			status:   &status,
 		},
