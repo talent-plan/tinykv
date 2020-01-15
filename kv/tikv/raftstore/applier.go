@@ -223,7 +223,7 @@ type applyContext struct {
 	timer            *time.Time
 	regionScheduler  chan<- task
 	notifier         chan<- Msg
-	engines          *Engines
+	engines          *engine_util.Engines
 	txn              *badger.Txn
 	cbs              []applyCallback
 	applyTaskResList []*applyTaskRes
@@ -236,7 +236,7 @@ type applyContext struct {
 	syncLogHint bool
 }
 
-func newApplyContext(tag string, regionScheduler chan<- task, engines *Engines,
+func newApplyContext(tag string, regionScheduler chan<- task, engines *engine_util.Engines,
 	notifier chan<- Msg, cfg *config.Config) *applyContext {
 	return &applyContext{
 		tag:             tag,
@@ -282,7 +282,7 @@ func (ac *applyContext) commitOpt(d *applier, persistent bool) {
 
 /// Writes all the changes into badger.
 func (ac *applyContext) writeToDB() {
-	if err := ac.wb.WriteToKV(ac.engines.kv); err != nil {
+	if err := ac.wb.WriteToKV(ac.engines.Kv); err != nil {
 		panic(err)
 	}
 	ac.wb.Reset()
@@ -311,7 +311,7 @@ func (ac *applyContext) finishFor(d *applier, results []execResult) {
 func (ac *applyContext) getTxn() *badger.Txn {
 	if ac.txn == nil {
 		// TODO: check when discard this txn
-		ac.txn = ac.engines.kv.NewTransaction(false)
+		ac.txn = ac.engines.Kv.NewTransaction(false)
 	}
 	return ac.txn
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -11,7 +12,7 @@ import (
 )
 
 type RaftInnerServer struct {
-	engines       *Engines
+	engines       *engine_util.Engines
 	raftConfig    *config.Config
 	storeMeta     metapb.Store
 	eventObserver PeerEventObserver
@@ -64,7 +65,7 @@ func (ris *RaftInnerServer) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
 	return err
 }
 
-func NewRaftInnerServer(engines *Engines, raftConfig *config.Config) *RaftInnerServer {
+func NewRaftInnerServer(engines *engine_util.Engines, raftConfig *config.Config) *RaftInnerServer {
 	return &RaftInnerServer{engines: engines, raftConfig: raftConfig}
 }
 
@@ -121,10 +122,10 @@ func (ris *RaftInnerServer) Stop() error {
 	ris.snapWorker.stop()
 	ris.node.stop()
 	ris.resolveWorker.stop()
-	if err := ris.engines.raft.Close(); err != nil {
+	if err := ris.engines.Raft.Close(); err != nil {
 		return err
 	}
-	if err := ris.engines.kv.Close(); err != nil {
+	if err := ris.engines.Kv.Close(); err != nil {
 		return err
 	}
 	return nil

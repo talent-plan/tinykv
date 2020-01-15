@@ -53,7 +53,7 @@ func validateCache(t *testing.T, peerStore *PeerStorage, expEnts []eraftpb.Entry
 	for _, e := range expEnts {
 		key := RaftLogKey(peerStore.region.Id, e.Index)
 		e2 := new(eraftpb.Entry)
-		assert.Nil(t, getMsg(peerStore.Engines.raft, key, e2))
+		assert.Nil(t, getMsg(peerStore.Engines.Raft, key, e2))
 		assert.Equal(t, *e2, e)
 	}
 }
@@ -63,7 +63,7 @@ func getMetaKeyCount(t *testing.T, peerStore *PeerStorage) int {
 	count := 0
 	metaStart := RegionMetaPrefixKey(regionID)
 	metaEnd := RegionMetaPrefixKey(regionID + 1)
-	err := peerStore.Engines.kv.View(func(txn *badger.Txn) error {
+	err := peerStore.Engines.Kv.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
 		for it.Seek(metaStart); it.Valid(); it.Next() {
@@ -77,7 +77,7 @@ func getMetaKeyCount(t *testing.T, peerStore *PeerStorage) int {
 	require.Nil(t, err)
 	raftStart := RegionRaftPrefixKey(regionID)
 	raftEnd := RegionRaftPrefixKey(regionID + 1)
-	err = peerStore.Engines.kv.View(func(txn *badger.Txn) error {
+	err = peerStore.Engines.Kv.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
 		for it.Seek(metaStart); it.Valid(); it.Next() {
@@ -89,7 +89,7 @@ func getMetaKeyCount(t *testing.T, peerStore *PeerStorage) int {
 		return nil
 	})
 	require.Nil(t, err)
-	err = peerStore.Engines.raft.View(func(txn *badger.Txn) error {
+	err = peerStore.Engines.Raft.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
 		for it.Seek(raftStart); it.Valid(); it.Next() {

@@ -35,16 +35,16 @@ func isRangeEmpty(engine *badger.DB, startKey, endKey []byte) (bool, error) {
 	return !hasData, err
 }
 
-func BootstrapStore(engines *Engines, clussterID, storeID uint64) error {
+func BootstrapStore(engines *engine_util.Engines, clussterID, storeID uint64) error {
 	ident := new(rspb.StoreIdent)
-	empty, err := isRangeEmpty(engines.kv, MinKey, MaxKey)
+	empty, err := isRangeEmpty(engines.Kv, MinKey, MaxKey)
 	if err != nil {
 		return err
 	}
 	if !empty {
 		return errors.New("kv store is not empty and ahs alread had data.")
 	}
-	empty, err = isRangeEmpty(engines.raft, MinKey, MaxKey)
+	empty, err = isRangeEmpty(engines.Raft, MinKey, MaxKey)
 	if err != nil {
 		return err
 	}
@@ -53,7 +53,7 @@ func BootstrapStore(engines *Engines, clussterID, storeID uint64) error {
 	}
 	ident.ClusterId = clussterID
 	ident.StoreId = storeID
-	err = putMsg(engines.kv, storeIdentKey, ident)
+	err = putMsg(engines.Kv, storeIdentKey, ident)
 	if err != nil {
 		return err
 	}
@@ -61,7 +61,7 @@ func BootstrapStore(engines *Engines, clussterID, storeID uint64) error {
 	return nil
 }
 
-func PrepareBootstrap(engins *Engines, storeID, regionID, peerID uint64) (*metapb.Region, error) {
+func PrepareBootstrap(engins *engine_util.Engines, storeID, regionID, peerID uint64) (*metapb.Region, error) {
 	region := &metapb.Region{
 		Id:       regionID,
 		StartKey: []byte{},
@@ -84,7 +84,7 @@ func PrepareBootstrap(engins *Engines, storeID, regionID, peerID uint64) (*metap
 	return region, nil
 }
 
-func writePrepareBootstrap(engines *Engines, region *metapb.Region) error {
+func writePrepareBootstrap(engines *engine_util.Engines, region *metapb.Region) error {
 	state := new(rspb.RegionLocalState)
 	state.Region = region
 	kvWB := new(engine_util.WriteBatch)
@@ -126,8 +126,8 @@ func writeInitialRaftState(raftWB *engine_util.WriteBatch, regionID uint64) {
 	raftWB.Set(RaftStateKey(regionID), raftState.Marshal())
 }
 
-func ClearPrepareBootstrap(engines *Engines, regionID uint64) error {
-	err := engines.raft.Update(func(txn *badger.Txn) error {
+func ClearPrepareBootstrap(engines *engine_util.Engines, regionID uint64) error {
+	err := engines.Raft.Update(func(txn *badger.Txn) error {
 		return txn.Delete(RaftStateKey(regionID))
 	})
 	if err != nil {
@@ -145,8 +145,8 @@ func ClearPrepareBootstrap(engines *Engines, regionID uint64) error {
 	return engines.SyncKVWAL()
 }
 
-func ClearPrepareBootstrapState(engines *Engines) error {
-	err := engines.kv.Update(func(txn *badger.Txn) error {
+func ClearPrepareBootstrapState(engines *engine_util.Engines) error {
+	err := engines.Kv.Update(func(txn *badger.Txn) error {
 		return txn.Delete(prepareBootstrapKey)
 	})
 	engines.SyncKVWAL()

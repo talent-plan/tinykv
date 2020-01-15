@@ -7,6 +7,7 @@ import (
 
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -48,7 +49,7 @@ type PeerEventObserver interface {
 // use this function to create the peer. The region must contain the peer info
 // for this store.
 func createPeerFsm(storeID uint64, cfg *config.Config, sched chan<- task,
-	engines *Engines, region *metapb.Region) (*peerFsm, error) {
+	engines *engine_util.Engines, region *metapb.Region) (*peerFsm, error) {
 	metaPeer := findPeer(region, storeID)
 	if metaPeer == nil {
 		return nil, errors.Errorf("find no peer for store %d in region %v", storeID, region)
@@ -68,7 +69,7 @@ func createPeerFsm(storeID uint64, cfg *config.Config, sched chan<- task,
 // know the region_id and peer_id when creating this replicated peer, the region info
 // will be retrieved later after applying snapshot.
 func replicatePeerFsm(storeID uint64, cfg *config.Config, sched chan<- task,
-	engines *Engines, regionID uint64, metaPeer *metapb.Peer) (*peerFsm, error) {
+	engines *engine_util.Engines, regionID uint64, metaPeer *metapb.Peer) (*peerFsm, error) {
 	// We will remove tombstone key when apply snapshot
 	log.Infof("[region %v] replicates peer with ID %d", regionID, metaPeer.GetId())
 	region := &metapb.Region{
@@ -287,7 +288,7 @@ func (d *peerMsgHandler) HandleRaftReadyAppend(proposals []*regionProposal) []*r
 
 func (d *peerMsgHandler) PostRaftReadyPersistent(ready *raft.Ready, invokeCtx *InvokeContext) {
 	res := d.peer.PostRaftReadyPersistent(d.ctx.trans, d.ctx.applyMsgs, ready, invokeCtx)
-	d.peer.HandleRaftReadyApply(d.ctx.engine.kv, d.ctx.applyMsgs, ready)
+	d.peer.HandleRaftReadyApply(d.ctx.engine.Kv, d.ctx.applyMsgs, ready)
 	if res != nil {
 		d.onReadyApplySnapshot(res)
 	}
@@ -322,7 +323,7 @@ func (d *peerMsgHandler) onApplyResult(res *applyTaskRes) {
 		if d.stopped {
 			return
 		}
-		if d.peer.PostApply(d.ctx.engine.kv, res.applyState, res.appliedIndexTerm, res.sizeDiffHint) {
+		if d.peer.PostApply(d.ctx.engine.Kv, res.applyState, res.appliedIndexTerm, res.sizeDiffHint) {
 			d.hasReady = true
 		}
 	}
@@ -696,7 +697,7 @@ func (d *peerMsgHandler) onReadyCompactLog(firstIndex uint64, truncatedIndex uin
 	remainCnt := d.peer.LastApplyingIdx - truncatedIndex - 1
 	d.peer.RaftLogSizeHint *= remainCnt / totalCnt
 	raftLogGCTask := &raftLogGCTask{
-		raftEngine: d.ctx.engine.raft,
+		raftEngine: d.ctx.engine.Raft,
 		regionID:   d.regionID(),
 		startIdx:   d.peer.LastCompactedIdx,
 		endIdx:     truncatedIndex + 1,
@@ -914,7 +915,7 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 
 	resp = &raft_cmdpb.RaftCmdResponse{}
 	BindRespTerm(resp, d.peer.Term())
-	if d.peer.Propose(d.ctx.engine.kv, d.ctx.cfg, cb, msg, resp) {
+	if d.peer.Propose(d.ctx.engine.Kv, d.ctx.cfg, cb, msg, resp) {
 		d.hasReady = true
 	}
 

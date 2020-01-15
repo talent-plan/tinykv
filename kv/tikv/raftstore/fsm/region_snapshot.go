@@ -1,8 +1,7 @@
-package raftstore
+package fsm
 
 import (
 	"github.com/coocood/badger"
-	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 )
 
@@ -14,7 +13,7 @@ type regionSnapshot struct {
 	index       uint64
 }
 
-func newRegionSnapshot(engines *engine_util.Engines, regionId uint64) (snap *regionSnapshot, err error) {
+func newRegionSnapshot(engines *Engines, regionId uint64) (snap *regionSnapshot, err error) {
 	txn := engines.Kv.NewTransaction(false)
 
 	// Verify that the region version to make sure the start key and end key has not changed.

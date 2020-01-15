@@ -5,27 +5,27 @@ import (
 )
 
 type Engines struct {
-	kv       *badger.DB
-	kvPath   string
-	raft     *badger.DB
-	raftPath string
+	Kv       *badger.DB
+	KvPath   string
+	Raft     *badger.DB
+	RaftPath string
 }
 
 func NewEngines(kvEngine, raftEngine *badger.DB, kvPath, raftPath string) *Engines {
 	return &Engines{
-		kv:       kvEngine,
-		kvPath:   kvPath,
-		raft:     raftEngine,
-		raftPath: raftPath,
+		Kv:       kvEngine,
+		KvPath:   kvPath,
+		Raft:     raftEngine,
+		RaftPath: raftPath,
 	}
 }
 
 func (en *Engines) WriteKV(wb *WriteBatch) error {
-	return wb.WriteToKV(en.kv)
+	return wb.WriteToKV(en.Kv)
 }
 
 func (en *Engines) WriteRaft(wb *WriteBatch) error {
-	return wb.WriteToRaft(en.raft)
+	return wb.WriteToRaft(en.Raft)
 }
 
 func (en *Engines) SyncKVWAL() error {

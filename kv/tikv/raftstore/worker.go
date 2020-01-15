@@ -439,7 +439,7 @@ func (pendDelRanges *pendingDeleteRanges) drainOverlapRanges(startKey, endKey []
 }
 
 type snapContext struct {
-	engines             *Engines
+	engines             *engine_util.Engines
 	batchSize           uint64
 	mgr                 *SnapManager
 	cleanStalePeerDelay time.Duration
@@ -472,7 +472,7 @@ func (snapCtx *snapContext) cleanUpOriginData(regionState *rspb.RegionLocalState
 		return err
 	}
 	snapCtx.cleanUpOverlapRanges(startKey, endKey)
-	if err := engine_util.DeleteRange(snapCtx.engines.kv, startKey, endKey); err != nil {
+	if err := engine_util.DeleteRange(snapCtx.engines.Kv, startKey, endKey); err != nil {
 		return err
 	}
 	if err := checkAbort(status); err != nil {
@@ -489,7 +489,7 @@ func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus) error 
 	}
 
 	regionKey := RegionStateKey(regionId)
-	regionState, err := getRegionLocalState(snapCtx.engines.kv, regionId)
+	regionState, err := getRegionLocalState(snapCtx.engines.Kv, regionId)
 	if err != nil {
 		return errors.New(fmt.Sprintf("failed to get regionState from %v", regionKey))
 	}
@@ -499,7 +499,7 @@ func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus) error 
 		return err
 	}
 
-	applyState, err := getApplyState(snapCtx.engines.kv, regionId)
+	applyState, err := getApplyState(snapCtx.engines.Kv, regionId)
 	if err != nil {
 		return errors.New(fmt.Sprintf("failed to get raftState from %v", ApplyStateKey(regionId)))
 	}
@@ -513,7 +513,7 @@ func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus) error 
 	}
 
 	t := time.Now()
-	applyOptions := newApplyOptions(snapCtx.engines.kv, regionState.GetRegion(), status)
+	applyOptions := newApplyOptions(snapCtx.engines.Kv, regionState.GetRegion(), status)
 	if err := snap.Apply(*applyOptions); err != nil {
 		return err
 	}
@@ -522,7 +522,7 @@ func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus) error 
 	wb := new(engine_util.WriteBatch)
 	wb.SetMsg(RegionStateKey(regionId), regionState)
 	wb.Delete(SnapshotRaftStateKey(regionId))
-	if err := wb.WriteToKV(snapCtx.engines.kv); err != nil {
+	if err := wb.WriteToKV(snapCtx.engines.Kv); err != nil {
 		log.Errorf("update region status failed: %s", err)
 	}
 
@@ -570,7 +570,7 @@ func (snapCtx *snapContext) insertPendingDeleteRange(regionId uint64, startKey, 
 
 // cleanUpRange cleans up the data within the range.
 func (snapCtx *snapContext) cleanUpRange(regionId uint64, startKey, endKey []byte) {
-	if err := engine_util.DeleteRange(snapCtx.engines.kv, startKey, endKey); err != nil {
+	if err := engine_util.DeleteRange(snapCtx.engines.Kv, startKey, endKey); err != nil {
 		log.Errorf("failed to delete data in range, [regionId: %d, startKey: %s, endKey: %s, err: %v]", regionId,
 			hex.EncodeToString(startKey), hex.EncodeToString(endKey), err)
 	} else {
@@ -593,7 +593,7 @@ type regionTaskHandler struct {
 	applyStates []regionApplyState
 }
 
-func newRegionTaskHandler(engines *Engines, mgr *SnapManager, batchSize uint64, cleanStalePeerDelay time.Duration) *regionTaskHandler {
+func newRegionTaskHandler(engines *engine_util.Engines, mgr *SnapManager, batchSize uint64, cleanStalePeerDelay time.Duration) *regionTaskHandler {
 	return &regionTaskHandler{
 		ctx: &snapContext{
 			engines:             engines,

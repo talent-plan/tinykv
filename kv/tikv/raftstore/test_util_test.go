@@ -20,7 +20,7 @@ func newTestEngines(t *testing.T) *Engines {
 	kvOpts.Dir = engines.kvPath
 	kvOpts.ValueDir = engines.kvPath
 	kvOpts.ValueThreshold = 256
-	engines.kv, err = badger.Open(kvOpts)
+	engines.Kv, err = badger.Open(kvOpts)
 	require.Nil(t, err)
 	engines.raftPath, err = ioutil.TempDir("", "unistore_raft")
 	require.Nil(t, err)
@@ -28,7 +28,7 @@ func newTestEngines(t *testing.T) *Engines {
 	raftOpts.Dir = engines.raftPath
 	raftOpts.ValueDir = engines.raftPath
 	raftOpts.ValueThreshold = 256
-	engines.raft, err = badger.Open(raftOpts)
+	engines.Raft, err = badger.Open(raftOpts)
 	require.Nil(t, err)
 	return engines
 }
