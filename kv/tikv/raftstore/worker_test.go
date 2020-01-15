@@ -97,17 +97,17 @@ func TestPendingDeleteRanges(t *testing.T) {
 	assert.Equal(t, delRange.ranges.Len(), 0)
 }
 
-func newEnginesWithKVDb(t *testing.T, kv *badger.DB) *Engines {
-	engines := new(Engines)
-	engines.kv = kv
+func newEnginesWithKVDb(t *testing.T, kv *badger.DB) *engine_util.Engines {
+	engines := new(engine_util.Engines)
+	engines.Kv = kv
 	var err error
-	engines.raftPath, err = ioutil.TempDir("", "unistore_raft")
+	engines.RaftPath, err = ioutil.TempDir("", "unistore_raft")
 	require.Nil(t, err)
 	raftOpts := badger.DefaultOptions
-	raftOpts.Dir = engines.raftPath
-	raftOpts.ValueDir = engines.raftPath
+	raftOpts.Dir = engines.RaftPath
+	raftOpts.ValueDir = engines.RaftPath
 	raftOpts.ValueThreshold = 256
-	engines.raft, err = badger.Open(raftOpts)
+	engines.Raft, err = badger.Open(raftOpts)
 	require.Nil(t, err)
 	return engines
 }
@@ -128,7 +128,7 @@ func newEnginesWithKVDb(t *testing.T, kv *badger.DB) *Engines {
 // 	}
 
 // 	engines := newEnginesWithKVDb(t, db)
-// 	engines.kvPath = kvPath
+// 	engines.KvPath = kvPath
 // 	defer cleanUpTestEngineData(engines)
 
 // 	snapPath, err := ioutil.TempDir("", "unistore_snap")
@@ -148,9 +148,9 @@ func newEnginesWithKVDb(t *testing.T, kv *badger.DB) *Engines {
 // 			regionId: regionId,
 // 			notifier: tx,
 // 		}
-// 		txn := engines.kv.NewTransaction(false)
+// 		txn := engines.Kv.NewTransaction(false)
 // 		// TODO [fix this] the new regionTask need "redoIdx" as input param
-// 		index, _, err := getAppliedIdxTermForSnapshot(engines.raft, txn, regionId)
+// 		index, _, err := getAppliedIdxTermForSnapshot(engines.Raft, txn, regionId)
 // 		// rgTsk.redoIdx = index + 1
 // 		tsk.data = rgTsk
 // 		require.Nil(t, err)
@@ -167,11 +167,11 @@ func newEnginesWithKVDb(t *testing.T, kv *badger.DB) *Engines {
 
 // 		// set applying state
 // 		wb := new(engine_util.WriteBatch)
-// 		regionLocalState, err := getRegionLocalState(engines.kv, regionId)
+// 		regionLocalState, err := getRegionLocalState(engines.Kv, regionId)
 // 		require.Nil(t, err)
 // 		regionLocalState.State = rspb.PeerState_Applying
 // 		require.Nil(t, wb.SetMsg(RegionStateKey(regionId), regionLocalState))
-// 		require.Nil(t, wb.WriteToKV(engines.kv))
+// 		require.Nil(t, wb.WriteToKV(engines.Kv))
 
 // 		// apply snapshot
 // 		var status = JobStatus_Pending
@@ -188,7 +188,7 @@ func newEnginesWithKVDb(t *testing.T, kv *badger.DB) *Engines {
 // 	waitApplyFinish := func(regionId uint64) {
 // 		for {
 // 			time.Sleep(time.Millisecond * 100)
-// 			regionLocalState, err := getRegionLocalState(engines.kv, regionId)
+// 			regionLocalState, err := getRegionLocalState(engines.Kv, regionId)
 // 			require.Nil(t, err)
 // 			if regionLocalState.State == rspb.PeerState_Normal {
 // 				break
@@ -249,7 +249,7 @@ func newEnginesWithKVDb(t *testing.T, kv *badger.DB) *Engines {
 func TestGcRaftLog(t *testing.T) {
 	engines := newTestEngines(t)
 	defer cleanUpTestEngineData(engines)
-	raftDb := engines.raft
+	raftDb := engines.Raft
 	taskResCh := make(chan raftLogGcTaskRes, 1)
 	runner := raftLogGCTaskHandler{taskResCh: taskResCh}
 

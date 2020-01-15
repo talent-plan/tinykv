@@ -8,6 +8,7 @@ import (
 	"github.com/coocood/badger"
 	"github.com/golang/protobuf/proto"
 	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -48,7 +49,7 @@ func NewNode(system *raftBatchSystem, store *metapb.Store, cfg *config.Config, p
 	}
 }
 
-func (n *Node) Start(ctx context.Context, engines *Engines, trans Transport, snapMgr *SnapManager, pdWorker *worker, router *RaftstoreRouter) error {
+func (n *Node) Start(ctx context.Context, engines *engine_util.Engines, trans Transport, snapMgr *SnapManager, pdWorker *worker, router *RaftstoreRouter) error {
 	storeID, err := n.checkStore(engines)
 	if err != nil {
 		return err
@@ -112,8 +113,8 @@ func (n *Node) Start(ctx context.Context, engines *Engines, trans Transport, sna
 	return nil
 }
 
-func (n *Node) checkStore(engines *Engines) (uint64, error) {
-	val, err := getValue(engines.kv, storeIdentKey)
+func (n *Node) checkStore(engines *engine_util.Engines) (uint64, error) {
+	val, err := getValue(engines.Kv, storeIdentKey)
 	if err != nil {
 		if err == badger.ErrKeyNotFound {
 			return 0, nil
@@ -140,7 +141,7 @@ func (n *Node) checkStore(engines *Engines) (uint64, error) {
 	return ident.StoreId, nil
 }
 
-func (n *Node) bootstrapStore(ctx context.Context, engines *Engines) (uint64, error) {
+func (n *Node) bootstrapStore(ctx context.Context, engines *engine_util.Engines) (uint64, error) {
 	storeID, err := n.allocID(ctx)
 	if err != nil {
 		return 0, err
@@ -153,9 +154,9 @@ func (n *Node) allocID(ctx context.Context) (uint64, error) {
 	return n.pdClient.AllocID(ctx)
 }
 
-func (n *Node) checkOrPrepareBootstrapCluster(ctx context.Context, engines *Engines, storeID uint64) (*metapb.Region, error) {
+func (n *Node) checkOrPrepareBootstrapCluster(ctx context.Context, engines *engine_util.Engines, storeID uint64) (*metapb.Region, error) {
 	var state raft_serverpb.RegionLocalState
-	if err := getMsg(engines.kv, prepareBootstrapKey, &state); err == nil {
+	if err := getMsg(engines.Kv, prepareBootstrapKey, &state); err == nil {
 		return state.Region, nil
 	}
 	bootstrapped, err := n.checkClusterBootstrapped(ctx)
@@ -185,7 +186,7 @@ func (n *Node) checkClusterBootstrapped(ctx context.Context) (bool, error) {
 	return false, errors.New("check cluster bootstrapped failed")
 }
 
-func (n *Node) prepareBootstrapCluster(ctx context.Context, engines *Engines, storeID uint64) (*metapb.Region, error) {
+func (n *Node) prepareBootstrapCluster(ctx context.Context, engines *engine_util.Engines, storeID uint64) (*metapb.Region, error) {
 	regionID, err := n.allocID(ctx)
 	if err != nil {
 		return nil, err
@@ -200,7 +201,7 @@ func (n *Node) prepareBootstrapCluster(ctx context.Context, engines *Engines, st
 	return PrepareBootstrap(engines, storeID, regionID, peerID)
 }
 
-func (n *Node) BootstrapCluster(ctx context.Context, engines *Engines, firstRegion *metapb.Region) (newCluster bool, err error) {
+func (n *Node) BootstrapCluster(ctx context.Context, engines *engine_util.Engines, firstRegion *metapb.Region) (newCluster bool, err error) {
 	regionID := firstRegion.GetId()
 	for retry := 0; retry < MaxCheckClusterBootstrappedRetryCount; retry++ {
 		if retry != 0 {
@@ -234,7 +235,7 @@ func (n *Node) BootstrapCluster(ctx context.Context, engines *Engines, firstRegi
 	return false, errors.New("bootstrap cluster failed")
 }
 
-func (n *Node) startNode(engines *Engines, trans Transport, snapMgr *SnapManager, pdWorker *worker) error {
+func (n *Node) startNode(engines *engine_util.Engines, trans Transport, snapMgr *SnapManager, pdWorker *worker) error {
 	log.Infof("start raft store node, storeID: %d", n.store.GetId())
 	return n.system.start(n.store, n.cfg, engines, trans, n.pdClient, snapMgr, pdWorker, n.observer)
 }

@@ -62,7 +62,7 @@ type mergeLock struct {
 
 type GlobalContext struct {
 	cfg                   *config.Config
-	engine                *Engines
+	engine                *engine_util.Engines
 	store                 *metapb.Store
 	storeMeta             *storeMeta
 	storeMetaLock         *sync.RWMutex
@@ -173,7 +173,7 @@ func (bs *raftBatchSystem) loadPeers() ([]*peerFsm, error) {
 	startKey := RegionMetaMinKey
 	endKey := RegionMetaMaxKey
 	ctx := bs.ctx
-	kvEngine := ctx.engine.kv
+	kvEngine := ctx.engine.Kv
 	storeID := ctx.store.Id
 
 	var totalCount, tombStoneCount, applyingCount int
@@ -242,8 +242,8 @@ func (bs *raftBatchSystem) loadPeers() ([]*peerFsm, error) {
 	if err != nil {
 		return nil, err
 	}
-	kvWB.MustWriteToKV(ctx.engine.kv)
-	raftWB.MustWriteToRaft(ctx.engine.raft)
+	kvWB.MustWriteToKV(ctx.engine.Kv)
+	raftWB.MustWriteToRaft(ctx.engine.Raft)
 
 	// schedule applying snapshot after raft write batch were written.
 	for _, region := range applyingRegions {
@@ -266,7 +266,7 @@ func (bs *raftBatchSystem) clearStaleMeta(kvWB, raftWB *engine_util.WriteBatch, 
 	region := originState.Region
 	raftKey := RaftStateKey(region.Id)
 	raftState := raftState{}
-	val, err := getValue(bs.ctx.engine.raft, raftKey)
+	val, err := getValue(bs.ctx.engine.Raft, raftKey)
 	if err != nil {
 		// it has been cleaned up.
 		return
@@ -304,7 +304,7 @@ type raftBatchSystem struct {
 func (bs *raftBatchSystem) start(
 	meta *metapb.Store,
 	cfg *config.Config,
-	engines *Engines,
+	engines *engine_util.Engines,
 	trans Transport,
 	pdClient pd.Client,
 	snapMgr *SnapManager,
@@ -388,7 +388,7 @@ func (bs *raftBatchSystem) startWorkers(peers []*peerFsm) {
 	}
 	engines := ctx.engine
 	cfg := ctx.cfg
-	workers.splitCheckWorker.start(newSplitCheckHandler(engines.kv, router, cfg.SplitCheck))
+	workers.splitCheckWorker.start(newSplitCheckHandler(engines.Kv, router, cfg.SplitCheck))
 	workers.regionWorker.start(newRegionTaskHandler(engines, ctx.snapMgr, cfg.SnapApplyBatchSize, cfg.CleanStalePeerDelay))
 	workers.raftLogGCWorker.start(&raftLogGCTaskHandler{})
 	workers.pdWorker.start(newPDTaskHandler(ctx.store.Id, ctx.pdClient, bs.router))
@@ -439,7 +439,7 @@ func (d *storeMsgHandler) checkMsg(msg *rspb.RaftMessage) (bool, error) {
 	// Check if the target is tombstone,
 	stateKey := RegionStateKey(regionID)
 	localState := new(rspb.RegionLocalState)
-	err := getMsg(d.ctx.engine.kv, stateKey, localState)
+	err := getMsg(d.ctx.engine.Kv, stateKey, localState)
 	if err != nil {
 		if err == badger.ErrKeyNotFound {
 			return false, nil
@@ -581,9 +581,9 @@ func (d *storeMsgHandler) storeHeartbeatPD() {
 	d.ctx.storeMetaLock.RUnlock()
 	storeInfo := &pdStoreHeartbeatTask{
 		stats:    stats,
-		engine:   d.ctx.engine.kv,
+		engine:   d.ctx.engine.Kv,
 		capacity: d.ctx.cfg.Capacity,
-		path:     d.ctx.engine.kvPath,
+		path:     d.ctx.engine.KvPath,
 	}
 	d.ctx.pdTaskSender <- task{tp: taskTypePDStoreHeartbeat, data: storeInfo}
 }

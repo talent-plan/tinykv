@@ -269,7 +269,7 @@ type Peer struct {
 	PeerStat        PeerStat
 }
 
-func NewPeer(storeId uint64, cfg *config.Config, engines *Engines, region *metapb.Region, regionSched chan<- task,
+func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, region *metapb.Region, regionSched chan<- task,
 	peer *metapb.Peer) (*Peer, error) {
 	if peer.GetId() == InvalidID {
 		return nil, fmt.Errorf("invalid peer id")
@@ -404,7 +404,7 @@ func (p *Peer) MaybeDestroy() *DestroyPeerJob {
 /// 1. Set the region to tombstone;
 /// 2. Clear data;
 /// 3. Notify all pending requests.
-func (p *Peer) Destroy(engine *Engines, keepData bool) error {
+func (p *Peer) Destroy(engine *engine_util.Engines, keepData bool) error {
 	start := time.Now()
 	region := p.Region()
 	log.Infof("%v begin to destroy", p.Tag)
@@ -418,10 +418,10 @@ func (p *Peer) Destroy(engine *Engines, keepData bool) error {
 	WritePeerState(kvWB, region, rspb.PeerState_Tombstone)
 	// write kv rocksdb first in case of restart happen between two write
 	// Todo: sync = ctx.cfg.sync_log
-	if err := kvWB.WriteToKV(engine.kv); err != nil {
+	if err := kvWB.WriteToKV(engine.Kv); err != nil {
 		return err
 	}
-	if err := raftWB.WriteToRaft(engine.raft); err != nil {
+	if err := raftWB.WriteToRaft(engine.Raft); err != nil {
 		return err
 	}
 

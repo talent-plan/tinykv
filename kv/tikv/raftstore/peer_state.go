@@ -175,10 +175,10 @@ func (rw *raftWorker) handleRaftReady(peers map[uint64]*peerState, batch *applyB
 		rw.raftCtx.applyMsgs.appendMsg(proposal.RegionId, msg)
 	}
 	kvWB := rw.raftCtx.kvWB
-	kvWB.MustWriteToKV(rw.raftCtx.engine.kv)
+	kvWB.MustWriteToKV(rw.raftCtx.engine.Kv)
 	kvWB.Reset()
 	raftWB := rw.raftCtx.raftWB
-	raftWB.MustWriteToRaft(rw.raftCtx.engine.raft)
+	raftWB.MustWriteToRaft(rw.raftCtx.engine.Raft)
 	raftWB.Reset()
 	readyRes := rw.raftCtx.ReadyRes
 	rw.raftCtx.ReadyRes = nil

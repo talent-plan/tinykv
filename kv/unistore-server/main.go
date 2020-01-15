@@ -19,6 +19,7 @@ import (
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
+	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv"
 	tikvConf "github.com/pingcap-incubator/tinykv/kv/tikv/config"
@@ -170,7 +171,7 @@ func setupRaftInnerServer(kvDB *badger.DB, pdClient pd.Client, conf *config.Conf
 
 	raftDB := createDB(subPathRaft, &conf.Engine)
 
-	engines := raftstore.NewEngines(kvDB, raftDB, kvPath, raftPath)
+	engines := engine_util.NewEngines(kvDB, raftDB, kvPath, raftPath)
 
 	innerServer := raftstore.NewRaftInnerServer(engines, raftConf)
 	innerServer.Setup(pdClient)

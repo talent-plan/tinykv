@@ -200,10 +200,10 @@ func (ic *InvokeContext) saveSnapshotRaftStateTo(snapshotIdx uint64, wb *engine_
 	wb.Set(key, snapshotRaftState.Marshal())
 }
 
-func recoverFromApplyingState(engines *Engines, raftWB *engine_util.WriteBatch, regionID uint64) error {
+func recoverFromApplyingState(engines *engine_util.Engines, raftWB *engine_util.WriteBatch, regionID uint64) error {
 	snapRaftStateKey := SnapshotRaftStateKey(regionID)
 	snapRaftState := raftState{}
-	val, err := getValue(engines.kv, snapRaftStateKey)
+	val, err := getValue(engines.Kv, snapRaftStateKey)
 	if err != nil {
 		return errors.Errorf("region %d failed to get raftstate from kv engine when recover from applying state", regionID)
 	}
@@ -211,7 +211,7 @@ func recoverFromApplyingState(engines *Engines, raftWB *engine_util.WriteBatch, 
 
 	raftStateKey := RaftStateKey(regionID)
 	raftState := raftState{}
-	val, err = getValue(engines.kv, raftStateKey)
+	val, err = getValue(engines.Kv, raftStateKey)
 	if err != nil && err != badger.ErrKeyNotFound {
 		return errors.WithStack(err)
 	}
@@ -232,7 +232,7 @@ func recoverFromApplyingState(engines *Engines, raftWB *engine_util.WriteBatch, 
 var _ raft.Storage = new(PeerStorage)
 
 type PeerStorage struct {
-	Engines *Engines
+	Engines *engine_util.Engines
 
 	peerID           uint64
 	region           *metapb.Region
@@ -252,13 +252,13 @@ type PeerStorage struct {
 	Tag string
 }
 
-func NewPeerStorage(engines *Engines, region *metapb.Region, regionSched chan<- task, peerID uint64, tag string) (*PeerStorage, error) {
+func NewPeerStorage(engines *engine_util.Engines, region *metapb.Region, regionSched chan<- task, peerID uint64, tag string) (*PeerStorage, error) {
 	log.Debugf("%s creating storage for %s", tag, region.String())
-	raftState, err := initRaftState(engines.raft, region)
+	raftState, err := initRaftState(engines.Raft, region)
 	if err != nil {
 		return nil, err
 	}
-	applyState, err := initApplyState(engines.kv, region)
+	applyState, err := initApplyState(engines.Kv, region)
 	if err != nil {
 		return nil, err
 	}
@@ -266,7 +266,7 @@ func NewPeerStorage(engines *Engines, region *metapb.Region, regionSched chan<- 
 		panic(fmt.Sprintf("%s unexpected raft log index: lastIndex %d < appliedIndex %d",
 			tag, raftState.lastIndex, applyState.appliedIndex))
 	}
-	lastTerm, err := initLastTerm(engines.raft, region, raftState, applyState)
+	lastTerm, err := initLastTerm(engines.Raft, region, raftState, applyState)
 	if err != nil {
 		return nil, err
 	}
@@ -480,7 +480,7 @@ func (ps *PeerStorage) Entries(low, high, maxSize uint64) ([]eraftpb.Entry, erro
 	if high <= cacheLow {
 		// not overlap
 		ps.stats.miss++
-		ents, _, err = fetchEntriesTo(ps.Engines.raft, reginID, low, high, maxSize, ents)
+		ents, _, err = fetchEntriesTo(ps.Engines.Raft, reginID, low, high, maxSize, ents)
 		if err != nil {
 			return ents, err
 		}
@@ -489,7 +489,7 @@ func (ps *PeerStorage) Entries(low, high, maxSize uint64) ([]eraftpb.Entry, erro
 	var fetchedSize, beginIdx uint64
 	if low < cacheLow {
 		ps.stats.miss++
-		ents, fetchedSize, err = fetchEntriesTo(ps.Engines.raft, reginID, low, cacheLow, maxSize, ents)
+		ents, fetchedSize, err = fetchEntriesTo(ps.Engines.Raft, reginID, low, cacheLow, maxSize, ents)
 		if fetchedSize > maxSize {
 			// maxSize exceed.
 			return ents, nil
@@ -781,7 +781,7 @@ func fetchEntriesTo(engine *badger.DB, regionID, low, high, maxSize uint64, buf 
 	return nil, 0, raft.ErrUnavailable
 }
 
-func ClearMeta(engines *Engines, kvWB, raftWB *engine_util.WriteBatch, regionID uint64, lastIndex uint64) error {
+func ClearMeta(engines *engine_util.Engines, kvWB, raftWB *engine_util.WriteBatch, regionID uint64, lastIndex uint64) error {
 	start := time.Now()
 	kvWB.Delete(RegionStateKey(regionID))
 	kvWB.Delete(ApplyStateKey(regionID))
@@ -789,7 +789,7 @@ func ClearMeta(engines *Engines, kvWB, raftWB *engine_util.WriteBatch, regionID 
 	firstIndex := lastIndex + 1
 	beginLogKey := RaftLogKey(regionID, 0)
 	endLogKey := RaftLogKey(regionID, firstIndex)
-	err := engines.raft.View(func(txn *badger.Txn) error {
+	err := engines.Raft.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
 		it.Seek(beginLogKey)
@@ -1049,10 +1049,10 @@ func getAppliedIdxTermForSnapshot(raft *badger.DB, kv *badger.Txn, regionId uint
 	return idx, term, nil
 }
 
-func doSnapshot(engines *Engines, mgr *SnapManager, regionId uint64) (*eraftpb.Snapshot, error) {
+func doSnapshot(engines *engine_util.Engines, mgr *SnapManager, regionId uint64) (*eraftpb.Snapshot, error) {
 	log.Debugf("begin to generate a snapshot. [regionId: %d]", regionId)
 
-	snap, err := engines.newRegionSnapshot(regionId)
+	snap, err := newRegionSnapshot(engines, regionId)
 	if err != nil {
 		return nil, err
 	}
