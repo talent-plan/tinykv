@@ -762,7 +762,6 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 
 		// New peer derive write flow from parent region,
 		// this will be used by balance write flow.
-		newPeer.peer.PeerStat = d.peer.PeerStat
 		campaigned := newPeer.peer.MaybeCampaign(isLeader)
 		newPeer.hasReady = newPeer.hasReady || campaigned
 

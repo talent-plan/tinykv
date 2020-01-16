@@ -19,11 +19,11 @@ var _ tikvpb.TikvServer = new(Server)
 
 type Server struct {
 	// mvccStore     *MVCCStore
-	regionManager RegionManager
-	innerServer   InnerServer
-	wg            sync.WaitGroup
-	refCount      int32
-	stopped       int32
+	// regionManager RegionManager
+	innerServer InnerServer
+	wg          sync.WaitGroup
+	refCount    int32
+	stopped     int32
 }
 
 type InnerServer interface {
@@ -39,10 +39,9 @@ type InnerServer interface {
 	Snapshot(stream tikvpb.Tikv_SnapshotServer) error
 }
 
-func NewServer(rm RegionManager, innerServer InnerServer) *Server {
+func NewServer(innerServer InnerServer) *Server {
 	return &Server{
-		regionManager: rm,
-		innerServer:   innerServer,
+		innerServer: innerServer,
 	}
 }
 
@@ -498,10 +497,10 @@ func extractRegionError(err error) *errorpb.Error {
 	return nil
 }
 
-func isMvccRegion(regCtx *regionCtx) bool {
-	if len(regCtx.startKey) == 0 {
-		return false
-	}
-	first := regCtx.startKey[0]
-	return first == 't' || first == 'm'
-}
+// func isMvccRegion(regCtx *regionCtx) bool {
+// 	if len(regCtx.startKey) == 0 {
+// 		return false
+// 	}
+// 	first := regCtx.startKey[0]
+// 	return first == 't' || first == 'm'
+// }

@@ -70,15 +70,14 @@ func main() {
 	}
 
 	var (
-		innerServer   tikv.InnerServer
-		regionManager tikv.RegionManager
+		innerServer tikv.InnerServer
 	)
 	if conf.Server.Raft {
-		innerServer, regionManager = setupRaftInnerServer(db, pdClient, conf)
+		innerServer = setupRaftInnerServer(db, pdClient, conf)
 	} else {
-		innerServer, regionManager = setupStandAlongInnerServer(db, pdClient, conf)
+		innerServer = setupStandAlongInnerServer(db, pdClient, conf)
 	}
-	tikvServer := tikv.NewServer(regionManager, innerServer)
+	tikvServer := tikv.NewServer(innerServer)
 
 	var alivePolicy = keepalive.EnforcementPolicy{
 		MinTime:             2 * time.Second, // If a client pings more than once every 2 seconds, terminate the connection
@@ -121,9 +120,9 @@ func main() {
 	// }
 	// log.Info("Store closed.")
 
-	if err = regionManager.Close(); err != nil {
-		log.Fatal(err)
-	}
+	// if err = regionManager.Close(); err != nil {
+	// 	log.Fatal(err)
+	// }
 
 	err = innerServer.Stop()
 	if err != nil {
@@ -155,7 +154,7 @@ func setupRaftStoreConf(raftConf *tikvConf.Config, conf *config.Config) {
 	raftConf.RaftElectionTimeoutTicks = conf.RaftStore.RaftElectionTimeoutTicks
 }
 
-func setupRaftInnerServer(kvDB *badger.DB, pdClient pd.Client, conf *config.Config) (tikv.InnerServer, tikv.RegionManager) {
+func setupRaftInnerServer(kvDB *badger.DB, pdClient pd.Client, conf *config.Config) tikv.InnerServer {
 	dbPath := conf.Engine.DBPath
 	kvPath := filepath.Join(dbPath, "kv")
 	raftPath := filepath.Join(dbPath, "raft")
@@ -175,34 +174,23 @@ func setupRaftInnerServer(kvDB *badger.DB, pdClient pd.Client, conf *config.Conf
 
 	innerServer := inner_server.NewRaftInnerServer(engines, raftConf)
 	innerServer.Setup(pdClient)
-	router := innerServer.GetRaftstoreRouter()
-	storeMeta := innerServer.GetStoreMeta()
-	rm := tikv.NewRaftRegionManager(storeMeta, router)
-	innerServer.SetPeerEventObserver(rm)
 
 	if err := innerServer.Start(pdClient); err != nil {
 		log.Fatal(err)
 	}
 
-	return innerServer, rm
+	return innerServer
 }
 
-func setupStandAlongInnerServer(db *badger.DB, pdClient pd.Client, conf *config.Config) (tikv.InnerServer, tikv.RegionManager) {
-	regionOpts := tikv.RegionOptions{
-		StoreAddr:  conf.Server.StoreAddr,
-		PDAddr:     conf.Server.PDAddr,
-		RegionSize: conf.Server.RegionSize,
-	}
-
+func setupStandAlongInnerServer(db *badger.DB, pdClient pd.Client, conf *config.Config) tikv.InnerServer {
 	innerServer := inner_server.NewStandAlongInnerServer(db)
 	innerServer.Setup(pdClient)
-	rm := tikv.NewStandAloneRegionManager(db, regionOpts, pdClient)
 
 	if err := innerServer.Start(pdClient); err != nil {
 		log.Fatal(err)
 	}
 
-	return innerServer, rm
+	return innerServer
 }
 
 func createDB(subPath string, conf *config.Engine) *badger.DB {

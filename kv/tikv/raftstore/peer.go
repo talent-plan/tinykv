@@ -259,15 +259,12 @@ type Peer struct {
 
 	PendingRemove bool
 
-	// The index of the latest committed prepare merge command.
-	lastCommittedPrepareMergeIdx uint64
-	leaderMissingTime            *time.Time
-	leaderLease                  *Lease
-	leaderChecker                leaderChecker
+	leaderMissingTime *time.Time
+	leaderLease       *Lease
+	leaderChecker     leaderChecker
 
 	// If a snapshot is being applied asynchronously, messages should not be sent.
 	pendingMessages []eraftpb.Message
-	PeerStat        PeerStat
 }
 
 func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, region *metapb.Region, regionSched chan<- worker.Task,
@@ -646,44 +643,6 @@ func (p *Peer) AnyNewPeerCatchUp(peerId uint64) bool {
 	return false
 }
 
-func (p *Peer) CheckStaleState(cfg *config.Config) StaleState {
-	if p.IsLeader() {
-		// Leaders always have valid state.
-		//
-		// We update the leader_missing_time in the `func Step`. However one peer region
-		// does not send any raft messages, so we have to check and update it before
-		// reporting stale states.
-		p.leaderMissingTime = nil
-		return StaleStateValid
-	}
-	naivePeer := !p.isInitialized() || p.RaftGroup.Raft.IsLearner
-	// Updates the `leader_missing_time` according to the current state.
-	//
-	// If we are checking this it means we suspect the leader might be missing.
-	// Mark down the time when we are called, so we can check later if it's been longer than it
-	// should be.
-	if p.leaderMissingTime == nil {
-		now := time.Now()
-		p.leaderMissingTime = &now
-		return StaleStateValid
-	} else {
-		elapsed := time.Since(*p.leaderMissingTime)
-		if elapsed >= cfg.MaxLeaderMissingDuration {
-			// Resets the `leader_missing_time` to avoid sending the same tasks to
-			// PD worker continuously during the leader missing timeout.
-			now := time.Now()
-			p.leaderMissingTime = &now
-			return StaleStateToValidate
-		} else if elapsed >= cfg.AbnormalLeaderMissingDuration && !naivePeer {
-			// A peer is considered as in the leader missing state
-			// if it's initialized but is isolated from its leader or
-			// something bad happens that the raft group can not elect a leader.
-			return StaleStateLeaderMissing
-		}
-		return StaleStateValid
-	}
-}
-
 func (p *Peer) OnRoleChanged(observer PeerEventObserver, ready *raft.Ready) {
 	ss := ready.SoftState
 	if ss != nil {
@@ -909,8 +868,6 @@ func (p *Peer) HeartbeatPd(pdScheduler chan<- worker.Task) {
 			peer:            p.Meta,
 			downPeers:       p.CollectDownPeers(time.Minute * 5),
 			pendingPeers:    p.CollectPendingPeers(),
-			writtenBytes:    p.PeerStat.WrittenBytes,
-			writtenKeys:     p.PeerStat.WrittenKeys,
 			approximateSize: p.ApproximateSize,
 		},
 	}

@@ -2,7 +2,6 @@ package raftstore
 
 import (
 	"context"
-	"time"
 
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
@@ -188,22 +187,4 @@ func (r *pdTaskHandler) sendDestroyPeer(local *metapb.Region, peer *metapb.Peer,
 			IsTombstone: true,
 		},
 	})
-}
-
-type storeStatistics struct {
-	totalReadBytes     uint64
-	totalReadKeys      uint64
-	lastTotalReadBytes uint64
-	lastTotalReadKeys  uint64
-	lastReport         time.Time
-}
-
-type peerStatistics struct {
-	readBytes        uint64
-	readKeys         uint64
-	lastReadBytes    uint64
-	lastReadKeys     uint64
-	lastWrittenBytes uint64
-	lastWrittenKeys  uint64
-	lastReport       time.Time
 }
