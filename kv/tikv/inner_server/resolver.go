@@ -1,4 +1,4 @@
-package raftstore
+package inner_server
 
 import (
 	"context"
@@ -20,6 +20,11 @@ type storeAddr struct {
 type resolverRunner struct {
 	pdClient   pd.Client
 	storeAddrs map[uint64]storeAddr
+}
+
+type resolveAddrTask struct {
+	storeID  uint64
+	callback func(addr string, err error)
 }
 
 func newResolverRunner(pdClient pd.Client) *resolverRunner {

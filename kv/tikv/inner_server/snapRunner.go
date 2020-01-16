@@ -1,4 +1,4 @@
-package raftstore
+package inner_server
 
 import (
 	"bytes"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
@@ -17,15 +18,26 @@ import (
 	"google.golang.org/grpc/keepalive"
 )
 
+type sendSnapTask struct {
+	addr     string
+	msg      *raft_serverpb.RaftMessage
+	callback func(error)
+}
+
+type recvSnapTask struct {
+	stream   tikvpb.Tikv_SnapshotServer
+	callback func(error)
+}
+
 type snapRunner struct {
 	config         *config.Config
-	snapManager    *SnapManager
+	snapManager    *raftstore.SnapManager
 	router         RaftRouter
 	sendingCount   int64
 	receivingCount int64
 }
 
-func newSnapRunner(snapManager *SnapManager, config *config.Config, router RaftRouter) *snapRunner {
+func newSnapRunner(snapManager *raftstore.SnapManager, config *config.Config, router RaftRouter) *snapRunner {
 	return &snapRunner{
 		config:      config,
 		snapManager: snapManager,
@@ -59,13 +71,13 @@ const snapChunkLen = 1024 * 1024
 func (r *snapRunner) sendSnap(addr string, msg *raft_serverpb.RaftMessage) error {
 	start := time.Now()
 	msgSnap := msg.GetMessage().GetSnapshot()
-	snapKey, err := SnapKeyFromSnap(msgSnap)
+	snapKey, err := raftstore.SnapKeyFromSnap(msgSnap)
 	if err != nil {
 		return err
 	}
 
-	r.snapManager.Register(snapKey, SnapEntrySending)
-	defer r.snapManager.Deregister(snapKey, SnapEntrySending)
+	r.snapManager.Register(snapKey, raftstore.SnapEntrySending)
+	defer r.snapManager.Deregister(snapKey, raftstore.SnapEntrySending)
 
 	snap, err := r.snapManager.GetSnapshotForSending(snapKey)
 	if err != nil {
@@ -141,7 +153,7 @@ func (r *snapRunner) recvSnap(stream tikvpb.Tikv_SnapshotServer) (*raft_serverpb
 		return nil, errors.New("no raft message in the first chunk")
 	}
 	message := head.GetMessage().GetMessage()
-	snapKey, err := SnapKeyFromSnap(message.GetSnapshot())
+	snapKey, err := raftstore.SnapKeyFromSnap(message.GetSnapshot())
 	if err != nil {
 		return nil, errors.Errorf("failed to create snap key: %v", err)
 	}
@@ -156,8 +168,8 @@ func (r *snapRunner) recvSnap(stream tikvpb.Tikv_SnapshotServer) (*raft_serverpb
 		stream.SendAndClose(&raft_serverpb.Done{})
 		return head.GetMessage(), nil
 	}
-	r.snapManager.Register(snapKey, SnapEntryReceiving)
-	defer r.snapManager.Deregister(snapKey, SnapEntryReceiving)
+	r.snapManager.Register(snapKey, raftstore.SnapEntryReceiving)
+	defer r.snapManager.Deregister(snapKey, raftstore.SnapEntryReceiving)
 
 	for {
 		chunk, err := stream.Recv()

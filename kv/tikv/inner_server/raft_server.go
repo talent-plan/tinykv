@@ -1,4 +1,4 @@
-package raftstore
+package inner_server
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
@@ -16,12 +17,12 @@ type RaftInnerServer struct {
 	engines       *engine_util.Engines
 	raftConfig    *config.Config
 	storeMeta     metapb.Store
-	eventObserver PeerEventObserver
+	eventObserver raftstore.PeerEventObserver
 
-	node          *Node
-	snapManager   *SnapManager
-	raftRouter    *RaftstoreRouter
-	batchSystem   *raftBatchSystem
+	node          *raftstore.Node
+	snapManager   *raftstore.SnapManager
+	raftRouter    *raftstore.RaftstoreRouter
+	batchSystem   *raftstore.RaftBatchSystem
 	pdWorker      *worker.Worker
 	resolveWorker *worker.Worker
 	snapWorker    *worker.Worker
@@ -82,14 +83,14 @@ func (ris *RaftInnerServer) Setup(pdClient pd.Client) {
 	// TODO: create cop endpoint
 
 	cfg := ris.raftConfig
-	router, batchSystem := createRaftBatchSystem(cfg)
+	router, batchSystem := raftstore.CreateRaftBatchSystem(cfg)
 
-	ris.raftRouter = NewRaftstoreRouter(router) // TODO: init with local reader
-	ris.snapManager = NewSnapManager(cfg.SnapPath, router)
+	ris.raftRouter = raftstore.NewRaftstoreRouter(router) // TODO: init with local reader
+	ris.snapManager = raftstore.NewSnapManager(cfg.SnapPath, router)
 	ris.batchSystem = batchSystem
 }
 
-func (ris *RaftInnerServer) GetRaftstoreRouter() *RaftstoreRouter {
+func (ris *RaftInnerServer) GetRaftstoreRouter() *raftstore.RaftstoreRouter {
 	return ris.raftRouter
 }
 
@@ -97,12 +98,12 @@ func (ris *RaftInnerServer) GetStoreMeta() *metapb.Store {
 	return &ris.storeMeta
 }
 
-func (ris *RaftInnerServer) SetPeerEventObserver(ob PeerEventObserver) {
+func (ris *RaftInnerServer) SetPeerEventObserver(ob raftstore.PeerEventObserver) {
 	ris.eventObserver = ob
 }
 
 func (ris *RaftInnerServer) Start(pdClient pd.Client) error {
-	ris.node = NewNode(ris.batchSystem, &ris.storeMeta, ris.raftConfig, pdClient, ris.eventObserver)
+	ris.node = raftstore.NewNode(ris.batchSystem, &ris.storeMeta, ris.raftConfig, pdClient, ris.eventObserver)
 
 	raftClient := newRaftClient(ris.raftConfig)
 	resolveSender := ris.resolveWorker.Sender()
@@ -121,7 +122,7 @@ func (ris *RaftInnerServer) Start(pdClient pd.Client) error {
 
 func (ris *RaftInnerServer) Stop() error {
 	ris.snapWorker.Stop()
-	ris.node.stop()
+	ris.node.Stop()
 	ris.resolveWorker.Stop()
 	if err := ris.engines.Raft.Close(); err != nil {
 		return err
