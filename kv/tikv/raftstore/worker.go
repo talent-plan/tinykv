@@ -346,22 +346,14 @@ type snapContext struct {
 	pendingDeleteRanges *pendingDeleteRanges
 }
 
-// handleGen handles the worker.Task of generating snapshot of the Region. It calls `generateSnap` to do the actual work.
+// handleGen handles the task of generating snapshot of the Region.
 func (snapCtx *snapContext) handleGen(regionId uint64, notifier chan<- *eraftpb.Snapshot) {
-	if err := snapCtx.generateSnap(regionId, notifier); err != nil {
-		log.Errorf("failed to generate snapshot!!!, [regionId: %d, err : %v]", regionId, err)
-	}
-}
-
-// generateSnap generates the snapshots of the Region
-func (snapCtx *snapContext) generateSnap(regionId uint64, notifier chan<- *eraftpb.Snapshot) error {
-	// do we need to check leader here?
 	snap, err := doSnapshot(snapCtx.engines, snapCtx.mgr, regionId)
 	if err != nil {
-		return err
+		log.Errorf("failed to generate snapshot!!!, [regionId: %d, err : %v]", regionId, err)
+	} else {
+		notifier <- snap
 	}
-	notifier <- snap
-	return nil
 }
 
 // cleanUpOriginData clear up the region data before applying snapshot

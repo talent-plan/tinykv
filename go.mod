@@ -3,7 +3,7 @@ module github.com/pingcap-incubator/tinykv
 require (
 	github.com/BurntSushi/toml v0.3.1
 	github.com/chzyer/readline v0.0.0-20171208011716-f6d7a1f6fbf3
-	github.com/coocood/badger v1.5.1-0.20191224120441-29dd586ca27d
+	github.com/coocood/badger v1.5.1-0.20191220113928-eaffd0ec7a8c
 	github.com/coreos/go-semver v0.2.0
 	github.com/coreos/pkg v0.0.0-20180928190104-399ea9e2e55f
 	github.com/cznic/mathutil v0.0.0-20181122101859-297441e03548

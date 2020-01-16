@@ -15,7 +15,6 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/coocood/badger"
-	"github.com/coocood/badger/options"
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
@@ -210,11 +209,6 @@ func createDB(subPath string, conf *config.Engine) *badger.DB {
 	opts.NumLevelZeroTables = conf.NumL0Tables
 	opts.NumLevelZeroTablesStall = conf.NumL0TablesStall
 	opts.SyncWrites = conf.SyncWrite
-	compressionPerLevel := make([]options.CompressionType, len(conf.Compression))
-	for i := range opts.TableBuilderOptions.CompressionPerLevel {
-		compressionPerLevel[i] = config.ParseCompression(conf.Compression[i])
-	}
-	opts.TableBuilderOptions.CompressionPerLevel = compressionPerLevel
 	opts.MaxCacheSize = conf.BlockCacheSize
 	opts.TableBuilderOptions.SuRFStartLevel = conf.SurfStartLevel
 	db, err := badger.Open(opts)

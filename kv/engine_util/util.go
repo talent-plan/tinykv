@@ -6,6 +6,18 @@ import (
 	"github.com/coocood/badger"
 )
 
+func GetCF(db *badger.DB, cf string, key []byte) (val []byte, err error) {
+	err = db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get(append([]byte(cf+"_"), key...))
+		if err != nil {
+			return err
+		}
+		val, err = item.Value()
+		return err
+	})
+	return
+}
+
 func DeleteRange(db *badger.DB, startKey, endKey []byte) error {
 	batch := new(WriteBatch)
 	txn := db.NewTransaction(false)
