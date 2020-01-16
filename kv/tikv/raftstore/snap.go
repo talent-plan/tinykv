@@ -202,7 +202,6 @@ type CFFile struct {
 	CF          string
 	Path        string
 	TmpPath     string
-	ClonePath   string
 	SstWriter   *table.Builder
 	File        *os.File
 	KVCount     int
@@ -256,12 +255,10 @@ func NewSnap(dir string, key SnapKey, sizeTrack *int64, isSending, toBuild bool,
 		fileName := fmt.Sprintf("%s_%s%s", prefix, cf, sstFileSuffix)
 		path := filepath.Join(dir, fileName)
 		tmpPath := path + tmpFileSuffix
-		clonePath := path + cloneFileSuffix
 		cfFile := &CFFile{
-			CF:        cf,
-			Path:      path,
-			TmpPath:   tmpPath,
-			ClonePath: clonePath,
+			CF:      cf,
+			Path:    path,
+			TmpPath: tmpPath,
 		}
 		cfFiles = append(cfFiles, cfFile)
 	}
@@ -586,12 +583,8 @@ func (s *Snap) Exists() bool {
 func (s *Snap) Delete() {
 	log.Debugf("deleting %s", s.Path())
 	for _, cfFile := range s.CFFiles {
-		_, err := util.DeleteFileIfExists(cfFile.ClonePath)
-		if err != nil {
-			panic(err)
-		}
 		if s.holdTmpFiles {
-			_, err = util.DeleteFileIfExists(cfFile.TmpPath)
+			_, err := util.DeleteFileIfExists(cfFile.TmpPath)
 			if err != nil {
 				panic(err)
 			}
