@@ -28,7 +28,6 @@ func newTicker(regionID uint64, cfg *config.Config) *ticker {
 	t.schedules[int(PeerTickRaftLogGC)].interval = int64(cfg.RaftLogGCTickInterval / baseInterval)
 	t.schedules[int(PeerTickSplitRegionCheck)].interval = int64(cfg.SplitRegionCheckTickInterval / baseInterval)
 	t.schedules[int(PeerTickPdHeartbeat)].interval = int64(cfg.PdHeartbeatTickInterval / baseInterval)
-	t.schedules[int(PeerTickPeerStaleState)].interval = int64(cfg.PeerStaleStateCheckInterval / baseInterval)
 	return t
 }
 
