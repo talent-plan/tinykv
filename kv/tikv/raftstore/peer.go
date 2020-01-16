@@ -727,14 +727,6 @@ func (p *Peer) HandleRaftReadyAppend(trans Transport, applyMsgs *applyMsgs, kvWB
 		return nil
 	}
 
-	if p.peerStorage.genSnapTask != nil {
-		applyMsgs.appendMsg(p.regionId, Msg{
-			Type: MsgTypeApplySnapshot,
-			Data: p.peerStorage.genSnapTask,
-		})
-		p.peerStorage.genSnapTask = nil
-	}
-
 	if !p.RaftGroup.HasReadySince(&p.LastApplyingIdx) {
 		return nil
 	}

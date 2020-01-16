@@ -10,7 +10,6 @@ import (
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
@@ -187,28 +186,6 @@ func newRegistration(peer *Peer) *registration {
 	}
 }
 
-type GenSnapTask struct {
-	regionID     uint64
-	snapNotifier chan *eraftpb.Snapshot
-}
-
-func newGenSnapTask(regionID uint64, notifier chan *eraftpb.Snapshot) *GenSnapTask {
-	return &GenSnapTask{
-		regionID:     regionID,
-		snapNotifier: notifier,
-	}
-}
-
-func (t *GenSnapTask) generateAndScheduleSnapshot(regionSched chan<- worker.Task) {
-	regionSched <- worker.Task{
-		Tp: worker.TaskTypeRegionGen,
-		Data: &regionTask{
-			regionId: t.regionID,
-			notifier: t.snapNotifier,
-		},
-	}
-}
-
 type applyMsgs struct {
 	msgs []Msg
 }
@@ -222,7 +199,6 @@ func (r *applyMsgs) appendMsg(regionID uint64, msg Msg) {
 type applyContext struct {
 	tag              string
 	timer            *time.Time
-	regionScheduler  chan<- worker.Task
 	notifier         chan<- Msg
 	engines          *engine_util.Engines
 	txn              *badger.Txn
@@ -237,14 +213,13 @@ type applyContext struct {
 	syncLogHint bool
 }
 
-func newApplyContext(tag string, regionScheduler chan<- worker.Task, engines *engine_util.Engines,
+func newApplyContext(tag string, engines *engine_util.Engines,
 	notifier chan<- Msg, cfg *config.Config) *applyContext {
 	return &applyContext{
-		tag:             tag,
-		regionScheduler: regionScheduler,
-		engines:         engines,
-		notifier:        notifier,
-		wb:              new(engine_util.WriteBatch),
+		tag:      tag,
+		engines:  engines,
+		notifier: notifier,
+		wb:       new(engine_util.WriteBatch),
 	}
 }
 
@@ -997,20 +972,6 @@ func (a *applier) handleDestroy(aCtx *applyContext, regionID uint64) {
 	}
 }
 
-func (a *applier) handleGenSnapshot(aCtx *applyContext, snapTask *GenSnapTask) {
-	if a.pendingRemove || a.stopped {
-		return
-	}
-	regionID := a.region.GetId()
-	for _, res := range aCtx.applyTaskResList {
-		if res.regionID == regionID {
-			aCtx.flush()
-			break
-		}
-	}
-	snapTask.generateAndScheduleSnapshot(aCtx.regionScheduler)
-}
-
 func (a *applier) handleTask(aCtx *applyContext, msg Msg) {
 	switch msg.Type {
 	case MsgTypeApply:
@@ -1021,7 +982,5 @@ func (a *applier) handleTask(aCtx *applyContext, msg Msg) {
 		a.handleRegistration(msg.Data.(*registration))
 	case MsgTypeApplyDestroy:
 		a.handleDestroy(aCtx, msg.RegionID)
-	case MsgTypeApplySnapshot:
-		a.handleGenSnapshot(aCtx, msg.Data.(*GenSnapTask))
 	}
 }

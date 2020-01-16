@@ -3,14 +3,17 @@ package raftstore
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
+	"sync/atomic"
 	"testing"
 
 	"github.com/coocood/badger"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap/tidb/util/codec"
+	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
+	"github.com/pingcap/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,42 +37,58 @@ func (d *dummyDeleter) DeleteSnapshot(key SnapKey, snapshot Snapshot, checkEntry
 	return true
 }
 
-// func getTestDBForRegions(t *testing.T, path string, regions []uint64) *badger.DB {
-// 	kv := openDBBundle(t, path)
-// 	fillDBBundleData(t, kv)
-// 	for _, regionID := range regions {
-// 		// Put apply state into kv engine.
-// 		applyState := applyState{
-// 			appliedIndex:   10,
-// 			truncatedIndex: 10,
-// 		}
-// 		require.Nil(t, putValue(kv.DB, ApplyStateKey(regionID), applyState.Marshal()))
+func openDB(t *testing.T, dir string) *badger.DB {
+	opts := badger.DefaultOptions
+	opts.Dir = dir
+	opts.ValueDir = dir
+	db, err := badger.Open(opts)
+	require.Nil(t, err)
+	return db
+}
 
-// 		// Put region info into kv engine.
-// 		region := genTestRegion(regionID, 1, 1)
-// 		regionState := new(rspb.RegionLocalState)
-// 		regionState.Region = region
-// 		require.Nil(t, putMsg(kv.DB, RegionStateKey(regionID), regionState))
-// 	}
-// 	return kv
-// }
+func fillDBData(t *testing.T, db *badger.DB) {
+	// write some data for multiple cfs.
+	wb := new(engine_util.WriteBatch)
+	value := make([]byte, 32)
+	wb.SetCF(engine_util.CF_DEFAULT, snapTestKey, value)
+	wb.SetCF(engine_util.CF_WRITE, snapTestKey, value)
+	wb.SetCF(engine_util.CF_LOCK, snapTestKey, value)
+	err := wb.WriteToKV(db)
+	require.Nil(t, err)
+}
+
+func getTestDBForRegions(t *testing.T, path string, regions []uint64) *badger.DB {
+	db := openDB(t, path)
+	fillDBData(t, db)
+	for _, regionID := range regions {
+		// Put apply state into kv engine.
+		applyState := applyState{
+			appliedIndex:   10,
+			truncatedIndex: 10,
+		}
+		require.Nil(t, putValue(db, ApplyStateKey(regionID), applyState.Marshal()))
+
+		// Put region info into kv engine.
+		region := genTestRegion(regionID, 1, 1)
+		regionState := new(rspb.RegionLocalState)
+		regionState.Region = region
+		require.Nil(t, putMsg(db, RegionStateKey(regionID), regionState))
+	}
+	return db
+}
 
 func getKVCount(t *testing.T, db *badger.DB) int {
 	count := 0
 	err := db.View(func(txn *badger.Txn) error {
-		it := txn.NewIterator(badger.DefaultIteratorOptions)
-		defer it.Close()
-		for it.Seek(regionTestBegin); it.Valid(); it.Next() {
-			if bytes.Compare(it.Item().Key(), regionTestEnd) >= 0 {
-				break
+		for _, cf := range engine_util.CFs {
+			it := engine_util.NewCFIterator(cf, txn)
+			defer it.Close()
+			for it.Seek(regionTestBegin); it.Valid(); it.Next() {
+				if bytes.Compare(it.Item().Key(), regionTestEnd) >= 0 {
+					break
+				}
+				count++
 			}
-			count++
-		}
-		for it.Seek(regionTestBeginOld); it.Valid(); it.Next() {
-			if bytes.Compare(it.Item().Key(), regionTestEndOld) >= 0 {
-				break
-			}
-			count++
 		}
 		return nil
 	})
@@ -81,8 +100,8 @@ func getKVCount(t *testing.T, db *badger.DB) int {
 func genTestRegion(regionID, storeID, peerID uint64) *metapb.Region {
 	return &metapb.Region{
 		Id:       regionID,
-		StartKey: codec.EncodeBytes(nil, regionTestBegin),
-		EndKey:   codec.EncodeBytes(nil, regionTestEnd),
+		StartKey: regionTestBegin,
+		EndKey:   regionTestEnd,
 		RegionEpoch: &metapb.RegionEpoch{
 			Version: 1,
 			ConfVer: 1,
@@ -94,40 +113,17 @@ func genTestRegion(regionID, storeID, peerID uint64) *metapb.Region {
 }
 
 func assertEqDB(t *testing.T, expected, actual *badger.DB) {
-	expectedVal := getDBValue(t, expected, snapTestKey)
-	actualVal := getDBValue(t, actual, snapTestKey)
-	assert.Equal(t, expectedVal, actualVal)
+	for _, cf := range engine_util.CFs {
+		expectedVal := getDBValue(t, expected, cf, snapTestKey)
+		actualVal := getDBValue(t, actual, cf, snapTestKey)
+		assert.Equal(t, expectedVal, actualVal)
+	}
 }
 
-func getDBValue(t *testing.T, db *badger.DB, key []byte) (val []byte) {
-	require.Nil(t, db.View(func(txn *badger.Txn) error {
-		item, err := txn.Get(key)
-		require.Nil(t, err, string(key))
-		val, err = item.Value()
-		require.Nil(t, err)
-		return nil
-	}))
-	return
-}
-
-func openDB(t *testing.T, dir string) *badger.DB {
-	opts := badger.DefaultOptions
-	opts.Dir = dir
-	opts.ValueDir = dir
-	db, err := badger.Open(opts)
-	require.Nil(t, err)
-	return db
-}
-
-func fillDBBundleData(t *testing.T, db *badger.DB) {
-	// write some data.
-	// Put an new version key and an old version key.
-	err := db.Update(func(txn *badger.Txn) error {
-		value := make([]byte, 32)
-		require.Nil(t, txn.Set(snapTestKey, value))
-		return nil
-	})
-	require.Nil(t, err)
+func getDBValue(t *testing.T, db *badger.DB, cf string, key []byte) (val []byte) {
+	val, err := engine_util.GetCF(db, cf, key)
+	require.Nil(t, err, string(key))
+	return val
 }
 
 func TestSnapGenMeta(t *testing.T) {
@@ -159,7 +155,6 @@ func TestSnapDisplayPath(t *testing.T) {
 	assert.NotEqual(t, displayPath, "")
 }
 
-/* TODO reopen these tests when incompatibilities solved
 func TestSnapFile(t *testing.T) {
 	doTestSnapFile(t, true)
 	doTestSnapFile(t, false)
@@ -171,9 +166,9 @@ func doTestSnapFile(t *testing.T, dbHasData bool) {
 	dir, err := ioutil.TempDir("", "snapshot")
 	require.Nil(t, err)
 	defer os.RemoveAll(dir)
-	dbBundle := openDBBundle(t, dir)
+	db := openDB(t, dir)
 	if dbHasData {
-		fillDBBundleData(t, dbBundle)
+		fillDBData(t, db)
 	}
 
 	snapDir, err := ioutil.TempDir("", "snapshot")
@@ -191,7 +186,7 @@ func doTestSnapFile(t *testing.T, dbHasData bool) {
 	snapData := new(rspb.RaftSnapshotData)
 	snapData.Region = region
 	stat := new(SnapStatistics)
-	assert.Nil(t, s1.Build(dbBundle, region, snapData, stat, deleter))
+	assert.Nil(t, s1.Build(db.NewTransaction(false), region, snapData, stat, deleter))
 
 	// Ensure that this snapshot file does exist after being built.
 	assert.True(t, s1.Exists())
@@ -201,9 +196,9 @@ func doTestSnapFile(t *testing.T, dbHasData bool) {
 	assert.Equal(t, int64(totalSize), size)
 	assert.Equal(t, int64(stat.Size), size)
 	if dbHasData {
-		assert.Equal(t, 3, getKVCount(t, dbBundle))
+		assert.Equal(t, 3, getKVCount(t, db))
 		// stat.KVCount is 5 because there are two extra default cf value.
-		assert.Equal(t, 5, stat.KVCount)
+		assert.Equal(t, 3, stat.KVCount)
 	}
 
 	// Ensure this snapshot could be read for sending.
@@ -245,15 +240,15 @@ func doTestSnapFile(t *testing.T, dbHasData bool) {
 	require.Nil(t, err)
 	defer os.RemoveAll(dstDBDir)
 
-	dstDBBundle := openDBBundle(t, dstDBDir)
+	dstDB := openDB(t, dstDBDir)
 	abort := new(uint32)
 	*abort = uint32(JobStatus_Running)
 	opts := ApplyOptions{
-		DBBundle:  dstDBBundle,
-		Region:    region,
-		Abort:     abort,
+		DB:     dstDB,
+		Region: region,
+		Abort:  abort,
 	}
-	_, err = s4.Apply(opts)
+	err = s4.Apply(opts)
 	require.Nil(t, err, errors.ErrorStack(err))
 
 	// Ensure `delete()` works to delete the dest snapshot.
@@ -264,10 +259,11 @@ func doTestSnapFile(t *testing.T, dbHasData bool) {
 
 	// Verify the data is correct after applying snapshot.
 	if dbHasData {
-		assertEqDB(t, dbBundle, dstDBBundle)
+		assertEqDB(t, db, dstDB)
 	}
 }
 
+/* TODO reopen these tests when incompatibilities solved
 func TestSnapValidation(t *testing.T) {
 	doTestSnapValidation(t, false)
 	doTestSnapValidation(t, true)

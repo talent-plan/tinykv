@@ -104,7 +104,7 @@ func newRaftWorker(ctx *GlobalContext, ch chan Msg, pm *router) *raftWorker {
 		raftCtx:  raftCtx,
 		pr:       pm,
 		applyCh:  make(chan *applyBatch, 1),
-		applyCtx: newApplyContext("", ctx.regionTaskSender, ctx.engine, ch, ctx.cfg),
+		applyCtx: newApplyContext("", ctx.engine, ch, ctx.cfg),
 	}
 }
 

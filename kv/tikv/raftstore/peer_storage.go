@@ -16,6 +16,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/raft"
 	"github.com/pingcap/errors"
@@ -243,7 +244,6 @@ type PeerStorage struct {
 	lastTerm         uint64
 
 	snapState    SnapState
-	genSnapTask  *GenSnapTask
 	regionSched  chan<- worker.Task
 	snapTriedCnt int
 
@@ -605,14 +605,24 @@ func (ps *PeerStorage) Snapshot() (eraftpb.Snapshot, error) {
 
 	log.Infof("requesting snapshot, regionID: %d, peerID: %d", ps.region.GetId(), ps.peerID)
 	ps.snapTriedCnt++
+	ps.ScheduleGenerateSnapshot()
+
+	return snap, raft.ErrSnapshotTemporarilyUnavailable
+}
+
+func (ps *PeerStorage) ScheduleGenerateSnapshot() {
 	ch := make(chan *eraftpb.Snapshot, 1)
 	ps.snapState = SnapState{
 		StateType: SnapState_Generating,
 		Receiver:  ch,
 	}
-	ps.genSnapTask = newGenSnapTask(ps.region.GetId(), ch)
-
-	return snap, raft.ErrSnapshotTemporarilyUnavailable
+	ps.regionSched <- worker.Task{
+		Tp: worker.TaskTypeRegionGen,
+		Data: &regionTask{
+			regionId: ps.region.GetId(),
+			notifier: ch,
+		},
+	}
 }
 
 // Append the given entries to the raft log using previous last index or self.last_index.
@@ -1002,31 +1012,6 @@ func (p *PeerStorage) CheckApplyingSnap() bool {
 	return false
 }
 
-func createAndInitSnapshot(snap *regionSnapshot, key SnapKey, mgr *SnapManager) (*eraftpb.Snapshot, error) {
-	region := snap.regionState.GetRegion()
-	confState := confStateFromRegion(region)
-	snapshot := &eraftpb.Snapshot{
-		Metadata: &eraftpb.SnapshotMetadata{
-			Index:     snap.index,
-			Term:      snap.term,
-			ConfState: &confState,
-		},
-	}
-	s, err := mgr.GetSnapshotForBuilding(key)
-	if err != nil {
-		return nil, err
-	}
-	// Set snapshot data
-	snapshotData := &rspb.RaftSnapshotData{Region: region}
-	snapshotStatics := SnapStatistics{}
-	err = s.Build(snap, region, snapshotData, &snapshotStatics, mgr)
-	if err != nil {
-		return nil, err
-	}
-	snapshot.Data, err = snapshotData.Marshal()
-	return snapshot, err
-}
-
 func getAppliedIdxTermForSnapshot(raft *badger.DB, kv *badger.Txn, regionId uint64) (uint64, uint64, error) {
 	applyState := applyState{}
 	val, err := getValueTxn(kv, ApplyStateKey(regionId))
@@ -1053,17 +1038,50 @@ func getAppliedIdxTermForSnapshot(raft *badger.DB, kv *badger.Txn, regionId uint
 func doSnapshot(engines *engine_util.Engines, mgr *SnapManager, regionId uint64) (*eraftpb.Snapshot, error) {
 	log.Debugf("begin to generate a snapshot. [regionId: %d]", regionId)
 
-	snap, err := newRegionSnapshot(engines, regionId)
+	txn := engines.Kv.NewTransaction(false)
+
+	index, term, err := getAppliedIdxTermForSnapshot(engines.Raft, txn, regionId)
 	if err != nil {
 		return nil, err
 	}
-	if snap.regionState.GetState() != rspb.PeerState_Normal {
-		return nil, storageError(fmt.Sprintf("snap job %d seems stale, skip", regionId))
-	}
 
-	key := SnapKey{RegionID: regionId, Index: snap.index, Term: snap.term}
+	key := SnapKey{RegionID: regionId, Index: index, Term: term}
 	mgr.Register(key, SnapEntryGenerating)
 	defer mgr.Deregister(key, SnapEntryGenerating)
 
-	return createAndInitSnapshot(snap, key, mgr)
+	regionState := new(raft_serverpb.RegionLocalState)
+	val, err := getValueTxn(txn, RegionStateKey(regionId))
+	if err != nil {
+		return nil, err
+	}
+	err = regionState.Unmarshal(val)
+	if err != nil {
+		return nil, err
+	}
+	if regionState.GetState() != rspb.PeerState_Normal {
+		return nil, storageError(fmt.Sprintf("snap job %d seems stale, skip", regionId))
+	}
+
+	region := regionState.GetRegion()
+	confState := confStateFromRegion(region)
+	snapshot := &eraftpb.Snapshot{
+		Metadata: &eraftpb.SnapshotMetadata{
+			Index:     key.Index,
+			Term:      key.Term,
+			ConfState: &confState,
+		},
+	}
+	s, err := mgr.GetSnapshotForBuilding(key)
+	if err != nil {
+		return nil, err
+	}
+	// Set snapshot data
+	snapshotData := &rspb.RaftSnapshotData{Region: region}
+	snapshotStatics := SnapStatistics{}
+	err = s.Build(txn, region, snapshotData, &snapshotStatics, mgr)
+	if err != nil {
+		return nil, err
+	}
+	snapshot.Data, err = snapshotData.Marshal()
+	return snapshot, err
 }

@@ -2,6 +2,8 @@ package raftstore
 
 import (
 	"io/ioutil"
+	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -9,6 +11,8 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/lockstore"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -113,139 +117,108 @@ func newEnginesWithKVDb(t *testing.T, kv *badger.DB) *engine_util.Engines {
 	return engines
 }
 
-// func TestPendingApplies(t *testing.T) {
-// 	kvPath, err := ioutil.TempDir("", "testPendingApplies")
-// 	require.Nil(t, err)
-// 	db := getTestDBForRegions(t, kvPath, []uint64{1, 2, 3, 4, 5, 6})
-// 	keys := []byte{1, 2, 3, 4, 5, 6}
-// 	for _, k := range keys {
-// 		require.Nil(t, db.Update(func(txn *badger.Txn) error {
-// 			require.Nil(t, txn.Set([]byte{k}, []byte{k}))
-// 			require.Nil(t, txn.Set([]byte{k + 1}, []byte{k + 1}))
-// 			// todo, there might be flush method needed.
-// 			// todo, test also test level 0 files, we add later when badger export level 0 files api.
-// 			return nil
-// 		}))
-// 	}
+func TestPendingApplies(t *testing.T) {
+	kvPath, err := ioutil.TempDir("", "testPendingApplies")
+	require.Nil(t, err)
+	db := getTestDBForRegions(t, kvPath, []uint64{1, 2, 3, 4, 5, 6})
+	keys := []byte{1, 2, 3, 4, 5, 6}
+	for _, k := range keys {
+		require.Nil(t, db.Update(func(txn *badger.Txn) error {
+			require.Nil(t, txn.Set([]byte{k}, []byte{k}))
+			require.Nil(t, txn.Set([]byte{k + 1}, []byte{k + 1}))
+			// todo, there might be flush method needed.
+			// todo, test also test level 0 files, we add later when badger export level 0 files api.
+			return nil
+		}))
+	}
 
-// 	engines := newEnginesWithKVDb(t, db)
-// 	engines.KvPath = kvPath
-// 	defer cleanUpTestEngineData(engines)
+	engines := newEnginesWithKVDb(t, db)
+	engines.KvPath = kvPath
+	defer cleanUpTestEngineData(engines)
 
-// 	snapPath, err := ioutil.TempDir("", "unistore_snap")
-// 	defer os.RemoveAll(snapPath)
-// 	require.Nil(t, err)
-// 	mgr := NewSnapManager(snapPath, nil)
-// 	wg := new(sync.WaitGroup)
-// 	worker := newWorker("snap-manager", wg)
-// 	regionRunner := newRegionTaskHandler(engines, mgr, 0, time.Duration(time.Second*0))
-// 	worker.start(regionRunner)
-// 	genAndApplySnap := func(regionId uint64) {
-// 		tx := make(chan *eraftpb.Snapshot, 1)
-// 		tsk := &worker.Task{
-// 			Tp: worker.TaskTypeRegionGen,
-// 		}
-// 		rgTsk := &regionTask{
-// 			regionId: regionId,
-// 			notifier: tx,
-// 		}
-// 		txn := engines.Kv.NewTransaction(false)
-// 		// TODO [fix this] the new regionTask need "redoIdx" as input param
-// 		index, _, err := getAppliedIdxTermForSnapshot(engines.Raft, txn, regionId)
-// 		// rgTsk.redoIdx = index + 1
-// 		tsk.data = rgTsk
-// 		require.Nil(t, err)
-// 		worker.sender <- *tsk
-// 		s1 := <-tx
-// 		data := s1.Data
-// 		key := SnapKeyFromRegionSnap(regionId, s1)
-// 		mgr := NewSnapManager(snapPath, nil)
-// 		s2, err := mgr.GetSnapshotForSending(key)
-// 		require.Nil(t, err)
-// 		s3, err := mgr.GetSnapshotForReceiving(key, data)
-// 		require.Nil(t, err)
-// 		require.Nil(t, copySnapshot(s3, s2))
+	snapPath, err := ioutil.TempDir("", "unistore_snap")
+	defer os.RemoveAll(snapPath)
+	require.Nil(t, err)
+	mgr := NewSnapManager(snapPath, nil)
+	wg := new(sync.WaitGroup)
+	regionWorker := worker.NewWorker("snap-manager", wg)
+	regionRunner := newRegionTaskHandler(engines, mgr, 0, time.Duration(time.Second*0))
+	regionWorker.Start(regionRunner)
+	genAndApplySnap := func(regionId uint64) {
+		tx := make(chan *eraftpb.Snapshot, 1)
+		tsk := &worker.Task{
+			Tp: worker.TaskTypeRegionGen,
+			Data: &regionTask{
+				regionId: regionId,
+				notifier: tx,
+			},
+		}
+		regionWorker.Sender() <- *tsk
+		s1 := <-tx
+		data := s1.Data
+		key := SnapKeyFromRegionSnap(regionId, s1)
+		mgr := NewSnapManager(snapPath, nil)
+		s2, err := mgr.GetSnapshotForSending(key)
+		require.Nil(t, err)
+		s3, err := mgr.GetSnapshotForReceiving(key, data)
+		require.Nil(t, err)
+		require.Nil(t, copySnapshot(s3, s2))
 
-// 		// set applying state
-// 		wb := new(engine_util.WriteBatch)
-// 		regionLocalState, err := getRegionLocalState(engines.Kv, regionId)
-// 		require.Nil(t, err)
-// 		regionLocalState.State = rspb.PeerState_Applying
-// 		require.Nil(t, wb.SetMsg(RegionStateKey(regionId), regionLocalState))
-// 		require.Nil(t, wb.WriteToKV(engines.Kv))
+		// set applying state
+		wb := new(engine_util.WriteBatch)
+		regionLocalState, err := getRegionLocalState(engines.Kv, regionId)
+		require.Nil(t, err)
+		regionLocalState.State = rspb.PeerState_Applying
+		require.Nil(t, wb.SetMsg(RegionStateKey(regionId), regionLocalState))
+		require.Nil(t, wb.WriteToKV(engines.Kv))
 
-// 		// apply snapshot
-// 		var status = JobStatus_Pending
-// 		tsk2 := &worker.Task{
-// 			Tp: worker.TaskTypeRegionApply,
-// 			Data: &regionTask{
-// 				regionId: regionId,
-// 				status:   &status,
-// 			},
-// 		}
-// 		worker.sender <- *tsk2
-// 	}
+		// apply snapshot
+		var status = JobStatus_Pending
+		tsk2 := &worker.Task{
+			Tp: worker.TaskTypeRegionApply,
+			Data: &regionTask{
+				regionId: regionId,
+				status:   &status,
+			},
+		}
+		regionWorker.Sender() <- *tsk2
+	}
 
-// 	waitApplyFinish := func(regionId uint64) {
-// 		for {
-// 			time.Sleep(time.Millisecond * 100)
-// 			regionLocalState, err := getRegionLocalState(engines.Kv, regionId)
-// 			require.Nil(t, err)
-// 			if regionLocalState.State == rspb.PeerState_Normal {
-// 				break
-// 			}
-// 		}
-// 	}
+	waitApplyFinish := func(regionId uint64) {
+		for {
+			time.Sleep(time.Millisecond * 100)
+			regionLocalState, err := getRegionLocalState(engines.Kv, regionId)
+			require.Nil(t, err)
+			if regionLocalState.State == rspb.PeerState_Normal {
+				break
+			}
+		}
+	}
 
-// 	// snapshot will not ingest cause already write stall
-// 	genAndApplySnap(1)
-// 	// todo, test needed, cf num files at level 0 should be 6.
+	// snapshot will not ingest cause already write stall
+	genAndApplySnap(1)
+	// todo, test needed, cf num files at level 0 should be 6.
 
-// 	// compact all files to the bottomest level
-// 	// todo, compact files and then check that cf num files at level 0 should be 0.
-// 	waitApplyFinish(1)
+	// compact all files to the bottomest level
+	// todo, compact files and then check that cf num files at level 0 should be 0.
+	waitApplyFinish(1)
 
-// 	// the pending apply worker.Task should be finished and snapshots are ingested.
-// 	// note that when ingest sst, it may flush memtable if overlap,
-// 	// so here will two level 0 files.
-// 	// todo, check cf num files at level 0 is 2.
+	// the pending apply worker.Task should be finished and snapshots are ingested.
+	// note that when ingest sst, it may flush memtable if overlap,
+	// so here will two level 0 files.
+	// todo, check cf num files at level 0 is 2.
 
-// 	// no write stall, ingest without delay
-// 	genAndApplySnap(2)
-// 	waitApplyFinish(2)
-// 	// todo, check cf num files at level 0 is 4.
+	// no write stall, ingest without delay
+	genAndApplySnap(2)
+	waitApplyFinish(2)
+	// todo, check cf num files at level 0 is 4.
 
-// 	// snapshot will not ingest cause it may cause write stall
-// 	// TODO now this does not cause write stall, since `snapShotContext`.`ingestMaybeStall` not
-// 	// implemented yet
-// 	genAndApplySnap(3)
-// 	waitApplyFinish(3)
-// 	/*
-// 		// todo, check cf num files at level 0 is 4.
-// 		waitApplyFinish(4)
-// 		// todo, check cf num files at level 0 is 4.
-// 		genAndApplySnap(5)
-// 		// todo, check cf num files at level 0 is 4.
-
-// 		// compact all files to the bottomest level
-// 		// todo compact files in range and then check cf num files at level 0 is 0.
-
-// 		// make sure have checked pending applies
-// 		waitApplyFinish(4)
-
-// 		// before two pending apply tasks should be finished and snapshots are ingested
-// 		// and one still in pending.
-// 		// todo, check cf num files at level 0 is 4.
-
-// 		// make sure have checked pending applies
-// 		// todo compact files in range and then check cf num files at level 0 is 0.
-
-// 		waitApplyFinish(5)
-// 	*/
-
-// 	// the last one pending worker.Task finished
-// 	// todo, check cf num files at level 0 is 2
-// }
+	// snapshot will not ingest cause it may cause write stall
+	// TODO now this does not cause write stall, since `snapShotContext`.`ingestMaybeStall` not
+	// implemented yet
+	genAndApplySnap(3)
+	waitApplyFinish(3)
+}
 
 func TestGcRaftLog(t *testing.T) {
 	engines := newTestEngines(t)

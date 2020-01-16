@@ -35,7 +35,6 @@ const (
 	MsgTypeApplyRegistration MsgType = 302
 	MsgTypeApplyProposal     MsgType = 303
 	MsgTypeApplyDestroy      MsgType = 306
-	MsgTypeApplySnapshot     MsgType = 307
 
 	MsgTypeBarrier MsgType = 401
 
