@@ -306,7 +306,7 @@ func (s *TestServer) BootstrapCluster() error {
 	bootstrapReq := &pdpb.BootstrapRequest{
 		Header: &pdpb.RequestHeader{ClusterId: s.GetClusterID()},
 		Store:  &metapb.Store{Id: 1, Address: "mock://1"},
-		Region: &metapb.Region{Id: 2, Peers: []*metapb.Peer{{Id: 3, StoreId: 1, IsLearner: false}}},
+		Region: &metapb.Region{Id: 2, Peers: []*metapb.Peer{{Id: 3, StoreId: 1}}},
 	}
 	_, err := s.server.Bootstrap(context.Background(), bootstrapReq)
 	if err != nil {

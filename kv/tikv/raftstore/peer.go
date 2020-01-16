@@ -165,19 +165,6 @@ type PeerStat struct {
 	WrittenKeys  uint64
 }
 
-/// A struct that stores the state to wait for `PrepareMerge` apply result.
-///
-/// When handling the apply result of a `CommitMerge`, the source peer may have
-/// not handle the apply result of the `PrepareMerge`, so the target peer has
-/// to abort current handle process and wait for it asynchronously.
-type WaitApplyResultState struct {
-	/// The following apply results waiting to be handled, including the `CommitMerge`.
-	/// These will be handled once `ReadyToMerge` is true.
-	results []*applyTaskRes
-	/// It is used by target peer to check whether the apply result of `PrepareMerge` is handled.
-	readyToMerge *uint32
-}
-
 type RecentAddedPeer struct {
 	RejectDurationAsSecs uint64
 	Id                   uint64
@@ -238,7 +225,6 @@ type Peer struct {
 	/// Record the instants of peers being added into the configuration.
 	/// Remove them after they are not pending any more.
 	PeersStartPendingTime map[uint64]time.Time
-	RecentAddedPeer       *RecentAddedPeer
 
 	/// an inaccurate difference in region size since last reset.
 	SizeDiffHint uint64
@@ -307,7 +293,6 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 		peerCache:             make(map[uint64]*metapb.Peer),
 		PeerHeartbeats:        make(map[uint64]time.Time),
 		PeersStartPendingTime: make(map[uint64]time.Time),
-		RecentAddedPeer:       NewRecentAddedPeer(uint64(cfg.RaftRejectTransferLeaderDuration.Seconds())),
 		leaderMissingTime:     &now,
 		Tag:                   tag,
 		LastApplyingIdx:       appliedIndex,
@@ -590,7 +575,6 @@ func (p *Peer) CollectPendingPeers() []*metapb.Peer {
 	status := p.RaftGroup.Status()
 	truncatedIdx := p.Store().truncatedIndex()
 
-	// status.Progress includes learner progress
 	for id, progress := range status.Progress {
 		if id == p.Meta.GetId() {
 			continue
@@ -628,9 +612,6 @@ func (p *Peer) AnyNewPeerCatchUp(peerId uint64) bool {
 	if startPendingTime, ok := p.PeersStartPendingTime[peerId]; ok {
 		truncatedIdx := p.Store().truncatedIndex()
 		progress, ok := p.RaftGroup.Raft.Prs[peerId]
-		if !ok {
-			progress, ok = p.RaftGroup.Raft.LearnerPrs[peerId]
-		}
 		if ok {
 			if progress.Match >= truncatedIdx {
 				delete(p.PeersStartPendingTime, peerId)
@@ -765,23 +746,6 @@ func (p *Peer) PostRaftReadyPersistent(trans Transport, applyMsgs *applyMsgs, re
 	}
 
 	applySnapResult := p.Store().PostReadyPersistent(invokeCtx)
-	if applySnapResult != nil && p.Meta.GetIsLearner() {
-		// The peer may change from learner to voter after snapshot applied.
-		var pr *metapb.Peer
-		for _, peer := range p.Region().GetPeers() {
-			if peer.GetId() == p.Meta.GetId() {
-				pr = &metapb.Peer{
-					Id:        peer.Id,
-					StoreId:   peer.StoreId,
-					IsLearner: peer.IsLearner,
-				}
-			}
-		}
-		if !PeerEqual(pr, p.Meta) {
-			log.Infof("%v meta changed in applying snapshot, before %v, after %v", p.Tag, p.Meta, pr)
-			p.Meta = pr
-		}
-	}
 
 	if !p.IsLeader() {
 		if p.IsApplyingSnapshot() {
@@ -1174,12 +1138,6 @@ func (p *Peer) checkConfChange(cfg *config.Config, cmd *raft_cmdpb.RaftCmdReques
 	peer := changePeer.GetPeer()
 
 	// Check the request itself is valid or not.
-	if (changeType == eraftpb.ConfChangeType_AddNode && peer.IsLearner) ||
-		(changeType == eraftpb.ConfChangeType_AddLearnerNode && !peer.IsLearner) {
-		log.Warnf("%s conf change type: %v, but got peer %v", p.Tag, changeType, peer)
-		return fmt.Errorf("invalid conf change request")
-	}
-
 	if changeType == eraftpb.ConfChangeType_RemoveNode && !cfg.AllowRemoveLeader && peer.Id == p.PeerId() {
 		log.Warnf("%s rejects remove leader request %v", p.Tag, changePeer)
 		return fmt.Errorf("ignore remove leader")
@@ -1194,26 +1152,14 @@ func (p *Peer) checkConfChange(cfg *config.Config, cmd *raft_cmdpb.RaftCmdReques
 
 	switch changeType {
 	case eraftpb.ConfChangeType_AddNode:
-		if pr, ok := status.Progress[peer.Id]; ok && pr.IsLearner {
-			// For promote learner to voter.
-			pr.IsLearner = false
-			status.Progress[peer.Id] = pr
-		} else {
-			status.Progress[peer.Id] = raft.Progress{}
-		}
+		status.Progress[peer.Id] = raft.Progress{}
 	case eraftpb.ConfChangeType_RemoveNode:
-		if peer.GetIsLearner() {
-			// If the node is a learner, we can return directly.
-			return nil
-		}
 		if _, ok := status.Progress[peer.Id]; ok {
 			delete(status.Progress, peer.Id)
 		} else {
 			// It's always safe to remove a not existing node.
 			return nil
 		}
-	case eraftpb.ConfChangeType_AddLearnerNode:
-		return nil
 	}
 
 	healthy := p.countHealthyNode(status.Progress)
@@ -1252,11 +1198,6 @@ func (p *Peer) readyToTransferLeader(cfg *config.Config, peer *metapb.Peer) bool
 			return false
 		}
 	}
-	if p.RecentAddedPeer.Contains(peerId) {
-		log.Debugf("%v reject tranfer leader to %v due to the peer was added recently", p.Tag, peer)
-		return false
-	}
-
 	lastIndex, _ := p.Store().LastIndex()
 
 	return lastIndex <= status.Progress[peerId].Match+cfg.LeaderTransferMaxLogLag

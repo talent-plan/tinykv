@@ -15,15 +15,11 @@ package schedulers
 
 import (
 	"context"
-	"fmt"
 	"math"
-	"math/rand"
 
-	. "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockcluster"
-	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockhbstream"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockoption"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/testutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
@@ -31,6 +27,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/checker"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/operator"
+	. "github.com/pingcap/check"
 )
 
 func newTestReplication(mso *mockoption.ScheduleOptions, maxReplicas int, locationLabels ...string) {
@@ -985,215 +982,4 @@ func (s *testReplicaCheckerSuite) TestOpts(c *C) {
 	testutil.CheckTransferPeer(c, rc.Check(region), operator.OpReplica, 2, 4)
 	opt.EnableReplaceOfflineReplica = false
 	c.Assert(rc.Check(region), IsNil)
-}
-
-var _ = Suite(&testRandomMergeSchedulerSuite{})
-
-type testRandomMergeSchedulerSuite struct{}
-
-func (s *testRandomMergeSchedulerSuite) TestMerge(c *C) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	opt := mockoption.NewScheduleOptions()
-	opt.MergeScheduleLimit = 1
-	tc := mockcluster.NewCluster(opt)
-	hb := mockhbstream.NewHeartbeatStreams(tc.ID)
-	oc := schedule.NewOperatorController(ctx, tc, hb)
-
-	mb, err := schedule.CreateScheduler("random-merge", oc, core.NewStorage(kv.NewMemoryKV()), nil)
-	c.Assert(err, IsNil)
-
-	tc.AddRegionStore(1, 4)
-	tc.AddLeaderRegion(1, 1)
-	tc.AddLeaderRegion(2, 1)
-	tc.AddLeaderRegion(3, 1)
-	tc.AddLeaderRegion(4, 1)
-
-	c.Assert(mb.IsScheduleAllowed(tc), IsTrue)
-	ops := mb.Schedule(tc)
-	c.Assert(ops, HasLen, 2)
-	c.Assert(ops[0].Kind()&operator.OpMerge, Not(Equals), 0)
-	c.Assert(ops[1].Kind()&operator.OpMerge, Not(Equals), 0)
-
-	oc.AddWaitingOperator(ops...)
-	c.Assert(mb.IsScheduleAllowed(tc), IsFalse)
-}
-
-var _ = Suite(&testScatterRangeLeaderSuite{})
-
-type testScatterRangeLeaderSuite struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-}
-
-func (s *testScatterRangeLeaderSuite) SetUpSuite(c *C) {
-	s.ctx, s.cancel = context.WithCancel(context.Background())
-}
-
-func (s *testScatterRangeLeaderSuite) TearDownSuite(c *C) {
-	s.cancel()
-}
-
-func (s *testScatterRangeLeaderSuite) TestBalance(c *C) {
-	opt := mockoption.NewScheduleOptions()
-	tc := mockcluster.NewCluster(opt)
-	// Add stores 1,2,3,4,5.
-	tc.AddRegionStore(1, 0)
-	tc.AddRegionStore(2, 0)
-	tc.AddRegionStore(3, 0)
-	tc.AddRegionStore(4, 0)
-	tc.AddRegionStore(5, 0)
-	var (
-		id      uint64
-		regions []*metapb.Region
-	)
-	for i := 0; i < 50; i++ {
-		peers := []*metapb.Peer{
-			{Id: id + 1, StoreId: 1},
-			{Id: id + 2, StoreId: 2},
-			{Id: id + 3, StoreId: 3},
-		}
-		regions = append(regions, &metapb.Region{
-			Id:       id + 4,
-			Peers:    peers,
-			StartKey: []byte(fmt.Sprintf("s_%02d", i)),
-			EndKey:   []byte(fmt.Sprintf("s_%02d", i+1)),
-		})
-		id += 4
-	}
-	// empty case
-	regions[49].EndKey = []byte("")
-	for _, meta := range regions {
-		leader := rand.Intn(4) % 3
-		regionInfo := core.NewRegionInfo(
-			meta,
-			meta.Peers[leader],
-			core.SetApproximateKeys(96),
-			core.SetApproximateSize(96),
-		)
-
-		tc.Regions.SetRegion(regionInfo)
-	}
-	for i := 0; i < 100; i++ {
-		_, err := tc.AllocPeer(1)
-		c.Assert(err, IsNil)
-	}
-	for i := 1; i <= 5; i++ {
-		tc.UpdateStoreStatus(uint64(i))
-	}
-	oc := schedule.NewOperatorController(s.ctx, nil, nil)
-
-	hb, err := schedule.CreateScheduler("scatter-range", oc, core.NewStorage(kv.NewMemoryKV()), schedule.ConfigSliceDecoder("scatter-range", []string{"s_00", "s_50", "t"}))
-	c.Assert(err, IsNil)
-	limit := 0
-	for {
-		if limit > 100 {
-			break
-		}
-		ops := hb.Schedule(tc)
-		if ops == nil {
-			limit++
-			continue
-		}
-		schedule.ApplyOperator(tc, ops[0])
-	}
-	for i := 1; i <= 5; i++ {
-		leaderCount := tc.Regions.GetStoreLeaderCount(uint64(i))
-		c.Check(leaderCount, LessEqual, 12)
-		regionCount := tc.Regions.GetStoreRegionCount(uint64(i))
-		c.Check(regionCount, LessEqual, 32)
-	}
-}
-
-func (s *testScatterRangeLeaderSuite) TestConcurrencyUpdateConfig(c *C) {
-	opt := mockoption.NewScheduleOptions()
-	tc := mockcluster.NewCluster(opt)
-	oc := schedule.NewOperatorController(s.ctx, nil, nil)
-	hb, err := schedule.CreateScheduler("scatter-range", oc, core.NewStorage(kv.NewMemoryKV()), schedule.ConfigSliceDecoder("scatter-range", []string{"s_00", "s_50", "t"}))
-	sche := hb.(*scatterRangeScheduler)
-	c.Assert(err, IsNil)
-	ch := make(chan struct{})
-	args := []string{"test", "s_00", "s_99"}
-	go func() {
-		for {
-			select {
-			case <-ch:
-				break
-			default:
-			}
-			sche.config.BuildWithArgs(args)
-			c.Assert(sche.config.Persist(), IsNil)
-		}
-	}()
-	for i := 0; i < 1000; i++ {
-		sche.Schedule(tc)
-	}
-	ch <- struct{}{}
-}
-
-func (s *testScatterRangeLeaderSuite) TestBalanceWhenRegionNotHeartbeat(c *C) {
-	opt := mockoption.NewScheduleOptions()
-	tc := mockcluster.NewCluster(opt)
-	// Add stores 1,2,3.
-	tc.AddRegionStore(1, 0)
-	tc.AddRegionStore(2, 0)
-	tc.AddRegionStore(3, 0)
-	var (
-		id      uint64
-		regions []*metapb.Region
-	)
-	for i := 0; i < 10; i++ {
-		peers := []*metapb.Peer{
-			{Id: id + 1, StoreId: 1},
-			{Id: id + 2, StoreId: 2},
-			{Id: id + 3, StoreId: 3},
-		}
-		regions = append(regions, &metapb.Region{
-			Id:       id + 4,
-			Peers:    peers,
-			StartKey: []byte(fmt.Sprintf("s_%02d", i)),
-			EndKey:   []byte(fmt.Sprintf("s_%02d", i+1)),
-		})
-		id += 4
-	}
-	// empty case
-	regions[9].EndKey = []byte("")
-
-	// To simulate server prepared,
-	// store 1 contains 8 leader region peers and leaders of 2 regions are unknown yet.
-	for _, meta := range regions {
-		var leader *metapb.Peer
-		if meta.Id < 8 {
-			leader = meta.Peers[0]
-		}
-		regionInfo := core.NewRegionInfo(
-			meta,
-			leader,
-			core.SetApproximateKeys(96),
-			core.SetApproximateSize(96),
-		)
-
-		tc.Regions.SetRegion(regionInfo)
-	}
-
-	for i := 1; i <= 3; i++ {
-		tc.UpdateStoreStatus(uint64(i))
-	}
-
-	oc := schedule.NewOperatorController(s.ctx, nil, nil)
-	hb, err := schedule.CreateScheduler("scatter-range", oc, core.NewStorage(kv.NewMemoryKV()), schedule.ConfigSliceDecoder("scatter-range", []string{"s_00", "s_09", "t"}))
-	c.Assert(err, IsNil)
-
-	limit := 0
-	for {
-		if limit > 100 {
-			break
-		}
-		ops := hb.Schedule(tc)
-		if ops == nil {
-			limit++
-			continue
-		}
-		schedule.ApplyOperator(tc, ops[0])
-	}
 }

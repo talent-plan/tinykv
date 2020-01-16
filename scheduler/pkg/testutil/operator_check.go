@@ -14,16 +14,15 @@
 package testutil
 
 import (
-	check "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/operator"
+	check "github.com/pingcap/check"
 )
 
 // CheckAddPeer checks if the operator is to add peer on specified store.
 func CheckAddPeer(c *check.C, op *operator.Operator, kind operator.OpKind, storeID uint64) {
 	c.Assert(op, check.NotNil)
-	c.Assert(op.Len(), check.Equals, 2)
-	c.Assert(op.Step(0).(operator.AddLearner).ToStore, check.Equals, storeID)
-	c.Assert(op.Step(1), check.FitsTypeOf, operator.PromoteLearner{})
+	c.Assert(op.Len(), check.Equals, 1)
+	c.Assert(op.Step(0).(operator.AddPeer).ToStore, check.Equals, storeID)
 	kind |= operator.OpRegion
 	c.Assert(op.Kind()&kind, check.Equals, kind)
 }
@@ -60,16 +59,14 @@ func CheckTransferLeaderFrom(c *check.C, op *operator.Operator, kind operator.Op
 // CheckTransferPeer checks if the operator is to transfer peer between the specified source and target stores.
 func CheckTransferPeer(c *check.C, op *operator.Operator, kind operator.OpKind, sourceID, targetID uint64) {
 	c.Assert(op, check.NotNil)
-	if op.Len() == 3 {
-		c.Assert(op.Step(0).(operator.AddLearner).ToStore, check.Equals, targetID)
-		c.Assert(op.Step(1), check.FitsTypeOf, operator.PromoteLearner{})
-		c.Assert(op.Step(2).(operator.RemovePeer).FromStore, check.Equals, sourceID)
+	if op.Len() == 2 {
+		c.Assert(op.Step(0).(operator.AddPeer).ToStore, check.Equals, targetID)
+		c.Assert(op.Step(1).(operator.RemovePeer).FromStore, check.Equals, sourceID)
 	} else {
-		c.Assert(op.Len(), check.Equals, 4)
-		c.Assert(op.Step(0).(operator.AddLearner).ToStore, check.Equals, targetID)
-		c.Assert(op.Step(1), check.FitsTypeOf, operator.PromoteLearner{})
-		c.Assert(op.Step(2).(operator.TransferLeader).FromStore, check.Equals, sourceID)
-		c.Assert(op.Step(3).(operator.RemovePeer).FromStore, check.Equals, sourceID)
+		c.Assert(op.Len(), check.Equals, 3)
+		c.Assert(op.Step(0).(operator.AddPeer).ToStore, check.Equals, targetID)
+		c.Assert(op.Step(1).(operator.TransferLeader).FromStore, check.Equals, sourceID)
+		c.Assert(op.Step(2).(operator.RemovePeer).FromStore, check.Equals, sourceID)
 		kind |= operator.OpLeader
 	}
 	kind |= operator.OpRegion
@@ -81,7 +78,7 @@ func CheckTransferPeer(c *check.C, op *operator.Operator, kind operator.OpKind, 
 // transfers the leader out of source store.
 func CheckTransferPeerWithLeaderTransfer(c *check.C, op *operator.Operator, kind operator.OpKind, sourceID, targetID uint64) {
 	c.Assert(op, check.NotNil)
-	c.Assert(op.Len(), check.Equals, 4)
+	c.Assert(op.Len(), check.Equals, 3)
 	CheckTransferPeer(c, op, kind, sourceID, targetID)
 }
 
@@ -91,10 +88,9 @@ func CheckTransferPeerWithLeaderTransfer(c *check.C, op *operator.Operator, kind
 func CheckTransferPeerWithLeaderTransferFrom(c *check.C, op *operator.Operator, kind operator.OpKind, sourceID uint64) {
 	c.Assert(op, check.NotNil)
 	c.Assert(op.Len(), check.Equals, 4)
-	c.Assert(op.Step(0), check.FitsTypeOf, operator.AddLearner{})
-	c.Assert(op.Step(1), check.FitsTypeOf, operator.PromoteLearner{})
-	c.Assert(op.Step(2), check.FitsTypeOf, operator.TransferLeader{})
-	c.Assert(op.Step(3).(operator.RemovePeer).FromStore, check.Equals, sourceID)
+	c.Assert(op.Step(0), check.FitsTypeOf, operator.AddPeer{})
+	c.Assert(op.Step(1), check.FitsTypeOf, operator.TransferLeader{})
+	c.Assert(op.Step(2).(operator.RemovePeer).FromStore, check.Equals, sourceID)
 	kind |= (operator.OpRegion | operator.OpLeader)
 	c.Assert(op.Kind()&kind, check.Equals, kind)
 }

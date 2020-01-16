@@ -52,35 +52,6 @@ func ApplyOperatorStep(region *core.RegionInfo, op *operator.Operator) *core.Reg
 				panic("Cannot remove the leader peer")
 			}
 			region = region.Clone(core.WithRemoveStorePeer(s.FromStore))
-		case operator.AddLearner:
-			if region.GetStorePeer(s.ToStore) != nil {
-				panic("Add learner that exists")
-			}
-			peer := &metapb.Peer{
-				Id:        s.PeerID,
-				StoreId:   s.ToStore,
-				IsLearner: true,
-			}
-			region = region.Clone(core.WithAddPeer(peer))
-		case operator.AddLightLearner:
-			if region.GetStorePeer(s.ToStore) != nil {
-				panic("Add learner that exists")
-			}
-			peer := &metapb.Peer{
-				Id:        s.PeerID,
-				StoreId:   s.ToStore,
-				IsLearner: true,
-			}
-			region = region.Clone(core.WithAddPeer(peer))
-		case operator.PromoteLearner:
-			if region.GetStoreLearner(s.ToStore) == nil {
-				panic("Promote peer that doesn't exist")
-			}
-			peer := &metapb.Peer{
-				Id:      s.PeerID,
-				StoreId: s.ToStore,
-			}
-			region = region.Clone(core.WithRemoveStorePeer(s.ToStore), core.WithAddPeer(peer))
 		default:
 			panic("Unknown operator step")
 		}
