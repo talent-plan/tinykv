@@ -234,21 +234,6 @@ func SetPeers(peers []*metapb.Peer) RegionCreateOption {
 func WithAddPeer(peer *metapb.Peer) RegionCreateOption {
 	return func(region *RegionInfo) {
 		region.meta.Peers = append(region.meta.Peers, peer)
-		if peer.IsLearner {
-			region.learners = append(region.learners, peer)
-		} else {
-			region.voters = append(region.voters, peer)
-		}
-	}
-}
-
-// WithPromoteLearner promotes the learner.
-func WithPromoteLearner(peerID uint64) RegionCreateOption {
-	return func(region *RegionInfo) {
-		for _, p := range region.GetPeers() {
-			if p.GetId() == peerID {
-				p.IsLearner = false
-			}
-		}
+		region.voters = append(region.voters, peer)
 	}
 }

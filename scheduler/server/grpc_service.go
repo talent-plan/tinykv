@@ -23,8 +23,8 @@ import (
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
-	"github.com/pingcap/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
+	"github.com/pingcap/log"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
@@ -615,35 +615,35 @@ func (s *Server) PutClusterConfig(ctx context.Context, request *pdpb.PutClusterC
 
 // ScatterRegion implements gRPC PDServer.
 func (s *Server) ScatterRegion(ctx context.Context, request *pdpb.ScatterRegionRequest) (*pdpb.ScatterRegionResponse, error) {
-	if err := s.validateRequest(request.GetHeader()); err != nil {
-		return nil, err
-	}
+	// if err := s.validateRequest(request.GetHeader()); err != nil {
+	// 	return nil, err
+	// }
 
-	cluster := s.GetRaftCluster()
-	if cluster == nil {
-		return &pdpb.ScatterRegionResponse{Header: s.notBootstrappedHeader()}, nil
-	}
+	// cluster := s.GetRaftCluster()
+	// if cluster == nil {
+	// 	return &pdpb.ScatterRegionResponse{Header: s.notBootstrappedHeader()}, nil
+	// }
 
-	region := cluster.GetRegion(request.GetRegionId())
-	if region == nil {
-		if request.GetRegion() == nil {
-			return nil, errors.Errorf("region %d not found", request.GetRegionId())
-		}
-		region = core.NewRegionInfo(request.GetRegion(), request.GetLeader())
-	}
+	// region := cluster.GetRegion(request.GetRegionId())
+	// if region == nil {
+	// 	if request.GetRegion() == nil {
+	// 		return nil, errors.Errorf("region %d not found", request.GetRegionId())
+	// 	}
+	// 	region = core.NewRegionInfo(request.GetRegion(), request.GetLeader())
+	// }
 
-	if cluster.IsRegionHot(region) {
-		return nil, errors.Errorf("region %d is a hot region", region.GetID())
-	}
+	// if cluster.IsRegionHot(region) {
+	// 	return nil, errors.Errorf("region %d is a hot region", region.GetID())
+	// }
 
-	co := cluster.GetCoordinator()
-	op, err := co.regionScatterer.Scatter(region)
-	if err != nil {
-		return nil, err
-	}
-	if op != nil {
-		co.opController.AddOperator(op)
-	}
+	// co := cluster.GetCoordinator()
+	// op, err := co.regionScatterer.Scatter(region)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// if op != nil {
+	// 	co.opController.AddOperator(op)
+	// }
 
 	return &pdpb.ScatterRegionResponse{
 		Header: s.header(),

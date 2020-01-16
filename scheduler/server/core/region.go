@@ -59,16 +59,10 @@ func NewRegionInfo(region *metapb.Region, leader *metapb.Peer, opts ...RegionCre
 
 // classifyVoterAndLearner sorts out voter and learner from peers into different slice.
 func classifyVoterAndLearner(region *RegionInfo) {
-	learners := make([]*metapb.Peer, 0, 1)
 	voters := make([]*metapb.Peer, 0, len(region.meta.Peers))
 	for _, p := range region.meta.Peers {
-		if p.IsLearner {
-			learners = append(learners, p)
-		} else {
-			voters = append(voters, p)
-		}
+		voters = append(voters, p)
 	}
-	region.learners = learners
 	region.voters = voters
 }
 
@@ -168,7 +162,7 @@ func (r *RegionInfo) GetDownPeer(peerID uint64) *metapb.Peer {
 // GetDownVoter returns the down voter with specified peer id.
 func (r *RegionInfo) GetDownVoter(peerID uint64) *metapb.Peer {
 	for _, down := range r.downPeers {
-		if down.GetPeer().GetId() == peerID && !down.GetPeer().IsLearner {
+		if down.GetPeer().GetId() == peerID {
 			return down.GetPeer()
 		}
 	}
@@ -177,11 +171,6 @@ func (r *RegionInfo) GetDownVoter(peerID uint64) *metapb.Peer {
 
 // GetDownLearner returns the down learner with soecified peer id.
 func (r *RegionInfo) GetDownLearner(peerID uint64) *metapb.Peer {
-	for _, down := range r.downPeers {
-		if down.GetPeer().GetId() == peerID && down.GetPeer().IsLearner {
-			return down.GetPeer()
-		}
-	}
 	return nil
 }
 
@@ -198,7 +187,7 @@ func (r *RegionInfo) GetPendingPeer(peerID uint64) *metapb.Peer {
 // GetPendingVoter returns the pending voter with specified peer id.
 func (r *RegionInfo) GetPendingVoter(peerID uint64) *metapb.Peer {
 	for _, peer := range r.pendingPeers {
-		if peer.GetId() == peerID && !peer.IsLearner {
+		if peer.GetId() == peerID {
 			return peer
 		}
 	}
@@ -207,11 +196,6 @@ func (r *RegionInfo) GetPendingVoter(peerID uint64) *metapb.Peer {
 
 // GetPendingLearner returns the pending learner peer with specified peer id.
 func (r *RegionInfo) GetPendingLearner(peerID uint64) *metapb.Peer {
-	for _, peer := range r.pendingPeers {
-		if peer.GetId() == peerID && peer.IsLearner {
-			return peer
-		}
-	}
 	return nil
 }
 

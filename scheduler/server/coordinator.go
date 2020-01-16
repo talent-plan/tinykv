@@ -51,15 +51,14 @@ var (
 type coordinator struct {
 	sync.RWMutex
 
-	wg              sync.WaitGroup
-	ctx             context.Context
-	cancel          context.CancelFunc
-	cluster         *RaftCluster
-	checkers        *schedule.CheckerController
-	regionScatterer *schedule.RegionScatterer
-	schedulers      map[string]*scheduleController
-	opController    *schedule.OperatorController
-	hbStreams       *heartbeatStreams
+	wg           sync.WaitGroup
+	ctx          context.Context
+	cancel       context.CancelFunc
+	cluster      *RaftCluster
+	checkers     *schedule.CheckerController
+	schedulers   map[string]*scheduleController
+	opController *schedule.OperatorController
+	hbStreams    *heartbeatStreams
 }
 
 // newCoordinator creates a new coordinator.
@@ -67,14 +66,13 @@ func newCoordinator(ctx context.Context, cluster *RaftCluster, hbStreams *heartb
 	ctx, cancel := context.WithCancel(ctx)
 	opController := schedule.NewOperatorController(ctx, cluster, hbStreams)
 	return &coordinator{
-		ctx:             ctx,
-		cancel:          cancel,
-		cluster:         cluster,
-		checkers:        schedule.NewCheckerController(ctx, cluster, opController),
-		regionScatterer: schedule.NewRegionScatterer(cluster),
-		schedulers:      make(map[string]*scheduleController),
-		opController:    opController,
-		hbStreams:       hbStreams,
+		ctx:          ctx,
+		cancel:       cancel,
+		cluster:      cluster,
+		checkers:     schedule.NewCheckerController(ctx, cluster, opController),
+		schedulers:   make(map[string]*scheduleController),
+		opController: opController,
+		hbStreams:    hbStreams,
 	}
 }
 
