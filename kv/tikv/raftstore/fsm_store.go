@@ -529,7 +529,6 @@ func (d *storeMsgHandler) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage
 		return false, nil
 	}
 
-	// New created peers should know it's learner or not.
 	peer, err := replicatePeerFsm(
 		d.ctx.store.Id, d.ctx.cfg, d.ctx.regionTaskSender, d.ctx.engine, regionID, msg.ToPeer)
 	if err != nil {

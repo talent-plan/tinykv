@@ -18,13 +18,13 @@ import (
 	"testing"
 	"time"
 
-	. "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockid"
 	"github.com/pingcap-incubator/tinykv/scheduler/server"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/config"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/tests"
+	. "github.com/pingcap/check"
 )
 
 func Test(t *testing.T) {

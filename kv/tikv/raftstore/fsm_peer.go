@@ -630,18 +630,13 @@ func (d *peerMsgHandler) onReadyChangePeer(cp changePeer) {
 	})
 	peerID := cp.peer.Id
 	switch changeType {
-	case eraftpb.ConfChangeType_AddNode, eraftpb.ConfChangeType_AddLearnerNode:
-		if d.peerID() == peerID && d.peer.Meta.IsLearner {
-			d.peer.Meta = cp.peer
-		}
-
+	case eraftpb.ConfChangeType_AddNode:
 		// Add this peer to cache and heartbeats.
 		now := time.Now()
 		d.peer.PeerHeartbeats[peerID] = now
 		if d.peer.IsLeader() {
 			d.peer.PeersStartPendingTime[peerID] = now
 		}
-		d.peer.RecentAddedPeer.Update(peerID, now)
 		d.peer.insertPeerCache(cp.peer)
 	case eraftpb.ConfChangeType_RemoveNode:
 		// Remove this peer from cache.

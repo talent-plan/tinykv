@@ -26,9 +26,7 @@ import (
 type CheckerController struct {
 	cluster        opt.Cluster
 	opController   *OperatorController
-	learnerChecker *checker.LearnerChecker
 	replicaChecker *checker.ReplicaChecker
-	mergeChecker   *checker.MergeChecker
 }
 
 // NewCheckerController create a new CheckerController.
@@ -37,9 +35,7 @@ func NewCheckerController(ctx context.Context, cluster opt.Cluster, opController
 	return &CheckerController{
 		cluster:        cluster,
 		opController:   opController,
-		learnerChecker: checker.NewLearnerChecker(),
 		replicaChecker: checker.NewReplicaChecker(cluster),
-		mergeChecker:   checker.NewMergeChecker(ctx, cluster),
 	}
 }
 
@@ -49,26 +45,11 @@ func (c *CheckerController) CheckRegion(region *core.RegionInfo) (bool, []*opera
 	// Don't check isRaftLearnerEnabled cause it maybe disable learner feature but there are still some learners to promote.
 	opController := c.opController
 	checkerIsBusy := true
-	if op := c.learnerChecker.Check(region); op != nil {
-		return false, []*operator.Operator{op}
-	}
 	if opController.OperatorCount(operator.OpReplica) < c.cluster.GetReplicaScheduleLimit() {
 		checkerIsBusy = false
 		if op := c.replicaChecker.Check(region); op != nil {
 			return checkerIsBusy, []*operator.Operator{op}
 		}
 	}
-	if c.mergeChecker != nil && opController.OperatorCount(operator.OpMerge) < c.cluster.GetMergeScheduleLimit() {
-		checkerIsBusy = false
-		if ops := c.mergeChecker.Check(region); ops != nil {
-			// It makes sure that two operators can be added successfully altogether.
-			return checkerIsBusy, ops
-		}
-	}
 	return checkerIsBusy, nil
-}
-
-// GetMergeChecker returns the merge checker.
-func (c *CheckerController) GetMergeChecker() *checker.MergeChecker {
-	return c.mergeChecker
 }
