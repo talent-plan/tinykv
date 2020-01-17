@@ -705,21 +705,14 @@ func (a *applier) execChangePeer(aCtx *applyContext, req *raft_cmdpb.AdminReques
 
 	switch changeType {
 	case eraftpb.ConfChangeType_AddNode:
-		var exist bool
 		if p := findPeer(region, storeID); p != nil {
-			exist = true
-			if p.Id != peer.Id {
-				errMsg := fmt.Sprintf("%s can't add duplicated peer, peer %s, region %s",
-					a.tag, p, a.region)
-				log.Error(errMsg)
-				err = errors.New(errMsg)
-				return
-			}
+			errMsg := fmt.Sprintf("%s can't add duplicated peer, peer %s, region %s",
+				a.tag, p, a.region)
+			log.Error(errMsg)
+			err = errors.New(errMsg)
+			return
 		}
-		if !exist {
-			// TODO: Do we allow adding peer in same node?
-			region.Peers = append(region.Peers, peer)
-		}
+		region.Peers = append(region.Peers, peer)
 		log.Infof("%s add peer successfully, peer %s, region %s", a.tag, peer, a.region)
 	case eraftpb.ConfChangeType_RemoveNode:
 		if p := removePeer(region, storeID); p != nil {

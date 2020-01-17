@@ -236,10 +236,6 @@ func (rn *RawNode) AdvanceApply(applied uint64) {
 	rn.commitApply(applied)
 }
 
-func (rn *RawNode) SkipBcastCommit(skip bool) {
-	rn.Raft.SkipBcastCommit(skip)
-}
-
 // Status returns the current status of the given group.
 func (rn *RawNode) Status() *Status {
 	status := getStatus(rn.Raft)
