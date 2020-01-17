@@ -65,7 +65,7 @@ type RaftClient struct {
 	addrs map[uint64]string
 }
 
-func newRaftClient(config *config.Config) *RaftClient {
+func NewRaftClient(config *config.Config) *RaftClient {
 	return &RaftClient{
 		config: config,
 		conns:  make(map[connKey]*raftConn),
