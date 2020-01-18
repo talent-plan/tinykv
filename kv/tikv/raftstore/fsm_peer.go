@@ -26,26 +26,6 @@ type peerFsm struct {
 	ticker   *ticker
 }
 
-type PeerEventContext struct {
-	LeaderChecker LeaderChecker
-	RegionId      uint64
-}
-
-type PeerEventObserver interface {
-	// OnPeerCreate will be invoked when there is a new peer created.
-	OnPeerCreate(ctx *PeerEventContext, region *metapb.Region)
-	// OnPeerApplySnap will be invoked when there is a replicate peer's snapshot applied.
-	OnPeerApplySnap(ctx *PeerEventContext, region *metapb.Region)
-	// OnPeerDestroy will be invoked when a peer is destroyed.
-	OnPeerDestroy(ctx *PeerEventContext)
-	// OnSplitRegion will be invoked when region split into new regions with corresponding peers.
-	OnSplitRegion(derived *metapb.Region, regions []*metapb.Region, peers []*PeerEventContext)
-	// OnRegionConfChange will be invoked after conf change updated region's epoch.
-	OnRegionConfChange(ctx *PeerEventContext, epoch *metapb.RegionEpoch)
-	// OnRoleChange will be invoked after peer state has changed
-	OnRoleChange(regionId uint64, newState raft.StateType)
-}
-
 // If we create the peer actively, like bootstrap/split/merge region, we should
 // use this function to create the peer. The region must contain the peer info
 // for this store.
@@ -271,7 +251,7 @@ func (d *peerMsgHandler) HandleRaftReadyAppend(proposals []*regionProposal) []*r
 	if p := d.peer.TakeApplyProposals(); p != nil {
 		proposals = append(proposals, p)
 	}
-	readyRes := d.peer.HandleRaftReadyAppend(d.ctx.trans, d.ctx.applyMsgs, d.ctx.kvWB, d.ctx.raftWB, d.ctx.peerEventObserver)
+	readyRes := d.peer.HandleRaftReadyAppend(d.ctx.trans, d.ctx.applyMsgs, d.ctx.kvWB, d.ctx.raftWB)
 	if readyRes != nil {
 		d.ctx.ReadyRes = append(d.ctx.ReadyRes, readyRes)
 		ss := readyRes.Ready.SoftState
@@ -611,7 +591,6 @@ func (d *peerMsgHandler) destroyPeer(mergeByTarget bool) {
 		panic(d.tag() + " meta corruption detected")
 	}
 	delete(meta.regions, regionID)
-	d.ctx.peerEventObserver.OnPeerDestroy(d.peer.getEventContext())
 }
 
 func (d *peerMsgHandler) onReadyChangePeer(cp changePeer) {
@@ -624,10 +603,6 @@ func (d *peerMsgHandler) onReadyChangePeer(cp changePeer) {
 	d.ctx.storeMetaLock.Lock()
 	d.ctx.storeMeta.setRegion(cp.region, d.peer)
 	d.ctx.storeMetaLock.Unlock()
-	d.ctx.peerEventObserver.OnRegionConfChange(d.peer.getEventContext(), &metapb.RegionEpoch{
-		ConfVer: cp.region.RegionEpoch.ConfVer,
-		Version: cp.region.RegionEpoch.Version,
-	})
 	peerID := cp.peer.Id
 	switch changeType {
 	case eraftpb.ConfChangeType_AddNode:
@@ -716,13 +691,11 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 	d.peer.ApproximateSize = nil
 	lastRegionID := lastRegion.Id
 
-	newPeers := make([]*PeerEventContext, 0, len(regions))
 	for _, newRegion := range regions {
 		newRegionID := newRegion.Id
 		notExist := meta.regionRanges.Insert(newRegion.EndKey, regionIDToBytes(newRegionID))
 		y.Assert(notExist)
 		if newRegionID == regionID {
-			newPeers = append(newPeers, d.peer.getEventContext())
 			continue
 		}
 
@@ -749,7 +722,6 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 			panic(fmt.Sprintf("create new split region %s error %v", newRegion, err))
 		}
 		metaPeer := newPeer.peer.Meta
-		newPeers = append(newPeers, newPeer.peer.getEventContext())
 
 		for _, p := range newRegion.GetPeers() {
 			newPeer.peer.insertPeerCache(p)
@@ -785,8 +757,6 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 			}
 		}
 	}
-
-	d.ctx.peerEventObserver.OnSplitRegion(derived, regions, newPeers)
 }
 
 func (d *peerMsgHandler) onReadyApplySnapshot(applyResult *ApplySnapResult) {
@@ -807,7 +777,6 @@ func (d *peerMsgHandler) onReadyApplySnapshot(applyResult *ApplySnapResult) {
 		panic(fmt.Sprintf("%s unexpected old region %d", d.tag(), oldRegionID))
 	}
 	meta.regions[region.Id] = region
-	d.ctx.peerEventObserver.OnPeerApplySnap(d.peer.getEventContext(), region)
 }
 
 func (d *peerMsgHandler) onReadyResult(execResults []execResult) []execResult {
@@ -834,6 +803,7 @@ func (d *peerMsgHandler) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) (
 	if err := checkStoreID(req, d.storeID()); err != nil {
 		return nil, err
 	}
+	// only for test
 	if req.StatusRequest != nil {
 		// For status commands, we handle it here directly.
 		return d.executeStatusCommand(req)
