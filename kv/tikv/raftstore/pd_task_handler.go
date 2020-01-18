@@ -136,26 +136,6 @@ func (r *pdTaskHandler) onReportBatchSplit(t *pdReportBatchSplitTask) {
 	r.pdClient.ReportBatchSplit(context.TODO(), t.regions)
 }
 
-func (r *pdTaskHandler) onValidatePeer(t *pdValidatePeerTask) {
-	resp, _, err := r.pdClient.GetRegionByID(context.TODO(), t.region.GetId())
-	if err != nil {
-		log.Error("get region failed:", err)
-		return
-	}
-	if IsEpochStale(resp.GetRegionEpoch(), t.region.GetRegionEpoch()) {
-		log.Infof("local region epoch is greater than region epoch in PD ignore validate peer. regionID: %v, peerID: %v, localRegionEpoch: %s, pdRegionEpoch: %s", t.region.GetId(), t.peer.GetId(), t.region.GetRegionEpoch(), resp.GetRegionEpoch())
-		return
-	}
-	for _, peer := range resp.GetPeers() {
-		if peer.GetId() == t.peer.GetId() {
-			log.Infof("peer is still valid a member of region. regionID: %v, peerID: %v, pdRegion: %s", t.region.GetId(), t.peer.GetId(), resp)
-			return
-		}
-	}
-	log.Infof("peer is not a valid member of region, to be destroyed soon. regionID: %v, peerID: %v, pdRegion: %s", t.region.GetId(), t.peer.GetId(), resp)
-	r.sendDestroyPeer(t.region, t.peer, resp)
-}
-
 func (r *pdTaskHandler) onDestroyPeer(t *pdDestroyPeerTask) {
 	// TODO: delete it
 }

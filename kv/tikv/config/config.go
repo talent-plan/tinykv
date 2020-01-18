@@ -53,7 +53,6 @@ type Config struct {
 	/// will be checked again whether it should be split.
 	RegionSplitCheckDiff uint64
 	// delay time before deleting a stale peer
-	CleanStalePeerDelay          time.Duration
 	PdHeartbeatTickInterval      time.Duration
 	PdStoreHeartbeatTickInterval time.Duration
 	SnapMgrGcTickInterval        time.Duration
@@ -76,8 +75,6 @@ type Config struct {
 	PeerStaleStateCheckInterval   time.Duration
 
 	LeaderTransferMaxLogLag uint64
-
-	SnapApplyBatchSize uint64
 
 	// The lease provided by a successfully proposed and applied entry.
 	RaftStoreMaxLeaderLease time.Duration
@@ -144,7 +141,6 @@ func NewDefaultConfig() *Config {
 		RaftRejectTransferLeaderDuration: 3 * time.Second,
 		SplitRegionCheckTickInterval:     10 * time.Second,
 		RegionSplitCheckDiff:             splitSize / 8,
-		CleanStalePeerDelay:              10 * time.Minute,
 		PdHeartbeatTickInterval:          20 * time.Second,
 		PdStoreHeartbeatTickInterval:     10 * time.Second,
 		NotifyCapacity:                   40960,
@@ -156,7 +152,6 @@ func NewDefaultConfig() *Config {
 		AbnormalLeaderMissingDuration:    10 * time.Minute,
 		PeerStaleStateCheckInterval:      5 * time.Minute,
 		LeaderTransferMaxLogLag:          10,
-		SnapApplyBatchSize:               10 * MB,
 		// Disable consistency check by default as it will hurt performance.
 		// We should turn on this only in our tests.
 		RaftStoreMaxLeaderLease: 9 * time.Second,
