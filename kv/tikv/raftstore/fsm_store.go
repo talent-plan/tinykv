@@ -337,12 +337,8 @@ func (bs *RaftBatchSystem) startWorkers(peers []*peerFsm) {
 	ctx := bs.ctx
 	workers := bs.workers
 	router := bs.router
-	balancer := &balancer{
-		router: router,
-	}
 	for i := 0; i < ctx.cfg.RaftWorkerCnt; i++ {
 		rw := newRaftWorker(ctx, router.workerSenders[i], router)
-		balancer.workers = append(balancer.workers, rw)
 		bs.wg.Add(1)
 		go rw.run(bs.closeCh, bs.wg)
 	}
@@ -352,8 +348,6 @@ func (bs *RaftBatchSystem) startWorkers(peers []*peerFsm) {
 	}
 	bs.wg.Add(1)
 	go sw.run(bs.closeCh, bs.wg)
-	bs.wg.Add(1)
-	go balancer.run(bs.closeCh, bs.wg)
 	router.sendStore(Msg{Type: MsgTypeStoreStart, Data: ctx.store})
 	for i := 0; i < len(peers); i++ {
 		regionID := peers[i].peer.regionId

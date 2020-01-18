@@ -2,7 +2,8 @@ package raftstore
 
 import (
 	"sync"
-	"unsafe"
+
+	"go.uber.org/atomic"
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 
@@ -41,11 +42,9 @@ func (pr *router) register(peer *peerFsm) {
 	id := peer.peer.regionId
 	idx := int(id) % len(pr.workerSenders)
 	apply := newApplierFromPeer(peer)
-	handle := &workerHandle{
-		msgCh: pr.workerSenders[idx],
-	}
 	newPeer := &peerState{
-		handle: unsafe.Pointer(handle),
+		msgCh:  pr.workerSenders[idx],
+		closed: atomic.NewBool(false),
 		peer:   peer,
 		apply:  apply,
 	}
