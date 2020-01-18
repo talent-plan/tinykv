@@ -58,7 +58,6 @@ type GlobalContext struct {
 	raftLogGCTaskSender  chan<- worker.Task
 	splitCheckTaskSender chan<- worker.Task
 	pdClient             pd.Client
-	peerEventObserver    PeerEventObserver
 	tickDriverSender     chan uint64
 }
 
@@ -209,7 +208,6 @@ func (bs *RaftBatchSystem) loadPeers() ([]*peerFsm, error) {
 			if err != nil {
 				return err
 			}
-			ctx.peerEventObserver.OnPeerCreate(peer.peer.getEventContext(), region)
 			meta.regionRanges.Insert(region.EndKey, regionIDToBytes(regionID))
 			meta.regions[regionID] = region
 			// No need to check duplicated here, because we use region id as the key
@@ -285,8 +283,7 @@ func (bs *RaftBatchSystem) start(
 	trans Transport,
 	pdClient pd.Client,
 	snapMgr *SnapManager,
-	pdWorker *worker.Worker,
-	observer PeerEventObserver) error {
+	pdWorker *worker.Worker) error {
 	y.Assert(bs.workers == nil)
 	// TODO: we can get cluster meta regularly too later.
 	if err := cfg.Validate(); err != nil {
@@ -318,7 +315,6 @@ func (bs *RaftBatchSystem) start(
 		splitCheckTaskSender: bs.workers.splitCheckWorker.Sender(),
 		raftLogGCTaskSender:  bs.workers.raftLogGCWorker.Sender(),
 		pdClient:             pdClient,
-		peerEventObserver:    observer,
 		tickDriverSender:     bs.tickDriver.newRegionCh,
 	}
 	regionPeers, err := bs.loadPeers()
@@ -533,7 +529,6 @@ func (d *storeMsgHandler) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage
 	meta.regions[regionID] = peer.peer.Region()
 	d.ctx.router.register(peer)
 	_ = d.ctx.router.send(regionID, Msg{Type: MsgTypeStart})
-	d.ctx.peerEventObserver.OnPeerCreate(peer.peer.getEventContext(), peer.peer.Region())
 	return true, nil
 }
 

@@ -14,10 +14,9 @@ import (
 )
 
 type RaftInnerServer struct {
-	engines       *engine_util.Engines
-	raftConfig    *config.Config
-	storeMeta     metapb.Store
-	eventObserver raftstore.PeerEventObserver
+	engines    *engine_util.Engines
+	raftConfig *config.Config
+	storeMeta  metapb.Store
 
 	node          *raftstore.Node
 	snapManager   *raftstore.SnapManager
@@ -100,12 +99,8 @@ func (ris *RaftInnerServer) GetStoreMeta() *metapb.Store {
 	return &ris.storeMeta
 }
 
-func (ris *RaftInnerServer) SetPeerEventObserver(ob raftstore.PeerEventObserver) {
-	ris.eventObserver = ob
-}
-
 func (ris *RaftInnerServer) Start(pdClient pd.Client, newTrans TransportBuilder) error {
-	ris.node = raftstore.NewNode(ris.batchSystem, &ris.storeMeta, ris.raftConfig, pdClient, ris.eventObserver)
+	ris.node = raftstore.NewNode(ris.batchSystem, &ris.storeMeta, ris.raftConfig, pdClient)
 
 	resolveSender := ris.resolveWorker.Sender()
 	trans := newTrans(ris.snapWorker.Sender(), ris.raftRouter, resolveSender)
