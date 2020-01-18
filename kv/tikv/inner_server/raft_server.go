@@ -28,6 +28,8 @@ type RaftInnerServer struct {
 	snapWorker    *worker.Worker
 }
 
+type TransportBuilder = func(snapScheduler chan<- worker.Task, raftRouter RaftRouter, resolverScheduler chan<- worker.Task) raftstore.Transport
+
 func (ris *RaftInnerServer) Raft(stream tikvpb.Tikv_RaftServer) error {
 	for {
 		msg, err := stream.Recv()
@@ -102,12 +104,11 @@ func (ris *RaftInnerServer) SetPeerEventObserver(ob raftstore.PeerEventObserver)
 	ris.eventObserver = ob
 }
 
-func (ris *RaftInnerServer) Start(pdClient pd.Client) error {
+func (ris *RaftInnerServer) Start(pdClient pd.Client, newTrans TransportBuilder) error {
 	ris.node = raftstore.NewNode(ris.batchSystem, &ris.storeMeta, ris.raftConfig, pdClient, ris.eventObserver)
 
-	raftClient := newRaftClient(ris.raftConfig)
 	resolveSender := ris.resolveWorker.Sender()
-	trans := NewServerTransport(raftClient, ris.snapWorker.Sender(), ris.raftRouter, resolveSender)
+	trans := newTrans(ris.snapWorker.Sender(), ris.raftRouter, resolveSender)
 
 	resolveRunner := newResolverRunner(pdClient)
 	ris.resolveWorker.Start(resolveRunner)
