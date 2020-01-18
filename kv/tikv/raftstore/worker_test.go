@@ -9,98 +9,12 @@ import (
 
 	"github.com/coocood/badger"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
-	"github.com/pingcap-incubator/tinykv/kv/lockstore"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestStalePeerInfo(t *testing.T) {
-	timeout := time.Now()
-	regionId := uint64(1)
-	endKey := []byte{1, 2, 10, 10, 101, 10, 1, 9}
-	peerInfo := newStalePeerInfo(regionId, endKey, timeout)
-	assert.Equal(t, peerInfo.regionId(), regionId)
-	assert.Equal(t, peerInfo.endKey(), endKey)
-	assert.True(t, peerInfo.timeout().Equal(timeout))
-
-	regionId = 101
-	endKey = []byte{102, 11, 98, 23, 45, 76, 14, 43}
-	timeout = time.Now().Add(time.Millisecond * 101)
-	peerInfo.setRegionId(regionId)
-	peerInfo.setEndKey(endKey)
-	peerInfo.setTimeout(timeout)
-	assert.Equal(t, peerInfo.regionId(), regionId)
-	assert.Equal(t, peerInfo.endKey(), endKey)
-	assert.True(t, peerInfo.timeout().Equal(timeout))
-}
-
-func insertRange(delRanges *pendingDeleteRanges, id uint64, s, e string, timeout time.Time) {
-	delRanges.insert(id, []byte(s), []byte(e), timeout)
-}
-
-func TestPendingDeleteRanges(t *testing.T) {
-	delRange := &pendingDeleteRanges{
-		ranges: lockstore.NewMemStore(1024),
-	}
-	delay := time.Millisecond * 100
-	id := uint64(0)
-	timeout := time.Now().Add(delay)
-
-	insertRange(delRange, id, "a", "c", timeout)
-	insertRange(delRange, id, "m", "n", timeout)
-	insertRange(delRange, id, "x", "z", timeout)
-	insertRange(delRange, id+1, "f", "i", timeout)
-	insertRange(delRange, id+1, "p", "t", timeout)
-	assert.Equal(t, delRange.ranges.Len(), 5)
-
-	time.Sleep(delay / 2)
-
-	//  a____c    f____i    m____n    p____t    x____z
-	//              g___________________q
-	// when we want to insert [g, q), we first extract overlap ranges,
-	// which are [f, i), [m, n), [p, t)
-	timeout = time.Now().Add(delay)
-	overlapRanges := delRange.drainOverlapRanges([]byte{'g'}, []byte{'q'})
-	assert.Equal(t, overlapRanges, []delRangeHolder{
-		{regionId: id + 1, startKey: []byte{'f'}, endKey: []byte{'i'}},
-		{regionId: id, startKey: []byte{'m'}, endKey: []byte{'n'}},
-		{regionId: id + 1, startKey: []byte{'p'}, endKey: []byte{'t'}},
-	})
-
-	assert.Equal(t, delRange.ranges.Len(), 2)
-	insertRange(delRange, id+2, "g", "q", timeout)
-	assert.Equal(t, delRange.ranges.Len(), 3)
-	time.Sleep(delay / 2)
-
-	// at t1, [a, c) and [x, z) will timeout
-	now := time.Now()
-	ranges := delRange.timeoutRanges(now)
-	assert.Equal(t, ranges, []delRangeHolder{
-		{regionId: id, startKey: []byte{'a'}, endKey: []byte{'c'}},
-		{regionId: id, startKey: []byte{'x'}, endKey: []byte{'z'}},
-	})
-
-	for _, r := range ranges {
-		delRange.remove(r.startKey)
-	}
-	assert.Equal(t, delRange.ranges.Len(), 1)
-
-	time.Sleep(delay / 2)
-
-	// at t2, [g, q) will timeout
-	now = time.Now()
-	ranges = delRange.timeoutRanges(now)
-	assert.Equal(t, ranges, []delRangeHolder{
-		{regionId: id + 2, startKey: []byte{'g'}, endKey: []byte{'q'}},
-	})
-	for _, r := range ranges {
-		delRange.remove(r.startKey)
-	}
-	assert.Equal(t, delRange.ranges.Len(), 0)
-}
 
 func newEnginesWithKVDb(t *testing.T, kv *badger.DB) *engine_util.Engines {
 	engines := new(engine_util.Engines)
@@ -117,8 +31,8 @@ func newEnginesWithKVDb(t *testing.T, kv *badger.DB) *engine_util.Engines {
 	return engines
 }
 
-func TestPendingApplies(t *testing.T) {
-	kvPath, err := ioutil.TempDir("", "testPendingApplies")
+func TestApplies(t *testing.T) {
+	kvPath, err := ioutil.TempDir("", "testApplies")
 	require.Nil(t, err)
 	db := getTestDBForRegions(t, kvPath, []uint64{1, 2, 3, 4, 5, 6})
 	keys := []byte{1, 2, 3, 4, 5, 6}
@@ -142,7 +56,7 @@ func TestPendingApplies(t *testing.T) {
 	mgr := NewSnapManager(snapPath, nil)
 	wg := new(sync.WaitGroup)
 	regionWorker := worker.NewWorker("snap-manager", wg)
-	regionRunner := newRegionTaskHandler(engines, mgr, 0, time.Duration(time.Second*0))
+	regionRunner := newRegionTaskHandler(engines, mgr)
 	regionWorker.Start(regionRunner)
 	genAndApplySnap := func(regionId uint64) {
 		tx := make(chan *eraftpb.Snapshot, 1)
@@ -195,27 +109,12 @@ func TestPendingApplies(t *testing.T) {
 		}
 	}
 
-	// snapshot will not ingest cause already write stall
 	genAndApplySnap(1)
-	// todo, test needed, cf num files at level 0 should be 6.
-
-	// compact all files to the bottomest level
-	// todo, compact files and then check that cf num files at level 0 should be 0.
 	waitApplyFinish(1)
 
-	// the pending apply worker.Task should be finished and snapshots are ingested.
-	// note that when ingest sst, it may flush memtable if overlap,
-	// so here will two level 0 files.
-	// todo, check cf num files at level 0 is 2.
-
-	// no write stall, ingest without delay
 	genAndApplySnap(2)
 	waitApplyFinish(2)
-	// todo, check cf num files at level 0 is 4.
 
-	// snapshot will not ingest cause it may cause write stall
-	// TODO now this does not cause write stall, since `snapShotContext`.`ingestMaybeStall` not
-	// implemented yet
 	genAndApplySnap(3)
 	waitApplyFinish(3)
 }

@@ -352,7 +352,7 @@ func (bs *RaftBatchSystem) startWorkers(peers []*peerFsm) {
 	engines := ctx.engine
 	cfg := ctx.cfg
 	workers.splitCheckWorker.Start(newSplitCheckHandler(engines.Kv, router, cfg.SplitCheck))
-	workers.regionWorker.Start(newRegionTaskHandler(engines, ctx.snapMgr, cfg.SnapApplyBatchSize, cfg.CleanStalePeerDelay))
+	workers.regionWorker.Start(newRegionTaskHandler(engines, ctx.snapMgr))
 	workers.raftLogGCWorker.Start(&raftLogGCTaskHandler{})
 	workers.pdWorker.Start(newPDTaskHandler(ctx.store.Id, ctx.pdClient, bs.router))
 	bs.wg.Add(1)
