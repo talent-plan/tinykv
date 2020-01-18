@@ -25,24 +25,6 @@ func TestGetSyncLogFromRequest(t *testing.T) {
 	}
 }
 
-func TestIsUrgentRequest(t *testing.T) {
-	allTypes := map[raft_cmdpb.AdminCmdType]bool{
-		raft_cmdpb.AdminCmdType_InvalidAdmin:   false,
-		raft_cmdpb.AdminCmdType_ChangePeer:     true,
-		raft_cmdpb.AdminCmdType_CompactLog:     false,
-		raft_cmdpb.AdminCmdType_TransferLeader: false,
-		raft_cmdpb.AdminCmdType_BatchSplit:     true,
-	}
-	for tp, isUrgent := range allTypes {
-		req := new(raft_cmdpb.RaftCmdRequest)
-		req.AdminRequest = new(raft_cmdpb.AdminRequest)
-		req.AdminRequest.CmdType = tp
-
-		assert.Equal(t, IsUrgentRequest(req), isUrgent)
-	}
-	assert.Equal(t, IsUrgentRequest(new(raft_cmdpb.RaftCmdRequest)), false)
-}
-
 func TestEntryCtx(t *testing.T) {
 	tbl := [][]ProposalContext{
 		[]ProposalContext{ProposalContext_Split},

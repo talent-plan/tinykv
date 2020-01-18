@@ -236,8 +236,6 @@ type Peer struct {
 	// Index of last scheduled committed raft log.
 	LastApplyingIdx  uint64
 	LastCompactedIdx uint64
-	// The index of the latest urgent proposal index.
-	lastUrgentProposalIdx uint64
 	// The index of the latest committed split command.
 	lastCommittedSplitIdx uint64
 	// Approximate size of logs that is applied but not compacted yet.
@@ -296,7 +294,6 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 		leaderMissingTime:     &now,
 		Tag:                   tag,
 		LastApplyingIdx:       appliedIndex,
-		lastUrgentProposalIdx: math.MaxInt64,
 		leaderLease:           NewLease(cfg.RaftStoreMaxLeaderLease),
 	}
 
@@ -916,11 +913,6 @@ func (p *Peer) HandleRaftReadyApply(kv *badger.DB, applyMsgs *applyMsgs, ready *
 		l := len(committedEntries)
 		if l > 0 {
 			p.LastApplyingIdx = committedEntries[l-1].Index
-			if p.LastApplyingIdx >= p.lastUrgentProposalIdx {
-				// Urgent requests are flushed, make it lazy again.
-				p.RaftGroup.SkipBcastCommit(true)
-				p.lastUrgentProposalIdx = math.MaxUint64
-			}
 			apply := &apply{
 				regionId: p.regionId,
 				term:     p.Term(),
@@ -1045,7 +1037,6 @@ func (p *Peer) Propose(kv *badger.DB, cfg *config.Config, cb *Callback, req *raf
 	}
 
 	isConfChange := false
-	isUrgent := IsUrgentRequest(req)
 
 	policy, err := p.inspect(req)
 	if err != nil {
@@ -1075,12 +1066,6 @@ func (p *Peer) Propose(kv *badger.DB, cfg *config.Config, cb *Callback, req *raf
 		return false
 	}
 
-	if isUrgent {
-		p.lastUrgentProposalIdx = idx
-		// Eager flush to make urgent proposal be applied on all nodes as soon as
-		// possible.
-		p.RaftGroup.SkipBcastCommit(false)
-	}
 	meta := &ProposalMeta{
 		Index:          idx,
 		Term:           p.Term(),
@@ -1629,24 +1614,6 @@ func getSyncLogFromRequest(req *raft_cmdpb.RaftCmdRequest) bool {
 		}
 	}
 	return req.Header.GetSyncLog()
-}
-
-/// We enable follower lazy commit to get a better performance.
-/// But it may not be appropriate for some requests. This function
-/// checks whether the request should be committed on all followers
-/// as soon as possible.
-func IsUrgentRequest(req *raft_cmdpb.RaftCmdRequest) bool {
-	if req.AdminRequest == nil {
-		return false
-	}
-	switch req.AdminRequest.CmdType {
-	case
-		raft_cmdpb.AdminCmdType_BatchSplit,
-		raft_cmdpb.AdminCmdType_ChangePeer:
-		return true
-	default:
-		return false
-	}
 }
 
 func makeTransferLeaderResponse() *raft_cmdpb.RaftCmdResponse {
