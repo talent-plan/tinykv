@@ -11,6 +11,7 @@ import (
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -43,7 +44,7 @@ type pdAskBatchSplitTask struct {
 	region    *metapb.Region
 	splitKeys [][]byte
 	peer      *metapb.Peer
-	callback  *Callback
+	callback  *message.Callback
 }
 
 type pdRegionHeartbeatTask struct {
@@ -111,13 +112,12 @@ func (r *splitCheckHandler) Handle(t worker.Task) {
 		for i, k := range keys {
 			keys[i] = codec.EncodeBytes(nil, k)
 		}
-		msg := Msg{
-			Type:     MsgTypeSplitRegion,
+		msg := message.Msg{
+			Type:     message.MsgTypeSplitRegion,
 			RegionID: regionId,
 			Data: &MsgSplitRegion{
 				RegionEpoch: regionEpoch,
 				SplitKeys:   keys,
-				Callback:    NewCallback(),
 			},
 		}
 		err = r.router.send(regionId, msg)

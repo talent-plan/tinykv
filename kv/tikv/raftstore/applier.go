@@ -10,6 +10,7 @@ import (
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
@@ -29,7 +30,7 @@ const (
 type pendingCmd struct {
 	index uint64
 	term  uint64
-	cb    *Callback
+	cb    *message.Callback
 }
 
 type pendingCmdQueue struct {
@@ -129,20 +130,20 @@ type applyExecContext struct {
 
 type applyCallback struct {
 	region *metapb.Region
-	cbs    []*Callback
+	cbs    []*message.Callback
 }
 
 func (c *applyCallback) invokeAll(doneApplyTime time.Time) {
 	for _, cb := range c.cbs {
 		if cb != nil {
-			cb.wg.Done()
+			cb.Wg.Done()
 		}
 	}
 }
 
-func (c *applyCallback) push(cb *Callback, resp *raft_cmdpb.RaftCmdResponse) {
+func (c *applyCallback) push(cb *message.Callback, resp *raft_cmdpb.RaftCmdResponse) {
 	if cb != nil {
-		cb.resp = resp
+		cb.Resp = resp
 	}
 	c.cbs = append(c.cbs, cb)
 }
@@ -151,7 +152,7 @@ type proposal struct {
 	isConfChange bool
 	index        uint64
 	term         uint64
-	cb           *Callback
+	cb           *message.Callback
 }
 
 type regionProposal struct {
@@ -187,19 +188,23 @@ func newRegistration(peer *Peer) *registration {
 }
 
 type applyMsgs struct {
-	msgs []Msg
+	msgs []message.Msg
 }
 
-func (r *applyMsgs) appendMsg(regionID uint64, msg Msg) {
+func (r *applyMsgs) appendMsg(regionID uint64, msg message.Msg) {
 	msg.RegionID = regionID
 	r.msgs = append(r.msgs, msg)
 	return
 }
 
+func newApplyMsg(apply *apply) message.Msg {
+	return message.Msg{Type: message.MsgTypeApply, Data: apply}
+}
+
 type applyContext struct {
 	tag              string
 	timer            *time.Time
-	notifier         chan<- Msg
+	notifier         chan<- message.Msg
 	engines          *engine_util.Engines
 	txn              *badger.Txn
 	cbs              []applyCallback
@@ -214,7 +219,7 @@ type applyContext struct {
 }
 
 func newApplyContext(tag string, engines *engine_util.Engines,
-	notifier chan<- Msg, cfg *config.Config) *applyContext {
+	notifier chan<- message.Msg, cfg *config.Config) *applyContext {
 	return &applyContext{
 		tag:      tag,
 		engines:  engines,
@@ -310,7 +315,7 @@ func (ac *applyContext) flush() {
 	ac.writeToDB()
 	if len(ac.applyTaskResList) > 0 {
 		for _, res := range ac.applyTaskResList {
-			ac.notifier <- NewPeerMsg(MsgTypeApplyRes, res.regionID, res)
+			ac.notifier <- message.NewPeerMsg(message.MsgTypeApplyRes, res.regionID, res)
 		}
 		ac.applyTaskResList = ac.applyTaskResList[:0]
 	}
@@ -323,7 +328,7 @@ func notifyRegionRemoved(regionID, peerID uint64, cmd pendingCmd) {
 	notifyReqRegionRemoved(regionID, cmd.cb)
 }
 
-func notifyReqRegionRemoved(regionID uint64, cb *Callback) {
+func notifyReqRegionRemoved(regionID uint64, cb *message.Callback) {
 	cb.Done(ErrRespRegionNotFound(regionID))
 }
 
@@ -334,7 +339,7 @@ func notifyStaleCommand(regionID, peerID, term uint64, cmd pendingCmd) {
 	notifyStaleReq(term, cmd.cb)
 }
 
-func notifyStaleReq(term uint64, cb *Callback) {
+func notifyStaleReq(term uint64, cb *message.Callback) {
 	cb.Done(ErrRespStaleCommand(term))
 }
 
@@ -454,7 +459,7 @@ func (a *applier) handleRaftEntryNormal(aCtx *applyContext, entry *eraftpb.Entry
 		}
 		// apparently, all the callbacks whose term is less than entry's term are stale.
 		cb := &aCtx.cbs[len(aCtx.cbs)-1]
-		cmd.cb.resp = ErrRespStaleCommand(term)
+		cmd.cb.Resp = ErrRespStaleCommand(term)
 		cb.cbs = append(cb.cbs, cmd.cb)
 	}
 	return applyResult{}
@@ -485,7 +490,7 @@ func (a *applier) handleRaftEntryConfChange(aCtx *applyContext, entry *eraftpb.E
 	}
 }
 
-func (a *applier) findCallback(index, term uint64, isConfChange bool) *Callback {
+func (a *applier) findCallback(index, term uint64, isConfChange bool) *message.Callback {
 	regionID := a.region.Id
 	peerID := a.id
 	if isConfChange {
@@ -946,22 +951,22 @@ func (a *applier) destroy(aCtx *applyContext) {
 func (a *applier) handleDestroy(aCtx *applyContext, regionID uint64) {
 	if !a.stopped {
 		a.destroy(aCtx)
-		aCtx.notifier <- NewPeerMsg(MsgTypeApplyRes, a.region.Id, &applyTaskRes{
+		aCtx.notifier <- message.NewPeerMsg(message.MsgTypeApplyRes, a.region.Id, &applyTaskRes{
 			regionID:      a.region.Id,
 			destroyPeerID: a.id,
 		})
 	}
 }
 
-func (a *applier) handleTask(aCtx *applyContext, msg Msg) {
+func (a *applier) handleTask(aCtx *applyContext, msg message.Msg) {
 	switch msg.Type {
-	case MsgTypeApply:
+	case message.MsgTypeApply:
 		a.handleApply(aCtx, msg.Data.(*apply))
-	case MsgTypeApplyProposal:
+	case message.MsgTypeApplyProposal:
 		a.handleProposal(msg.Data.(*regionProposal))
-	case MsgTypeApplyRegistration:
+	case message.MsgTypeApplyRegistration:
 		a.handleRegistration(msg.Data.(*registration))
-	case MsgTypeApplyDestroy:
+	case message.MsgTypeApplyDestroy:
 		a.handleDestroy(aCtx, msg.RegionID)
 	}
 }

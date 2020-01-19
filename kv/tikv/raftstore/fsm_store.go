@@ -13,11 +13,19 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/lockstore"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap/errors"
+)
+
+type StoreTick int
+
+const (
+	StoreTickPdStoreHeartbeat StoreTick = 1
+	StoreTickSnapGC           StoreTick = 2
 )
 
 type storeMeta struct {
@@ -86,17 +94,17 @@ type storeFsm struct {
 	lastCompactCheckKey []byte
 	stopped             bool
 	startTime           *time.Time
-	receiver            <-chan Msg
+	receiver            <-chan message.Msg
 	ticker              *ticker
 }
 
-func newStoreFsm(cfg *config.Config) (chan<- Msg, *storeFsm) {
-	ch := make(chan Msg, cfg.NotifyCapacity)
+func newStoreFsm(cfg *config.Config) (chan<- message.Msg, *storeFsm) {
+	ch := make(chan message.Msg, cfg.NotifyCapacity)
 	fsm := &storeFsm{
-		receiver: (<-chan Msg)(ch),
+		receiver: (<-chan message.Msg)(ch),
 		ticker:   newStoreTicker(cfg),
 	}
-	return (chan<- Msg)(ch), fsm
+	return (chan<- message.Msg)(ch), fsm
 }
 
 type storeMsgHandler struct {
@@ -117,17 +125,17 @@ func (d *storeMsgHandler) onTick(tick StoreTick) {
 	}
 }
 
-func (d *storeMsgHandler) handleMsg(msg Msg) {
+func (d *storeMsgHandler) handleMsg(msg message.Msg) {
 	switch msg.Type {
-	case MsgTypeStoreRaftMessage:
+	case message.MsgTypeStoreRaftMessage:
 		if err := d.onRaftMessage(msg.Data.(*rspb.RaftMessage)); err != nil {
 			log.Errorf("handle raft message failed storeID %d, %v", d.id, err)
 		}
-	case MsgTypeStoreSnapshotStats:
+	case message.MsgTypeStoreSnapshotStats:
 		d.storeHeartbeatPD()
-	case MsgTypeStoreTick:
+	case message.MsgTypeStoreTick:
 		d.onTick(msg.Data.(StoreTick))
-	case MsgTypeStoreStart:
+	case message.MsgTypeStoreStart:
 		d.start(msg.Data.(*metapb.Store))
 	}
 }
@@ -344,17 +352,17 @@ func (bs *RaftBatchSystem) startWorkers(peers []*peerFsm) {
 	}
 	bs.wg.Add(1)
 	go sw.run(bs.closeCh, bs.wg)
-	router.sendStore(Msg{Type: MsgTypeStoreStart, Data: ctx.store})
+	router.sendStore(message.Msg{Type: message.MsgTypeStoreStart, Data: ctx.store})
 	for i := 0; i < len(peers); i++ {
 		regionID := peers[i].peer.regionId
-		_ = router.send(regionID, Msg{RegionID: regionID, Type: MsgTypeStart})
+		_ = router.send(regionID, message.Msg{RegionID: regionID, Type: message.MsgTypeStart})
 	}
 	engines := ctx.engine
 	cfg := ctx.cfg
 	workers.splitCheckWorker.Start(newSplitCheckHandler(engines.Kv, router, cfg.SplitCheck))
 	workers.regionWorker.Start(newRegionTaskHandler(engines, ctx.snapMgr))
 	workers.raftLogGCWorker.Start(&raftLogGCTaskHandler{})
-	workers.pdWorker.Start(newPDTaskHandler(ctx.store.Id, ctx.pdClient, bs.router))
+	workers.pdWorker.Start(newPDTaskHandler(ctx.store.Id, ctx.pdClient, NewRaftstoreRouter(bs.router)))
 	bs.wg.Add(1)
 	go bs.tickDriver.run(bs.closeCh, bs.wg) // TODO: temp workaround.
 }
@@ -444,7 +452,7 @@ func (d *storeMsgHandler) checkMsg(msg *rspb.RaftMessage) (bool, error) {
 
 func (d *storeMsgHandler) onRaftMessage(msg *rspb.RaftMessage) error {
 	regionID := msg.RegionId
-	if err := d.ctx.router.send(regionID, Msg{Type: MsgTypeRaftMessage, Data: msg}); err == nil {
+	if err := d.ctx.router.send(regionID, message.Msg{Type: message.MsgTypeRaftMessage, Data: msg}); err == nil {
 		return nil
 	}
 	log.Debugf("handle raft message. from_peer:%d, to_peer:%d, store:%d, region:%d, msg_type:%s",
@@ -477,7 +485,7 @@ func (d *storeMsgHandler) onRaftMessage(msg *rspb.RaftMessage) error {
 	if !created {
 		return nil
 	}
-	_ = d.ctx.router.send(regionID, Msg{Type: MsgTypeRaftMessage, Data: msg})
+	_ = d.ctx.router.send(regionID, message.Msg{Type: message.MsgTypeRaftMessage, Data: msg})
 	return nil
 }
 
@@ -528,7 +536,7 @@ func (d *storeMsgHandler) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage
 	// snapshot is applied.
 	meta.regions[regionID] = peer.peer.Region()
 	d.ctx.router.register(peer)
-	_ = d.ctx.router.send(regionID, Msg{Type: MsgTypeStart})
+	_ = d.ctx.router.send(regionID, message.Msg{Type: message.MsgTypeStart})
 	return true, nil
 }
 
@@ -586,7 +594,7 @@ func (d *storeMsgHandler) handleSnapMgrGC() error {
 }
 
 func (d *storeMsgHandler) scheduleGCSnap(regionID uint64, keys []SnapKeyWithSending) error {
-	gcSnap := Msg{Type: MsgTypeGcSnap, Data: &MsgGCSnap{Snaps: keys}}
+	gcSnap := message.Msg{Type: message.MsgTypeGcSnap, Data: &MsgGCSnap{Snaps: keys}}
 	if d.ctx.router.send(regionID, gcSnap) != nil {
 		// The snapshot exists because MsgAppend has been rejected. So the
 		// peer must have been exist. But now it's disconnected, so the peer

@@ -1,11 +1,9 @@
-package raftstore
+package message
 
 import (
 	"sync"
 
-	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
-	"github.com/pingcap-incubator/tinykv/raft"
 )
 
 type MsgType int64
@@ -36,8 +34,6 @@ const (
 	MsgTypeApplyProposal     MsgType = 303
 	MsgTypeApplyDestroy      MsgType = 306
 
-	MsgTypeBarrier MsgType = 401
-
 	msgDefaultChanSize = 1024
 )
 
@@ -55,80 +51,25 @@ func NewMsg(tp MsgType, data interface{}) Msg {
 	return Msg{Type: tp, Data: data}
 }
 
-type Callback struct {
-	resp *raft_cmdpb.RaftCmdResponse
-	wg   sync.WaitGroup
-}
-
-func (cb *Callback) Done(resp *raft_cmdpb.RaftCmdResponse) {
-	if cb != nil {
-		cb.resp = resp
-		cb.wg.Done()
-	}
-}
-
-func NewCallback() *Callback {
-	cb := &Callback{}
-	cb.wg.Add(1)
-	return cb
-}
-
-type PeerTick int
-
-const (
-	PeerTickRaft             PeerTick = 0
-	PeerTickRaftLogGC        PeerTick = 1
-	PeerTickSplitRegionCheck PeerTick = 2
-	PeerTickPdHeartbeat      PeerTick = 3
-)
-
-type StoreTick int
-
-const (
-	StoreTickPdStoreHeartbeat StoreTick = 1
-	StoreTickSnapGC           StoreTick = 2
-)
-
-type MsgSignificantType int
-
-const (
-	MsgSignificantTypeStatus      MsgSignificantType = 1
-	MsgSignificantTypeUnreachable MsgSignificantType = 2
-)
-
-type MsgSignificant struct {
-	Type           MsgSignificantType
-	ToPeerID       uint64
-	SnapshotStatus raft.SnapshotStatus
-}
-
 type MsgRaftCmd struct {
 	Request  *raft_cmdpb.RaftCmdRequest
 	Callback *Callback
 }
 
-type MsgSplitRegion struct {
-	RegionEpoch *metapb.RegionEpoch
-	// It's an encoded key.
-	// TODO: support meta key.
-	SplitKeys [][]byte
-	Callback  *Callback
+type Callback struct {
+	Resp *raft_cmdpb.RaftCmdResponse
+	Wg   sync.WaitGroup
 }
 
-type SnapKeyWithSending struct {
-	SnapKey   SnapKey
-	IsSending bool
+func (cb *Callback) Done(resp *raft_cmdpb.RaftCmdResponse) {
+	if cb != nil {
+		cb.Resp = resp
+		cb.Wg.Done()
+	}
 }
 
-type MsgGCSnap struct {
-	Snaps []SnapKeyWithSending
-}
-
-type MsgStoreClearRegionSizeInRange struct {
-	StartKey []byte
-	EndKey   []byte
-}
-
-func newApplyMsg(apply *apply) Msg {
-	return Msg{Type: MsgTypeApply, Data: apply}
+func NewCallback() *Callback {
+	cb := &Callback{}
+	cb.Wg.Add(1)
+	return cb
 }

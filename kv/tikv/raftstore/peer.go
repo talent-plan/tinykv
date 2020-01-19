@@ -9,6 +9,7 @@ import (
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -25,14 +26,14 @@ type ReadyICPair struct {
 
 type ReqCbPair struct {
 	Req *raft_cmdpb.RaftCmdRequest
-	Cb  *Callback
+	Cb  *message.Callback
 }
 
-func NotifyStaleReq(term uint64, cb *Callback) {
+func NotifyStaleReq(term uint64, cb *message.Callback) {
 	cb.Done(ErrRespStaleCommand(term))
 }
 
-func NotifyReqRegionRemoved(regionId uint64, cb *Callback) {
+func NotifyReqRegionRemoved(regionId uint64, cb *message.Callback) {
 	regionNotFound := &ErrRegionNotFound{RegionId: regionId}
 	resp := ErrResp(regionNotFound)
 	cb.Done(resp)
@@ -195,7 +196,7 @@ func (p *Peer) getPeerFromCache(peerID uint64) *metapb.Peer {
 /// Register self to applyMsgs so that the peer is then usable.
 /// Also trigger `RegionChangeEvent::Create` here.
 func (p *Peer) Activate(applyMsgs *applyMsgs) {
-	applyMsgs.appendMsg(p.regionId, NewMsg(MsgTypeApplyRegistration, newRegistration(p)))
+	applyMsgs.appendMsg(p.regionId, message.NewMsg(message.MsgTypeApplyRegistration, newRegistration(p)))
 }
 
 func (p *Peer) nextProposalIndex() uint64 {
@@ -695,7 +696,7 @@ func (p *Peer) PostSplit() {
 // Propose a request.
 //
 // Return true means the request has been proposed successfully.
-func (p *Peer) Propose(kv *badger.DB, cfg *config.Config, cb *Callback, req *raft_cmdpb.RaftCmdRequest, errResp *raft_cmdpb.RaftCmdResponse) bool {
+func (p *Peer) Propose(kv *badger.DB, cfg *config.Config, cb *message.Callback, req *raft_cmdpb.RaftCmdRequest, errResp *raft_cmdpb.RaftCmdResponse) bool {
 	if p.PendingRemove {
 		return false
 	}
@@ -729,7 +730,7 @@ func (p *Peer) Propose(kv *badger.DB, cfg *config.Config, cb *Callback, req *raf
 	return true
 }
 
-func (p *Peer) PostPropose(index, term uint64, isConfChange bool, cb *Callback) {
+func (p *Peer) PostPropose(index, term uint64, isConfChange bool, cb *message.Callback) {
 	proposal := &proposal{
 		isConfChange: isConfChange,
 		index:        index,
@@ -905,7 +906,7 @@ func (p *Peer) ProposeNormal(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest)
 }
 
 // Return true if the transfer leader request is accepted.
-func (p *Peer) ProposeTransferLeader(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest, cb *Callback) bool {
+func (p *Peer) ProposeTransferLeader(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest, cb *message.Callback) bool {
 	transferLeader := getTransferLeaderCmd(req)
 	peer := transferLeader.Peer
 

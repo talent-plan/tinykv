@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 )
 
 type ticker struct {
@@ -103,7 +104,7 @@ func (r *tickDriver) run(closeCh chan struct{}, wg *sync.WaitGroup) {
 			return
 		case <-timer:
 			for regionID, _ := range r.regions {
-				if r.router.send(regionID, NewPeerMsg(MsgTypeTick, regionID, nil)) != nil {
+				if r.router.send(regionID, message.NewPeerMsg(message.MsgTypeTick, regionID, nil)) != nil {
 					delete(r.regions, regionID)
 				}
 			}
@@ -118,7 +119,7 @@ func (r *tickDriver) tickStore() {
 	r.storeTicker.tickClock()
 	for i := range r.storeTicker.schedules {
 		if r.storeTicker.isOnStoreTick(StoreTick(i)) {
-			r.router.sendStore(NewMsg(MsgTypeStoreTick, StoreTick(i)))
+			r.router.sendStore(message.NewMsg(message.MsgTypeStoreTick, StoreTick(i)))
 		}
 	}
 }

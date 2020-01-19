@@ -9,6 +9,7 @@ import (
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -17,6 +18,15 @@ import (
 	"github.com/pingcap-incubator/tinykv/raft"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/tablecodec"
+)
+
+type PeerTick int
+
+const (
+	PeerTickRaft             PeerTick = 0
+	PeerTickRaftLogGC        PeerTick = 1
+	PeerTickSplitRegionCheck PeerTick = 2
+	PeerTickPdHeartbeat      PeerTick = 3
 )
 
 type peerFsm struct {
@@ -115,37 +125,45 @@ func newRaftMsgHandler(fsm *peerFsm, ctx *RaftContext) *peerMsgHandler {
 	}
 }
 
-func (d *peerMsgHandler) HandleMsgs(msgs ...Msg) {
+type MsgSplitRegion struct {
+	RegionEpoch *metapb.RegionEpoch
+	// It's an encoded key.
+	// TODO: support meta key.
+	SplitKeys [][]byte
+	Callback  *message.Callback
+}
+
+func (d *peerMsgHandler) HandleMsgs(msgs ...message.Msg) {
 	for _, msg := range msgs {
 		switch msg.Type {
-		case MsgTypeRaftMessage:
+		case message.MsgTypeRaftMessage:
 			raftMsg := msg.Data.(*rspb.RaftMessage)
 			if err := d.onRaftMsg(raftMsg); err != nil {
 				log.Errorf("%s handle raft message error %v", d.peer.Tag, err)
 			}
-		case MsgTypeRaftCmd:
-			raftCMD := msg.Data.(*MsgRaftCmd)
+		case message.MsgTypeRaftCmd:
+			raftCMD := msg.Data.(*message.MsgRaftCmd)
 			d.proposeRaftCommand(raftCMD.Request, raftCMD.Callback)
-		case MsgTypeTick:
+		case message.MsgTypeTick:
 			d.onTick()
-		case MsgTypeApplyRes:
+		case message.MsgTypeApplyRes:
 			res := msg.Data.(*applyTaskRes)
 			d.onApplyResult(res)
-		case MsgTypeSignificantMsg:
+		case message.MsgTypeSignificantMsg:
 			d.onSignificantMsg(msg.Data.(*MsgSignificant))
-		case MsgTypeSplitRegion:
+		case message.MsgTypeSplitRegion:
 			split := msg.Data.(*MsgSplitRegion)
 			log.Infof("%s on split with %v", d.peer.Tag, split.SplitKeys)
 			d.onPrepareSplitRegion(split.RegionEpoch, split.SplitKeys, split.Callback)
 		// TODO: should update approximate size in split checker
-		case MsgTypeRegionApproximateSize:
+		case message.MsgTypeRegionApproximateSize:
 			d.onApproximateRegionSize(msg.Data.(uint64))
-		case MsgTypeGcSnap:
+		case message.MsgTypeGcSnap:
 			gcSnap := msg.Data.(*MsgGCSnap)
 			d.onGCSnap(gcSnap.Snaps)
-		case MsgTypeStart:
+		case message.MsgTypeStart:
 			d.startTicker()
-		case MsgTypeNoop:
+		case message.MsgTypeNoop:
 		}
 	}
 }
@@ -408,7 +426,7 @@ func (d *peerMsgHandler) checkMessage(msg *rspb.RaftMessage) bool {
 		if job := d.peer.MaybeDestroy(); job != nil {
 			log.Infof("%s is stale as received a larger peer %s, destroying", d.tag(), target)
 			if d.handleDestroyPeer(job) {
-				storeMsg := NewMsg(MsgTypeStoreRaftMessage, msg)
+				storeMsg := message.NewMsg(message.MsgTypeStoreRaftMessage, msg)
 				d.ctx.router.sendStore(storeMsg)
 			}
 		}
@@ -546,7 +564,7 @@ func (d *peerMsgHandler) findOverlapRegions(storeMeta *storeMeta, snapRegion *me
 
 func (d *peerMsgHandler) handleDestroyPeer(job *DestroyPeerJob) bool {
 	if job.Initialized {
-		d.ctx.applyMsgs.appendMsg(job.RegionId, NewPeerMsg(MsgTypeApplyDestroy, job.RegionId, nil))
+		d.ctx.applyMsgs.appendMsg(job.RegionId, message.NewPeerMsg(message.MsgTypeApplyDestroy, job.RegionId, nil))
 	}
 	if job.AsyncRemove {
 		log.Infof("[region %d] %d is destroyed asynchronously", job.RegionId, job.Peer.Id)
@@ -565,7 +583,7 @@ func (d *peerMsgHandler) destroyPeer(mergeByTarget bool) {
 	defer func() {
 		d.ctx.storeMetaLock.Unlock()
 		// send messages out of store meta lock.
-		d.ctx.applyMsgs.appendMsg(regionID, NewPeerMsg(MsgTypeApplyDestroy, regionID, nil))
+		d.ctx.applyMsgs.appendMsg(regionID, message.NewPeerMsg(message.MsgTypeApplyDestroy, regionID, nil))
 		d.ctx.pdTaskSender <- worker.Task{
 			Tp: worker.TaskTypePDDestroyPeer,
 			Data: &pdDestroyPeerTask{
@@ -746,12 +764,12 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 			newPeer.peer.SizeDiffHint = d.ctx.cfg.RegionSplitCheckDiff
 		}
 		d.ctx.router.register(newPeer)
-		_ = d.ctx.router.send(newRegionID, NewPeerMsg(MsgTypeStart, newRegionID, nil))
+		_ = d.ctx.router.send(newRegionID, message.NewPeerMsg(message.MsgTypeStart, newRegionID, nil))
 		if !campaigned {
 			for i, msg := range meta.pendingVotes {
 				if PeerEqual(msg.ToPeer, metaPeer) {
 					meta.pendingVotes = append(meta.pendingVotes[:i], meta.pendingVotes[i+1:]...)
-					_ = d.ctx.router.send(newRegionID, NewPeerMsg(MsgTypeRaftMessage, newRegionID, msg))
+					_ = d.ctx.router.send(newRegionID, message.NewPeerMsg(message.MsgTypeRaftMessage, newRegionID, msg))
 					break
 				}
 			}
@@ -839,7 +857,7 @@ func (d *peerMsgHandler) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) (
 	return nil, err
 }
 
-func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *Callback) {
+func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *message.Callback) {
 	resp, err := d.preProposeRaftCommand(msg)
 	if err != nil {
 		cb.Done(ErrResp(err))
@@ -1007,7 +1025,7 @@ func isSameTable(leftKey, rightKey []byte) bool {
 		bytes.Compare(leftKey[:tablecodec.TableSplitKeyLen], rightKey[:tablecodec.TableSplitKeyLen]) == 0
 }
 
-func (d *peerMsgHandler) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, splitKeys [][]byte, cb *Callback) {
+func (d *peerMsgHandler) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, splitKeys [][]byte, cb *message.Callback) {
 	if err := d.validateSplitRegion(regionEpoch, splitKeys); err != nil {
 		cb.Done(ErrResp(err))
 		return

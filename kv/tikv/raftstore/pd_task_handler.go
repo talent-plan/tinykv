@@ -5,6 +5,7 @@ import (
 
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
@@ -16,10 +17,10 @@ import (
 type pdTaskHandler struct {
 	storeID  uint64
 	pdClient pd.Client
-	router   *router
+	router   message.RaftRouter
 }
 
-func newPDTaskHandler(storeID uint64, pdClient pd.Client, router *router) *pdTaskHandler {
+func newPDTaskHandler(storeID uint64, pdClient pd.Client, router message.RaftRouter) *pdTaskHandler {
 	return &pdTaskHandler{
 		storeID:  storeID,
 		pdClient: pdClient,
@@ -56,14 +57,14 @@ func (r *pdTaskHandler) onRegionHeartbeatResponse(resp *pdpb.RegionHeartbeatResp
 				ChangeType: changePeer.ChangeType,
 				Peer:       changePeer.Peer,
 			},
-		}, NewCallback())
+		}, message.NewCallback())
 	} else if transferLeader := resp.GetTransferLeader(); transferLeader != nil {
 		r.sendAdminRequest(resp.RegionId, resp.RegionEpoch, resp.TargetPeer, &raft_cmdpb.AdminRequest{
 			CmdType: raft_cmdpb.AdminCmdType_TransferLeader,
 			TransferLeader: &raft_cmdpb.TransferLeaderRequest{
 				Peer: transferLeader.Peer,
 			},
-		}, NewCallback())
+		}, message.NewCallback())
 	}
 }
 
@@ -140,24 +141,21 @@ func (r *pdTaskHandler) onDestroyPeer(t *pdDestroyPeerTask) {
 	// TODO: delete it
 }
 
-func (r *pdTaskHandler) sendAdminRequest(regionID uint64, epoch *metapb.RegionEpoch, peer *metapb.Peer, req *raft_cmdpb.AdminRequest, callback *Callback) {
-	cmd := &MsgRaftCmd{
-		Request: &raft_cmdpb.RaftCmdRequest{
-			Header: &raft_cmdpb.RaftRequestHeader{
-				RegionId:    regionID,
-				Peer:        peer,
-				RegionEpoch: epoch,
-			},
-			AdminRequest: req,
+func (r *pdTaskHandler) sendAdminRequest(regionID uint64, epoch *metapb.RegionEpoch, peer *metapb.Peer, req *raft_cmdpb.AdminRequest, callback *message.Callback) {
+	cmd := &raft_cmdpb.RaftCmdRequest{
+		Header: &raft_cmdpb.RaftRequestHeader{
+			RegionId:    regionID,
+			Peer:        peer,
+			RegionEpoch: epoch,
 		},
-		Callback: callback,
+		AdminRequest: req,
 	}
-	r.router.sendRaftCommand(cmd)
+	r.router.SendRaftCommand(cmd, callback)
 }
 
 func (r *pdTaskHandler) sendDestroyPeer(local *metapb.Region, peer *metapb.Peer, pdRegion *metapb.Region) {
-	r.router.send(local.GetId(), Msg{
-		Type:     MsgTypeRaftMessage,
+	r.router.Send(local.GetId(), message.Msg{
+		Type:     message.MsgTypeRaftMessage,
 		RegionID: local.GetId(),
 		Data: &raft_serverpb.RaftMessage{
 			RegionId:    local.GetId(),

@@ -10,6 +10,7 @@ import (
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
@@ -32,12 +33,12 @@ type recvSnapTask struct {
 type snapRunner struct {
 	config         *config.Config
 	snapManager    *raftstore.SnapManager
-	router         RaftRouter
+	router         message.RaftRouter
 	sendingCount   int64
 	receivingCount int64
 }
 
-func newSnapRunner(snapManager *raftstore.SnapManager, config *config.Config, router RaftRouter) *snapRunner {
+func newSnapRunner(snapManager *raftstore.SnapManager, config *config.Config, router message.RaftRouter) *snapRunner {
 	return &snapRunner{
 		config:      config,
 		snapManager: snapManager,
