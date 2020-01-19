@@ -23,7 +23,7 @@ type storeMeta struct {
 	regionRanges *lockstore.MemStore
 	/// region_id -> region
 	regions map[uint64]*metapb.Region
-	/// `MsgRequestPreVote` or `MsgRequestVote` messages from newly split Regions shouldn't be dropped if there is no
+	/// `MsgRequestVote` messages from newly split Regions shouldn't be dropped if there is no
 	/// such Region in this store now. So the messages are recorded temporarily and will be handled later.
 	pendingVotes []*rspb.RaftMessage
 	/// The regions with pending snapshots.

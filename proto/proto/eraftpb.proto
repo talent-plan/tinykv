@@ -53,8 +53,6 @@ enum MessageType {
     MsgTimeoutNow = 14;
     MsgReadIndex = 15;
     MsgReadIndexResp = 16;
-    MsgRequestPreVote = 17;
-    MsgRequestPreVoteResponse = 18;
 }
 
 message Message {

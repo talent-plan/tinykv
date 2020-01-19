@@ -74,8 +74,6 @@ func TestIsLocalMsg(t *testing.T) {
 		{pb.MessageType_MsgTimeoutNow, false},
 		{pb.MessageType_MsgReadIndex, false},
 		{pb.MessageType_MsgReadIndexResp, false},
-		{pb.MessageType_MsgRequestPreVote, false},
-		{pb.MessageType_MsgRequestPreVoteResponse, false},
 	}
 
 	for i, tt := range tests {

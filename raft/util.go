@@ -52,19 +52,7 @@ func IsLocalMsg(msgt pb.MessageType) bool {
 }
 
 func IsResponseMsg(msgt pb.MessageType) bool {
-	return msgt == pb.MessageType_MsgAppendResponse || msgt == pb.MessageType_MsgRequestVoteResponse || msgt == pb.MessageType_MsgHeartbeatResponse || msgt == pb.MessageType_MsgUnreachable || msgt == pb.MessageType_MsgRequestPreVoteResponse
-}
-
-// voteResponseType maps vote and prevote message types to their corresponding responses.
-func voteRespMsgType(msgt pb.MessageType) pb.MessageType {
-	switch msgt {
-	case pb.MessageType_MsgRequestVote:
-		return pb.MessageType_MsgRequestVoteResponse
-	case pb.MessageType_MsgRequestPreVote:
-		return pb.MessageType_MsgRequestPreVoteResponse
-	default:
-		panic(fmt.Sprintf("not a vote message: %s", msgt))
-	}
+	return msgt == pb.MessageType_MsgAppendResponse || msgt == pb.MessageType_MsgRequestVoteResponse || msgt == pb.MessageType_MsgHeartbeatResponse || msgt == pb.MessageType_MsgUnreachable
 }
 
 // EntryFormatter can be implemented by the application to provide human-readable formatting

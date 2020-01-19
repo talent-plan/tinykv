@@ -23,9 +23,9 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	. "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
+	. "github.com/pingcap/check"
 
 	// Register schedulers.
 	_ "github.com/pingcap-incubator/tinykv/scheduler/server/schedulers"
@@ -127,7 +127,6 @@ leader-schedule-limit = 0
 	c.Assert(cfg.Schedule.EnableOneWayMerge, Equals, true)
 	c.Assert(cfg.Schedule.LeaderScheduleLimit, Equals, uint64(0))
 	// When undefined, use default values.
-	c.Assert(cfg.PreVote, IsTrue)
 	c.Assert(cfg.Schedule.MaxMergeRegionKeys, Equals, uint64(defaultMaxMergeRegionKeys))
 
 	// Check undefined config fields

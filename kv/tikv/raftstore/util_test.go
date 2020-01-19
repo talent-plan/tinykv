@@ -150,7 +150,6 @@ func TestIsInitialMsg(t *testing.T) {
 	}
 	tbl := []MsgInfo{
 		{MessageType: eraftpb.MessageType_MsgRequestVote, Commit: RaftInvalidIndex, IsInitialMsg: true},
-		{MessageType: eraftpb.MessageType_MsgRequestPreVote, Commit: RaftInvalidIndex, IsInitialMsg: true},
 		{MessageType: eraftpb.MessageType_MsgHeartbeat, Commit: RaftInvalidIndex, IsInitialMsg: true},
 		{MessageType: eraftpb.MessageType_MsgHeartbeat, Commit: 100, IsInitialMsg: false},
 		{MessageType: eraftpb.MessageType_MsgAppend, Commit: 100, IsInitialMsg: false},

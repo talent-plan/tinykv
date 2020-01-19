@@ -104,11 +104,6 @@ type Config struct {
 	TickInterval typeutil.Duration `toml:"tick-interval"`
 	// ElectionInterval is the interval for etcd Raft election.
 	ElectionInterval typeutil.Duration `toml:"election-interval"`
-	// Prevote is true to enable Raft Pre-Vote.
-	// If enabled, Raft runs an additional election phase
-	// to check whether it would get enough votes to win
-	// an election, thus minimizing disruptions.
-	PreVote bool `toml:"enable-prevote"`
 
 	Security SecurityConfig `toml:"security" json:"security"`
 
@@ -426,9 +421,6 @@ func (c *Config) Adjust(meta *toml.MetaData) error {
 
 	adjustDuration(&c.LeaderPriorityCheckInterval, defaultLeaderPriorityCheckInterval)
 
-	if !configMetaData.IsDefined("enable-prevote") {
-		c.PreVote = true
-	}
 	if !configMetaData.IsDefined("enable-grpc-gateway") {
 		c.EnableGRPCGateway = defaultEnableGRPCGateway
 	}
@@ -958,7 +950,6 @@ func (c *Config) GenEmbedEtcdConfig() (*embed.Config, error) {
 	cfg.InitialCluster = c.InitialCluster
 	cfg.ClusterState = c.InitialClusterState
 	cfg.EnablePprof = true
-	cfg.PreVote = c.PreVote
 	cfg.StrictReconfigCheck = !c.DisableStrictReconfigCheck
 	cfg.TickMs = uint(c.TickInterval.Duration / time.Millisecond)
 	cfg.ElectionMs = uint(c.ElectionInterval.Duration / time.Millisecond)
