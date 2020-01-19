@@ -8,6 +8,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
@@ -27,7 +28,7 @@ type RaftInnerServer struct {
 	snapWorker    *worker.Worker
 }
 
-type TransportBuilder = func(snapScheduler chan<- worker.Task, raftRouter RaftRouter, resolverScheduler chan<- worker.Task) raftstore.Transport
+type TransportBuilder = func(snapScheduler chan<- worker.Task, raftRouter message.RaftRouter, resolverScheduler chan<- worker.Task) raftstore.Transport
 
 func (ris *RaftInnerServer) Raft(stream tikvpb.Tikv_RaftServer) error {
 	for {

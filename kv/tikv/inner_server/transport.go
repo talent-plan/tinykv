@@ -4,27 +4,22 @@ import (
 	"sync"
 
 	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/raft"
 )
 
-type RaftRouter interface {
-	SendRaftMessage(msg *raft_serverpb.RaftMessage)
-	ReportSnapshotStatus(regionID uint64, toPeerID uint64, status raft.SnapshotStatus) error
-	ReportUnreachable(regionID, toPeerID uint64) error
-}
-
 type ServerTransport struct {
 	raftClient        *RaftClient
-	raftRouter        RaftRouter
+	raftRouter        message.RaftRouter
 	resolverScheduler chan<- worker.Task
 	snapScheduler     chan<- worker.Task
 	resolving         sync.Map
 }
 
-func NewServerTransport(raftClient *RaftClient, snapScheduler chan<- worker.Task, raftRouter RaftRouter, resolverScheduler chan<- worker.Task) *ServerTransport {
+func NewServerTransport(raftClient *RaftClient, snapScheduler chan<- worker.Task, raftRouter message.RaftRouter, resolverScheduler chan<- worker.Task) *ServerTransport {
 	return &ServerTransport{
 		raftClient:        raftClient,
 		raftRouter:        raftRouter,

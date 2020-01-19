@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap/errors"
 )
@@ -47,7 +48,7 @@ type SnapStats struct {
 
 func notifyStats(router *router) {
 	if router != nil {
-		router.sendStore(NewMsg(MsgTypeStoreSnapshotStats, nil))
+		router.sendStore(message.NewMsg(message.MsgTypeStoreSnapshotStats, nil))
 	}
 }
 

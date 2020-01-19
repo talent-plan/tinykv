@@ -4,20 +4,21 @@ import (
 	"sync"
 
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"go.uber.org/atomic"
 )
 
 // peerState contains the peer states that needs to run raft command and apply command.
 // It binds to a worker to make sure the commands are always executed on a same goroutine.
 type peerState struct {
-	msgCh chan Msg
+	msgCh chan message.Msg
 	peer  *peerFsm
 	apply *applier
 
 	closed *atomic.Bool
 }
 
-func (np *peerState) send(msg Msg) error {
+func (np *peerState) send(msg message.Msg) error {
 	if np.closed.Load() {
 		return errPeerNotFound
 	}
@@ -30,7 +31,7 @@ func (np *peerState) close() {
 }
 
 type applyBatch struct {
-	msgs      []Msg
+	msgs      []message.Msg
 	peers     map[uint64]*peerState
 	proposals []*regionProposal
 }
@@ -39,7 +40,7 @@ type applyBatch struct {
 type raftWorker struct {
 	pr *router
 
-	raftCh  chan Msg
+	raftCh  chan message.Msg
 	raftCtx *RaftContext
 
 	applyCh  chan *applyBatch
@@ -48,7 +49,7 @@ type raftWorker struct {
 	closeCh <-chan struct{}
 }
 
-func newRaftWorker(ctx *GlobalContext, ch chan Msg, pm *router) *raftWorker {
+func newRaftWorker(ctx *GlobalContext, ch chan message.Msg, pm *router) *raftWorker {
 	raftCtx := &RaftContext{
 		GlobalContext: ctx,
 		applyMsgs:     new(applyMsgs),
@@ -70,7 +71,7 @@ func newRaftWorker(ctx *GlobalContext, ch chan Msg, pm *router) *raftWorker {
 // After commands are handled, we collect apply messages by peers, make a applyBatch, send it to apply channel.
 func (rw *raftWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
 	go rw.runApply(wg)
-	var msgs []Msg
+	var msgs []message.Msg
 	for {
 		msgs = msgs[:0]
 		select {
@@ -119,7 +120,7 @@ func (rw *raftWorker) getPeerState(peersMap map[uint64]*peerState, regionID uint
 
 func (rw *raftWorker) handleRaftReady(peers map[uint64]*peerState, batch *applyBatch) {
 	for _, proposal := range batch.proposals {
-		msg := Msg{Type: MsgTypeApplyProposal, Data: proposal}
+		msg := message.Msg{Type: message.MsgTypeApplyProposal, Data: proposal}
 		rw.raftCtx.applyMsgs.appendMsg(proposal.RegionId, msg)
 	}
 	kvWB := rw.raftCtx.kvWB
@@ -181,7 +182,7 @@ type storeWorker struct {
 
 func (sw *storeWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
 	for {
-		var msg Msg
+		var msg message.Msg
 		select {
 		case <-closeCh:
 			wg.Done()

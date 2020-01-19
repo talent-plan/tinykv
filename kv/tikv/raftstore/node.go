@@ -16,7 +16,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/tidb/util/codec"
 )
 
 type Node struct {
@@ -80,33 +79,6 @@ func (n *Node) Start(ctx context.Context, engines *engine_util.Engines, trans Tr
 	}
 	if err = n.startNode(engines, trans, snapMgr, pdWorker); err != nil {
 		return err
-	}
-
-	if newCluster {
-		log.Info("pre-split regions")
-		cb := NewCallback()
-		msg := &MsgSplitRegion{
-			RegionEpoch: firstRegion.GetRegionEpoch(),
-			SplitKeys: [][]byte{
-				codec.EncodeBytes(nil, []byte{'m'}),
-				codec.EncodeBytes(nil, []byte{'n'}),
-				codec.EncodeBytes(nil, []byte{'t'}),
-				codec.EncodeBytes(nil, []byte{'u'}),
-			},
-			Callback: cb,
-		}
-		err := router.router.send(firstRegion.Id, Msg{
-			Type:     MsgTypeSplitRegion,
-			RegionID: firstRegion.Id,
-			Data:     msg,
-		})
-		if err != nil {
-			return err
-		}
-		cb.wg.Wait()
-		if cb.resp.Header.Error != nil {
-			return &RaftError{RequestErr: cb.resp.Header.Error}
-		}
 	}
 
 	return nil

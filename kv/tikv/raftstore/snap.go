@@ -45,6 +45,15 @@ var (
 	errAbort = applySnapAbortError("abort")
 )
 
+type SnapKeyWithSending struct {
+	SnapKey   SnapKey
+	IsSending bool
+}
+
+type MsgGCSnap struct {
+	Snaps []SnapKeyWithSending
+}
+
 type SnapKey struct {
 	RegionID uint64
 	Term     uint64

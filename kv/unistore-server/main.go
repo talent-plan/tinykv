@@ -24,6 +24,7 @@ import (
 	tikvConf "github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 	"google.golang.org/grpc"
@@ -176,7 +177,7 @@ func setupRaftInnerServer(kvDB *badger.DB, pdClient pd.Client, conf *config.Conf
 	innerServer := inner_server.NewRaftInnerServer(engines, raftConf)
 	innerServer.Setup(pdClient)
 
-	newTrans := func(snapScheduler chan<- worker.Task, raftRouter inner_server.RaftRouter, resolverScheduler chan<- worker.Task) raftstore.Transport {
+	newTrans := func(snapScheduler chan<- worker.Task, raftRouter message.RaftRouter, resolverScheduler chan<- worker.Task) raftstore.Transport {
 		raftClient := inner_server.NewRaftClient(raftConf)
 		return inner_server.NewServerTransport(raftClient, snapScheduler, raftRouter, resolverScheduler)
 	}

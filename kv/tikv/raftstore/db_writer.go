@@ -152,9 +152,9 @@ func (writer *raftDBWriter) Close() {
 // 		Header:   header,
 // 		Requests: b.requests,
 // 	}
-// 	cmd := &MsgRaftCmd{
+// 	cmd := &message.MsgRaftCmd{
 // 		Request:  request,
-// 		Callback: NewCallback(),
+// 		Callback: message.NewCallback(),
 // 	}
 // 	err := writer.router.sendRaftCommand(cmd)
 // 	if err != nil {
