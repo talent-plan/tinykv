@@ -11,24 +11,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestEngines(t *testing.T) *Engines {
-	engines := new(Engines)
+func newTestEngines(t *testing.T) *engine_util.Engines {
+	engines := new(engine_util.Engines)
 	var err error
-	engines.kvPath, err = ioutil.TempDir("", "unistore_kv")
+	engines.KvPath, err = ioutil.TempDir("", "unistore_kv")
 	require.Nil(t, err)
 	kvOpts := badger.DefaultOptions
-	kvOpts.Dir = engines.kvPath
-	kvOpts.ValueDir = engines.kvPath
+	kvOpts.Dir = engines.KvPath
+	kvOpts.ValueDir = engines.KvPath
 	kvOpts.ValueThreshold = 256
-	engines.kv, err = badger.Open(kvOpts)
+	engines.Kv, err = badger.Open(kvOpts)
 	require.Nil(t, err)
-	engines.raftPath, err = ioutil.TempDir("", "unistore_raft")
+	engines.RaftPath, err = ioutil.TempDir("", "unistore_raft")
 	require.Nil(t, err)
 	raftOpts := badger.DefaultOptions
-	raftOpts.Dir = engines.raftPath
-	raftOpts.ValueDir = engines.raftPath
+	raftOpts.Dir = engines.RaftPath
+	raftOpts.ValueDir = engines.RaftPath
 	raftOpts.ValueThreshold = 256
-	engines.raft, err = badger.Open(raftOpts)
+	engines.Raft, err = badger.Open(raftOpts)
 	require.Nil(t, err)
 	return engines
 }
@@ -62,13 +62,13 @@ func newTestPeerStorageFromEnts(t *testing.T, ents []eraftpb.Entry) *PeerStorage
 }
 
 func cleanUpTestData(peerStore *PeerStorage) {
-	os.RemoveAll(peerStore.Engines.kvPath)
-	os.RemoveAll(peerStore.Engines.raftPath)
+	os.RemoveAll(peerStore.Engines.KvPath)
+	os.RemoveAll(peerStore.Engines.RaftPath)
 }
 
-func cleanUpTestEngineData(engines *Engines) {
-	os.RemoveAll(engines.kvPath)
-	os.RemoveAll(engines.raftPath)
+func cleanUpTestEngineData(engines *engine_util.Engines) {
+	os.RemoveAll(engines.KvPath)
+	os.RemoveAll(engines.RaftPath)
 }
 
 func newTestEntry(index, term uint64) eraftpb.Entry {

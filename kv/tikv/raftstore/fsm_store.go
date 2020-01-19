@@ -12,10 +12,20 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/lockstore"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap/errors"
+)
+
+type StoreTick int
+
+const (
+	StoreTickPdStoreHeartbeat StoreTick = 1
+	StoreTickSnapGC           StoreTick = 2
 )
 
 type storeMeta struct {
@@ -28,26 +38,12 @@ type storeMeta struct {
 	pendingVotes []*rspb.RaftMessage
 	/// The regions with pending snapshots.
 	pendingSnapshotRegions []*metapb.Region
-	/// A marker used to indicate the peer of a Region has received a merge target message and waits to be destroyed.
-	/// target_region_id -> (source_region_id -> merge_target_epoch)
-	pendingMergeTargets map[uint64]map[uint64]*metapb.RegionEpoch
-	/// An inverse mapping of `pending_merge_targets` used to let source peer help target peer to clean up related entry.
-	/// source_region_id -> target_region_id
-	targetsMap map[uint64]uint64
-	/// In raftstore, the execute order of `PrepareMerge` and `CommitMerge` is not certain because of the messages
-	/// belongs two regions. To make them in order, `PrepareMerge` will set this structure and `CommitMerge` will retry
-	/// later if there is no related lock.
-	/// source_region_id -> (version, BiLock).
-	mergeLocks map[uint64]*mergeLock
 }
 
 func newStoreMeta() *storeMeta {
 	return &storeMeta{
-		regionRanges:        lockstore.NewMemStore(32 * 1024),
-		regions:             map[uint64]*metapb.Region{},
-		pendingMergeTargets: map[uint64]map[uint64]*metapb.RegionEpoch{},
-		targetsMap:          map[uint64]uint64{},
-		mergeLocks:          map[uint64]*mergeLock{},
+		regionRanges: lockstore.NewMemStore(32 * 1024),
+		regions:      map[uint64]*metapb.Region{},
 	}
 }
 
@@ -56,27 +52,21 @@ func (m *storeMeta) setRegion(region *metapb.Region, peer *Peer) {
 	peer.SetRegion(region)
 }
 
-type mergeLock struct {
-}
-
 type GlobalContext struct {
-	cfg                   *Config
-	engine                *Engines
-	store                 *metapb.Store
-	storeMeta             *storeMeta
-	storeMetaLock         *sync.RWMutex
-	snapMgr               *SnapManager
-	router                *router
-	trans                 Transport
-	pdTaskSender          chan<- task
-	regionTaskSender      chan<- task
-	computeHashTaskSender chan<- task
-	raftLogGCTaskSender   chan<- task
-	splitCheckTaskSender  chan<- task
-	compactTaskSender     chan<- task
-	pdClient              pd.Client
-	peerEventObserver     PeerEventObserver
-	tickDriverSender      chan uint64
+	cfg                  *config.Config
+	engine               *engine_util.Engines
+	store                *metapb.Store
+	storeMeta            *storeMeta
+	storeMetaLock        *sync.RWMutex
+	snapMgr              *SnapManager
+	router               *router
+	trans                Transport
+	pdTaskSender         chan<- worker.Task
+	regionTaskSender     chan<- worker.Task
+	raftLogGCTaskSender  chan<- worker.Task
+	splitCheckTaskSender chan<- worker.Task
+	pdClient             pd.Client
+	tickDriverSender     chan uint64
 }
 
 type StoreContext struct {
@@ -104,17 +94,17 @@ type storeFsm struct {
 	lastCompactCheckKey []byte
 	stopped             bool
 	startTime           *time.Time
-	receiver            <-chan Msg
+	receiver            <-chan message.Msg
 	ticker              *ticker
 }
 
-func newStoreFsm(cfg *Config) (chan<- Msg, *storeFsm) {
-	ch := make(chan Msg, cfg.NotifyCapacity)
+func newStoreFsm(cfg *config.Config) (chan<- message.Msg, *storeFsm) {
+	ch := make(chan message.Msg, cfg.NotifyCapacity)
 	fsm := &storeFsm{
-		receiver: (<-chan Msg)(ch),
+		receiver: (<-chan message.Msg)(ch),
 		ticker:   newStoreTicker(cfg),
 	}
-	return (chan<- Msg)(ch), fsm
+	return (chan<- message.Msg)(ch), fsm
 }
 
 type storeMsgHandler struct {
@@ -135,20 +125,17 @@ func (d *storeMsgHandler) onTick(tick StoreTick) {
 	}
 }
 
-func (d *storeMsgHandler) handleMsg(msg Msg) {
+func (d *storeMsgHandler) handleMsg(msg message.Msg) {
 	switch msg.Type {
-	case MsgTypeStoreRaftMessage:
+	case message.MsgTypeStoreRaftMessage:
 		if err := d.onRaftMessage(msg.Data.(*rspb.RaftMessage)); err != nil {
 			log.Errorf("handle raft message failed storeID %d, %v", d.id, err)
 		}
-	case MsgTypeStoreSnapshotStats:
+	case message.MsgTypeStoreSnapshotStats:
 		d.storeHeartbeatPD()
-	case MsgTypeStoreClearRegionSizeInRange:
-		data := msg.Data.(*MsgStoreClearRegionSizeInRange)
-		d.clearRegionSizeInRange(data.StartKey, data.EndKey)
-	case MsgTypeStoreTick:
+	case message.MsgTypeStoreTick:
 		d.onTick(msg.Data.(StoreTick))
-	case MsgTypeStoreStart:
+	case message.MsgTypeStoreStart:
 		d.start(msg.Data.(*metapb.Store))
 	}
 }
@@ -167,12 +154,12 @@ func (d *storeMsgHandler) start(store *metapb.Store) {
 /// loadPeers loads peers in this store. It scans the db engine, loads all regions
 /// and their peers from it, and schedules snapshot worker if necessary.
 /// WARN: This store should not be used before initialized.
-func (bs *raftBatchSystem) loadPeers() ([]*peerFsm, error) {
+func (bs *RaftBatchSystem) loadPeers() ([]*peerFsm, error) {
 	// Scan region meta to get saved regions.
 	startKey := RegionMetaMinKey
 	endKey := RegionMetaMaxKey
 	ctx := bs.ctx
-	kvEngine := ctx.engine.kv
+	kvEngine := ctx.engine.Kv
 	storeID := ctx.store.Id
 
 	var totalCount, tombStoneCount, applyingCount int
@@ -229,7 +216,6 @@ func (bs *raftBatchSystem) loadPeers() ([]*peerFsm, error) {
 			if err != nil {
 				return err
 			}
-			ctx.peerEventObserver.OnPeerCreate(peer.peer.getEventContext(), region)
 			meta.regionRanges.Insert(region.EndKey, regionIDToBytes(regionID))
 			meta.regions[regionID] = region
 			// No need to check duplicated here, because we use region id as the key
@@ -241,8 +227,8 @@ func (bs *raftBatchSystem) loadPeers() ([]*peerFsm, error) {
 	if err != nil {
 		return nil, err
 	}
-	kvWB.MustWriteToKV(ctx.engine.kv)
-	raftWB.MustWriteToRaft(ctx.engine.raft)
+	kvWB.MustWriteToKV(ctx.engine.Kv)
+	raftWB.MustWriteToRaft(ctx.engine.Raft)
 
 	// schedule applying snapshot after raft write batch were written.
 	for _, region := range applyingRegions {
@@ -261,11 +247,11 @@ func (bs *raftBatchSystem) loadPeers() ([]*peerFsm, error) {
 	return regionPeers, nil
 }
 
-func (bs *raftBatchSystem) clearStaleMeta(kvWB, raftWB *engine_util.WriteBatch, originState *rspb.RegionLocalState) {
+func (bs *RaftBatchSystem) clearStaleMeta(kvWB, raftWB *engine_util.WriteBatch, originState *rspb.RegionLocalState) {
 	region := originState.Region
 	raftKey := RaftStateKey(region.Id)
 	raftState := raftState{}
-	val, err := getValue(bs.ctx.engine.raft, raftKey)
+	val, err := getValue(bs.ctx.engine.Raft, raftKey)
 	if err != nil {
 		// it has been cleaned up.
 		return
@@ -282,16 +268,14 @@ func (bs *raftBatchSystem) clearStaleMeta(kvWB, raftWB *engine_util.WriteBatch, 
 }
 
 type workers struct {
-	pdWorker          *worker
-	raftLogGCWorker   *worker
-	computeHashWorker *worker
-	splitCheckWorker  *worker
-	regionWorker      *worker
-	compactWorker     *worker
-	wg                *sync.WaitGroup
+	raftLogGCWorker  *worker.Worker
+	pdWorker         *worker.Worker
+	splitCheckWorker *worker.Worker
+	regionWorker     *worker.Worker
+	wg               *sync.WaitGroup
 }
 
-type raftBatchSystem struct {
+type RaftBatchSystem struct {
 	ctx        *GlobalContext
 	router     *router
 	workers    *workers
@@ -300,15 +284,14 @@ type raftBatchSystem struct {
 	wg         *sync.WaitGroup
 }
 
-func (bs *raftBatchSystem) start(
+func (bs *RaftBatchSystem) start(
 	meta *metapb.Store,
-	cfg *Config,
-	engines *Engines,
+	cfg *config.Config,
+	engines *engine_util.Engines,
 	trans Transport,
 	pdClient pd.Client,
 	snapMgr *SnapManager,
-	pdWorker *worker,
-	observer PeerEventObserver) error {
+	pdWorker *worker.Worker) error {
 	y.Assert(bs.workers == nil)
 	// TODO: we can get cluster meta regularly too later.
 	if err := cfg.Validate(); err != nil {
@@ -320,32 +303,27 @@ func (bs *raftBatchSystem) start(
 	}
 	wg := new(sync.WaitGroup)
 	bs.workers = &workers{
-		splitCheckWorker:  newWorker("split-check", wg),
-		regionWorker:      newWorker("snapshot-worker", wg),
-		raftLogGCWorker:   newWorker("raft-gc-worker", wg),
-		compactWorker:     newWorker("compact-worker", wg),
-		pdWorker:          pdWorker,
-		computeHashWorker: newWorker("compute-hash", wg),
-		wg:                wg,
+		splitCheckWorker: worker.NewWorker("split-check", wg),
+		regionWorker:     worker.NewWorker("snapshot-worker", wg),
+		raftLogGCWorker:  worker.NewWorker("raft-gc-worker", wg),
+		pdWorker:         pdWorker,
+		wg:               wg,
 	}
 	bs.ctx = &GlobalContext{
-		cfg:                   cfg,
-		engine:                engines,
-		store:                 meta,
-		storeMeta:             newStoreMeta(),
-		storeMetaLock:         new(sync.RWMutex),
-		snapMgr:               snapMgr,
-		router:                bs.router,
-		trans:                 trans,
-		pdTaskSender:          bs.workers.pdWorker.sender,
-		regionTaskSender:      bs.workers.regionWorker.sender,
-		computeHashTaskSender: bs.workers.computeHashWorker.sender,
-		splitCheckTaskSender:  bs.workers.splitCheckWorker.sender,
-		raftLogGCTaskSender:   bs.workers.raftLogGCWorker.sender,
-		compactTaskSender:     bs.workers.compactWorker.sender,
-		pdClient:              pdClient,
-		peerEventObserver:     observer,
-		tickDriverSender:      bs.tickDriver.newRegionCh,
+		cfg:                  cfg,
+		engine:               engines,
+		store:                meta,
+		storeMeta:            newStoreMeta(),
+		storeMetaLock:        new(sync.RWMutex),
+		snapMgr:              snapMgr,
+		router:               bs.router,
+		trans:                trans,
+		pdTaskSender:         bs.workers.pdWorker.Sender(),
+		regionTaskSender:     bs.workers.regionWorker.Sender(),
+		splitCheckTaskSender: bs.workers.splitCheckWorker.Sender(),
+		raftLogGCTaskSender:  bs.workers.raftLogGCWorker.Sender(),
+		pdClient:             pdClient,
+		tickDriverSender:     bs.tickDriver.newRegionCh,
 	}
 	regionPeers, err := bs.loadPeers()
 	if err != nil {
@@ -359,16 +337,12 @@ func (bs *raftBatchSystem) start(
 	return nil
 }
 
-func (bs *raftBatchSystem) startWorkers(peers []*peerFsm) {
+func (bs *RaftBatchSystem) startWorkers(peers []*peerFsm) {
 	ctx := bs.ctx
 	workers := bs.workers
 	router := bs.router
-	balancer := &balancer{
-		router: router,
-	}
 	for i := 0; i < ctx.cfg.RaftWorkerCnt; i++ {
 		rw := newRaftWorker(ctx, router.workerSenders[i], router)
-		balancer.workers = append(balancer.workers, rw)
 		bs.wg.Add(1)
 		go rw.run(bs.closeCh, bs.wg)
 	}
@@ -378,24 +352,22 @@ func (bs *raftBatchSystem) startWorkers(peers []*peerFsm) {
 	}
 	bs.wg.Add(1)
 	go sw.run(bs.closeCh, bs.wg)
-	bs.wg.Add(1)
-	go balancer.run(bs.closeCh, bs.wg)
-	router.sendStore(Msg{Type: MsgTypeStoreStart, Data: ctx.store})
+	router.sendStore(message.Msg{Type: message.MsgTypeStoreStart, Data: ctx.store})
 	for i := 0; i < len(peers); i++ {
 		regionID := peers[i].peer.regionId
-		_ = router.send(regionID, Msg{RegionID: regionID, Type: MsgTypeStart})
+		_ = router.send(regionID, message.Msg{RegionID: regionID, Type: message.MsgTypeStart})
 	}
 	engines := ctx.engine
 	cfg := ctx.cfg
-	workers.splitCheckWorker.start(newSplitCheckHandler(engines.kv, router, cfg.SplitCheck))
-	workers.regionWorker.start(newRegionTaskHandler(engines, ctx.snapMgr, cfg.SnapApplyBatchSize, cfg.CleanStalePeerDelay))
-	workers.raftLogGCWorker.start(&raftLogGCTaskHandler{})
-	workers.pdWorker.start(newPDTaskHandler(ctx.store.Id, ctx.pdClient, bs.router))
+	workers.splitCheckWorker.Start(newSplitCheckHandler(engines.Kv, router, cfg.SplitCheck))
+	workers.regionWorker.Start(newRegionTaskHandler(engines, ctx.snapMgr))
+	workers.raftLogGCWorker.Start(&raftLogGCTaskHandler{})
+	workers.pdWorker.Start(newPDTaskHandler(ctx.store.Id, ctx.pdClient, NewRaftstoreRouter(bs.router)))
 	bs.wg.Add(1)
 	go bs.tickDriver.run(bs.closeCh, bs.wg) // TODO: temp workaround.
 }
 
-func (bs *raftBatchSystem) shutDown() {
+func (bs *RaftBatchSystem) shutDown() {
 	if bs.workers == nil {
 		return
 	}
@@ -403,20 +375,18 @@ func (bs *raftBatchSystem) shutDown() {
 	bs.wg.Wait()
 	workers := bs.workers
 	bs.workers = nil
-	stopTask := task{tp: taskTypeStop}
-	workers.splitCheckWorker.sender <- stopTask
-	workers.regionWorker.sender <- stopTask
-	workers.raftLogGCWorker.sender <- stopTask
-	workers.computeHashWorker.sender <- stopTask
-	workers.pdWorker.sender <- stopTask
-	workers.compactWorker.sender <- stopTask
+	stopTask := worker.Task{Tp: worker.TaskTypeStop}
+	workers.splitCheckWorker.Sender() <- stopTask
+	workers.regionWorker.Sender() <- stopTask
+	workers.raftLogGCWorker.Sender() <- stopTask
+	workers.pdWorker.Sender() <- stopTask
 	workers.wg.Wait()
 }
 
-func createRaftBatchSystem(cfg *Config) (*router, *raftBatchSystem) {
+func CreateRaftBatchSystem(cfg *config.Config) (*router, *RaftBatchSystem) {
 	storeSender, storeFsm := newStoreFsm(cfg)
 	router := newRouter(cfg.RaftWorkerCnt, storeSender, storeFsm)
-	raftBatchSystem := &raftBatchSystem{
+	raftBatchSystem := &RaftBatchSystem{
 		router:     router,
 		tickDriver: newTickDriver(cfg.RaftBaseTickInterval, router, storeFsm.ticker),
 		closeCh:    make(chan struct{}),
@@ -438,7 +408,7 @@ func (d *storeMsgHandler) checkMsg(msg *rspb.RaftMessage) (bool, error) {
 	// Check if the target is tombstone,
 	stateKey := RegionStateKey(regionID)
 	localState := new(rspb.RegionLocalState)
-	err := getMsg(d.ctx.engine.kv, stateKey, localState)
+	err := getMsg(d.ctx.engine.Kv, stateKey, localState)
 	if err != nil {
 		if err == badger.ErrKeyNotFound {
 			return false, nil
@@ -482,7 +452,7 @@ func (d *storeMsgHandler) checkMsg(msg *rspb.RaftMessage) (bool, error) {
 
 func (d *storeMsgHandler) onRaftMessage(msg *rspb.RaftMessage) error {
 	regionID := msg.RegionId
-	if err := d.ctx.router.send(regionID, Msg{Type: MsgTypeRaftMessage, Data: msg}); err == nil {
+	if err := d.ctx.router.send(regionID, message.Msg{Type: message.MsgTypeRaftMessage, Data: msg}); err == nil {
 		return nil
 	}
 	log.Debugf("handle raft message. from_peer:%d, to_peer:%d, store:%d, region:%d, msg_type:%s",
@@ -515,7 +485,7 @@ func (d *storeMsgHandler) onRaftMessage(msg *rspb.RaftMessage) error {
 	if !created {
 		return nil
 	}
-	_ = d.ctx.router.send(regionID, Msg{Type: MsgTypeRaftMessage, Data: msg})
+	_ = d.ctx.router.send(regionID, message.Msg{Type: message.MsgTypeRaftMessage, Data: msg})
 	return nil
 }
 
@@ -557,7 +527,6 @@ func (d *storeMsgHandler) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage
 		return false, nil
 	}
 
-	// New created peers should know it's learner or not.
 	peer, err := replicatePeerFsm(
 		d.ctx.store.Id, d.ctx.cfg, d.ctx.regionTaskSender, d.ctx.engine, regionID, msg.ToPeer)
 	if err != nil {
@@ -567,8 +536,7 @@ func (d *storeMsgHandler) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage
 	// snapshot is applied.
 	meta.regions[regionID] = peer.peer.Region()
 	d.ctx.router.register(peer)
-	_ = d.ctx.router.send(regionID, Msg{Type: MsgTypeStart})
-	d.ctx.peerEventObserver.OnPeerCreate(peer.peer.getEventContext(), peer.peer.Region())
+	_ = d.ctx.router.send(regionID, message.Msg{Type: message.MsgTypeStart})
 	return true, nil
 }
 
@@ -580,11 +548,11 @@ func (d *storeMsgHandler) storeHeartbeatPD() {
 	d.ctx.storeMetaLock.RUnlock()
 	storeInfo := &pdStoreHeartbeatTask{
 		stats:    stats,
-		engine:   d.ctx.engine.kv,
+		engine:   d.ctx.engine.Kv,
 		capacity: d.ctx.cfg.Capacity,
-		path:     d.ctx.engine.kvPath,
+		path:     d.ctx.engine.KvPath,
 	}
-	d.ctx.pdTaskSender <- task{tp: taskTypePDStoreHeartbeat, data: storeInfo}
+	d.ctx.pdTaskSender <- worker.Task{Tp: worker.TaskTypePDStoreHeartbeat, Data: storeInfo}
 }
 
 func (d *storeMsgHandler) onPDStoreHearbeatTick() {
@@ -626,7 +594,7 @@ func (d *storeMsgHandler) handleSnapMgrGC() error {
 }
 
 func (d *storeMsgHandler) scheduleGCSnap(regionID uint64, keys []SnapKeyWithSending) error {
-	gcSnap := Msg{Type: MsgTypeGcSnap, Data: &MsgGCSnap{Snaps: keys}}
+	gcSnap := message.Msg{Type: message.MsgTypeGcSnap, Data: &MsgGCSnap{Snaps: keys}}
 	if d.ctx.router.send(regionID, gcSnap) != nil {
 		// The snapshot exists because MsgAppend has been rejected. So the
 		// peer must have been exist. But now it's disconnected, so the peer
@@ -656,55 +624,4 @@ func (d *storeMsgHandler) onSnapMgrGC() {
 		log.Errorf("handle snap GC failed store_id %d, err %s", d.storeFsm.id, err)
 	}
 	d.ticker.scheduleStore(StoreTickSnapGC)
-}
-
-func (d *storeMsgHandler) clearRegionSizeInRange(startKey, endKey []byte) {
-	regions := d.findRegionsInRange(startKey, endKey)
-	for _, region := range regions {
-		_ = d.ctx.router.send(region.Id, NewPeerMsg(MsgTypeClearRegionSize, region.Id, nil))
-	}
-}
-
-func (d *storeMsgHandler) findRegionsInRange(startKey, endKey []byte) []*metapb.Region {
-	d.ctx.storeMetaLock.RLock()
-	defer d.ctx.storeMetaLock.RUnlock()
-	meta := d.ctx.storeMeta
-	it := meta.regionRanges.NewIterator()
-	it.Seek(startKey)
-	if it.Valid() && bytes.Equal(it.Key(), startKey) {
-		it.Next()
-	}
-	var regions []*metapb.Region
-	for ; it.Valid(); it.Next() {
-		if bytes.Compare(it.Key(), endKey) > 0 {
-			break
-		}
-		regionID := regionIDFromBytes(it.Value())
-		regions = append(regions, meta.regions[regionID])
-	}
-	return regions
-}
-
-func isRangeCovered(meta *storeMeta, start, end []byte) bool {
-	it := meta.regionRanges.NewIterator()
-	it.Seek(start)
-	if it.Valid() && bytes.Equal(it.Key(), start) {
-		it.Next()
-	}
-	for ; it.Valid(); it.Next() {
-		if bytes.Compare(it.Key(), end) > 0 {
-			break
-		}
-		regionID := regionIDFromBytes(it.Value())
-		region := meta.regions[regionID]
-		// find a missing range
-		if bytes.Compare(start, region.StartKey) < 0 {
-			return false
-		}
-		if bytes.Compare(region.EndKey, end) >= 0 {
-			return true
-		}
-		start = region.EndKey
-	}
-	return false
 }

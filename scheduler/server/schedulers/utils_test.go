@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
-	. "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
+	. "github.com/pingcap/check"
 )
 
 func TestSchedulers(t *testing.T) {
@@ -63,17 +63,14 @@ func (s *testRegionUnhealthySuite) TestIsRegionUnhealthy(c *C) {
 		peers = append(peers, p)
 	}
 	peers = append(peers, &metapb.Peer{
-		Id:        2,
-		StoreId:   2,
-		IsLearner: true,
+		Id:      2,
+		StoreId: 2,
 	})
 
 	r1 := core.NewRegionInfo(&metapb.Region{Peers: peers[:2]}, peers[0], core.WithDownPeers([]*pdpb.PeerStats{{Peer: peers[1]}}))
 	r2 := core.NewRegionInfo(&metapb.Region{Peers: peers[:2]}, peers[0], core.WithPendingPeers([]*metapb.Peer{peers[1]}))
-	r3 := core.NewRegionInfo(&metapb.Region{Peers: peers[:3]}, peers[0], core.WithLearners([]*metapb.Peer{peers[2]}))
 	r4 := core.NewRegionInfo(&metapb.Region{Peers: peers[:2]}, peers[0])
 	c.Assert(isRegionUnhealthy(r1), IsTrue)
 	c.Assert(isRegionUnhealthy(r2), IsFalse)
-	c.Assert(isRegionUnhealthy(r3), IsTrue)
 	c.Assert(isRegionUnhealthy(r4), IsFalse)
 }

@@ -16,15 +16,16 @@ type snapBuilder struct {
 	size    int
 }
 
-func newSnapBuilder(cfFiles []*CFFile, snap *regionSnapshot, region *metapb.Region) *snapBuilder {
+func newSnapBuilder(cfFiles []*CFFile, dbSnap *badger.Txn, region *metapb.Region) *snapBuilder {
 	return &snapBuilder{
 		region:  region,
 		cfFiles: cfFiles,
-		txn:     snap.txn,
+		txn:     dbSnap,
 	}
 }
 
 func (b *snapBuilder) build() error {
+	defer b.txn.Discard()
 	startKey, endKey := b.region.StartKey, b.region.EndKey
 
 	for _, file := range b.cfFiles {

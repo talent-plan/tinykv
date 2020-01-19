@@ -17,7 +17,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"math/rand"
 	"reflect"
 	"sort"
 	"strings"
@@ -201,80 +200,6 @@ func (ap AddPeer) Influence(opInfluence OpInfluence, region *core.RegionInfo) {
 		to.StepCost += smallRegionInfluence
 	}
 }
-
-// AddLearner is an OpStep that adds a region learner peer.
-type AddLearner struct {
-	ToStore, PeerID uint64
-}
-
-// ConfVerChanged returns true if the conf version has been changed by this step
-func (al AddLearner) ConfVerChanged(region *core.RegionInfo) bool {
-	if p := region.GetStorePeer(al.ToStore); p != nil {
-		return p.GetId() == al.PeerID
-	}
-	return false
-}
-
-func (al AddLearner) String() string {
-	return fmt.Sprintf("add learner peer %v on store %v", al.PeerID, al.ToStore)
-}
-
-// IsFinish checks if current step is finished.
-func (al AddLearner) IsFinish(region *core.RegionInfo) bool {
-	if p := region.GetStoreLearner(al.ToStore); p != nil {
-		if p.GetId() != al.PeerID {
-			log.Warn("obtain unexpected peer", zap.String("expect", al.String()), zap.Uint64("obtain-learner", p.GetId()))
-			return false
-		}
-		return region.GetPendingLearner(p.GetId()) == nil
-	}
-	return false
-}
-
-// Influence calculates the store difference that current step makes.
-func (al AddLearner) Influence(opInfluence OpInfluence, region *core.RegionInfo) {
-	to := opInfluence.GetStoreInfluence(al.ToStore)
-
-	regionSize := region.GetApproximateSize()
-	to.RegionSize += regionSize
-	to.RegionCount++
-	if regionSize > smallRegionThreshold {
-		to.StepCost += RegionInfluence
-	} else if regionSize <= smallRegionThreshold && regionSize > core.EmptyRegionApproximateSize {
-		to.StepCost += smallRegionInfluence
-	}
-}
-
-// PromoteLearner is an OpStep that promotes a region learner peer to normal voter.
-type PromoteLearner struct {
-	ToStore, PeerID uint64
-}
-
-// ConfVerChanged returns true if the conf version has been changed by this step
-func (pl PromoteLearner) ConfVerChanged(region *core.RegionInfo) bool {
-	if p := region.GetStoreVoter(pl.ToStore); p != nil {
-		return p.GetId() == pl.PeerID
-	}
-	return false
-}
-
-func (pl PromoteLearner) String() string {
-	return fmt.Sprintf("promote learner peer %v on store %v to voter", pl.PeerID, pl.ToStore)
-}
-
-// IsFinish checks if current step is finished.
-func (pl PromoteLearner) IsFinish(region *core.RegionInfo) bool {
-	if p := region.GetStoreVoter(pl.ToStore); p != nil {
-		if p.GetId() != pl.PeerID {
-			log.Warn("obtain unexpected peer", zap.String("expect", pl.String()), zap.Uint64("obtain-voter", p.GetId()))
-		}
-		return p.GetId() == pl.PeerID
-	}
-	return false
-}
-
-// Influence calculates the store difference that current step makes.
-func (pl PromoteLearner) Influence(opInfluence OpInfluence, region *core.RegionInfo) {}
 
 // RemovePeer is an OpStep that removes a region peer.
 type RemovePeer struct {
@@ -646,8 +571,6 @@ func (o *Operator) History() []OpHistory {
 			addPeerStores = append(addPeerStores, s.ToStore)
 		case AddLightPeer:
 			addPeerStores = append(addPeerStores, s.ToStore)
-		case AddLearner:
-			addPeerStores = append(addPeerStores, s.ToStore)
 		case AddLightLearner:
 			addPeerStores = append(addPeerStores, s.ToStore)
 		case RemovePeer:
@@ -674,23 +597,6 @@ func CreateAddPeerOperator(desc string, region *core.RegionInfo, peerID uint64, 
 	return NewOperator(desc, brief, region.GetID(), region.GetRegionEpoch(), kind|OpRegion, steps...)
 }
 
-// CreateAddLearnerOperator creates an operator that adds a new learner.
-func CreateAddLearnerOperator(desc string, region *core.RegionInfo, peerID uint64, toStoreID uint64, kind OpKind) *Operator {
-	step := AddLearner{ToStore: toStoreID, PeerID: peerID}
-	brief := fmt.Sprintf("add learner: store %v", toStoreID)
-	return NewOperator(desc, brief, region.GetID(), region.GetRegionEpoch(), kind|OpRegion, step)
-}
-
-// CreatePromoteLearnerOperator creates an operator that promotes a learner.
-func CreatePromoteLearnerOperator(desc string, region *core.RegionInfo, peer *metapb.Peer) *Operator {
-	step := PromoteLearner{
-		ToStore: peer.GetStoreId(),
-		PeerID:  peer.GetId(),
-	}
-	brief := fmt.Sprintf("promote learner: store %v", peer.GetStoreId())
-	return NewOperator(desc, brief, region.GetID(), region.GetRegionEpoch(), OpRegion, step)
-}
-
 // CreateRemovePeerOperator creates an operator that removes a peer from region.
 func CreateRemovePeerOperator(desc string, cluster Cluster, kind OpKind, region *core.RegionInfo, storeID uint64) (*Operator, error) {
 	removeKind, steps, err := removePeerSteps(cluster, region, storeID, getRegionFollowerIDs(region))
@@ -704,17 +610,7 @@ func CreateRemovePeerOperator(desc string, cluster Cluster, kind OpKind, region 
 // CreateAddPeerSteps creates an OpStep list that add a new peer.
 func CreateAddPeerSteps(newStore uint64, peerID uint64) []OpStep {
 	st := []OpStep{
-		AddLearner{ToStore: newStore, PeerID: peerID},
-		PromoteLearner{ToStore: newStore, PeerID: peerID},
-	}
-	return st
-}
-
-// CreateAddLightPeerSteps creates an OpStep list that add a new peer without considering the influence.
-func CreateAddLightPeerSteps(newStore uint64, peerID uint64) []OpStep {
-	st := []OpStep{
-		AddLightLearner{ToStore: newStore, PeerID: peerID},
-		PromoteLearner{ToStore: newStore, PeerID: peerID},
+		AddPeer{ToStore: newStore, PeerID: peerID},
 	}
 	return st
 }
@@ -1000,83 +896,6 @@ func matchPeerSteps(cluster Cluster, source *core.RegionInfo, target *core.Regio
 	}
 
 	return orderedMoveRegionSteps(cluster, source, targetStores)
-}
-
-// CreateScatterRegionOperator creates an operator that scatters the specified region.
-func CreateScatterRegionOperator(desc string, cluster Cluster, origin *core.RegionInfo, replacedPeers, targetPeers []*metapb.Peer) *Operator {
-	// Randomly pick a leader
-	i := rand.Intn(len(targetPeers))
-	targetLeaderPeer := targetPeers[i]
-	originLeaderStoreID := origin.GetLeader().GetStoreId()
-
-	originStoreIDs := origin.GetStoreIds()
-	steps := make([]OpStep, 0, len(targetPeers)*3+1)
-	// deferSteps will append to the end of the steps
-	deferSteps := make([]OpStep, 0, 5)
-	var kind OpKind
-	sameLeader := targetLeaderPeer.GetStoreId() == originLeaderStoreID
-	// No need to do anything
-	if sameLeader {
-		isSame := true
-		for _, peer := range targetPeers {
-			if _, ok := originStoreIDs[peer.GetStoreId()]; !ok {
-				isSame = false
-				break
-			}
-		}
-		if isSame {
-			return nil
-		}
-	}
-
-	// Creates the first step
-	if _, ok := originStoreIDs[targetLeaderPeer.GetStoreId()]; !ok {
-		st := CreateAddLightPeerSteps(targetLeaderPeer.GetStoreId(), targetLeaderPeer.GetId())
-		steps = append(steps, st...)
-		// Do not transfer leader to the newly added peer
-		// Ref: https://github.com/tikv/tikv/issues/3819
-		deferSteps = append(deferSteps, TransferLeader{FromStore: originLeaderStoreID, ToStore: targetLeaderPeer.GetStoreId()})
-		deferSteps = append(deferSteps, RemovePeer{FromStore: replacedPeers[i].GetStoreId()})
-		kind |= OpLeader
-		kind |= OpRegion
-	} else {
-		if !sameLeader {
-			steps = append(steps, TransferLeader{FromStore: originLeaderStoreID, ToStore: targetLeaderPeer.GetStoreId()})
-			kind |= OpLeader
-		}
-	}
-
-	// For the other steps
-	for j, peer := range targetPeers {
-		if peer.GetId() == targetLeaderPeer.GetId() {
-			continue
-		}
-		if _, ok := originStoreIDs[peer.GetStoreId()]; ok {
-			continue
-		}
-		if replacedPeers[j].GetStoreId() == originLeaderStoreID {
-			st := CreateAddLightPeerSteps(peer.GetStoreId(), peer.GetId())
-			st = append(st, RemovePeer{FromStore: replacedPeers[j].GetStoreId()})
-			deferSteps = append(deferSteps, st...)
-			kind |= OpRegion | OpLeader
-			continue
-		}
-		st := CreateAddLightPeerSteps(peer.GetStoreId(), peer.GetId())
-		steps = append(steps, st...)
-		steps = append(steps, RemovePeer{FromStore: replacedPeers[j].GetStoreId()})
-		kind |= OpRegion
-	}
-
-	steps = append(steps, deferSteps...)
-
-	targetStores := make([]uint64, len(targetPeers))
-	for i := range targetPeers {
-		targetStores[i] = targetPeers[i].GetStoreId()
-	}
-	sort.Sort(u64Slice(targetStores))
-	brief := fmt.Sprintf("scatter region: stores %v to %v", u64Set(origin.GetStoreIds()), targetStores)
-	op := NewOperator(desc, brief, origin.GetID(), origin.GetRegionEpoch(), kind, steps...)
-	return op
 }
 
 // CheckOperatorValid checks if the operator is valid.

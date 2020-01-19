@@ -15,7 +15,6 @@ import (
 	"github.com/coocood/badger/table"
 
 	"github.com/ngaut/log"
-	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
@@ -45,6 +44,15 @@ func (e applySnapAbortError) Error() string {
 var (
 	errAbort = applySnapAbortError("abort")
 )
+
+type SnapKeyWithSending struct {
+	SnapKey   SnapKey
+	IsSending bool
+}
+
+type MsgGCSnap struct {
+	Snaps []SnapKeyWithSending
+}
 
 type SnapKey struct {
 	RegionID uint64
@@ -79,14 +87,14 @@ type SnapStatistics struct {
 }
 
 type ApplyOptions struct {
-	db     *badger.DB
+	DB     *badger.DB
 	Region *metapb.Region
 	Abort  *uint32
 }
 
 func newApplyOptions(db *badger.DB, region *metapb.Region, abort *uint32) *ApplyOptions {
 	return &ApplyOptions{
-		db:     db,
+		DB:     db,
 		Region: region,
 		Abort:  abort,
 	}
@@ -102,7 +110,7 @@ func newApplyOptions(db *badger.DB, region *metapb.Region, abort *uint32) *Apply
 type Snapshot interface {
 	io.Reader
 	io.Writer
-	Build(dbBundle *regionSnapshot, region *metapb.Region, snapData *rspb.RaftSnapshotData, stat *SnapStatistics, deleter SnapshotDeleter) error
+	Build(dbSnap *badger.Txn, region *metapb.Region, snapData *rspb.RaftSnapshotData, stat *SnapStatistics, deleter SnapshotDeleter) error
 	Path() string
 	Exists() bool
 	Delete()
@@ -203,7 +211,6 @@ type CFFile struct {
 	CF          string
 	Path        string
 	TmpPath     string
-	ClonePath   string
 	SstWriter   *table.Builder
 	File        *os.File
 	KVCount     int
@@ -257,12 +264,10 @@ func NewSnap(dir string, key SnapKey, sizeTrack *int64, isSending, toBuild bool,
 		fileName := fmt.Sprintf("%s_%s%s", prefix, cf, sstFileSuffix)
 		path := filepath.Join(dir, fileName)
 		tmpPath := path + tmpFileSuffix
-		clonePath := path + cloneFileSuffix
 		cfFile := &CFFile{
-			CF:        cf,
-			Path:      path,
-			TmpPath:   tmpPath,
-			ClonePath: clonePath,
+			CF:      cf,
+			Path:    path,
+			TmpPath: tmpPath,
 		}
 		cfFiles = append(cfFiles, cfFile)
 	}
@@ -385,7 +390,7 @@ func (s *Snap) initForBuilding() error {
 		if err != nil {
 			return err
 		}
-		cfFile.SstWriter = table.NewExternalTableBuilder(file, nil, badger.DefaultOptions.TableBuilderOptions, config.ParseCompression(config.GetGlobalConf().Engine.IngestCompression))
+		cfFile.SstWriter = table.NewExternalTableBuilder(file, nil, badger.DefaultOptions.TableBuilderOptions)
 	}
 	return nil
 }
@@ -524,7 +529,7 @@ func (s *Snap) saveMetaFile() error {
 	return nil
 }
 
-func (s *Snap) Build(dbSnap *regionSnapshot, region *metapb.Region, snapData *rspb.RaftSnapshotData, stat *SnapStatistics, deleter SnapshotDeleter) error {
+func (s *Snap) Build(dbSnap *badger.Txn, region *metapb.Region, snapData *rspb.RaftSnapshotData, stat *SnapStatistics, deleter SnapshotDeleter) error {
 	if s.Exists() {
 		err := s.validate()
 		if err == nil {
@@ -587,12 +592,8 @@ func (s *Snap) Exists() bool {
 func (s *Snap) Delete() {
 	log.Debugf("deleting %s", s.Path())
 	for _, cfFile := range s.CFFiles {
-		_, err := util.DeleteFileIfExists(cfFile.ClonePath)
-		if err != nil {
-			panic(err)
-		}
 		if s.holdTmpFiles {
-			_, err = util.DeleteFileIfExists(cfFile.TmpPath)
+			_, err := util.DeleteFileIfExists(cfFile.TmpPath)
 			if err != nil {
 				panic(err)
 			}
@@ -686,17 +687,21 @@ func (s *Snap) Apply(opts ApplyOptions) error {
 		return err
 	}
 
-	compression := config.ParseCompression(config.GetGlobalConf().Engine.IngestCompression)
-	externalFiles := make([]badger.ExternalTableSpec, len(s.CFFiles))
-	for i, cfFile := range s.CFFiles {
+	externalFiles := make([]*os.File, 0, len(s.CFFiles))
+	for _, cfFile := range s.CFFiles {
 		if cfFile.Size == 0 {
 			// Skip empty cf file
 			continue
 		}
-		externalFiles[i] = badger.ExternalTableSpec{Compression: compression, Filename: cfFile.File.Name()}
+		file, err := os.Open(cfFile.Path)
+		if err != nil {
+			log.Errorf("open ingest file %s failed: %s", cfFile.Path, err)
+			return err
+		}
+		externalFiles = append(externalFiles, file)
 	}
 
-	n, err := opts.db.IngestExternalFiles(externalFiles)
+	n, err := opts.DB.IngestExternalFiles(externalFiles)
 	if err != nil {
 		log.Errorf("ingest sst failed (first %d files succeeded): %s", n, err)
 		return err

@@ -410,7 +410,6 @@ func (m *Region) GetPeers() []*Peer {
 type Peer struct {
 	Id                   uint64   `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
 	StoreId              uint64   `protobuf:"varint,2,opt,name=store_id,json=storeId,proto3" json:"store_id,omitempty"`
-	IsLearner            bool     `protobuf:"varint,3,opt,name=is_learner,json=isLearner,proto3" json:"is_learner,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
@@ -461,13 +460,6 @@ func (m *Peer) GetStoreId() uint64 {
 		return m.StoreId
 	}
 	return 0
-}
-
-func (m *Peer) GetIsLearner() bool {
-	if m != nil {
-		return m.IsLearner
-	}
-	return false
 }
 
 func init() {
@@ -732,16 +724,6 @@ func (m *Peer) MarshalTo(dAtA []byte) (int, error) {
 		i++
 		i = encodeVarintMetapb(dAtA, i, uint64(m.StoreId))
 	}
-	if m.IsLearner {
-		dAtA[i] = 0x18
-		i++
-		if m.IsLearner {
-			dAtA[i] = 1
-		} else {
-			dAtA[i] = 0
-		}
-		i++
-	}
 	if m.XXX_unrecognized != nil {
 		i += copy(dAtA[i:], m.XXX_unrecognized)
 	}
@@ -883,9 +865,6 @@ func (m *Peer) Size() (n int) {
 	}
 	if m.StoreId != 0 {
 		n += 1 + sovMetapb(uint64(m.StoreId))
-	}
-	if m.IsLearner {
-		n += 2
 	}
 	if m.XXX_unrecognized != nil {
 		n += len(m.XXX_unrecognized)
@@ -1721,26 +1700,6 @@ func (m *Peer) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 3:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field IsLearner", wireType)
-			}
-			var v int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMetapb
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				v |= (int(b) & 0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			m.IsLearner = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := skipMetapb(dAtA[iNdEx:])

@@ -1,10 +1,11 @@
-package raftstore
+package inner_server
 
 import (
 	"context"
 	"sync"
 
 	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 	"google.golang.org/grpc"
@@ -18,7 +19,7 @@ type raftConn struct {
 	cancel   context.CancelFunc
 }
 
-func newRaftConn(addr string, cfg *Config) (*raftConn, error) {
+func newRaftConn(addr string, cfg *config.Config) (*raftConn, error) {
 	cc, err := grpc.Dial(addr, grpc.WithInsecure(),
 		grpc.WithInitialWindowSize(int32(cfg.GrpcInitialWindowSize)),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
@@ -58,13 +59,13 @@ type connKey struct {
 }
 
 type RaftClient struct {
-	config *Config
+	config *config.Config
 	sync.RWMutex
 	conns map[connKey]*raftConn
 	addrs map[uint64]string
 }
 
-func newRaftClient(config *Config) *RaftClient {
+func NewRaftClient(config *config.Config) *RaftClient {
 	return &RaftClient{
 		config: config,
 		conns:  make(map[connKey]*raftConn),

@@ -31,7 +31,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/server/id"
 	syncer "github.com/pingcap-incubator/tinykv/scheduler/server/region_syncer"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule"
-	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/checker"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/statistics"
 	"github.com/pingcap/errcode"
 	"github.com/pingcap/log"
@@ -1175,13 +1174,6 @@ func (c *RaftCluster) putConfig(meta *metapb.Cluster) error {
 		return errors.Errorf("invalid cluster %v, mismatch cluster id %d", meta, c.clusterID)
 	}
 	return c.putMetaLocked(proto.Clone(meta).(*metapb.Cluster))
-}
-
-// GetMergeChecker returns merge checker.
-func (c *RaftCluster) GetMergeChecker() *checker.MergeChecker {
-	c.RLock()
-	defer c.RUnlock()
-	return c.coordinator.checkers.GetMergeChecker()
 }
 
 // GetOpt returns the scheduling options.

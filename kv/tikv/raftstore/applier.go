@@ -9,6 +9,8 @@ import (
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
@@ -28,7 +30,7 @@ const (
 type pendingCmd struct {
 	index uint64
 	term  uint64
-	cb    *Callback
+	cb    *message.Callback
 }
 
 type pendingCmdQueue struct {
@@ -128,20 +130,20 @@ type applyExecContext struct {
 
 type applyCallback struct {
 	region *metapb.Region
-	cbs    []*Callback
+	cbs    []*message.Callback
 }
 
 func (c *applyCallback) invokeAll(doneApplyTime time.Time) {
 	for _, cb := range c.cbs {
 		if cb != nil {
-			cb.wg.Done()
+			cb.Wg.Done()
 		}
 	}
 }
 
-func (c *applyCallback) push(cb *Callback, resp *raft_cmdpb.RaftCmdResponse) {
+func (c *applyCallback) push(cb *message.Callback, resp *raft_cmdpb.RaftCmdResponse) {
 	if cb != nil {
-		cb.resp = resp
+		cb.Resp = resp
 	}
 	c.cbs = append(c.cbs, cb)
 }
@@ -150,7 +152,7 @@ type proposal struct {
 	isConfChange bool
 	index        uint64
 	term         uint64
-	cb           *Callback
+	cb           *message.Callback
 }
 
 type regionProposal struct {
@@ -185,44 +187,25 @@ func newRegistration(peer *Peer) *registration {
 	}
 }
 
-type GenSnapTask struct {
-	regionID     uint64
-	snapNotifier chan *eraftpb.Snapshot
-}
-
-func newGenSnapTask(regionID uint64, notifier chan *eraftpb.Snapshot) *GenSnapTask {
-	return &GenSnapTask{
-		regionID:     regionID,
-		snapNotifier: notifier,
-	}
-}
-
-func (t *GenSnapTask) generateAndScheduleSnapshot(regionSched chan<- task) {
-	regionSched <- task{
-		tp: taskTypeRegionGen,
-		data: &regionTask{
-			regionId: t.regionID,
-			notifier: t.snapNotifier,
-		},
-	}
-}
-
 type applyMsgs struct {
-	msgs []Msg
+	msgs []message.Msg
 }
 
-func (r *applyMsgs) appendMsg(regionID uint64, msg Msg) {
+func (r *applyMsgs) appendMsg(regionID uint64, msg message.Msg) {
 	msg.RegionID = regionID
 	r.msgs = append(r.msgs, msg)
 	return
 }
 
+func newApplyMsg(apply *apply) message.Msg {
+	return message.Msg{Type: message.MsgTypeApply, Data: apply}
+}
+
 type applyContext struct {
 	tag              string
 	timer            *time.Time
-	regionScheduler  chan<- task
-	notifier         chan<- Msg
-	engines          *Engines
+	notifier         chan<- message.Msg
+	engines          *engine_util.Engines
 	txn              *badger.Txn
 	cbs              []applyCallback
 	applyTaskResList []*applyTaskRes
@@ -235,14 +218,13 @@ type applyContext struct {
 	syncLogHint bool
 }
 
-func newApplyContext(tag string, regionScheduler chan<- task, engines *Engines,
-	notifier chan<- Msg, cfg *Config) *applyContext {
+func newApplyContext(tag string, engines *engine_util.Engines,
+	notifier chan<- message.Msg, cfg *config.Config) *applyContext {
 	return &applyContext{
-		tag:             tag,
-		regionScheduler: regionScheduler,
-		engines:         engines,
-		notifier:        notifier,
-		wb:              new(engine_util.WriteBatch),
+		tag:      tag,
+		engines:  engines,
+		notifier: notifier,
+		wb:       new(engine_util.WriteBatch),
 	}
 }
 
@@ -281,7 +263,7 @@ func (ac *applyContext) commitOpt(d *applier, persistent bool) {
 
 /// Writes all the changes into badger.
 func (ac *applyContext) writeToDB() {
-	if err := ac.wb.WriteToKV(ac.engines.kv); err != nil {
+	if err := ac.wb.WriteToKV(ac.engines.Kv); err != nil {
 		panic(err)
 	}
 	ac.wb.Reset()
@@ -310,7 +292,7 @@ func (ac *applyContext) finishFor(d *applier, results []execResult) {
 func (ac *applyContext) getTxn() *badger.Txn {
 	if ac.txn == nil {
 		// TODO: check when discard this txn
-		ac.txn = ac.engines.kv.NewTransaction(false)
+		ac.txn = ac.engines.Kv.NewTransaction(false)
 	}
 	return ac.txn
 }
@@ -333,7 +315,7 @@ func (ac *applyContext) flush() {
 	ac.writeToDB()
 	if len(ac.applyTaskResList) > 0 {
 		for _, res := range ac.applyTaskResList {
-			ac.notifier <- NewPeerMsg(MsgTypeApplyRes, res.regionID, res)
+			ac.notifier <- message.NewPeerMsg(message.MsgTypeApplyRes, res.regionID, res)
 		}
 		ac.applyTaskResList = ac.applyTaskResList[:0]
 	}
@@ -346,7 +328,7 @@ func notifyRegionRemoved(regionID, peerID uint64, cmd pendingCmd) {
 	notifyReqRegionRemoved(regionID, cmd.cb)
 }
 
-func notifyReqRegionRemoved(regionID uint64, cb *Callback) {
+func notifyReqRegionRemoved(regionID uint64, cb *message.Callback) {
 	cb.Done(ErrRespRegionNotFound(regionID))
 }
 
@@ -357,7 +339,7 @@ func notifyStaleCommand(regionID, peerID, term uint64, cmd pendingCmd) {
 	notifyStaleReq(term, cmd.cb)
 }
 
-func notifyStaleReq(term uint64, cb *Callback) {
+func notifyStaleReq(term uint64, cb *message.Callback) {
 	cb.Done(ErrRespStaleCommand(term))
 }
 
@@ -372,7 +354,7 @@ func notifyStaleReq(term uint64, cb *Callback) {
 ///
 /// The raft worker receives all the apply tasks of different Regions
 /// located at this store, and it will get the corresponding applier to
-/// handle the apply task to make the code logic more clear.
+/// handle the apply worker.Task to make the code logic more clear.
 type applier struct {
 	id     uint64
 	term   uint64
@@ -477,7 +459,7 @@ func (a *applier) handleRaftEntryNormal(aCtx *applyContext, entry *eraftpb.Entry
 		}
 		// apparently, all the callbacks whose term is less than entry's term are stale.
 		cb := &aCtx.cbs[len(aCtx.cbs)-1]
-		cmd.cb.resp = ErrRespStaleCommand(term)
+		cmd.cb.Resp = ErrRespStaleCommand(term)
 		cb.cbs = append(cb.cbs, cmd.cb)
 	}
 	return applyResult{}
@@ -508,7 +490,7 @@ func (a *applier) handleRaftEntryConfChange(aCtx *applyContext, entry *eraftpb.E
 	}
 }
 
-func (a *applier) findCallback(index, term uint64, isConfChange bool) *Callback {
+func (a *applier) findCallback(index, term uint64, isConfChange bool) *message.Callback {
 	regionID := a.region.Id
 	peerID := a.id
 	if isConfChange {
@@ -728,22 +710,14 @@ func (a *applier) execChangePeer(aCtx *applyContext, req *raft_cmdpb.AdminReques
 
 	switch changeType {
 	case eraftpb.ConfChangeType_AddNode:
-		var exist bool
 		if p := findPeer(region, storeID); p != nil {
-			exist = true
-			if !p.IsLearner || p.Id != peer.Id {
-				errMsg := fmt.Sprintf("%s can't add duplicated peer, peer %s, region %s",
-					a.tag, p, a.region)
-				log.Error(errMsg)
-				err = errors.New(errMsg)
-				return
-			}
-			p.IsLearner = false
+			errMsg := fmt.Sprintf("%s can't add duplicated peer, peer %s, region %s",
+				a.tag, p, a.region)
+			log.Error(errMsg)
+			err = errors.New(errMsg)
+			return
 		}
-		if !exist {
-			// TODO: Do we allow adding peer in same node?
-			region.Peers = append(region.Peers, peer)
-		}
+		region.Peers = append(region.Peers, peer)
 		log.Infof("%s add peer successfully, peer %s, region %s", a.tag, peer, a.region)
 	case eraftpb.ConfChangeType_RemoveNode:
 		if p := removePeer(region, storeID); p != nil {
@@ -768,16 +742,6 @@ func (a *applier) execChangePeer(aCtx *applyContext, req *raft_cmdpb.AdminReques
 			return
 		}
 		log.Infof("%s remove peer successfully, peer %s, region %s", a.tag, peer, a.region)
-	case eraftpb.ConfChangeType_AddLearnerNode:
-		if findPeer(region, storeID) != nil {
-			errMsg := fmt.Sprintf("%s can't add duplicated learner, peer %s, region %s",
-				a.tag, peer, a.region)
-			log.Error(errMsg)
-			err = errors.New(errMsg)
-			return
-		}
-		region.Peers = append(region.Peers, peer)
-		log.Infof("%s add learner successfully, peer %s, region %s", a.tag, peer, a.region)
 	}
 	state := rspb.PeerState_Normal
 	if a.pendingRemove {
@@ -851,9 +815,8 @@ func (a *applier) execBatchSplit(aCtx *applyContext, req *raft_cmdpb.AdminReques
 		newRegion.Peers = make([]*metapb.Peer, len(derived.Peers))
 		for j := range newRegion.Peers {
 			newRegion.Peers[j] = &metapb.Peer{
-				Id:        request.NewPeerIds[j],
-				StoreId:   derived.Peers[j].StoreId,
-				IsLearner: derived.Peers[j].IsLearner,
+				Id:      request.NewPeerIds[j],
+				StoreId: derived.Peers[j].StoreId,
 			}
 		}
 		WritePeerState(aCtx.wb, newRegion, rspb.PeerState_Normal)
@@ -988,38 +951,22 @@ func (a *applier) destroy(aCtx *applyContext) {
 func (a *applier) handleDestroy(aCtx *applyContext, regionID uint64) {
 	if !a.stopped {
 		a.destroy(aCtx)
-		aCtx.notifier <- NewPeerMsg(MsgTypeApplyRes, a.region.Id, &applyTaskRes{
+		aCtx.notifier <- message.NewPeerMsg(message.MsgTypeApplyRes, a.region.Id, &applyTaskRes{
 			regionID:      a.region.Id,
 			destroyPeerID: a.id,
 		})
 	}
 }
 
-func (a *applier) handleGenSnapshot(aCtx *applyContext, snapTask *GenSnapTask) {
-	if a.pendingRemove || a.stopped {
-		return
-	}
-	regionID := a.region.GetId()
-	for _, res := range aCtx.applyTaskResList {
-		if res.regionID == regionID {
-			aCtx.flush()
-			break
-		}
-	}
-	snapTask.generateAndScheduleSnapshot(aCtx.regionScheduler)
-}
-
-func (a *applier) handleTask(aCtx *applyContext, msg Msg) {
+func (a *applier) handleTask(aCtx *applyContext, msg message.Msg) {
 	switch msg.Type {
-	case MsgTypeApply:
+	case message.MsgTypeApply:
 		a.handleApply(aCtx, msg.Data.(*apply))
-	case MsgTypeApplyProposal:
+	case message.MsgTypeApplyProposal:
 		a.handleProposal(msg.Data.(*regionProposal))
-	case MsgTypeApplyRegistration:
+	case message.MsgTypeApplyRegistration:
 		a.handleRegistration(msg.Data.(*registration))
-	case MsgTypeApplyDestroy:
+	case message.MsgTypeApplyDestroy:
 		a.handleDestroy(aCtx, msg.RegionID)
-	case MsgTypeApplySnapshot:
-		a.handleGenSnapshot(aCtx, msg.Data.(*GenSnapTask))
 	}
 }

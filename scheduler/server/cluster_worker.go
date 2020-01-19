@@ -19,9 +19,9 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
-	"github.com/pingcap/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule"
+	"github.com/pingcap/log"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )
@@ -62,11 +62,6 @@ func (c *RaftCluster) handleAskSplit(request *pdpb.AskSplitRequest) (*pdpb.AskSp
 		if peerIDs[i], err = c.s.idAllocator.Alloc(); err != nil {
 			return nil, err
 		}
-	}
-
-	if c.IsFeatureSupported(RegionMerge) {
-		// Disable merge for the 2 regions in a period of time.
-		c.GetMergeChecker().RecordRegionSplit([]uint64{reqRegion.GetId(), newRegionID})
 	}
 
 	split := &pdpb.AskSplitResponse{
@@ -124,10 +119,6 @@ func (c *RaftCluster) handleAskBatchSplit(request *pdpb.AskBatchSplitRequest) (*
 	}
 
 	recordRegions = append(recordRegions, reqRegion.GetId())
-	if c.IsFeatureSupported(RegionMerge) {
-		// Disable merge the regions in a period of time.
-		c.GetMergeChecker().RecordRegionSplit(recordRegions)
-	}
 
 	resp := &pdpb.AskBatchSplitResponse{Ids: splitIDs}
 

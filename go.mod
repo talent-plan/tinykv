@@ -3,7 +3,7 @@ module github.com/pingcap-incubator/tinykv
 require (
 	github.com/BurntSushi/toml v0.3.1
 	github.com/chzyer/readline v0.0.0-20171208011716-f6d7a1f6fbf3
-	github.com/coocood/badger v1.5.1-0.20191224120441-29dd586ca27d
+	github.com/coocood/badger v1.5.1-0.20191220113928-eaffd0ec7a8c
 	github.com/coreos/go-semver v0.2.0
 	github.com/coreos/pkg v0.0.0-20180928190104-399ea9e2e55f
 	github.com/cznic/mathutil v0.0.0-20181122101859-297441e03548
@@ -44,6 +44,7 @@ require (
 	github.com/unrolled/render v0.0.0-20180914162206-b9786414de4d
 	github.com/urfave/negroni v0.3.0
 	go.etcd.io/etcd v0.0.0-20190320044326-77d4b742cdbf
+	go.uber.org/atomic v1.3.2
 	go.uber.org/zap v1.9.1
 	golang.org/x/net v0.0.0-20190620200207-3b0461eec859
 	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4

@@ -3,6 +3,9 @@ package raftstore
 import (
 	"sync"
 	"time"
+
+	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 )
 
 type ticker struct {
@@ -16,7 +19,7 @@ type tickSchedule struct {
 	interval int64
 }
 
-func newTicker(regionID uint64, cfg *Config) *ticker {
+func newTicker(regionID uint64, cfg *config.Config) *ticker {
 	baseInterval := cfg.RaftBaseTickInterval
 	t := &ticker{
 		regionID:  regionID,
@@ -26,11 +29,10 @@ func newTicker(regionID uint64, cfg *Config) *ticker {
 	t.schedules[int(PeerTickRaftLogGC)].interval = int64(cfg.RaftLogGCTickInterval / baseInterval)
 	t.schedules[int(PeerTickSplitRegionCheck)].interval = int64(cfg.SplitRegionCheckTickInterval / baseInterval)
 	t.schedules[int(PeerTickPdHeartbeat)].interval = int64(cfg.PdHeartbeatTickInterval / baseInterval)
-	t.schedules[int(PeerTickPeerStaleState)].interval = int64(cfg.PeerStaleStateCheckInterval / baseInterval)
 	return t
 }
 
-func newStoreTicker(cfg *Config) *ticker {
+func newStoreTicker(cfg *config.Config) *ticker {
 	baseInterval := cfg.RaftBaseTickInterval
 	t := &ticker{
 		schedules: make([]tickSchedule, 4),
@@ -102,7 +104,7 @@ func (r *tickDriver) run(closeCh chan struct{}, wg *sync.WaitGroup) {
 			return
 		case <-timer:
 			for regionID, _ := range r.regions {
-				if r.router.send(regionID, NewPeerMsg(MsgTypeTick, regionID, nil)) != nil {
+				if r.router.send(regionID, message.NewPeerMsg(message.MsgTypeTick, regionID, nil)) != nil {
 					delete(r.regions, regionID)
 				}
 			}
@@ -117,7 +119,7 @@ func (r *tickDriver) tickStore() {
 	r.storeTicker.tickClock()
 	for i := range r.storeTicker.schedules {
 		if r.storeTicker.isOnStoreTick(StoreTick(i)) {
-			r.router.sendStore(NewMsg(MsgTypeStoreTick, StoreTick(i)))
+			r.router.sendStore(message.NewMsg(message.MsgTypeStoreTick, StoreTick(i)))
 		}
 	}
 }

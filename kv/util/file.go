@@ -1,10 +1,11 @@
 package util
 
 import (
-	"github.com/pingcap/errors"
 	"hash/crc32"
 	"io"
 	"os"
+
+	"github.com/pingcap/errors"
 )
 
 func GetFileSize(path string) (uint64, error) {

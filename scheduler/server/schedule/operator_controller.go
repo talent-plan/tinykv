@@ -147,7 +147,7 @@ func (oc *OperatorController) Dispatch(region *core.RegionInfo, source string) {
 func (oc *OperatorController) getNextPushOperatorTime(step operator.OpStep, now time.Time) time.Time {
 	nextTime := slowNotifyInterval
 	switch step.(type) {
-	case operator.TransferLeader, operator.PromoteLearner:
+	case operator.TransferLeader:
 		nextTime = fastNotifyInterval
 	}
 	return now.Add(nextTime)
@@ -456,65 +456,11 @@ func (oc *OperatorController) SendScheduleCommand(region *core.RegionInfo, step 
 			},
 		}
 		oc.hbStreams.SendMsg(region, cmd)
-	case operator.AddLearner:
-		if region.GetStorePeer(st.ToStore) != nil {
-			// The newly added peer is pending.
-			return
-		}
-		cmd := &pdpb.RegionHeartbeatResponse{
-			ChangePeer: &pdpb.ChangePeer{
-				ChangeType: eraftpb.ConfChangeType_AddLearnerNode,
-				Peer: &metapb.Peer{
-					Id:        st.PeerID,
-					StoreId:   st.ToStore,
-					IsLearner: true,
-				},
-			},
-		}
-		oc.hbStreams.SendMsg(region, cmd)
-	case operator.AddLightLearner:
-		if region.GetStorePeer(st.ToStore) != nil {
-			// The newly added peer is pending.
-			return
-		}
-		cmd := &pdpb.RegionHeartbeatResponse{
-			ChangePeer: &pdpb.ChangePeer{
-				ChangeType: eraftpb.ConfChangeType_AddLearnerNode,
-				Peer: &metapb.Peer{
-					Id:        st.PeerID,
-					StoreId:   st.ToStore,
-					IsLearner: true,
-				},
-			},
-		}
-		oc.hbStreams.SendMsg(region, cmd)
-	case operator.PromoteLearner:
-		cmd := &pdpb.RegionHeartbeatResponse{
-			ChangePeer: &pdpb.ChangePeer{
-				// reuse AddNode type
-				ChangeType: eraftpb.ConfChangeType_AddNode,
-				Peer: &metapb.Peer{
-					Id:      st.PeerID,
-					StoreId: st.ToStore,
-				},
-			},
-		}
-		oc.hbStreams.SendMsg(region, cmd)
 	case operator.RemovePeer:
 		cmd := &pdpb.RegionHeartbeatResponse{
 			ChangePeer: &pdpb.ChangePeer{
 				ChangeType: eraftpb.ConfChangeType_RemoveNode,
 				Peer:       region.GetStorePeer(st.FromStore),
-			},
-		}
-		oc.hbStreams.SendMsg(region, cmd)
-	case operator.MergeRegion:
-		if st.IsPassive {
-			return
-		}
-		cmd := &pdpb.RegionHeartbeatResponse{
-			Merge: &pdpb.Merge{
-				Target: st.ToRegion,
 			},
 		}
 		oc.hbStreams.SendMsg(region, cmd)

@@ -1,10 +1,11 @@
-package raftstore
+package inner_server
 
 import (
 	"context"
 	"time"
 
 	"github.com/pingcap-incubator/tinykv/kv/pd"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap/errors"
 )
@@ -21,6 +22,11 @@ type resolverRunner struct {
 	storeAddrs map[uint64]storeAddr
 }
 
+type resolveAddrTask struct {
+	storeID  uint64
+	callback func(addr string, err error)
+}
+
 func newResolverRunner(pdClient pd.Client) *resolverRunner {
 	return &resolverRunner{
 		pdClient:   pdClient,
@@ -28,8 +34,8 @@ func newResolverRunner(pdClient pd.Client) *resolverRunner {
 	}
 }
 
-func (r *resolverRunner) handle(t task) {
-	data := t.data.(resolveAddrTask)
+func (r *resolverRunner) Handle(t worker.Task) {
+	data := t.Data.(resolveAddrTask)
 	data.callback(r.getAddr(data.storeID))
 }
 

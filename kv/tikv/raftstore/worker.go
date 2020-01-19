@@ -1,11 +1,8 @@
 package raftstore
 
 import (
-	"bytes"
-	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -13,49 +10,16 @@ import (
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
-	"github.com/pingcap-incubator/tinykv/kv/lockstore"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/util/codec"
 )
-
-type taskType int64
-
-const (
-	taskTypeStop       taskType = 0
-	taskTypeRaftLogGC  taskType = 1
-	taskTypeSplitCheck taskType = 2
-
-	taskTypePDAskBatchSplit    taskType = 102
-	taskTypePDHeartbeat        taskType = 103
-	taskTypePDStoreHeartbeat   taskType = 104
-	taskTypePDReportBatchSplit taskType = 105
-	taskTypePDValidatePeer     taskType = 106
-	taskTypePDReadStats        taskType = 107
-	taskTypePDDestroyPeer      taskType = 108
-
-	taskTypeRegionGen   taskType = 401
-	taskTypeRegionApply taskType = 402
-	/// Destroy data between [start_key, end_key).
-	///
-	/// The deletion may and may not succeed.
-	taskTypeRegionDestroy taskType = 403
-
-	taskTypeResolveAddr taskType = 501
-
-	taskTypeSnapSend taskType = 601
-	taskTypeSnapRecv taskType = 602
-)
-
-type task struct {
-	tp   taskType
-	data interface{}
-}
 
 type regionTask struct {
 	regionId uint64
@@ -80,7 +44,7 @@ type pdAskBatchSplitTask struct {
 	region    *metapb.Region
 	splitKeys [][]byte
 	peer      *metapb.Peer
-	callback  *Callback
+	callback  *message.Callback
 }
 
 type pdRegionHeartbeatTask struct {
@@ -104,111 +68,30 @@ type pdReportBatchSplitTask struct {
 	regions []*metapb.Region
 }
 
-type pdValidatePeerTask struct {
-	region *metapb.Region
-	peer   *metapb.Peer
-}
-
-type readStats map[uint64]flowStats
-
 type pdDestroyPeerTask struct {
 	regionID uint64
-}
-
-type flowStats struct {
-	readBytes uint64
-	readKeys  uint64
-}
-
-type compactTask struct {
-	keyRange keyRange
-}
-
-type resolveAddrTask struct {
-	storeID  uint64
-	callback func(addr string, err error)
-}
-
-type sendSnapTask struct {
-	addr     string
-	msg      *raft_serverpb.RaftMessage
-	callback func(error)
-}
-
-type recvSnapTask struct {
-	stream   tikvpb.Tikv_SnapshotServer
-	callback func(error)
-}
-
-type worker struct {
-	name     string
-	sender   chan<- task
-	receiver <-chan task
-	closeCh  chan struct{}
-	wg       *sync.WaitGroup
-}
-
-type taskHandler interface {
-	handle(t task)
-}
-
-type starter interface {
-	start()
-}
-
-func (w *worker) start(handler taskHandler) {
-	w.wg.Add(1)
-	go func() {
-		defer w.wg.Done()
-		if s, ok := handler.(starter); ok {
-			s.start()
-		}
-		for {
-			task := <-w.receiver
-			if task.tp == taskTypeStop {
-				return
-			}
-			handler.handle(task)
-		}
-	}()
-}
-
-func (w *worker) stop() {
-	w.sender <- task{tp: taskTypeStop}
-}
-
-const defaultWorkerCapacity = 128
-
-func newWorker(name string, wg *sync.WaitGroup) *worker {
-	ch := make(chan task, defaultWorkerCapacity)
-	return &worker{
-		sender:   (chan<- task)(ch),
-		receiver: (<-chan task)(ch),
-		name:     name,
-		wg:       wg,
-	}
 }
 
 type splitCheckHandler struct {
 	engine  *badger.DB
 	router  *router
-	config  *splitCheckConfig
+	config  *config.SplitCheckConfig
 	checker *sizeSplitChecker
 }
 
-func newSplitCheckHandler(engine *badger.DB, router *router, config *splitCheckConfig) *splitCheckHandler {
+func newSplitCheckHandler(engine *badger.DB, router *router, config *config.SplitCheckConfig) *splitCheckHandler {
 	runner := &splitCheckHandler{
 		engine:  engine,
 		router:  router,
 		config:  config,
-		checker: newSizeSplitChecker(config.regionMaxSize, config.regionSplitSize, config.batchSplitLimit),
+		checker: newSizeSplitChecker(config.RegionMaxSize, config.RegionSplitSize, config.BatchSplitLimit),
 	}
 	return runner
 }
 
 /// run checks a region with split checkers to produce split keys and generates split admin command.
-func (r *splitCheckHandler) handle(t task) {
-	spCheckTask := t.data.(*splitCheckTask)
+func (r *splitCheckHandler) Handle(t worker.Task) {
+	spCheckTask := t.Data.(*splitCheckTask)
 	region := spCheckTask.region
 	regionId := region.Id
 	_, startKey, err := codec.DecodeBytes(region.StartKey, nil)
@@ -221,7 +104,7 @@ func (r *splitCheckHandler) handle(t task) {
 		log.Errorf("failed to decode region key %x, err:%v", region.EndKey, err)
 		return
 	}
-	log.Debugf("executing split check task: [regionId: %d, startKey: %s, endKey: %s]", regionId,
+	log.Debugf("executing split check worker.Task: [regionId: %d, startKey: %s, endKey: %s]", regionId,
 		hex.EncodeToString(startKey), hex.EncodeToString(endKey))
 	keys := r.splitCheck(startKey, endKey)
 	if len(keys) != 0 {
@@ -229,13 +112,12 @@ func (r *splitCheckHandler) handle(t task) {
 		for i, k := range keys {
 			keys[i] = codec.EncodeBytes(nil, k)
 		}
-		msg := Msg{
-			Type:     MsgTypeSplitRegion,
+		msg := message.Msg{
+			Type:     message.MsgTypeSplitRegion,
 			RegionID: regionId,
 			Data: &MsgSplitRegion{
 				RegionEpoch: regionEpoch,
 				SplitKeys:   keys,
-				Callback:    NewCallback(),
 			},
 		}
 		err = r.router.send(regionId, msg)
@@ -322,156 +204,29 @@ func (checker *sizeSplitChecker) getSplitKeys() [][]byte {
 	return keys
 }
 
-type pendingDeleteRanges struct {
-	ranges *lockstore.MemStore
-}
-
-func (pendDelRanges *pendingDeleteRanges) insert(regionId uint64, startKey, endKey []byte, timeout time.Time) {
-	if len(pendDelRanges.findOverlapRanges(startKey, endKey)) != 0 {
-		panic(fmt.Sprintf("[region %d] register deleting data in [%v, %v) failed due to overlap", regionId, startKey, endKey))
-	}
-	peerInfo := newStalePeerInfo(regionId, endKey, timeout)
-	pendDelRanges.ranges.Insert(startKey, peerInfo.data)
-}
-
-// remove removes and returns the peer info with the `start_key`.
-func (pendDelRanges *pendingDeleteRanges) remove(startKey []byte) *stalePeerInfo {
-	value := pendDelRanges.ranges.Get(startKey, nil)
-	if value != nil {
-		pendDelRanges.ranges.Delete(startKey)
-		return &stalePeerInfo{data: safeCopy(value)}
-	}
-	return nil
-}
-
-// timeoutRanges returns all timeout ranges info.
-func (pendDelRanges *pendingDeleteRanges) timeoutRanges(now time.Time) (ranges []delRangeHolder) {
-	ite := pendDelRanges.ranges.NewIterator()
-	for ite.Next(); ite.Valid(); ite.Next() {
-		startKey := safeCopy(ite.Key())
-		peerInfo := stalePeerInfo{data: safeCopy(ite.Value())}
-		if peerInfo.timeout().Before(now) {
-			ranges = append(ranges, delRangeHolder{
-				startKey: startKey,
-				endKey:   peerInfo.endKey(),
-				regionId: peerInfo.regionId(),
-			})
-		}
-	}
-	return
-}
-
-type stalePeerInfo struct {
-	data []byte
-}
-
-func newStalePeerInfo(regionId uint64, endKey []byte, timeout time.Time) stalePeerInfo {
-	s := stalePeerInfo{data: make([]byte, 16+len(endKey))}
-	s.setRegionId(regionId)
-	s.setTimeout(timeout)
-	s.setEndKey(endKey)
-	return s
-}
-
-func (s stalePeerInfo) regionId() uint64 {
-	return binary.LittleEndian.Uint64(s.data[:8])
-}
-
-func (s stalePeerInfo) timeout() time.Time {
-	return time.Unix(0, int64(binary.LittleEndian.Uint64(s.data[8:16])))
-}
-
-func (s stalePeerInfo) endKey() []byte {
-	return s.data[16:]
-}
-
-func (s stalePeerInfo) setRegionId(regionId uint64) {
-	binary.LittleEndian.PutUint64(s.data[:8], regionId)
-}
-
-func (s stalePeerInfo) setTimeout(timeout time.Time) {
-	binary.LittleEndian.PutUint64(s.data[8:16], uint64(timeout.UnixNano()))
-}
-
-func (s stalePeerInfo) setEndKey(endKey []byte) {
-	copy(s.data[16:], endKey)
-}
-
-type delRangeHolder struct {
-	startKey []byte
-	endKey   []byte
-	regionId uint64
-}
-
-// findOverlapRanges finds ranges that overlap with [start_key, end_key).
-func (pendDelRanges *pendingDeleteRanges) findOverlapRanges(startKey, endKey []byte) (ranges []delRangeHolder) {
-	if exceedEndKey(startKey, endKey) {
-		return nil
-	}
-	ite := pendDelRanges.ranges.NewIterator()
-	// find the first range that may overlap with [start_key, end_key)
-	if ite.SeekForExclusivePrev(startKey); ite.Valid() {
-		peerInfo := stalePeerInfo{data: safeCopy(ite.Value())}
-		if bytes.Compare(peerInfo.endKey(), startKey) > 0 {
-			ranges = append(ranges, delRangeHolder{startKey: safeCopy(ite.Key()), endKey: peerInfo.endKey(), regionId: peerInfo.regionId()})
-		}
-	}
-	// Find the rest ranges that overlap with [start_key, end_key)
-	for ite.Next(); ite.Valid(); ite.Next() {
-		peerInfo := stalePeerInfo{data: safeCopy(ite.Value())}
-		startKey := safeCopy(ite.Key())
-		if exceedEndKey(startKey, endKey) {
-			break
-		}
-		ranges = append(ranges, delRangeHolder{startKey: startKey, endKey: peerInfo.endKey(), regionId: peerInfo.regionId()})
-	}
-	return
-}
-
-// drainOverlapRanges gets ranges that overlap with [start_key, end_key).
-func (pendDelRanges *pendingDeleteRanges) drainOverlapRanges(startKey, endKey []byte) []delRangeHolder {
-	ranges := pendDelRanges.findOverlapRanges(startKey, endKey)
-	for _, r := range ranges {
-		y.Assert(pendDelRanges.ranges.Delete(r.startKey))
-	}
-	return ranges
-}
-
 type snapContext struct {
-	engines             *Engines
-	batchSize           uint64
-	mgr                 *SnapManager
-	cleanStalePeerDelay time.Duration
-	pendingDeleteRanges *pendingDeleteRanges
+	engines   *engine_util.Engines
+	batchSize uint64
+	mgr       *SnapManager
 }
 
-// handleGen handles the task of generating snapshot of the Region. It calls `generateSnap` to do the actual work.
+// handleGen handles the task of generating snapshot of the Region.
 func (snapCtx *snapContext) handleGen(regionId uint64, notifier chan<- *eraftpb.Snapshot) {
-	if err := snapCtx.generateSnap(regionId, notifier); err != nil {
-		log.Errorf("failed to generate snapshot!!!, [regionId: %d, err : %v]", regionId, err)
-	}
-}
-
-// generateSnap generates the snapshots of the Region
-func (snapCtx *snapContext) generateSnap(regionId uint64, notifier chan<- *eraftpb.Snapshot) error {
-	// do we need to check leader here?
 	snap, err := doSnapshot(snapCtx.engines, snapCtx.mgr, regionId)
 	if err != nil {
-		return err
+		log.Errorf("failed to generate snapshot!!!, [regionId: %d, err : %v]", regionId, err)
+	} else {
+		notifier <- snap
 	}
-	notifier <- snap
-	return nil
 }
 
 // cleanUpOriginData clear up the region data before applying snapshot
 func (snapCtx *snapContext) cleanUpOriginData(regionState *rspb.RegionLocalState, status *JobStatus) error {
-	startKey := EncStartKey(regionState.GetRegion())
-	endKey := EncEndKey(regionState.GetRegion())
+	startKey, endKey := regionState.GetRegion().StartKey, regionState.GetRegion().EndKey
 	if err := checkAbort(status); err != nil {
 		return err
 	}
-	snapCtx.cleanUpOverlapRanges(startKey, endKey)
-	if err := engine_util.DeleteRange(snapCtx.engines.kv, startKey, endKey); err != nil {
+	if err := engine_util.DeleteRange(snapCtx.engines.Kv, startKey, endKey); err != nil {
 		return err
 	}
 	if err := checkAbort(status); err != nil {
@@ -488,7 +243,7 @@ func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus) error 
 	}
 
 	regionKey := RegionStateKey(regionId)
-	regionState, err := getRegionLocalState(snapCtx.engines.kv, regionId)
+	regionState, err := getRegionLocalState(snapCtx.engines.Kv, regionId)
 	if err != nil {
 		return errors.New(fmt.Sprintf("failed to get regionState from %v", regionKey))
 	}
@@ -498,7 +253,7 @@ func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus) error 
 		return err
 	}
 
-	applyState, err := getApplyState(snapCtx.engines.kv, regionId)
+	applyState, err := getApplyState(snapCtx.engines.Kv, regionId)
 	if err != nil {
 		return errors.New(fmt.Sprintf("failed to get raftState from %v", ApplyStateKey(regionId)))
 	}
@@ -512,7 +267,7 @@ func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus) error 
 	}
 
 	t := time.Now()
-	applyOptions := newApplyOptions(snapCtx.engines.kv, regionState.GetRegion(), status)
+	applyOptions := newApplyOptions(snapCtx.engines.Kv, regionState.GetRegion(), status)
 	if err := snap.Apply(*applyOptions); err != nil {
 		return err
 	}
@@ -521,7 +276,7 @@ func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus) error 
 	wb := new(engine_util.WriteBatch)
 	wb.SetMsg(RegionStateKey(regionId), regionState)
 	wb.Delete(SnapshotRaftStateKey(regionId))
-	if err := wb.WriteToKV(snapCtx.engines.kv); err != nil {
+	if err := wb.WriteToKV(snapCtx.engines.Kv); err != nil {
 		log.Errorf("update region status failed: %s", err)
 	}
 
@@ -530,7 +285,7 @@ func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus) error 
 }
 
 // handleApply tries to apply the snapshot of the specified Region. It calls `applySnap` to do the actual work.
-func (snapCtx *snapContext) handleApply(regionId uint64, status *JobStatus) error {
+func (snapCtx *snapContext) handleApply(regionId uint64, status *JobStatus) {
 	atomic.CompareAndSwapUint32(status, JobStatus_Pending, JobStatus_Running)
 	err := snapCtx.applySnap(regionId, status)
 	switch err.(type) {
@@ -543,33 +298,11 @@ func (snapCtx *snapContext) handleApply(regionId uint64, status *JobStatus) erro
 		log.Errorf("failed to apply snap!!!. err: %v", err)
 		atomic.SwapUint32(status, JobStatus_Failed)
 	}
-	return err
-}
-
-// cleanupOverlapRanges gets the overlapping ranges and cleans them up.
-func (snapCtx *snapContext) cleanUpOverlapRanges(startKey, endKey []byte) {
-	overlapRanges := snapCtx.pendingDeleteRanges.drainOverlapRanges(startKey, endKey)
-	for _, r := range overlapRanges {
-		snapCtx.cleanUpRange(r.regionId, r.startKey, r.endKey)
-	}
-}
-
-// insertPendingDeleteRange inserts a new pending range, and it will be cleaned up with some delay.
-func (snapCtx *snapContext) insertPendingDeleteRange(regionId uint64, startKey, endKey []byte) bool {
-	if int64(snapCtx.cleanStalePeerDelay.Seconds()) == 0 {
-		return false
-	}
-	snapCtx.cleanUpOverlapRanges(startKey, endKey)
-	log.Infof("register deleting data in range. [regionId: %d, startKey: %s, endKey: %s]", regionId,
-		hex.EncodeToString(startKey), hex.EncodeToString(endKey))
-	timeout := time.Now().Add(snapCtx.cleanStalePeerDelay)
-	snapCtx.pendingDeleteRanges.insert(regionId, startKey, endKey, timeout)
-	return true
 }
 
 // cleanUpRange cleans up the data within the range.
 func (snapCtx *snapContext) cleanUpRange(regionId uint64, startKey, endKey []byte) {
-	if err := engine_util.DeleteRange(snapCtx.engines.kv, startKey, endKey); err != nil {
+	if err := engine_util.DeleteRange(snapCtx.engines.Kv, startKey, endKey); err != nil {
 		log.Errorf("failed to delete data in range, [regionId: %d, startKey: %s, endKey: %s, err: %v]", regionId,
 			hex.EncodeToString(startKey), hex.EncodeToString(endKey), err)
 	} else {
@@ -584,63 +317,30 @@ type regionApplyState struct {
 }
 
 type regionTaskHandler struct {
-	ctx *snapContext
-	// we may delay some apply tasks if level 0 files to write stall threshold,
-	// pending_applies records all delayed apply task, and will check again later
-	pendingApplies []task
-
+	ctx         *snapContext
 	applyStates []regionApplyState
 }
 
-func newRegionTaskHandler(engines *Engines, mgr *SnapManager, batchSize uint64, cleanStalePeerDelay time.Duration) *regionTaskHandler {
+func newRegionTaskHandler(engines *engine_util.Engines, mgr *SnapManager) *regionTaskHandler {
 	return &regionTaskHandler{
 		ctx: &snapContext{
-			engines:             engines,
-			mgr:                 mgr,
-			batchSize:           batchSize,
-			cleanStalePeerDelay: cleanStalePeerDelay,
-			pendingDeleteRanges: &pendingDeleteRanges{
-				ranges: lockstore.NewMemStore(4096),
-			},
+			engines: engines,
+			mgr:     mgr,
 		},
 	}
 }
 
-// handlePendingApplies tries to apply pending tasks if there is some.
-func (r *regionTaskHandler) handlePendingApplies() {
-	for len(r.pendingApplies) > 0 {
-		// Try to apply task, if apply failed, throw away this task and let sender retry
-		apply := r.pendingApplies[0]
-		r.pendingApplies = r.pendingApplies[1:]
-
-		task := apply.data.(*regionTask)
-		err := r.ctx.handleApply(task.regionId, task.status)
-		if err != nil {
-			log.Error(err)
-			continue
-		}
-	}
-}
-
-func (r *regionTaskHandler) handle(t task) {
-	switch t.tp {
-	case taskTypeRegionGen:
+func (r *regionTaskHandler) Handle(t worker.Task) {
+	task := t.Data.(*regionTask)
+	switch t.Tp {
+	case worker.TaskTypeRegionGen:
 		// It is safe for now to handle generating and applying snapshot concurrently,
 		// but it may not when merge is implemented.
-		regionTask := t.data.(*regionTask)
-		r.ctx.handleGen(regionTask.regionId, regionTask.notifier)
-	case taskTypeRegionApply:
-		// To make sure applying snapshots in order.
-		r.pendingApplies = append(r.pendingApplies, t)
-		r.handlePendingApplies()
-	case taskTypeRegionDestroy:
-		// Try to delay the range deletion because
-		// there might be a coprocessor request related to this range
-		regionTask := t.data.(regionTask)
-		if !r.ctx.insertPendingDeleteRange(regionTask.regionId, regionTask.startKey, regionTask.endKey) {
-			// Use delete files
-			r.ctx.cleanUpRange(regionTask.regionId, regionTask.startKey, regionTask.endKey)
-		}
+		r.ctx.handleGen(task.regionId, task.notifier)
+	case worker.TaskTypeRegionApply:
+		r.ctx.handleApply(task.regionId, task.status)
+	case worker.TaskTypeRegionDestroy:
+		r.ctx.cleanUpRange(task.regionId, task.startKey, task.endKey)
 	}
 }
 
@@ -653,10 +353,6 @@ type raftLogGcTaskRes uint64
 type raftLogGCTaskHandler struct {
 	taskResCh chan<- raftLogGcTaskRes
 }
-
-// In our tests, we found that if the batch size is too large, running deleteAllInRange will
-// reduce OLTP QPS by 30% ~ 60%. We found that 32K is a proper choice.
-const MaxDeleteBatchSize int = 32 * 1024
 
 // gcRaftLog does the GC job and returns the count of logs collected.
 func (r *raftLogGCTaskHandler) gcRaftLog(raftDb *badger.DB, regionId, startIdx, endIdx uint64) (uint64, error) {
@@ -708,8 +404,8 @@ func (r *raftLogGCTaskHandler) reportCollected(collected uint64) {
 	r.taskResCh <- raftLogGcTaskRes(collected)
 }
 
-func (r *raftLogGCTaskHandler) handle(t task) {
-	logGcTask := t.data.(*raftLogGCTask)
+func (r *raftLogGCTaskHandler) Handle(t worker.Task) {
+	logGcTask := t.Data.(*raftLogGCTask)
 	log.Debugf("execute gc log. [regionId: %d, endIndex: %d]", logGcTask.regionID, logGcTask.endIdx)
 	collected, err := r.gcRaftLog(logGcTask.raftEngine, logGcTask.regionID, logGcTask.startIdx, logGcTask.endIdx)
 	if err != nil {

@@ -49,11 +49,11 @@ package raftstore
 // 			Requests: wb.requests,
 // 		})
 // 		assert.Nil(t, err)
-// 		err = applyCtx.wb.WriteToKV(engines.kv)
+// 		err = applyCtx.wb.WriteToKV(engines.Kv)
 // 		assert.Nil(t, err)
 // 		applyCtx.wb.Reset()
 // 		wb.requests = nil
-// 		val := engines.kv.LockStore.Get(primary, nil)
+// 		val := engines.Kv.LockStore.Get(primary, nil)
 // 		assert.NotNil(t, val)
 // 		lock := mvcc.DecodeLock(val)
 // 		assert.Equal(t, expectLock, lock)
@@ -79,11 +79,11 @@ package raftstore
 // 			Header:   new(rfpb.RaftRequestHeader),
 // 			Requests: wb.requests,
 // 		})
-// 		err := applyCtx.wb.WriteToKV(engines.kv)
+// 		err := applyCtx.wb.WriteToKV(engines.Kv)
 // 		assert.Nil(t, err)
 // 		applyCtx.wb.Reset()
 // 		wb.requests = nil
-// 		engines.kv.DB.View(func(txn *badger.Txn) error {
+// 		engines.Kv.DB.View(func(txn *badger.Txn) error {
 // 			item, err := txn.Get(primary)
 // 			assert.Nil(t, err)
 // 			curVal, err := item.Value()
@@ -127,7 +127,7 @@ package raftstore
 // 			Header:   new(rfpb.RaftRequestHeader),
 // 			Requests: wb.requests,
 // 		})
-// 		err := applyCtx.wb.WriteToKV(engines.kv)
+// 		err := applyCtx.wb.WriteToKV(engines.Kv)
 // 		assert.Nil(t, err)
 // 		applyCtx.wb.Reset()
 // 		wb.requests = nil
@@ -144,7 +144,7 @@ package raftstore
 // 		Header:   new(rfpb.RaftRequestHeader),
 // 		Requests: wb.requests,
 // 	})
-// 	err := applyCtx.wb.WriteToKV(engines.kv)
+// 	err := applyCtx.wb.WriteToKV(engines.Kv)
 // 	assert.Nil(t, err)
 // 	applyCtx.wb.Reset()
 
@@ -158,10 +158,10 @@ package raftstore
 // 		Header:   new(rfpb.RaftRequestHeader),
 // 		Requests: wb.requests,
 // 	})
-// 	err = applyCtx.wb.WriteToKV(engines.kv)
+// 	err = applyCtx.wb.WriteToKV(engines.Kv)
 // 	assert.Nil(t, err)
 // 	applyCtx.wb.Reset()
 // 	// The lock should be deleted.
-// 	val := engines.kv.LockStore.Get(primary, nil)
+// 	val := engines.Kv.LockStore.Get(primary, nil)
 // 	assert.Nil(t, val)
 // }

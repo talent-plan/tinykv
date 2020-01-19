@@ -2,10 +2,11 @@ package raftstore
 
 import (
 	"context"
-	"time"
 
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
@@ -16,40 +17,31 @@ import (
 type pdTaskHandler struct {
 	storeID  uint64
 	pdClient pd.Client
-	router   *router
-
-	// statistics
-	storeStats storeStatistics
-	peerStats  map[uint64]*peerStatistics
+	router   message.RaftRouter
 }
 
-func newPDTaskHandler(storeID uint64, pdClient pd.Client, router *router) *pdTaskHandler {
+func newPDTaskHandler(storeID uint64, pdClient pd.Client, router message.RaftRouter) *pdTaskHandler {
 	return &pdTaskHandler{
-		storeID:   storeID,
-		pdClient:  pdClient,
-		router:    router,
-		peerStats: make(map[uint64]*peerStatistics),
+		storeID:  storeID,
+		pdClient: pdClient,
+		router:   router,
 	}
 }
 
-func (r *pdTaskHandler) handle(t task) {
-	switch t.tp {
-	case taskTypePDAskBatchSplit:
-		r.onAskBatchSplit(t.data.(*pdAskBatchSplitTask))
-	case taskTypePDHeartbeat:
-		r.onHeartbeat(t.data.(*pdRegionHeartbeatTask))
-	case taskTypePDStoreHeartbeat:
-		r.onStoreHeartbeat(t.data.(*pdStoreHeartbeatTask))
-	case taskTypePDReportBatchSplit:
-		r.onReportBatchSplit(t.data.(*pdReportBatchSplitTask))
-	case taskTypePDValidatePeer:
-		r.onValidatePeer(t.data.(*pdValidatePeerTask))
-	case taskTypePDReadStats:
-		r.onReadStats(t.data.(readStats))
-	case taskTypePDDestroyPeer:
-		r.onDestroyPeer(t.data.(*pdDestroyPeerTask))
+func (r *pdTaskHandler) Handle(t worker.Task) {
+	switch t.Tp {
+	case worker.TaskTypePDAskBatchSplit:
+		r.onAskBatchSplit(t.Data.(*pdAskBatchSplitTask))
+	case worker.TaskTypePDHeartbeat:
+		r.onHeartbeat(t.Data.(*pdRegionHeartbeatTask))
+	case worker.TaskTypePDStoreHeartbeat:
+		r.onStoreHeartbeat(t.Data.(*pdStoreHeartbeatTask))
+	case worker.TaskTypePDReportBatchSplit:
+		r.onReportBatchSplit(t.Data.(*pdReportBatchSplitTask))
+	case worker.TaskTypePDDestroyPeer:
+		r.onDestroyPeer(t.Data.(*pdDestroyPeerTask))
 	default:
-		log.Error("unsupported task type:", t.tp)
+		log.Error("unsupported worker.Task type:", t.Tp)
 	}
 }
 
@@ -65,14 +57,14 @@ func (r *pdTaskHandler) onRegionHeartbeatResponse(resp *pdpb.RegionHeartbeatResp
 				ChangeType: changePeer.ChangeType,
 				Peer:       changePeer.Peer,
 			},
-		}, NewCallback())
+		}, message.NewCallback())
 	} else if transferLeader := resp.GetTransferLeader(); transferLeader != nil {
 		r.sendAdminRequest(resp.RegionId, resp.RegionEpoch, resp.TargetPeer, &raft_cmdpb.AdminRequest{
 			CmdType: raft_cmdpb.AdminCmdType_TransferLeader,
 			TransferLeader: &raft_cmdpb.TransferLeaderRequest{
 				Peer: transferLeader.Peer,
 			},
-		}, NewCallback())
+		}, message.NewCallback())
 	}
 }
 
@@ -113,27 +105,6 @@ func (r *pdTaskHandler) onHeartbeat(t *pdRegionHeartbeatTask) {
 		ApproximateSize: uint64(size),
 		ApproximateKeys: uint64(keys),
 	}
-
-	s, ok := r.peerStats[t.region.GetId()]
-	if !ok {
-		s = &peerStatistics{}
-		r.peerStats[t.region.GetId()] = s
-	}
-	req.BytesWritten = t.writtenBytes - s.lastWrittenBytes
-	req.KeysWritten = t.writtenKeys - s.lastWrittenKeys
-	req.BytesRead = s.readBytes - s.lastReadBytes
-	req.KeysRead = s.readKeys - s.lastReadKeys
-	req.Interval = &pdpb.TimeInterval{
-		StartTimestamp: uint64(s.lastReport.Unix()),
-		EndTimestamp:   uint64(time.Now().Unix()),
-	}
-
-	s.lastReadBytes = s.readBytes
-	s.lastReadKeys = s.readKeys
-	s.lastWrittenBytes = t.writtenBytes
-	s.lastWrittenKeys = t.writtenKeys
-	s.lastReport = time.Now()
-
 	r.pdClient.ReportRegion(req)
 }
 
@@ -159,17 +130,6 @@ func (r *pdTaskHandler) onStoreHeartbeat(t *pdStoreHeartbeatTask) {
 	t.stats.UsedSize = usedSize
 	t.stats.Available = available
 
-	t.stats.BytesRead = r.storeStats.totalReadBytes - r.storeStats.lastTotalReadBytes
-	t.stats.KeysRead = r.storeStats.totalReadKeys - r.storeStats.lastTotalReadKeys
-	t.stats.Interval = &pdpb.TimeInterval{
-		StartTimestamp: uint64(r.storeStats.lastReport.Unix()),
-		EndTimestamp:   uint64(time.Now().Unix()),
-	}
-
-	r.storeStats.lastTotalReadBytes = r.storeStats.totalReadBytes
-	r.storeStats.lastTotalReadKeys = r.storeStats.totalReadKeys
-	r.storeStats.lastReport = time.Now()
-
 	r.pdClient.StoreHeartbeat(context.TODO(), t.stats)
 }
 
@@ -177,63 +137,25 @@ func (r *pdTaskHandler) onReportBatchSplit(t *pdReportBatchSplitTask) {
 	r.pdClient.ReportBatchSplit(context.TODO(), t.regions)
 }
 
-func (r *pdTaskHandler) onValidatePeer(t *pdValidatePeerTask) {
-	resp, _, err := r.pdClient.GetRegionByID(context.TODO(), t.region.GetId())
-	if err != nil {
-		log.Error("get region failed:", err)
-		return
-	}
-	if IsEpochStale(resp.GetRegionEpoch(), t.region.GetRegionEpoch()) {
-		log.Infof("local region epoch is greater than region epoch in PD ignore validate peer. regionID: %v, peerID: %v, localRegionEpoch: %s, pdRegionEpoch: %s", t.region.GetId(), t.peer.GetId(), t.region.GetRegionEpoch(), resp.GetRegionEpoch())
-		return
-	}
-	for _, peer := range resp.GetPeers() {
-		if peer.GetId() == t.peer.GetId() {
-			log.Infof("peer is still valid a member of region. regionID: %v, peerID: %v, pdRegion: %s", t.region.GetId(), t.peer.GetId(), resp)
-			return
-		}
-	}
-	log.Infof("peer is not a valid member of region, to be destroyed soon. regionID: %v, peerID: %v, pdRegion: %s", t.region.GetId(), t.peer.GetId(), resp)
-	r.sendDestroyPeer(t.region, t.peer, resp)
-}
-
-func (r *pdTaskHandler) onReadStats(t readStats) {
-	for id, stats := range t {
-		s, ok := r.peerStats[id]
-		if !ok {
-			s = &peerStatistics{}
-			r.peerStats[id] = s
-		}
-		s.readBytes += stats.readBytes
-		s.readKeys += stats.readKeys
-
-		r.storeStats.totalReadBytes += stats.readBytes
-		r.storeStats.totalReadKeys += stats.readKeys
-	}
-}
-
 func (r *pdTaskHandler) onDestroyPeer(t *pdDestroyPeerTask) {
-	delete(r.peerStats, t.regionID)
+	// TODO: delete it
 }
 
-func (r *pdTaskHandler) sendAdminRequest(regionID uint64, epoch *metapb.RegionEpoch, peer *metapb.Peer, req *raft_cmdpb.AdminRequest, callback *Callback) {
-	cmd := &MsgRaftCmd{
-		Request: &raft_cmdpb.RaftCmdRequest{
-			Header: &raft_cmdpb.RaftRequestHeader{
-				RegionId:    regionID,
-				Peer:        peer,
-				RegionEpoch: epoch,
-			},
-			AdminRequest: req,
+func (r *pdTaskHandler) sendAdminRequest(regionID uint64, epoch *metapb.RegionEpoch, peer *metapb.Peer, req *raft_cmdpb.AdminRequest, callback *message.Callback) {
+	cmd := &raft_cmdpb.RaftCmdRequest{
+		Header: &raft_cmdpb.RaftRequestHeader{
+			RegionId:    regionID,
+			Peer:        peer,
+			RegionEpoch: epoch,
 		},
-		Callback: callback,
+		AdminRequest: req,
 	}
-	r.router.sendRaftCommand(cmd)
+	r.router.SendRaftCommand(cmd, callback)
 }
 
 func (r *pdTaskHandler) sendDestroyPeer(local *metapb.Region, peer *metapb.Peer, pdRegion *metapb.Region) {
-	r.router.send(local.GetId(), Msg{
-		Type:     MsgTypeRaftMessage,
+	r.router.Send(local.GetId(), message.Msg{
+		Type:     message.MsgTypeRaftMessage,
 		RegionID: local.GetId(),
 		Data: &raft_serverpb.RaftMessage{
 			RegionId:    local.GetId(),
@@ -243,22 +165,4 @@ func (r *pdTaskHandler) sendDestroyPeer(local *metapb.Region, peer *metapb.Peer,
 			IsTombstone: true,
 		},
 	})
-}
-
-type storeStatistics struct {
-	totalReadBytes     uint64
-	totalReadKeys      uint64
-	lastTotalReadBytes uint64
-	lastTotalReadKeys  uint64
-	lastReport         time.Time
-}
-
-type peerStatistics struct {
-	readBytes        uint64
-	readKeys         uint64
-	lastReadBytes    uint64
-	lastReadKeys     uint64
-	lastWrittenBytes uint64
-	lastWrittenKeys  uint64
-	lastReport       time.Time
 }

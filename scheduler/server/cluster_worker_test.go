@@ -16,11 +16,11 @@ package server
 import (
 	"time"
 
-	. "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/testutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
+	. "github.com/pingcap/check"
 )
 
 var _ = Suite(&testClusterWorkerSuite{})
@@ -127,10 +127,5 @@ func (s *testClusterWorkerSuite) TestAskSplit(c *C) {
 	}
 
 	_, err = cluster.handleAskBatchSplit(req1)
-	c.Assert(err, IsNil)
-	// test region id whether valid
-	cluster.opt.SetSplitMergeInterval(time.Duration(0))
-	mergeChecker := cluster.GetMergeChecker()
-	mergeChecker.Check(regions[0])
 	c.Assert(err, IsNil)
 }
