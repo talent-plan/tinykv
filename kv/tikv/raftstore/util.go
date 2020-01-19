@@ -27,7 +27,6 @@ const InvalidID uint64 = 0
 // later.
 func isInitialMsg(msg *eraftpb.Message) bool {
 	return msg.MsgType == eraftpb.MessageType_MsgRequestVote ||
-		msg.MsgType == eraftpb.MessageType_MsgRequestPreVote ||
 		// the peer has not been known to this leader, it may exist or not.
 		(msg.MsgType == eraftpb.MessageType_MsgHeartbeat && msg.Commit == RaftInvalidIndex)
 }
@@ -140,10 +139,10 @@ func removePeer(region *metapb.Region, storeID uint64) *metapb.Peer {
 
 func isVoteMessage(msg *eraftpb.Message) bool {
 	tp := msg.GetMsgType()
-	return tp == eraftpb.MessageType_MsgRequestVote || tp == eraftpb.MessageType_MsgRequestPreVote
+	return tp == eraftpb.MessageType_MsgRequestVote
 }
 
-/// `is_first_vote_msg` checks `msg` is the first vote (or prevote) message or not. It's used for
+/// `is_first_vote_msg` checks `msg` is the first vote message or not. It's used for
 /// when the message is received but there is no such region in `Store::region_peers` and the
 /// region overlaps with others. In this case we should put `msg` into `pending_votes` instead of
 /// create the peer.

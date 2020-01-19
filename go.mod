@@ -11,7 +11,7 @@ require (
 	github.com/docker/go-units v0.4.0
 	github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32
 	github.com/gogo/protobuf v1.2.1
-	github.com/golang/protobuf v1.3.1
+	github.com/golang/protobuf v1.3.2
 	github.com/google/btree v1.0.0
 	github.com/gorilla/mux v1.6.2
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
