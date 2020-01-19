@@ -37,7 +37,6 @@ const (
 	StateFollower StateType = iota
 	StateCandidate
 	StateLeader
-	StatePreCandidate
 	numStates
 )
 
@@ -57,11 +56,7 @@ const (
 
 // Possible values for CampaignType
 const (
-	// campaignPreElection represents the first phase of a normal election when
-	// Config.PreVote is true.
-	campaignPreElection CampaignType = "CampaignPreElection"
-	// campaignElection represents a normal (time-based) election (the second phase
-	// of the election when Config.PreVote is true).
+	// campaignElection represents a normal (time-based) election
 	campaignElection CampaignType = "CampaignElection"
 	// campaignTransfer represents the type of leader transfer
 	campaignTransfer CampaignType = "CampaignTransfer"
@@ -102,7 +97,6 @@ var stmap = [...]string{
 	"StateFollower",
 	"StateCandidate",
 	"StateLeader",
-	"StatePreCandidate",
 }
 
 func (st StateType) String() string {
@@ -172,11 +166,6 @@ type Config struct {
 	// CheckQuorum specifies if the leader should check quorum activity. Leader
 	// steps down when quorum is not active for an electionTimeout.
 	CheckQuorum bool
-
-	// PreVote enables the Pre-Vote algorithm described in raft thesis section
-	// 9.6. This prevents disruption when a node that has been partitioned away
-	// rejoins the cluster.
-	PreVote bool
 
 	skipBcastCommit bool
 
@@ -321,7 +310,6 @@ type Raft struct {
 	heartbeatElapsed int
 
 	checkQuorum bool
-	preVote     bool
 
 	skipBcastCommit bool
 
@@ -374,7 +362,6 @@ func newRaft(c *Config) *Raft {
 		heartbeatTimeout:          c.HeartbeatTick,
 		logger:                    c.Logger,
 		checkQuorum:               c.CheckQuorum,
-		preVote:                   c.PreVote,
 		skipBcastCommit:           c.skipBcastCommit,
 		readOnly:                  newReadOnly(c.ReadOnlyOption),
 		disableProposalForwarding: c.DisableProposalForwarding,
@@ -467,20 +454,13 @@ func (r *Raft) learnerNodes() []uint64 {
 // send persists state to stable storage and then sends to its mailbox.
 func (r *Raft) send(m pb.Message) {
 	m.From = r.id
-	if m.MsgType == pb.MessageType_MsgRequestVote || m.MsgType == pb.MessageType_MsgRequestVoteResponse || m.MsgType == pb.MessageType_MsgRequestPreVote || m.MsgType == pb.MessageType_MsgRequestPreVoteResponse {
+	if m.MsgType == pb.MessageType_MsgRequestVote || m.MsgType == pb.MessageType_MsgRequestVoteResponse {
 		if m.Term == 0 {
-			// All {pre-,}campaign messages need to have the term set when
-			// sending.
+			// All campaign messages need to have the term set when sending.
 			// - MessageType_MsgRequestVote: m.Term is the term the node is campaigning for,
 			//   non-zero as we increment the term when campaigning.
 			// - MessageType_MsgRequestVoteResponse: m.Term is the new r.Term if the MessageType_MsgRequestVote was
 			//   granted, non-zero for the same reason MessageType_MsgRequestVote is
-			// - MessageType_MsgRequestPreVote: m.Term is the term the node will campaign,
-			//   non-zero as we use m.Term to indicate the next term we'll be
-			//   campaigning for
-			// - MessageType_MsgRequestPreVoteResponse: m.Term is the term received in the original
-			//   MessageType_MsgRequestPreVote if the pre-vote was granted, non-zero for the
-			//   same reasons MessageType_MsgRequestPreVote is
 			panic(fmt.Sprintf("term should be set when sending %s", m.MsgType))
 		}
 	} else {
@@ -771,22 +751,6 @@ func (r *Raft) becomeCandidate() {
 	r.logger.Infof("%x became candidate at term %d", r.id, r.Term)
 }
 
-func (r *Raft) becomePreCandidate() {
-	// TODO(xiangli) remove the panic when the raft implementation is stable
-	if r.State == StateLeader {
-		panic("invalid transition [leader -> pre-candidate]")
-	}
-	// Becoming a pre-candidate changes our step functions and State,
-	// but doesn't change anything else. In particular it does not increase
-	// r.Term or change r.Vote.
-	r.step = stepCandidate
-	r.votes = make(map[uint64]bool)
-	r.tick = r.tickElection
-	r.Lead = None
-	r.State = StatePreCandidate
-	r.logger.Infof("%x became pre-candidate at term %d", r.id, r.Term)
-}
-
 func (r *Raft) becomeLeader() {
 	// TODO(xiangli) remove the panic when the raft implementation is stable
 	if r.State == StateFollower {
@@ -824,26 +788,14 @@ func (r *Raft) becomeLeader() {
 }
 
 func (r *Raft) campaign(t CampaignType) {
-	var term uint64
-	var voteMsg pb.MessageType
-	if t == campaignPreElection {
-		r.becomePreCandidate()
-		voteMsg = pb.MessageType_MsgRequestPreVote
-		// PreVote RPCs are sent for the next term before we've incremented r.Term.
-		term = r.Term + 1
-	} else {
-		r.becomeCandidate()
-		voteMsg = pb.MessageType_MsgRequestVote
-		term = r.Term
-	}
-	if r.quorum() == r.poll(r.id, voteRespMsgType(voteMsg), true) {
+	r.becomeCandidate()
+	voteMsg := pb.MessageType_MsgRequestVote
+	term := r.Term
+
+	if r.quorum() == r.poll(r.id, pb.MessageType_MsgRequestVoteResponse, true) {
 		// We won the election after voting for ourselves (which must mean that
 		// this is a single-node cluster). Advance to the next state.
-		if t == campaignPreElection {
-			r.campaign(campaignElection)
-		} else {
-			r.becomeLeader()
-		}
+		r.becomeLeader()
 		return
 	}
 	for id := range r.Prs {
@@ -884,7 +836,7 @@ func (r *Raft) Step(m pb.Message) error {
 	case m.Term == 0:
 		// local message
 	case m.Term > r.Term:
-		if m.MsgType == pb.MessageType_MsgRequestVote || m.MsgType == pb.MessageType_MsgRequestPreVote {
+		if m.MsgType == pb.MessageType_MsgRequestVote {
 			force := bytes.Equal(m.Context, []byte(campaignTransfer))
 			inLease := r.checkQuorum && r.Lead != None && r.electionElapsed < r.electionTimeout
 			if !force && inLease {
@@ -895,27 +847,16 @@ func (r *Raft) Step(m pb.Message) error {
 				return nil
 			}
 		}
-		switch {
-		case m.MsgType == pb.MessageType_MsgRequestPreVote:
-			// Never change our term in response to a PreVote
-		case m.MsgType == pb.MessageType_MsgRequestPreVoteResponse && !m.Reject:
-			// We send pre-vote requests with a term in our future. If the
-			// pre-vote is granted, we will increment our term when we get a
-			// quorum. If it is not, the term comes from the node that
-			// rejected our vote so we should become a follower at the new
-			// term.
-		default:
-			r.logger.Infof("%x [term: %d] received a %s message with higher term from %x [term: %d]",
-				r.id, r.Term, m.MsgType, m.From, m.Term)
-			if m.MsgType == pb.MessageType_MsgAppend || m.MsgType == pb.MessageType_MsgHeartbeat || m.MsgType == pb.MessageType_MsgSnapshot {
-				r.becomeFollower(m.Term, m.From)
-			} else {
-				r.becomeFollower(m.Term, None)
-			}
+		r.logger.Infof("%x [term: %d] received a %s message with higher term from %x [term: %d]",
+			r.id, r.Term, m.MsgType, m.From, m.Term)
+		if m.MsgType == pb.MessageType_MsgAppend || m.MsgType == pb.MessageType_MsgHeartbeat || m.MsgType == pb.MessageType_MsgSnapshot {
+			r.becomeFollower(m.Term, m.From)
+		} else {
+			r.becomeFollower(m.Term, None)
 		}
 
 	case m.Term < r.Term:
-		if (r.checkQuorum || r.preVote) && (m.MsgType == pb.MessageType_MsgHeartbeat || m.MsgType == pb.MessageType_MsgAppend) {
+		if r.checkQuorum && (m.MsgType == pb.MessageType_MsgHeartbeat || m.MsgType == pb.MessageType_MsgAppend) {
 			// We have received messages from a leader at a lower term. It is possible
 			// that these messages were simply delayed in the network, but this could
 			// also mean that this node has advanced its term number during a network
@@ -926,25 +867,17 @@ func (r *Raft) Step(m pb.Message) error {
 			// MessageType_MsgRequestVote and must generate other messages to advance the term. The net
 			// result of these two features is to minimize the disruption caused by
 			// nodes that have been removed from the cluster's configuration: a
-			// removed node will send MessageType_MsgRequestVotes (or MessageType_MsgRequestPreVotes) which will be ignored,
+			// removed node will send MessageType_MsgRequestVotes which will be ignored,
 			// but it will not receive MessageType_MsgAppend or MessageType_MsgHeartbeat, so it will not create
 			// disruptive term increases, by notifying leader of this node's activeness.
-			// The above comments also true for Pre-Vote
 			//
 			// When follower gets isolated, it soon starts an election ending
 			// up with a higher term than leader, although it won't receive enough
 			// votes to win the election. When it regains connectivity, this response
 			// with "pb.MessageType_MsgAppendResponse" of higher term would force leader to step down.
 			// However, this disruption is inevitable to free this stuck node with
-			// fresh election. This can be prevented with Pre-Vote phase.
+			// fresh election.
 			r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse})
-		} else if m.MsgType == pb.MessageType_MsgRequestPreVote {
-			// Before Pre-Vote enable, there may have candidate with higher term,
-			// but less log. After update to Pre-Vote, the cluster may deadlock if
-			// we drop messages with a lower term.
-			r.logger.Infof("%x [logterm: %d, index: %d, vote: %x] rejected %s from %x [logterm: %d, index: %d] at term %d",
-				r.id, r.RaftLog.lastTerm(), r.RaftLog.LastIndex(), r.Vote, m.MsgType, m.From, m.LogTerm, m.Index, r.Term)
-			r.send(pb.Message{To: m.From, Term: r.Term, MsgType: pb.MessageType_MsgRequestPreVoteResponse, Reject: true})
 		} else {
 			// ignore other cases
 			r.logger.Infof("%x [term: %d] ignored a %s message with lower term from %x [term: %d]",
@@ -966,16 +899,13 @@ func (r *Raft) Step(m pb.Message) error {
 			}
 
 			r.logger.Infof("%x is starting a new election at term %d", r.id, r.Term)
-			if r.preVote {
-				r.campaign(campaignPreElection)
-			} else {
-				r.campaign(campaignElection)
-			}
+
+			r.campaign(campaignElection)
 		} else {
 			r.logger.Debugf("%x ignoring MessageType_MsgHup because already leader", r.id)
 		}
 
-	case pb.MessageType_MsgRequestVote, pb.MessageType_MsgRequestPreVote:
+	case pb.MessageType_MsgRequestVote:
 		if r.IsLearner {
 			// TODO: learner may need to vote, in case of node down when confchange.
 			r.logger.Infof("%x [logterm: %d, index: %d, vote: %x] ignored %s from %x [logterm: %d, index: %d] at term %d: learner can not vote",
@@ -985,32 +915,19 @@ func (r *Raft) Step(m pb.Message) error {
 		// We can vote if this is a repeat of a vote we've already cast...
 		canVote := r.Vote == m.From ||
 			// ...we haven't voted and we don't think there's a leader yet in this term...
-			(r.Vote == None && r.Lead == None) ||
-			// ...or this is a PreVote for a future term...
-			(m.MsgType == pb.MessageType_MsgRequestPreVote && m.Term > r.Term)
+			(r.Vote == None && r.Lead == None)
 		// ...and we believe the candidate is up to date.
 		if canVote && r.RaftLog.isUpToDate(m.Index, m.LogTerm) {
 			r.logger.Infof("%x [logterm: %d, index: %d, vote: %x] cast %s for %x [logterm: %d, index: %d] at term %d",
 				r.id, r.RaftLog.lastTerm(), r.RaftLog.LastIndex(), r.Vote, m.MsgType, m.From, m.LogTerm, m.Index, r.Term)
-			// When responding to Msg{Pre,}Vote messages we include the term
-			// from the message, not the local term. To see why consider the
-			// case where a single node was previously partitioned away and
-			// it's local term is now of date. If we include the local term
-			// (recall that for pre-votes we don't update the local term), the
-			// (pre-)campaigning node on the other end will proceed to ignore
-			// the message (it ignores all out of date messages).
-			// The term in the original message and current local term are the
-			// same in the case of regular votes, but different for pre-votes.
-			r.send(pb.Message{To: m.From, Term: m.Term, MsgType: voteRespMsgType(m.MsgType)})
-			if m.MsgType == pb.MessageType_MsgRequestVote {
-				// Only record real votes.
-				r.electionElapsed = 0
-				r.Vote = m.From
-			}
+			r.send(pb.Message{To: m.From, Term: m.Term, MsgType: pb.MessageType_MsgRequestVoteResponse})
+			// Only record real votes.
+			r.electionElapsed = 0
+			r.Vote = m.From
 		} else {
 			r.logger.Infof("%x [logterm: %d, index: %d, vote: %x] rejected %s from %x [logterm: %d, index: %d] at term %d",
 				r.id, r.RaftLog.lastTerm(), r.RaftLog.LastIndex(), r.Vote, m.MsgType, m.From, m.LogTerm, m.Index, r.Term)
-			r.send(pb.Message{To: m.From, Term: r.Term, MsgType: voteRespMsgType(m.MsgType), Reject: true})
+			r.send(pb.Message{To: m.From, Term: r.Term, MsgType: pb.MessageType_MsgRequestVoteResponse, Reject: true})
 		}
 
 	default:
@@ -1252,18 +1169,7 @@ func stepLeader(r *Raft, m pb.Message) error {
 	return nil
 }
 
-// stepCandidate is shared by StateCandidate and StatePreCandidate; the difference is
-// whether they respond to MessageType_MsgRequestVoteResponse or MessageType_MsgRequestPreVoteResponse.
 func stepCandidate(r *Raft, m pb.Message) error {
-	// Only handle vote responses corresponding to our candidacy (while in
-	// StateCandidate, we may get stale MessageType_MsgRequestPreVoteResponse messages in this term from
-	// our pre-candidate state).
-	var myVoteRespType pb.MessageType
-	if r.State == StatePreCandidate {
-		myVoteRespType = pb.MessageType_MsgRequestPreVoteResponse
-	} else {
-		myVoteRespType = pb.MessageType_MsgRequestVoteResponse
-	}
 	switch m.MsgType {
 	case pb.MessageType_MsgPropose:
 		r.logger.Infof("%x no leader at term %d; dropping proposal", r.id, r.Term)
@@ -1277,19 +1183,14 @@ func stepCandidate(r *Raft, m pb.Message) error {
 	case pb.MessageType_MsgSnapshot:
 		r.becomeFollower(m.Term, m.From) // always m.Term == r.Term
 		r.handleSnapshot(m)
-	case myVoteRespType:
+	case pb.MessageType_MsgRequestVoteResponse:
 		gr := r.poll(m.From, m.MsgType, !m.Reject)
 		r.logger.Infof("%x [quorum:%d] has received %d %s votes and %d vote rejections", r.id, r.quorum(), gr, m.MsgType, len(r.votes)-gr)
 		switch r.quorum() {
 		case gr:
-			if r.State == StatePreCandidate {
-				r.campaign(campaignElection)
-			} else {
-				r.becomeLeader()
-				r.bcastAppend()
-			}
+			r.becomeLeader()
+			r.bcastAppend()
 		case len(r.votes) - gr:
-			// pb.MessageType_MsgRequestPreVoteResponse contains future term of pre-candidate
 			// m.Term > r.Term; reuse r.Term
 			r.becomeFollower(r.Term, None)
 		}
@@ -1333,9 +1234,6 @@ func stepFollower(r *Raft, m pb.Message) error {
 	case pb.MessageType_MsgTimeoutNow:
 		if r.promotable() {
 			r.logger.Infof("%x [term %d] received MessageType_MsgTimeoutNow from %x and starts an election to get leadership.", r.id, r.Term, m.From)
-			// Leadership transfers never use pre-vote even if r.preVote is true; we
-			// know we are not recovering from a partition so there is no need for the
-			// extra round trip.
 			r.campaign(campaignTransfer)
 		} else {
 			r.logger.Infof("%x received MessageType_MsgTimeoutNow from %x but is not promotable", r.id, m.From)

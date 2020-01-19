@@ -17,8 +17,6 @@ initial-cluster-state = "new"
 lease = 3
 tso-save-interval = "3s"
 
-enable-prevote = true
-
 [security]
 ## Path of file that contains list of trusted SSL CAs. if set, following four settings shouldn't be empty
 cacert-path = ""

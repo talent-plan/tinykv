@@ -257,12 +257,6 @@ stale log entries:
 	If candidate receives majority of votes of denials, it reverts back to
 	follower.
 
-	'MessageType_MsgRequestPreVote' and 'MessageType_MsgRequestPreVoteResponse' are used in an optional two-phase election
-	protocol. When Config.PreVote is true, a pre-election is carried out first
-	(using the same rules as a regular election), and no node increases its term
-	number unless the pre-election indicates that the campaigning node would win.
-	This minimizes disruption when a partitioned node rejoins the cluster.
-
 	'MessageType_MsgSnapshot' requests to install a snapshot message. When a node has just
 	become a leader or the leader receives 'MessageType_MsgPropose' message, it calls
 	'bcastAppend' method, which then calls 'sendAppend' method to each
