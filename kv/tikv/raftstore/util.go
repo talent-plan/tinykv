@@ -245,7 +245,3 @@ func CloneMsg(origin, cloned proto.Message) error {
 func safeCopy(b []byte) []byte {
 	return append([]byte{}, b...)
 }
-
-func exceedEndKey(current, endKey []byte) bool {
-	return bytes.Compare(current, endKey) >= 0
-}

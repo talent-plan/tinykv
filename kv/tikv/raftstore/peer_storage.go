@@ -13,6 +13,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -21,32 +22,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/raft"
 	"github.com/pingcap/errors"
 )
-
-type JobStatus = uint32
-
-const (
-	JobStatus_Pending JobStatus = 0 + iota
-	JobStatus_Running
-	JobStatus_Cancelling
-	JobStatus_Cancelled
-	JobStatus_Finished
-	JobStatus_Failed
-)
-
-type SnapStateType int
-
-const (
-	SnapState_Relax SnapStateType = 0 + iota
-	SnapState_Generating
-	SnapState_Applying
-	SnapState_ApplyAborted
-)
-
-type SnapState struct {
-	StateType SnapStateType
-	Status    *JobStatus
-	Receiver  chan *eraftpb.Snapshot
-}
 
 const (
 	// When we create a region peer, we should initialize its log term/index > 0,
@@ -243,7 +218,7 @@ type PeerStorage struct {
 	appliedIndexTerm uint64
 	lastTerm         uint64
 
-	snapState    SnapState
+	snapState    snap.SnapState
 	regionSched  chan<- worker.Task
 	snapTriedCnt int
 
@@ -457,7 +432,7 @@ func (ps *PeerStorage) Region() *metapb.Region {
 }
 
 func (ps *PeerStorage) IsApplyingSnapshot() bool {
-	return ps.snapState.StateType == SnapState_Applying
+	return ps.snapState.StateType == snap.SnapState_Applying
 }
 
 func (ps *PeerStorage) Entries(low, high, maxSize uint64) ([]eraftpb.Entry, error) {
@@ -574,19 +549,19 @@ func (ps *PeerStorage) validateSnap(snap *eraftpb.Snapshot) bool {
 }
 
 func (ps *PeerStorage) Snapshot() (eraftpb.Snapshot, error) {
-	var snap eraftpb.Snapshot
-	if ps.snapState.StateType == SnapState_Generating {
+	var snapshot eraftpb.Snapshot
+	if ps.snapState.StateType == snap.SnapState_Generating {
 		select {
 		case s := <-ps.snapState.Receiver:
-			snap = *s
+			snapshot = *s
 		default:
-			return snap, raft.ErrSnapshotTemporarilyUnavailable
+			return snapshot, raft.ErrSnapshotTemporarilyUnavailable
 		}
-		ps.snapState.StateType = SnapState_Relax
-		if snap.GetMetadata() != nil {
+		ps.snapState.StateType = snap.SnapState_Relax
+		if snapshot.GetMetadata() != nil {
 			ps.snapTriedCnt = 0
-			if ps.validateSnap(&snap) {
-				return snap, nil
+			if ps.validateSnap(&snapshot) {
+				return snapshot, nil
 			}
 		} else {
 			log.Warnf("failed to try generating snapshot, regionID: %d, peerID: %d, times: %d", ps.region.GetId(), ps.peerID, ps.snapTriedCnt)
@@ -596,20 +571,20 @@ func (ps *PeerStorage) Snapshot() (eraftpb.Snapshot, error) {
 	if ps.snapTriedCnt >= MaxSnapRetryCnt {
 		err := errors.Errorf("failed to get snapshot after %d times", ps.snapTriedCnt)
 		ps.snapTriedCnt = 0
-		return snap, err
+		return snapshot, err
 	}
 
 	log.Infof("requesting snapshot, regionID: %d, peerID: %d", ps.region.GetId(), ps.peerID)
 	ps.snapTriedCnt++
 	ps.ScheduleGenerateSnapshot()
 
-	return snap, raft.ErrSnapshotTemporarilyUnavailable
+	return snapshot, raft.ErrSnapshotTemporarilyUnavailable
 }
 
 func (ps *PeerStorage) ScheduleGenerateSnapshot() {
 	ch := make(chan *eraftpb.Snapshot, 1)
-	ps.snapState = SnapState{
-		StateType: SnapState_Generating,
+	ps.snapState = snap.SnapState{
+		StateType: snap.SnapState_Generating,
 		Receiver:  ch,
 	}
 	ps.regionSched <- worker.Task{
@@ -962,9 +937,9 @@ func (ps *PeerStorage) PostReadyPersistent(ctx *InvokeContext) *ApplySnapResult 
 }
 
 func (ps *PeerStorage) ScheduleApplyingSnapshot() {
-	status := JobStatus_Pending
-	ps.snapState = SnapState{
-		StateType: SnapState_Applying,
+	status := snap.JobStatus_Pending
+	ps.snapState = snap.SnapState{
+		StateType: snap.SnapState_Applying,
 		Status:    &status,
 	}
 	ps.regionSched <- worker.Task{
@@ -993,13 +968,13 @@ func (p *PeerStorage) CancelApplyingSnap() bool {
 // Check if the storage is applying a snapshot.
 func (p *PeerStorage) CheckApplyingSnap() bool {
 	switch p.snapState.StateType {
-	case SnapState_Applying:
+	case snap.SnapState_Applying:
 		switch atomic.LoadUint32(p.snapState.Status) {
-		case JobStatus_Finished:
-			p.snapState = SnapState{StateType: SnapState_Relax}
-		case JobStatus_Cancelled:
-			p.snapState = SnapState{StateType: SnapState_ApplyAborted}
-		case JobStatus_Failed:
+		case snap.JobStatus_Finished:
+			p.snapState = snap.SnapState{StateType: snap.SnapState_Relax}
+		case snap.JobStatus_Cancelled:
+			p.snapState = snap.SnapState{StateType: snap.SnapState_ApplyAborted}
+		case snap.JobStatus_Failed:
 			panic(fmt.Sprintf("%v applying snapshot failed", p.Tag))
 		default:
 			return true
@@ -1031,7 +1006,7 @@ func getAppliedIdxTermForSnapshot(raft *badger.DB, kv *badger.Txn, regionId uint
 	return idx, term, nil
 }
 
-func doSnapshot(engines *engine_util.Engines, mgr *SnapManager, regionId uint64) (*eraftpb.Snapshot, error) {
+func doSnapshot(engines *engine_util.Engines, mgr *snap.SnapManager, regionId uint64) (*eraftpb.Snapshot, error) {
 	log.Debugf("begin to generate a snapshot. [regionId: %d]", regionId)
 
 	txn := engines.Kv.NewTransaction(false)
@@ -1041,9 +1016,9 @@ func doSnapshot(engines *engine_util.Engines, mgr *SnapManager, regionId uint64)
 		return nil, err
 	}
 
-	key := SnapKey{RegionID: regionId, Index: index, Term: term}
-	mgr.Register(key, SnapEntryGenerating)
-	defer mgr.Deregister(key, SnapEntryGenerating)
+	key := snap.SnapKey{RegionID: regionId, Index: index, Term: term}
+	mgr.Register(key, snap.SnapEntryGenerating)
+	defer mgr.Deregister(key, snap.SnapEntryGenerating)
 
 	regionState := new(raft_serverpb.RegionLocalState)
 	val, err := getValueTxn(txn, RegionStateKey(regionId))
@@ -1073,7 +1048,7 @@ func doSnapshot(engines *engine_util.Engines, mgr *SnapManager, regionId uint64)
 	}
 	// Set snapshot data
 	snapshotData := &rspb.RaftSnapshotData{Region: region}
-	snapshotStatics := SnapStatistics{}
+	snapshotStatics := snap.SnapStatistics{}
 	err = s.Build(txn, region, snapshotData, &snapshotStatics, mgr)
 	if err != nil {
 		return nil, err

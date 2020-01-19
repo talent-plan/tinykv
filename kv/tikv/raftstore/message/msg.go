@@ -21,10 +21,9 @@ const (
 	MsgTypeApplyRes              MsgType = 15
 	MsgTypeNoop                  MsgType = 16
 
-	MsgTypeStoreRaftMessage   MsgType = 101
-	MsgTypeStoreSnapshotStats MsgType = 102
-	MsgTypeStoreTick          MsgType = 106
-	MsgTypeStoreStart         MsgType = 107
+	MsgTypeStoreRaftMessage MsgType = 101
+	MsgTypeStoreTick        MsgType = 106
+	MsgTypeStoreStart       MsgType = 107
 
 	MsgTypeFsmNormal  MsgType = 201
 	MsgTypeFsmControl MsgType = 202
