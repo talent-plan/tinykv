@@ -265,12 +265,10 @@ const (
 func (rn *RawNode) WithProgress(visitor func(id uint64, typ ProgressType, pr Progress)) {
 	for id, pr := range rn.Raft.Prs {
 		pr := *pr
-		pr.ins = nil
 		visitor(id, ProgressTypePeer, pr)
 	}
 	for id, pr := range rn.Raft.LearnerPrs {
 		pr := *pr
-		pr.ins = nil
 		visitor(id, ProgressTypeLearner, pr)
 	}
 }

@@ -20,7 +20,6 @@ import (
 	"math"
 	"math/rand"
 	"reflect"
-	"strings"
 	"testing"
 
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
@@ -55,71 +54,6 @@ func (r *Raft) readMessages() []pb.Message {
 	return msgs
 }
 
-func TestProgressBecomeProbe(t *testing.T) {
-	match := uint64(1)
-	tests := []struct {
-		p     *Progress
-		wnext uint64
-	}{
-		{
-			&Progress{State: ProgressStateReplicate, Match: match, Next: 5, ins: newInflights(256)},
-			2,
-		},
-		{
-			// snapshot finish
-			&Progress{State: ProgressStateSnapshot, Match: match, Next: 5, PendingSnapshot: 10, ins: newInflights(256)},
-			11,
-		},
-		{
-			// snapshot failure
-			&Progress{State: ProgressStateSnapshot, Match: match, Next: 5, PendingSnapshot: 0, ins: newInflights(256)},
-			2,
-		},
-	}
-	for i, tt := range tests {
-		tt.p.becomeProbe()
-		if tt.p.State != ProgressStateProbe {
-			t.Errorf("#%d: state = %s, want %s", i, tt.p.State, ProgressStateProbe)
-		}
-		if tt.p.Match != match {
-			t.Errorf("#%d: match = %d, want %d", i, tt.p.Match, match)
-		}
-		if tt.p.Next != tt.wnext {
-			t.Errorf("#%d: next = %d, want %d", i, tt.p.Next, tt.wnext)
-		}
-	}
-}
-
-func TestProgressBecomeReplicate(t *testing.T) {
-	p := &Progress{State: ProgressStateProbe, Match: 1, Next: 5, ins: newInflights(256)}
-	p.becomeReplicate()
-
-	if p.State != ProgressStateReplicate {
-		t.Errorf("state = %s, want %s", p.State, ProgressStateReplicate)
-	}
-	if p.Match != 1 {
-		t.Errorf("match = %d, want 1", p.Match)
-	}
-	if w := p.Match + 1; p.Next != w {
-		t.Errorf("next = %d, want %d", p.Next, w)
-	}
-}
-
-func TestProgressBecomeSnapshot(t *testing.T) {
-	p := &Progress{State: ProgressStateProbe, Match: 1, Next: 5, ins: newInflights(256)}
-	p.becomeSnapshot(10)
-
-	if p.State != ProgressStateSnapshot {
-		t.Errorf("state = %s, want %s", p.State, ProgressStateSnapshot)
-	}
-	if p.Match != 1 {
-		t.Errorf("match = %d, want 1", p.Match)
-	}
-	if p.PendingSnapshot != 10 {
-		t.Errorf("pendingSnapshot = %d, want 10", p.PendingSnapshot)
-	}
-}
-
 func TestProgressUpdate(t *testing.T) {
 	prevM, prevN := uint64(3), uint64(5)
 	tests := []struct {
@@ -152,238 +86,20 @@ func TestProgressUpdate(t *testing.T) {
 	}
 }
 
-func TestProgressMaybeDecr(t *testing.T) {
-	tests := []struct {
-		state    ProgressStateType
-		m        uint64
-		n        uint64
-		rejected uint64
-		last     uint64
-
-		w  bool
-		wn uint64
-	}{
-		{
-			// state replicate and rejected is not greater than match
-			ProgressStateReplicate, 5, 10, 5, 5, false, 10,
-		},
-		{
-			// state replicate and rejected is not greater than match
-			ProgressStateReplicate, 5, 10, 4, 4, false, 10,
-		},
-		{
-			// state replicate and rejected is greater than match
-			// directly decrease to match+1
-			ProgressStateReplicate, 5, 10, 9, 9, true, 6,
-		},
-		{
-			// next-1 != rejected is always false
-			ProgressStateProbe, 0, 0, 0, 0, false, 0,
-		},
-		{
-			// next-1 != rejected is always false
-			ProgressStateProbe, 0, 10, 5, 5, false, 10,
-		},
-		{
-			// next>1 = decremented by 1
-			ProgressStateProbe, 0, 10, 9, 9, true, 9,
-		},
-		{
-			// next>1 = decremented by 1
-			ProgressStateProbe, 0, 2, 1, 1, true, 1,
-		},
-		{
-			// next<=1 = reset to 1
-			ProgressStateProbe, 0, 1, 0, 0, true, 1,
-		},
-		{
-			// decrease to min(rejected, last+1)
-			ProgressStateProbe, 0, 10, 9, 2, true, 3,
-		},
-		{
-			// rejected < 1, reset to 1
-			ProgressStateProbe, 0, 10, 9, 0, true, 1,
-		},
-	}
-	for i, tt := range tests {
-		p := &Progress{
-			State: tt.state,
-			Match: tt.m,
-			Next:  tt.n,
-		}
-		if g := p.maybeDecrTo(tt.rejected, tt.last); g != tt.w {
-			t.Errorf("#%d: maybeDecrTo= %t, want %t", i, g, tt.w)
-		}
-		if gm := p.Match; gm != tt.m {
-			t.Errorf("#%d: match= %d, want %d", i, gm, tt.m)
-		}
-		if gn := p.Next; gn != tt.wn {
-			t.Errorf("#%d: next= %d, want %d", i, gn, tt.wn)
-		}
-	}
-}
-
-func TestProgressIsPaused(t *testing.T) {
-	tests := []struct {
-		state  ProgressStateType
-		paused bool
-
-		w bool
-	}{
-		{ProgressStateProbe, false, false},
-		{ProgressStateProbe, true, true},
-		{ProgressStateReplicate, false, false},
-		{ProgressStateReplicate, true, false},
-		{ProgressStateSnapshot, false, true},
-		{ProgressStateSnapshot, true, true},
-	}
-	for i, tt := range tests {
-		p := &Progress{
-			State:  tt.state,
-			Paused: tt.paused,
-			ins:    newInflights(256),
-		}
-		if g := p.IsPaused(); g != tt.w {
-			t.Errorf("#%d: paused= %t, want %t", i, g, tt.w)
-		}
-	}
-}
-
-// TestProgressResume ensures that progress.maybeUpdate and progress.maybeDecrTo
-// will reset progress.paused.
-func TestProgressResume(t *testing.T) {
-	p := &Progress{
-		Next:   2,
-		Paused: true,
-	}
-	p.maybeDecrTo(1, 1)
-	if p.Paused {
-		t.Errorf("paused= %v, want false", p.Paused)
-	}
-	p.Paused = true
-	p.maybeUpdate(2)
-	if p.Paused {
-		t.Errorf("paused= %v, want false", p.Paused)
-	}
-}
-
 func TestProgressLeader(t *testing.T) {
 	r := newTestRaft(1, []uint64{1, 2}, 5, 1, NewMemoryStorage())
 	r.becomeCandidate()
 	r.becomeLeader()
-	r.Prs[2].becomeReplicate()
 
 	// Send proposals to r1. The first 5 entries should be appended to the log.
 	propMsg := pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: []byte("foo")}}}
 	for i := 0; i < 5; i++ {
-		if pr := r.Prs[r.id]; pr.State != ProgressStateReplicate || pr.Match != uint64(i+1) || pr.Next != pr.Match+1 {
+		if pr := r.Prs[r.id]; pr.Match != uint64(i+1) || pr.Next != pr.Match+1 {
 			t.Errorf("unexpected progress %v", pr)
 		}
 		if err := r.Step(propMsg); err != nil {
 			t.Fatalf("proposal resulted in error: %v", err)
 		}
-	}
-}
-
-// TestProgressResumeByHeartbeatResp ensures raft.heartbeat reset progress.paused by heartbeat response.
-func TestProgressResumeByHeartbeatResp(t *testing.T) {
-	r := newTestRaft(1, []uint64{1, 2}, 5, 1, NewMemoryStorage())
-	r.becomeCandidate()
-	r.becomeLeader()
-
-	r.Prs[2].Paused = true
-
-	r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgBeat})
-	if !r.Prs[2].Paused {
-		t.Errorf("paused = %v, want true", r.Prs[2].Paused)
-	}
-
-	r.Prs[2].becomeReplicate()
-	r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeatResponse})
-	if r.Prs[2].Paused {
-		t.Errorf("paused = %v, want false", r.Prs[2].Paused)
-	}
-}
-
-func TestProgressPaused(t *testing.T) {
-	r := newTestRaft(1, []uint64{1, 2}, 5, 1, NewMemoryStorage())
-	r.becomeCandidate()
-	r.becomeLeader()
-	r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: []byte("somedata")}}})
-	r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: []byte("somedata")}}})
-	r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: []byte("somedata")}}})
-
-	ms := r.readMessages()
-	if len(ms) != 1 {
-		t.Errorf("len(ms) = %d, want 1", len(ms))
-	}
-}
-
-func TestProgressFlowControl(t *testing.T) {
-	cfg := newTestConfig(1, []uint64{1, 2}, 5, 1, NewMemoryStorage())
-	cfg.MaxInflightMsgs = 3
-	cfg.MaxSizePerMsg = 2048
-	r := newRaft(cfg)
-	r.becomeCandidate()
-	r.becomeLeader()
-
-	// Throw away all the messages relating to the initial election.
-	r.readMessages()
-
-	// While node 2 is in probe state, propose a bunch of entries.
-	r.Prs[2].becomeProbe()
-	blob := []byte(strings.Repeat("a", 1000))
-	for i := 0; i < 10; i++ {
-		r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: blob}}})
-	}
-
-	ms := r.readMessages()
-	// First append has two entries: the empty entry to confirm the
-	// election, and the first proposal (only one proposal gets sent
-	// because we're in probe state).
-	if len(ms) != 1 || ms[0].MsgType != pb.MessageType_MsgAppend {
-		t.Fatalf("expected 1 MessageType_MsgAppend, got %v", ms)
-	}
-	if len(ms[0].Entries) != 2 {
-		t.Fatalf("expected 2 entries, got %d", len(ms[0].Entries))
-	}
-	if len(ms[0].Entries[0].Data) != 0 || len(ms[0].Entries[1].Data) != 1000 {
-		t.Fatalf("unexpected entry sizes: %v", ms[0].Entries)
-	}
-
-	// When this append is acked, we change to replicate state and can
-	// send multiple messages at once.
-	r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgAppendResponse, Index: ms[0].Entries[1].Index})
-	ms = r.readMessages()
-	if len(ms) != 3 {
-		t.Fatalf("expected 3 messages, got %d", len(ms))
-	}
-	for i, m := range ms {
-		if m.MsgType != pb.MessageType_MsgAppend {
-			t.Errorf("%d: expected MessageType_MsgAppend, got %s", i, m.MsgType)
-		}
-		if len(m.Entries) != 2 {
-			t.Errorf("%d: expected 2 entries, got %d", i, len(m.Entries))
-		}
-	}
-
-	// Ack all three of those messages together and get the last two
-	// messages (containing three entries).
-	r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgAppendResponse, Index: ms[2].Entries[1].Index})
-	ms = r.readMessages()
-	if len(ms) != 2 {
-		t.Fatalf("expected 2 messages, got %d", len(ms))
-	}
-	for i, m := range ms {
-		if m.MsgType != pb.MessageType_MsgAppend {
-			t.Errorf("%d: expected MessageType_MsgAppend, got %s", i, m.MsgType)
-		}
-	}
-	if len(ms[0].Entries) != 2 {
-		t.Errorf("%d: expected 2 entries, got %d", 0, len(ms[0].Entries))
-	}
-	if len(ms[1].Entries) != 1 {
-		t.Errorf("%d: expected 1 entry, got %d", 1, len(ms[1].Entries))
 	}
 }
 
@@ -399,7 +115,6 @@ func TestUncommittedEntryLimit(t *testing.T) {
 
 	cfg := newTestConfig(1, []uint64{1, 2, 3}, 5, 1, NewMemoryStorage())
 	cfg.MaxUncommittedEntriesSize = uint64(maxEntrySize)
-	cfg.MaxInflightMsgs = 2 * 1024 // avoid interference
 	r := newRaft(cfg)
 	r.becomeCandidate()
 	r.becomeLeader()
@@ -409,8 +124,6 @@ func TestUncommittedEntryLimit(t *testing.T) {
 
 	// Set the two followers to the replicate state. Commit to tail of log.
 	const numFollowers = 2
-	r.Prs[2].becomeReplicate()
-	r.Prs[3].becomeReplicate()
 	r.uncommittedSize = 0
 
 	// Send proposals to r1. The first 5 entries should be appended to the log.
@@ -1449,68 +1162,6 @@ func TestRaftFreesReadOnlyMem(t *testing.T) {
 	}
 }
 
-// TestMessageType_MsgAppendResponseWaitReset verifies the resume behavior of a leader
-// MessageType_MsgAppendResponse.
-func TestMessageType_MsgAppendResponseWaitReset(t *testing.T) {
-	sm := newTestRaft(1, []uint64{1, 2, 3}, 5, 1, NewMemoryStorage())
-	sm.becomeCandidate()
-	sm.becomeLeader()
-
-	// The new leader has just emitted a new Term 4 entry; consume those messages
-	// from the outgoing queue.
-	sm.bcastAppend()
-	sm.readMessages()
-
-	// Node 2 acks the first entry, making it committed.
-	sm.Step(pb.Message{
-		From:    2,
-		MsgType: pb.MessageType_MsgAppendResponse,
-		Index:   1,
-	})
-	if sm.RaftLog.committed != 1 {
-		t.Fatalf("expected committed to be 1, got %d", sm.RaftLog.committed)
-	}
-	// Also consume the MessageType_MsgAppend messages that update Commit on the followers.
-	sm.readMessages()
-
-	// A new command is now proposed on node 1.
-	sm.Step(pb.Message{
-		From:    1,
-		MsgType: pb.MessageType_MsgPropose,
-		Entries: []*pb.Entry{{}},
-	})
-
-	// The command is broadcast to all nodes not in the wait state.
-	// Node 2 left the wait state due to its MessageType_MsgAppendResponse, but node 3 is still waiting.
-	msgs := sm.readMessages()
-	if len(msgs) != 1 {
-		t.Fatalf("expected 1 message, got %d: %+v", len(msgs), msgs)
-	}
-	if msgs[0].MsgType != pb.MessageType_MsgAppend || msgs[0].To != 2 {
-		t.Errorf("expected MessageType_MsgAppend to node 2, got %v to %d", msgs[0].MsgType, msgs[0].To)
-	}
-	if len(msgs[0].Entries) != 1 || msgs[0].Entries[0].Index != 2 {
-		t.Errorf("expected to send entry 2, but got %v", msgs[0].Entries)
-	}
-
-	// Now Node 3 acks the first entry. This releases the wait and entry 2 is sent.
-	sm.Step(pb.Message{
-		From:    3,
-		MsgType: pb.MessageType_MsgAppendResponse,
-		Index:   1,
-	})
-	msgs = sm.readMessages()
-	if len(msgs) != 1 {
-		t.Fatalf("expected 1 message, got %d: %+v", len(msgs), msgs)
-	}
-	if msgs[0].MsgType != pb.MessageType_MsgAppend || msgs[0].To != 3 {
-		t.Errorf("expected MessageType_MsgAppend to node 3, got %v to %d", msgs[0].MsgType, msgs[0].To)
-	}
-	if len(msgs[0].Entries) != 1 || msgs[0].Entries[0].Index != 2 {
-		t.Errorf("expected to send entry 2, but got %v", msgs[0].Entries)
-	}
-}
-
 func TestRecvMessageType_MsgRequestVote(t *testing.T) {
 	msgType := pb.MessageType_MsgRequestVote
 	msgRespType := pb.MessageType_MsgRequestVoteResponse
@@ -2320,8 +1971,7 @@ func TestLeaderAppResp(t *testing.T) {
 		windex     uint64
 		wcommitted uint64
 	}{
-		{3, true, 0, 3, 0, 0, 0},  // stale resp; no replies
-		{2, true, 0, 2, 1, 1, 0},  // denied resp; leader does not commit; decrease next and send probing msg
+		{2, true, 0, 4, 1, 1, 0},  // denied resp; leader does not commit; optimistic update next after sended append msg
 		{2, false, 2, 4, 2, 2, 2}, // accept resp; leader commits; broadcast with commit index
 		{0, false, 0, 3, 0, 0, 0}, // ignore heartbeat replies
 	}
@@ -2464,157 +2114,20 @@ func TestRecvMessageType_MsgBeat(t *testing.T) {
 
 func TestLeaderIncreaseNext(t *testing.T) {
 	previousEnts := []pb.Entry{{Term: 1, Index: 1}, {Term: 1, Index: 2}, {Term: 1, Index: 3}}
-	tests := []struct {
-		// progress
-		state ProgressStateType
-		next  uint64
+	next := uint64(len(previousEnts))
+	// previous entries + noop entry + propose + 1
+	wnext := uint64(len(previousEnts)) + 1 + 1 + 1
 
-		wnext uint64
-	}{
-		// state replicate, optimistically increase next
-		// previous entries + noop entry + propose + 1
-		{ProgressStateReplicate, 2, uint64(len(previousEnts) + 1 + 1 + 1)},
-		// state probe, not optimistically increase next
-		{ProgressStateProbe, 2, 2},
-	}
+	sm := newTestRaft(1, []uint64{1, 2}, 10, 1, NewMemoryStorage())
+	sm.RaftLog.append(previousEnts...)
+	sm.becomeCandidate()
+	sm.becomeLeader()
+	sm.Prs[2].Next = next
+	sm.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: []byte("somedata")}}})
 
-	for i, tt := range tests {
-		sm := newTestRaft(1, []uint64{1, 2}, 10, 1, NewMemoryStorage())
-		sm.RaftLog.append(previousEnts...)
-		sm.becomeCandidate()
-		sm.becomeLeader()
-		sm.Prs[2].State = tt.state
-		sm.Prs[2].Next = tt.next
-		sm.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: []byte("somedata")}}})
-
-		p := sm.Prs[2]
-		if p.Next != tt.wnext {
-			t.Errorf("#%d next = %d, want %d", i, p.Next, tt.wnext)
-		}
-	}
-}
-
-func TestSendAppendForProgressProbe(t *testing.T) {
-	r := newTestRaft(1, []uint64{1, 2}, 10, 1, NewMemoryStorage())
-	r.becomeCandidate()
-	r.becomeLeader()
-	r.readMessages()
-	r.Prs[2].becomeProbe()
-
-	// each round is a heartbeat
-	for i := 0; i < 3; i++ {
-		if i == 0 {
-			// we expect that raft will only send out one MessageType_MsgAppend on the first
-			// loop. After that, the follower is paused until a heartbeat response is
-			// received.
-			mustAppendEntry(r, pb.Entry{Data: []byte("somedata")})
-			r.sendAppend(2)
-			msg := r.readMessages()
-			if len(msg) != 1 {
-				t.Errorf("len(msg) = %d, want %d", len(msg), 1)
-			}
-			if msg[0].Index != 0 {
-				t.Errorf("index = %d, want %d", msg[0].Index, 0)
-			}
-		}
-
-		if !r.Prs[2].Paused {
-			t.Errorf("paused = %v, want true", r.Prs[2].Paused)
-		}
-		for j := 0; j < 10; j++ {
-			mustAppendEntry(r, pb.Entry{Data: []byte("somedata")})
-			r.sendAppend(2)
-			if l := len(r.readMessages()); l != 0 {
-				t.Errorf("len(msg) = %d, want %d", l, 0)
-			}
-		}
-
-		// do a heartbeat
-		for j := 0; j < r.heartbeatTimeout; j++ {
-			r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgBeat})
-		}
-		if !r.Prs[2].Paused {
-			t.Errorf("paused = %v, want true", r.Prs[2].Paused)
-		}
-
-		// consume the heartbeat
-		msg := r.readMessages()
-		if len(msg) != 1 {
-			t.Errorf("len(msg) = %d, want %d", len(msg), 1)
-		}
-		if msg[0].MsgType != pb.MessageType_MsgHeartbeat {
-			t.Errorf("type = %v, want %v", msg[0].MsgType, pb.MessageType_MsgHeartbeat)
-		}
-	}
-
-	// a heartbeat response will allow another message to be sent
-	r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeatResponse})
-	msg := r.readMessages()
-	if len(msg) != 1 {
-		t.Errorf("len(msg) = %d, want %d", len(msg), 1)
-	}
-	if msg[0].Index != 0 {
-		t.Errorf("index = %d, want %d", msg[0].Index, 0)
-	}
-	if !r.Prs[2].Paused {
-		t.Errorf("paused = %v, want true", r.Prs[2].Paused)
-	}
-}
-
-func TestSendAppendForProgressReplicate(t *testing.T) {
-	r := newTestRaft(1, []uint64{1, 2}, 10, 1, NewMemoryStorage())
-	r.becomeCandidate()
-	r.becomeLeader()
-	r.readMessages()
-	r.Prs[2].becomeReplicate()
-
-	for i := 0; i < 10; i++ {
-		mustAppendEntry(r, pb.Entry{Data: []byte("somedata")})
-		r.sendAppend(2)
-		msgs := r.readMessages()
-		if len(msgs) != 1 {
-			t.Errorf("len(msg) = %d, want %d", len(msgs), 1)
-		}
-	}
-}
-
-func TestSendAppendForProgressSnapshot(t *testing.T) {
-	r := newTestRaft(1, []uint64{1, 2}, 10, 1, NewMemoryStorage())
-	r.becomeCandidate()
-	r.becomeLeader()
-	r.readMessages()
-	r.Prs[2].becomeSnapshot(10)
-
-	for i := 0; i < 10; i++ {
-		mustAppendEntry(r, pb.Entry{Data: []byte("somedata")})
-		r.sendAppend(2)
-		msgs := r.readMessages()
-		if len(msgs) != 0 {
-			t.Errorf("len(msg) = %d, want %d", len(msgs), 0)
-		}
-	}
-}
-
-func TestRecvMessageType_MsgUnreachable(t *testing.T) {
-	previousEnts := []pb.Entry{{Term: 1, Index: 1}, {Term: 1, Index: 2}, {Term: 1, Index: 3}}
-	s := NewMemoryStorage()
-	s.Append(previousEnts)
-	r := newTestRaft(1, []uint64{1, 2}, 10, 1, s)
-	r.becomeCandidate()
-	r.becomeLeader()
-	r.readMessages()
-	// set node 2 to state replicate
-	r.Prs[2].Match = 3
-	r.Prs[2].becomeReplicate()
-	r.Prs[2].optimisticUpdate(5)
-
-	r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgUnreachable})
-
-	if r.Prs[2].State != ProgressStateProbe {
-		t.Errorf("state = %s, want %s", r.Prs[2].State, ProgressStateProbe)
-	}
-	if wnext := r.Prs[2].Match + 1; r.Prs[2].Next != wnext {
-		t.Errorf("next = %d, want %d", r.Prs[2].Next, wnext)
+	p := sm.Prs[2]
+	if p.Next != wnext {
+		t.Errorf("next = %d, want %d", p.Next, wnext)
 	}
 }
 
@@ -3796,13 +3309,12 @@ func setRandomizedElectionTimeout(r *Raft, v int) {
 
 func newTestConfig(id uint64, peers []uint64, election, heartbeat int, storage Storage) *Config {
 	return &Config{
-		ID:              id,
-		peers:           peers,
-		ElectionTick:    election,
-		HeartbeatTick:   heartbeat,
-		Storage:         storage,
-		MaxSizePerMsg:   noLimit,
-		MaxInflightMsgs: 256,
+		ID:            id,
+		peers:         peers,
+		ElectionTick:  election,
+		HeartbeatTick: heartbeat,
+		Storage:       storage,
+		MaxSizePerMsg: noLimit,
 	}
 }
 

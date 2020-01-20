@@ -135,14 +135,13 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 	appliedIndex := ps.AppliedIndex()
 
 	raftCfg := &raft.Config{
-		ID:              peer.GetId(),
-		ElectionTick:    cfg.RaftElectionTimeoutTicks,
-		HeartbeatTick:   cfg.RaftHeartbeatTicks,
-		MaxSizePerMsg:   cfg.RaftMaxSizePerMsg,
-		MaxInflightMsgs: cfg.RaftMaxInflightMsgs,
-		Applied:         appliedIndex,
-		CheckQuorum:     true,
-		Storage:         ps,
+		ID:            peer.GetId(),
+		ElectionTick:  cfg.RaftElectionTimeoutTicks,
+		HeartbeatTick: cfg.RaftHeartbeatTicks,
+		MaxSizePerMsg: cfg.RaftMaxSizePerMsg,
+		Applied:       appliedIndex,
+		CheckQuorum:   true,
+		Storage:       ps,
 	}
 
 	raftGroup, err := raft.NewRawNode(raftCfg, nil)
@@ -157,8 +156,8 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 		peerCache:             make(map[uint64]*metapb.Peer),
 		PeerHeartbeats:        make(map[uint64]time.Time),
 		PeersStartPendingTime: make(map[uint64]time.Time),
-		Tag:             tag,
-		LastApplyingIdx: appliedIndex,
+		Tag:                   tag,
+		LastApplyingIdx:       appliedIndex,
 	}
 
 	// If this region has only one peer and I am the one, campaign directly.
@@ -829,11 +828,12 @@ func (p *Peer) readyToTransferLeader(cfg *config.Config, peer *metapb.Peer) bool
 		return false
 	}
 
-	for _, pr := range status.Progress {
-		if pr.State == raft.ProgressStateSnapshot {
-			return false
-		}
-	}
+	// for _, pr := range status.Progress {
+	// 	if pr.State == raft.ProgressStateSnapshot {
+	// 		return false
+	// 	}
+	// }
+
 	lastIndex, _ := p.Store().LastIndex()
 
 	return lastIndex <= status.Progress[peerId].Match+cfg.LeaderTransferMaxLogLag

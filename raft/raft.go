@@ -156,12 +156,6 @@ type Config struct {
 	// limit is exceeded, proposals will begin to return ErrProposalDropped
 	// errors. Note: 0 for no limit.
 	MaxUncommittedEntriesSize uint64
-	// MaxInflightMsgs limits the max number of in-flight append messages during
-	// optimistic replication phase. The application transportation layer usually
-	// has its own sending buffer over TCP/UDP. Setting MaxInflightMsgs to avoid
-	// overflowing that sending buffer. TODO (xiangli): feedback to application to
-	// limit the proposal rate?
-	MaxInflightMsgs int
 
 	// CheckQuorum specifies if the leader should check quorum activity. Leader
 	// steps down when quorum is not active for an electionTimeout.
@@ -224,10 +218,6 @@ func (c *Config) validate() error {
 		c.MaxCommittedSizePerReady = c.MaxSizePerMsg
 	}
 
-	if c.MaxInflightMsgs <= 0 {
-		return errors.New("max inflight messages must be greater than 0")
-	}
-
 	if c.Logger == nil {
 		c.Logger = raftLogger
 	}
@@ -252,7 +242,6 @@ type Raft struct {
 
 	maxMsgSize         uint64
 	maxUncommittedSize uint64
-	maxInflight        int
 	Prs                map[uint64]*Progress
 	LearnerPrs         map[uint64]*Progress
 	matchBuf           uint64Slice
@@ -354,7 +343,6 @@ func newRaft(c *Config) *Raft {
 		IsLearner:                 false,
 		RaftLog:                   raftlog,
 		maxMsgSize:                c.MaxSizePerMsg,
-		maxInflight:               c.MaxInflightMsgs,
 		maxUncommittedSize:        c.MaxUncommittedEntriesSize,
 		Prs:                       make(map[uint64]*Progress),
 		LearnerPrs:                make(map[uint64]*Progress),
@@ -367,13 +355,13 @@ func newRaft(c *Config) *Raft {
 		disableProposalForwarding: c.DisableProposalForwarding,
 	}
 	for _, p := range peers {
-		r.Prs[p] = &Progress{Next: 1, ins: newInflights(r.maxInflight)}
+		r.Prs[p] = &Progress{Next: 1}
 	}
 	for _, p := range learners {
 		if _, ok := r.Prs[p]; ok {
 			panic(fmt.Sprintf("node %x is in both learner and peer list", p))
 		}
-		r.LearnerPrs[p] = &Progress{Next: 1, ins: newInflights(r.maxInflight), IsLearner: true}
+		r.LearnerPrs[p] = &Progress{Next: 1, IsLearner: true}
 		if r.id == p {
 			r.IsLearner = true
 		}
@@ -499,9 +487,6 @@ func (r *Raft) sendAppend(to uint64) {
 // are undesirable when we're sending multiple messages in a batch).
 func (r *Raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 	pr := r.getProgress(to)
-	if pr.IsPaused() {
-		return false
-	}
 	m := pb.Message{}
 	m.To = to
 
@@ -533,7 +518,6 @@ func (r *Raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 		sindex, sterm := snapshot.Metadata.Index, snapshot.Metadata.Term
 		r.logger.Debugf("%x [firstindex: %d, commit: %d] sent snapshot[index: %d, term: %d] to %x [%s]",
 			r.id, r.RaftLog.firstIndex(), r.RaftLog.committed, sindex, sterm, to, pr)
-		pr.becomeSnapshot(sindex)
 		r.logger.Debugf("%x paused sending replication messages to %x [%s]", r.id, to, pr)
 	} else {
 		m.MsgType = pb.MessageType_MsgAppend
@@ -547,17 +531,8 @@ func (r *Raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 		m.Entries = entries
 		m.Commit = r.RaftLog.committed
 		if n := len(m.Entries); n != 0 {
-			switch pr.State {
-			// optimistically increase the next when in ProgressStateReplicate
-			case ProgressStateReplicate:
-				last := m.Entries[n-1].Index
-				pr.optimisticUpdate(last)
-				pr.ins.add(last)
-			case ProgressStateProbe:
-				pr.pause()
-			default:
-				r.logger.Panicf("%x is sending append in unhandled state %s", r.id, pr.State)
-			}
+			last := m.Entries[n-1].Index
+			pr.optimisticUpdate(last)
 		}
 	}
 	r.send(m)
@@ -659,7 +634,7 @@ func (r *Raft) reset(term uint64) {
 
 	r.votes = make(map[uint64]bool)
 	r.forEachProgress(func(id uint64, pr *Progress) {
-		*pr = Progress{Next: r.RaftLog.LastIndex() + 1, ins: newInflights(r.maxInflight), IsLearner: pr.IsLearner}
+		*pr = Progress{Next: r.RaftLog.LastIndex() + 1, IsLearner: pr.IsLearner}
 		if id == r.id {
 			pr.Match = r.RaftLog.LastIndex()
 		}
@@ -761,11 +736,6 @@ func (r *Raft) becomeLeader() {
 	r.tick = r.tickHeartbeat
 	r.Lead = r.id
 	r.State = StateLeader
-	// Followers enter replicate mode when they've been successfully probed
-	// (perhaps after having received a snapshot as a result). The leader is
-	// trivially in this state. Note that r.reset() has initialized this
-	// progress with the last index already.
-	r.Prs[r.id].becomeReplicate()
 
 	// Conservatively set the PendingConfIndex to the last index in the
 	// log. There may or may not be a pending config change, but it's
@@ -1032,39 +1002,15 @@ func stepLeader(r *Raft, m pb.Message) error {
 			r.logger.Debugf("%x received MessageType_MsgAppend rejection(lastindex: %d) from %x for index %d",
 				r.id, m.RejectHint, m.From, m.Index)
 			if pr.maybeDecrTo(m.Index, m.RejectHint) {
-				r.logger.Debugf("%x decreased progress of %x to [%s]", r.id, m.From, pr)
-				if pr.State == ProgressStateReplicate {
-					pr.becomeProbe()
-				}
 				r.sendAppend(m.From)
 			}
 		} else {
-			oldPaused := pr.IsPaused()
 			if pr.maybeUpdate(m.Index) {
-				switch {
-				case pr.State == ProgressStateProbe:
-					pr.becomeReplicate()
-				case pr.State == ProgressStateSnapshot && pr.needSnapshotAbort():
-					r.logger.Debugf("%x snapshot aborted, resumed sending replication messages to %x [%s]", r.id, m.From, pr)
-					// Transition back to replicating state via probing state
-					// (which takes the snapshot into account). If we didn't
-					// move to replicating state, that would only happen with
-					// the next round of appends (but there may not be a next
-					// round for a while, exposing an inconsistent RaftStatus).
-					pr.becomeProbe()
-					pr.becomeReplicate()
-				case pr.State == ProgressStateReplicate:
-					pr.ins.freeTo(m.Index)
-				}
 
 				if r.maybeCommit() {
 					if r.ShouldBcastCommit() {
 						r.bcastAppend()
 					}
-				} else if oldPaused {
-					// If we were paused before, this node may be missing the
-					// latest commit index, so send it.
-					r.sendAppend(m.From)
 				}
 				// We've updated flow control information above, which may
 				// allow us to send multiple (size-limited) in-flight messages
@@ -1083,12 +1029,7 @@ func stepLeader(r *Raft, m pb.Message) error {
 		}
 	case pb.MessageType_MsgHeartbeatResponse:
 		pr.RecentActive = true
-		pr.resume()
 
-		// free one slot for the full inflights window to allow progress.
-		if pr.State == ProgressStateReplicate && pr.ins.full() {
-			pr.ins.freeFirstOne()
-		}
 		if pr.Match < r.RaftLog.LastIndex() {
 			r.sendAppend(m.From)
 		}
@@ -1112,28 +1053,7 @@ func stepLeader(r *Raft, m pb.Message) error {
 			}
 		}
 	case pb.MessageType_MsgSnapStatus:
-		if pr.State != ProgressStateSnapshot {
-			return nil
-		}
-		if !m.Reject {
-			pr.becomeProbe()
-			r.logger.Debugf("%x snapshot succeeded, resumed sending replication messages to %x [%s]", r.id, m.From, pr)
-		} else {
-			pr.snapshotFailure()
-			pr.becomeProbe()
-			r.logger.Debugf("%x snapshot failed, resumed sending replication messages to %x [%s]", r.id, m.From, pr)
-		}
-		// If snapshot finish, wait for the MessageType_MsgAppendResponse from the remote node before sending
-		// out the next MessageType_MsgAppend.
-		// If snapshot failure, wait for a heartbeat interval before next try
-		pr.pause()
 	case pb.MessageType_MsgUnreachable:
-		// During optimistic replication, if the remote becomes unreachable,
-		// there is huge probability that a MessageType_MsgAppend is lost.
-		if pr.State == ProgressStateReplicate {
-			pr.becomeProbe()
-		}
-		r.logger.Debugf("%x failed to send message to %x because it is unreachable [%s]", r.id, m.From, pr)
 	case pb.MessageType_MsgTransferLeader:
 		if pr.IsLearner {
 			r.logger.Debugf("%x is learner. Ignored transferring leadership", r.id)
@@ -1420,14 +1340,14 @@ func (r *Raft) removeNode(id uint64) {
 func (r *Raft) setProgress(id, match, next uint64, isLearner bool) {
 	if !isLearner {
 		delete(r.LearnerPrs, id)
-		r.Prs[id] = &Progress{Next: next, Match: match, ins: newInflights(r.maxInflight)}
+		r.Prs[id] = &Progress{Next: next, Match: match}
 		return
 	}
 
 	if _, ok := r.Prs[id]; ok {
 		panic(fmt.Sprintf("%x unexpected changing from voter to learner for %x", r.id, id))
 	}
-	r.LearnerPrs[id] = &Progress{Next: next, Match: match, ins: newInflights(r.maxInflight), IsLearner: true}
+	r.LearnerPrs[id] = &Progress{Next: next, Match: match, IsLearner: true}
 }
 
 func (r *Raft) delProgress(id uint64) {
