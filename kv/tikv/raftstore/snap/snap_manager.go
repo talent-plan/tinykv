@@ -1,4 +1,4 @@
-package raftstore
+package snap
 
 import (
 	"io/ioutil"
@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/ngaut/log"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap/errors"
 )
@@ -46,27 +45,19 @@ type SnapStats struct {
 	SendingCount   int
 }
 
-func notifyStats(router *router) {
-	if router != nil {
-		router.sendStore(message.NewMsg(message.MsgTypeStoreSnapshotStats, nil))
-	}
-}
-
 type SnapManager struct {
 	base         string
 	snapSize     *int64
 	registryLock sync.RWMutex
 	registry     map[SnapKey][]SnapEntry
-	router       *router
-	limiter      *IOLimiter
 	MaxTotalSize uint64
 }
 
-func NewSnapManager(path string, router *router) *SnapManager {
-	return new(SnapManagerBuilder).Build(path, router)
+func NewSnapManager(path string) *SnapManager {
+	return new(SnapManagerBuilder).Build(path)
 }
 
-func (sm *SnapManager) init() error {
+func (sm *SnapManager) Init() error {
 	fi, err := os.Stat(sm.base)
 	if os.IsNotExist(err) {
 		err = os.MkdirAll(sm.base, 0600)
@@ -179,7 +170,7 @@ func (sm *SnapManager) GetSnapshotForBuilding(key SnapKey) (Snapshot, error) {
 			return nil, err
 		}
 	}
-	return NewSnapForBuilding(sm.base, key, sm.snapSize, sm, sm.limiter)
+	return NewSnapForBuilding(sm.base, key, sm.snapSize, sm)
 }
 
 func (sm *SnapManager) deleteOldIdleSnaps() error {
@@ -231,7 +222,7 @@ func (sm *SnapManager) GetSnapshotForReceiving(snapKey SnapKey, data []byte) (Sn
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	return NewSnapForReceiving(sm.base, snapKey, snapshotData.Meta, sm.snapSize, sm, sm.limiter)
+	return NewSnapForReceiving(sm.base, snapKey, snapshotData.Meta, sm.snapSize, sm)
 }
 
 func (sm *SnapManager) GetSnapshotForApplying(snapKey SnapKey) (Snapshot, error) {
@@ -260,7 +251,6 @@ func (sm *SnapManager) Register(key SnapKey, entry SnapEntry) {
 	}
 	entries = append(entries, entry)
 	sm.registry[key] = entries
-	notifyStats(sm.router)
 }
 
 func (sm *SnapManager) Deregister(key SnapKey, entry SnapEntry) {
@@ -283,7 +273,6 @@ func (sm *SnapManager) Deregister(key SnapKey, entry SnapEntry) {
 			} else {
 				delete(sm.registry, key)
 			}
-			notifyStats(sm.router)
 			return
 		}
 	}
@@ -342,7 +331,7 @@ func (smb *SnapManagerBuilder) MaxTotalSize(v uint64) *SnapManagerBuilder {
 	return smb
 }
 
-func (smb *SnapManagerBuilder) Build(path string, router *router) *SnapManager {
+func (smb *SnapManagerBuilder) Build(path string) *SnapManager {
 	var maxTotalSize uint64 = math.MaxUint64
 	if smb.maxTotalSize > 0 {
 		maxTotalSize = smb.maxTotalSize
@@ -351,8 +340,6 @@ func (smb *SnapManagerBuilder) Build(path string, router *router) *SnapManager {
 		base:         path,
 		snapSize:     new(int64),
 		registry:     map[SnapKey][]SnapEntry{},
-		router:       router,
-		limiter:      NewInfLimiter(),
 		MaxTotalSize: maxTotalSize,
 	}
 }

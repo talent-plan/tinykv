@@ -1,4 +1,4 @@
-package raftstore
+package snap
 
 import (
 	"bytes"
@@ -55,26 +55,6 @@ func fillDBData(t *testing.T, db *badger.DB) {
 	wb.SetCF(engine_util.CF_LOCK, snapTestKey, value)
 	err := wb.WriteToKV(db)
 	require.Nil(t, err)
-}
-
-func getTestDBForRegions(t *testing.T, path string, regions []uint64) *badger.DB {
-	db := openDB(t, path)
-	fillDBData(t, db)
-	for _, regionID := range regions {
-		// Put apply state into kv engine.
-		applyState := applyState{
-			appliedIndex:   10,
-			truncatedIndex: 10,
-		}
-		require.Nil(t, putValue(db, ApplyStateKey(regionID), applyState.Marshal()))
-
-		// Put region info into kv engine.
-		region := genTestRegion(regionID, 1, 1)
-		regionState := new(rspb.RegionLocalState)
-		regionState.Region = region
-		require.Nil(t, putMsg(db, RegionStateKey(regionID), regionState))
-	}
-	return db
 }
 
 func getKVCount(t *testing.T, db *badger.DB) int {
@@ -177,7 +157,7 @@ func doTestSnapFile(t *testing.T, dbHasData bool) {
 	key := SnapKey{RegionID: regionID, Term: 1, Index: 1}
 	sizeTrack := new(int64)
 	deleter := &dummyDeleter{}
-	s1, err := NewSnapForBuilding(snapDir, key, sizeTrack, deleter, nil)
+	s1, err := NewSnapForBuilding(snapDir, key, sizeTrack, deleter)
 	require.Nil(t, err)
 	// Ensure that this snapshot file doesn't exist before being built.
 	assert.False(t, s1.Exists())
@@ -210,7 +190,7 @@ func doTestSnapFile(t *testing.T, dbHasData bool) {
 	require.Nil(t, err)
 	defer os.RemoveAll(dstDir)
 
-	s3, err := NewSnapForReceiving(dstDir, key, snapData.Meta, sizeTrack, deleter, nil)
+	s3, err := NewSnapForReceiving(dstDir, key, snapData.Meta, sizeTrack, deleter)
 	require.Nil(t, err)
 	assert.False(t, s3.Exists())
 
@@ -286,7 +266,7 @@ func doTestSnapValidation(t *testing.T, dbHasData bool) {
 	key := SnapKey{RegionID: regionID, Term: 1, Index: 1}
 	sizeTrack := new(int64)
 	deleter := &dummyDeleter{}
-	s1, err := NewSnapForBuilding(snapDir, key, sizeTrack, deleter, nil)
+	s1, err := NewSnapForBuilding(snapDir, key, sizeTrack, deleter)
 	require.Nil(t, err)
 	assert.False(t, s1.Exists())
 
@@ -296,7 +276,7 @@ func doTestSnapValidation(t *testing.T, dbHasData bool) {
 	assert.Nil(t, s1.Build(dbBundle, region, snapData, stat, deleter))
 	assert.True(t, s1.Exists())
 
-	s2, err := NewSnapForBuilding(snapDir, key, sizeTrack, deleter, nil)
+	s2, err := NewSnapForBuilding(snapDir, key, sizeTrack, deleter)
 	require.Nil(t, err)
 	assert.True(t, s2.Exists())
 	assert.Nil(t, s2.Build(dbBundle, region, snapData, stat, deleter))
@@ -318,7 +298,7 @@ func TestSnapshotCorruptionSizeOrChecksum(t *testing.T) {
 	key := SnapKey{RegionID: regionID, Term: 1, Index: 1}
 	sizeTrack := new(int64)
 	deleter := &dummyDeleter{}
-	s1, err := NewSnapForBuilding(snapDir, key, sizeTrack, deleter, nil)
+	s1, err := NewSnapForBuilding(snapDir, key, sizeTrack, deleter)
 	assert.False(t, s1.Exists())
 	snapData := new(rspb.RaftSnapshotData)
 	snapData.Region = region
@@ -329,7 +309,7 @@ func TestSnapshotCorruptionSizeOrChecksum(t *testing.T) {
 	_, err = NewSnapForSending(snapDir, key, sizeTrack, deleter)
 	require.NotNil(t, err)
 
-	s2, err := NewSnapForBuilding(snapDir, key, sizeTrack, deleter, nil)
+	s2, err := NewSnapForBuilding(snapDir, key, sizeTrack, deleter)
 	assert.False(t, s2.Exists())
 	assert.Nil(t, s2.Build(dbBundle, region, snapData, stat, deleter))
 	assert.True(t, s2.Exists())
@@ -364,7 +344,7 @@ func TestSnapshotCorruptionSizeOrChecksum(t *testing.T) {
 	require.NotNil(t, s5.Apply(opts))
 
 	corruptSnapSizeIn(t, dstDir)
-	_, err = NewSnapForReceiving(dstDir, key, snapMeta, sizeTrack, deleter, nil)
+	_, err = NewSnapForReceiving(dstDir, key, snapMeta, sizeTrack, deleter)
 	require.NotNil(t, err)
 	_, err = NewSnapForApplying(dstDir, key, sizeTrack, deleter)
 	require.NotNil(t, err)
@@ -388,7 +368,7 @@ func copySnapshotForTest(t *testing.T, fromDir, toDir string, key SnapKey, sizeT
 	fromSnap, err := NewSnapForSending(fromDir, key, sizeTrack, deleter)
 	require.Nil(t, err)
 	assert.True(t, fromSnap.Exists())
-	toSnap, err := NewSnapForReceiving(toDir, key, snapMeta, sizeTrack, deleter, nil)
+	toSnap, err := NewSnapForReceiving(toDir, key, snapMeta, sizeTrack, deleter)
 	assert.False(t, toSnap.Exists())
 	_, err = io.Copy(toSnap, fromSnap)
 	assert.Nil(t, err)
@@ -461,7 +441,7 @@ func TestSnapshotCorruptionOnMetaFile(t *testing.T) {
 	key := SnapKey{RegionID: regionID, Term: 1, Index: 1}
 	sizeTrack := new(int64)
 	deleter := &dummyDeleter{}
-	s1, err := NewSnapForBuilding(snapDir, key, sizeTrack, deleter, nil)
+	s1, err := NewSnapForBuilding(snapDir, key, sizeTrack, deleter)
 	assert.False(t, s1.Exists())
 	snapData := new(rspb.RaftSnapshotData)
 	snapData.Region = region
@@ -472,7 +452,7 @@ func TestSnapshotCorruptionOnMetaFile(t *testing.T) {
 	_, err = NewSnapForSending(snapDir, key, sizeTrack, deleter)
 	require.NotNil(t, err)
 
-	s2, err := NewSnapForBuilding(snapDir, key, sizeTrack, deleter, nil)
+	s2, err := NewSnapForBuilding(snapDir, key, sizeTrack, deleter)
 	assert.False(t, s2.Exists())
 	assert.Nil(t, s2.Build(dbBundle, region, snapData, stat, deleter))
 	assert.True(t, s2.Exists())
@@ -487,7 +467,7 @@ func TestSnapshotCorruptionOnMetaFile(t *testing.T) {
 
 	_, err = NewSnapForApplying(dstDir, key, sizeTrack, deleter)
 	require.NotNil(t, err)
-	_, err = NewSnapForReceiving(dstDir, key, snapData.Meta, sizeTrack, deleter, nil)
+	_, err = NewSnapForReceiving(dstDir, key, snapData.Meta, sizeTrack, deleter)
 	require.NotNil(t, err)
 }
 
@@ -531,7 +511,7 @@ func TestSnapMgrV2(t *testing.T) {
 	key1 := SnapKey{RegionID: 1, Term: 1, Index: 1}
 	sizeTrack := new(int64)
 	deleter := &dummyDeleter{}
-	s1, err := NewSnapForBuilding(tempDir, key1, sizeTrack, deleter, nil)
+	s1, err := NewSnapForBuilding(tempDir, key1, sizeTrack, deleter)
 	require.Nil(t, err)
 	region := genTestRegion(1, 1, 1)
 	snapData := new(rspb.RaftSnapshotData)
@@ -542,7 +522,7 @@ func TestSnapMgrV2(t *testing.T) {
 	s, err := NewSnapForSending(tempDir, key1, sizeTrack, deleter)
 	require.Nil(t, err)
 	expectedSize := s.TotalSize()
-	s2, err := NewSnapForReceiving(tempDir, key1, snapData.Meta, sizeTrack, deleter, nil)
+	s2, err := NewSnapForReceiving(tempDir, key1, snapData.Meta, sizeTrack, deleter)
 	require.Nil(t, err)
 	n, err := io.Copy(s2, s)
 	require.Nil(t, err)
@@ -553,9 +533,9 @@ func TestSnapMgrV2(t *testing.T) {
 	region.Id = 2
 	snapData.Region = region
 
-	s3, err := NewSnapForBuilding(tempDir, key2, sizeTrack, deleter, nil)
+	s3, err := NewSnapForBuilding(tempDir, key2, sizeTrack, deleter)
 	require.Nil(t, err)
-	s4, err := NewSnapForReceiving(tempDir, key2, snapData.Meta, sizeTrack, deleter, nil)
+	s4, err := NewSnapForReceiving(tempDir, key2, snapData.Meta, sizeTrack, deleter)
 	require.Nil(t, err)
 
 	require.True(t, s1.Exists())
