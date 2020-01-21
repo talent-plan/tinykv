@@ -9,6 +9,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
@@ -20,7 +21,7 @@ type RaftInnerServer struct {
 	storeMeta  metapb.Store
 
 	node          *raftstore.Node
-	snapManager   *raftstore.SnapManager
+	snapManager   *snap.SnapManager
 	raftRouter    *raftstore.RaftstoreRouter
 	batchSystem   *raftstore.RaftBatchSystem
 	pdWorker      *worker.Worker
@@ -88,7 +89,7 @@ func (ris *RaftInnerServer) Setup(pdClient pd.Client) {
 	router, batchSystem := raftstore.CreateRaftBatchSystem(cfg)
 
 	ris.raftRouter = raftstore.NewRaftstoreRouter(router) // TODO: init with local reader
-	ris.snapManager = raftstore.NewSnapManager(cfg.SnapPath, router)
+	ris.snapManager = snap.NewSnapManager(cfg.SnapPath)
 	ris.batchSystem = batchSystem
 }
 

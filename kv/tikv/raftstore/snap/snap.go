@@ -1,4 +1,4 @@
-package raftstore
+package snap
 
 import (
 	"fmt"
@@ -23,6 +23,32 @@ import (
 	"github.com/pingcap/errors"
 )
 
+type JobStatus = uint32
+
+const (
+	JobStatus_Pending JobStatus = 0 + iota
+	JobStatus_Running
+	JobStatus_Cancelling
+	JobStatus_Cancelled
+	JobStatus_Finished
+	JobStatus_Failed
+)
+
+type SnapStateType int
+
+const (
+	SnapState_Relax SnapStateType = 0 + iota
+	SnapState_Generating
+	SnapState_Applying
+	SnapState_ApplyAborted
+)
+
+type SnapState struct {
+	StateType SnapStateType
+	Status    *JobStatus
+	Receiver  chan *eraftpb.Snapshot
+}
+
 const (
 	snapGenPrefix       = "gen" // Name prefix for the self-generated snapshot file.
 	snapRevPrefix       = "rev" // Name prefix for the received snapshot file.
@@ -35,23 +61,19 @@ const (
 	deleteRetryDuration = 500 * time.Millisecond
 )
 
-type applySnapAbortError string
+type ApplySnapAbortError string
 
-func (e applySnapAbortError) Error() string {
+func (e ApplySnapAbortError) Error() string {
 	return string(e)
 }
 
 var (
-	errAbort = applySnapAbortError("abort")
+	errAbort = ApplySnapAbortError("abort")
 )
 
 type SnapKeyWithSending struct {
 	SnapKey   SnapKey
 	IsSending bool
-}
-
-type MsgGCSnap struct {
-	Snaps []SnapKeyWithSending
 }
 
 type SnapKey struct {
@@ -92,7 +114,7 @@ type ApplyOptions struct {
 	Abort  *uint32
 }
 
-func newApplyOptions(db *badger.DB, region *metapb.Region, abort *uint32) *ApplyOptions {
+func NewApplyOptions(db *badger.DB, region *metapb.Region, abort *uint32) *ApplyOptions {
 	return &ApplyOptions{
 		DB:     db,
 		Region: region,
@@ -118,19 +140,6 @@ type Snapshot interface {
 	TotalSize() uint64
 	Save() error
 	Apply(option ApplyOptions) error
-}
-
-// copySnapshot is a helper function to copy snapshot.
-// Only used in tests.
-func copySnapshot(to, from Snapshot) error {
-	if !to.Exists() {
-		_, err := io.Copy(to, from)
-		if err != nil {
-			return errors.WithStack(err)
-		}
-		return to.Save()
-	}
-	return nil
 }
 
 // `SnapshotDeleter` is a trait for deleting snapshot.
@@ -239,12 +248,11 @@ type Snap struct {
 
 	MetaFile     *MetaFile
 	SizeTrack    *int64
-	limiter      *IOLimiter
 	holdTmpFiles bool
 }
 
 func NewSnap(dir string, key SnapKey, sizeTrack *int64, isSending, toBuild bool,
-	deleter SnapshotDeleter, limiter *IOLimiter) (*Snap, error) {
+	deleter SnapshotDeleter) (*Snap, error) {
 	if !util.DirExists(dir) {
 		err := os.MkdirAll(dir, 0700)
 		if err != nil {
@@ -284,7 +292,6 @@ func NewSnap(dir string, key SnapKey, sizeTrack *int64, isSending, toBuild bool,
 		CFFiles:     cfFiles,
 		MetaFile:    metaFile,
 		SizeTrack:   sizeTrack,
-		limiter:     limiter,
 	}
 
 	// load snapshot meta if meta file exists.
@@ -304,8 +311,8 @@ func NewSnap(dir string, key SnapKey, sizeTrack *int64, isSending, toBuild bool,
 	return s, nil
 }
 
-func NewSnapForBuilding(dir string, key SnapKey, sizeTrack *int64, deleter SnapshotDeleter, limiter *IOLimiter) (*Snap, error) {
-	s, err := NewSnap(dir, key, sizeTrack, true, true, deleter, limiter)
+func NewSnapForBuilding(dir string, key SnapKey, sizeTrack *int64, deleter SnapshotDeleter) (*Snap, error) {
+	s, err := NewSnap(dir, key, sizeTrack, true, true, deleter)
 	if err != nil {
 		return nil, err
 	}
@@ -317,7 +324,7 @@ func NewSnapForBuilding(dir string, key SnapKey, sizeTrack *int64, deleter Snaps
 }
 
 func NewSnapForSending(dir string, key SnapKey, sizeTrack *int64, deleter SnapshotDeleter) (*Snap, error) {
-	s, err := NewSnap(dir, key, sizeTrack, true, false, deleter, nil)
+	s, err := NewSnap(dir, key, sizeTrack, true, false, deleter)
 	if err != nil {
 		return nil, err
 	}
@@ -338,8 +345,8 @@ func NewSnapForSending(dir string, key SnapKey, sizeTrack *int64, deleter Snapsh
 }
 
 func NewSnapForReceiving(dir string, key SnapKey, snapshotMeta *rspb.SnapshotMeta,
-	sizeTrack *int64, deleter SnapshotDeleter, limiter *IOLimiter) (*Snap, error) {
-	s, err := NewSnap(dir, key, sizeTrack, false, false, deleter, limiter)
+	sizeTrack *int64, deleter SnapshotDeleter) (*Snap, error) {
+	s, err := NewSnap(dir, key, sizeTrack, false, false, deleter)
 	if err != nil {
 		return nil, err
 	}
@@ -372,7 +379,7 @@ func NewSnapForReceiving(dir string, key SnapKey, snapshotMeta *rspb.SnapshotMet
 }
 
 func NewSnapForApplying(dir string, key SnapKey, sizeTrack *int64, deleter SnapshotDeleter) (*Snap, error) {
-	return NewSnap(dir, key, sizeTrack, false, false, deleter, nil)
+	return NewSnap(dir, key, sizeTrack, false, false, deleter)
 }
 
 func (s *Snap) initForBuilding() error {
@@ -682,7 +689,7 @@ func (s *Snap) Apply(opts ApplyOptions) error {
 	if err != nil {
 		return err
 	}
-	err = checkAbort(opts.Abort)
+	err = CheckAbort(opts.Abort)
 	if err != nil {
 		return err
 	}
@@ -710,7 +717,7 @@ func (s *Snap) Apply(opts ApplyOptions) error {
 	return nil
 }
 
-func checkAbort(status *uint32) error {
+func CheckAbort(status *uint32) error {
 	if atomic.LoadUint32(status) == JobStatus_Cancelling {
 		return errAbort
 	}

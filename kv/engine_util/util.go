@@ -30,15 +30,11 @@ func DeleteRange(db *badger.DB, startKey, endKey []byte) error {
 }
 
 func deleteRangeCF(txn *badger.Txn, batch *WriteBatch, cf string, startKey, endKey []byte) {
-	if len(endKey) == 0 {
-		panic("invalid end key")
-	}
-
 	it := NewCFIterator(cf, txn)
 	for it.Seek(startKey); it.Valid(); it.Next() {
 		item := it.Item()
 		key := item.KeyCopy(nil)
-		if exceedEndKey(key, endKey) {
+		if ExceedEndKey(key, endKey) {
 			break
 		}
 		batch.DeleteCF(cf, key)
@@ -46,6 +42,6 @@ func deleteRangeCF(txn *badger.Txn, batch *WriteBatch, cf string, startKey, endK
 	defer it.Close()
 }
 
-func exceedEndKey(current, endKey []byte) bool {
+func ExceedEndKey(current, endKey []byte) bool {
 	return bytes.Compare(current, endKey) >= 0
 }

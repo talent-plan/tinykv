@@ -363,8 +363,7 @@ func (n *node) run(r *Raft) {
 			if cc.NodeId == None {
 				select {
 				case n.confstatec <- pb.ConfState{
-					Nodes:    r.nodes(),
-					Learners: r.learnerNodes()}:
+					Nodes: r.nodes()}:
 				case <-n.done:
 				}
 				break
@@ -372,8 +371,6 @@ func (n *node) run(r *Raft) {
 			switch cc.ChangeType {
 			case pb.ConfChangeType_AddNode:
 				r.addNode(cc.NodeId)
-			case pb.ConfChangeType_AddLearnerNode:
-				r.addLearner(cc.NodeId)
 			case pb.ConfChangeType_RemoveNode:
 				// block incoming proposal when local node is
 				// removed
@@ -386,8 +383,7 @@ func (n *node) run(r *Raft) {
 			}
 			select {
 			case n.confstatec <- pb.ConfState{
-				Nodes:    r.nodes(),
-				Learners: r.learnerNodes()}:
+				Nodes: r.nodes()}:
 			case <-n.done:
 			}
 		case <-n.tickc:

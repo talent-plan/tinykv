@@ -503,91 +503,6 @@ func TestLeaderElection(t *testing.T) {
 	}
 }
 
-// TestLearnerElectionTimeout verfies that the leader should not start election even
-// when times out.
-func TestLearnerElectionTimeout(t *testing.T) {
-	n1 := newTestLearnerRaft(1, []uint64{1}, []uint64{2}, 10, 1, NewMemoryStorage())
-	n2 := newTestLearnerRaft(2, []uint64{1}, []uint64{2}, 10, 1, NewMemoryStorage())
-
-	n1.becomeFollower(1, None)
-	n2.becomeFollower(1, None)
-
-	// n2 is learner. Learner should not start election even when times out.
-	setRandomizedElectionTimeout(n2, n2.electionTimeout)
-	for i := 0; i < n2.electionTimeout; i++ {
-		n2.tick()
-	}
-
-	if n2.State != StateFollower {
-		t.Errorf("peer 2 state: %s, want %s", n2.State, StateFollower)
-	}
-}
-
-// TestLearnerPromotion verifies that the learner should not election until
-// it is promoted to a normal peer.
-func TestLearnerPromotion(t *testing.T) {
-	n1 := newTestLearnerRaft(1, []uint64{1}, []uint64{2}, 10, 1, NewMemoryStorage())
-	n2 := newTestLearnerRaft(2, []uint64{1}, []uint64{2}, 10, 1, NewMemoryStorage())
-
-	n1.becomeFollower(1, None)
-	n2.becomeFollower(1, None)
-
-	nt := newNetwork(n1, n2)
-
-	if n1.State == StateLeader {
-		t.Error("peer 1 state is leader, want not", n1.State)
-	}
-
-	// n1 should become leader
-	setRandomizedElectionTimeout(n1, n1.electionTimeout)
-	for i := 0; i < n1.electionTimeout; i++ {
-		n1.tick()
-	}
-
-	if n1.State != StateLeader {
-		t.Errorf("peer 1 state: %s, want %s", n1.State, StateLeader)
-	}
-	if n2.State != StateFollower {
-		t.Errorf("peer 2 state: %s, want %s", n2.State, StateFollower)
-	}
-
-	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgBeat})
-
-	n1.addNode(2)
-	n2.addNode(2)
-	if n2.IsLearner {
-		t.Error("peer 2 is learner, want not")
-	}
-
-	// n2 start election, should become leader
-	setRandomizedElectionTimeout(n2, n2.electionTimeout)
-	for i := 0; i < n2.electionTimeout; i++ {
-		n2.tick()
-	}
-
-	nt.send(pb.Message{From: 2, To: 2, MsgType: pb.MessageType_MsgBeat})
-
-	if n1.State != StateFollower {
-		t.Errorf("peer 1 state: %s, want %s", n1.State, StateFollower)
-	}
-	if n2.State != StateLeader {
-		t.Errorf("peer 2 state: %s, want %s", n2.State, StateLeader)
-	}
-}
-
-// TestLearnerCannotVote checks that a learner can't vote even it receives a valid Vote request.
-func TestLearnerCannotVote(t *testing.T) {
-	n2 := newTestLearnerRaft(2, []uint64{1}, []uint64{2}, 10, 1, NewMemoryStorage())
-
-	n2.becomeFollower(1, None)
-
-	n2.Step(pb.Message{From: 1, To: 2, Term: 2, MsgType: pb.MessageType_MsgRequestVote, LogTerm: 11, Index: 11})
-
-	if len(n2.msgs) != 0 {
-		t.Errorf("expect learner not to vote, but received %v messages", n2.msgs)
-	}
-}
-
 // testLeaderCycle verifies that each node in a cluster can campaign
 // and be elected in turn. This ensures that elections work when not
 // starting from a clean slate (as they do in TestLeaderElection)
@@ -790,47 +705,6 @@ func TestLogReplication(t *testing.T) {
 				}
 			}
 		}
-	}
-}
-
-// TestLearnerLogReplication tests that a learner can receive entries from the leader.
-func TestLearnerLogReplication(t *testing.T) {
-	n1 := newTestLearnerRaft(1, []uint64{1}, []uint64{2}, 10, 1, NewMemoryStorage())
-	n2 := newTestLearnerRaft(2, []uint64{1}, []uint64{2}, 10, 1, NewMemoryStorage())
-
-	nt := newNetwork(n1, n2)
-
-	n1.becomeFollower(1, None)
-	n2.becomeFollower(1, None)
-
-	setRandomizedElectionTimeout(n1, n1.electionTimeout)
-	for i := 0; i < n1.electionTimeout; i++ {
-		n1.tick()
-	}
-
-	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgBeat})
-
-	// n1 is leader and n2 is learner
-	if n1.State != StateLeader {
-		t.Errorf("peer 1 state: %s, want %s", n1.State, StateLeader)
-	}
-	if !n2.IsLearner {
-		t.Error("peer 2 state: not learner, want yes")
-	}
-
-	nextCommitted := n1.RaftLog.committed + 1
-	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: []byte("somedata")}}})
-	if n1.RaftLog.committed != nextCommitted {
-		t.Errorf("peer 1 wants committed to %d, but still %d", nextCommitted, n1.RaftLog.committed)
-	}
-
-	if n1.RaftLog.committed != n2.RaftLog.committed {
-		t.Errorf("peer 2 wants committed to %d, but still %d", n1.RaftLog.committed, n2.RaftLog.committed)
-	}
-
-	match := n1.getProgress(2).Match
-	if match != n2.RaftLog.committed {
-		t.Errorf("progress 2 of leader 1 wants match %d, but got %d", n2.RaftLog.committed, match)
 	}
 }
 
@@ -1211,7 +1085,7 @@ func TestCommit(t *testing.T) {
 
 		sm := newTestRaft(1, []uint64{1}, 10, 2, storage)
 		for j := 0; j < len(tt.matches); j++ {
-			sm.setProgress(uint64(j)+1, tt.matches[j], tt.matches[j]+1, false)
+			sm.setProgress(uint64(j)+1, tt.matches[j], tt.matches[j]+1)
 		}
 		sm.maybeCommit()
 		if g := sm.RaftLog.committed; g != tt.w {
@@ -2343,112 +2217,6 @@ func TestRestore(t *testing.T) {
 	}
 }
 
-// TestRestoreWithLearner restores a snapshot which contains learners.
-func TestRestoreWithLearner(t *testing.T) {
-	s := pb.Snapshot{
-		Metadata: &pb.SnapshotMetadata{
-			Index:     11, // magic number
-			Term:      11, // magic number
-			ConfState: &pb.ConfState{Nodes: []uint64{1, 2}, Learners: []uint64{3}},
-		},
-	}
-
-	storage := NewMemoryStorage()
-	sm := newTestLearnerRaft(3, []uint64{1, 2}, []uint64{3}, 8, 2, storage)
-	if ok := sm.restore(s); !ok {
-		t.Error("restore fail, want succeed")
-	}
-
-	if sm.RaftLog.LastIndex() != s.Metadata.Index {
-		t.Errorf("log.lastIndex = %d, want %d", sm.RaftLog.LastIndex(), s.Metadata.Index)
-	}
-	if mustTerm(sm.RaftLog.Term(s.Metadata.Index)) != s.Metadata.Term {
-		t.Errorf("log.lastTerm = %d, want %d", mustTerm(sm.RaftLog.Term(s.Metadata.Index)), s.Metadata.Term)
-	}
-	sg := sm.nodes()
-	if len(sg) != len(s.Metadata.ConfState.Nodes) {
-		t.Errorf("sm.Nodes = %+v, length not equal with %+v", sg, s.Metadata.ConfState.Nodes)
-	}
-	lns := sm.learnerNodes()
-	if len(lns) != len(s.Metadata.ConfState.Learners) {
-		t.Errorf("sm.LearnerNodes = %+v, length not equal with %+v", sg, s.Metadata.ConfState.Learners)
-	}
-	for _, n := range s.Metadata.ConfState.Nodes {
-		if sm.Prs[n].IsLearner {
-			t.Errorf("sm.Node %x isLearner = %s, want %t", n, sm.Prs[n], false)
-		}
-	}
-	for _, n := range s.Metadata.ConfState.Learners {
-		if !sm.LearnerPrs[n].IsLearner {
-			t.Errorf("sm.Node %x isLearner = %s, want %t", n, sm.Prs[n], true)
-		}
-	}
-
-	if ok := sm.restore(s); ok {
-		t.Error("restore succeed, want fail")
-	}
-}
-
-// TestRestoreLearnerPromotion checks that a learner can become to a follower after
-// restoring snapshot.
-func TestRestoreLearnerPromotion(t *testing.T) {
-	s := pb.Snapshot{
-		Metadata: &pb.SnapshotMetadata{
-			Index:     11, // magic number
-			Term:      11, // magic number
-			ConfState: &pb.ConfState{Nodes: []uint64{1, 2, 3}},
-		},
-	}
-
-	storage := NewMemoryStorage()
-	sm := newTestLearnerRaft(3, []uint64{1, 2}, []uint64{3}, 10, 1, storage)
-
-	if !sm.IsLearner {
-		t.Errorf("%x is not learner, want yes", sm.id)
-	}
-
-	if ok := sm.restore(s); !ok {
-		t.Error("restore fail, want succeed")
-	}
-
-	if sm.IsLearner {
-		t.Errorf("%x is learner, want not", sm.id)
-	}
-}
-
-// TestLearnerReceiveSnapshot tests that a learner can receive a snpahost from leader
-func TestLearnerReceiveSnapshot(t *testing.T) {
-	// restore the state machine from a snapshot so it has a compacted log and a snapshot
-	s := pb.Snapshot{
-		Metadata: &pb.SnapshotMetadata{
-			Index:     11, // magic number
-			Term:      11, // magic number
-			ConfState: &pb.ConfState{Nodes: []uint64{1}, Learners: []uint64{2}},
-		},
-	}
-
-	n1 := newTestLearnerRaft(1, []uint64{1}, []uint64{2}, 10, 1, NewMemoryStorage())
-	n2 := newTestLearnerRaft(2, []uint64{1}, []uint64{2}, 10, 1, NewMemoryStorage())
-
-	n1.restore(s)
-
-	// Force set n1 appplied index.
-	n1.RaftLog.appliedTo(n1.RaftLog.committed)
-
-	nt := newNetwork(n1, n2)
-
-	setRandomizedElectionTimeout(n1, n1.electionTimeout)
-	for i := 0; i < n1.electionTimeout; i++ {
-		n1.tick()
-	}
-
-	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgBeat})
-
-	if n2.RaftLog.committed != n1.RaftLog.committed {
-		t.Errorf("peer 2 must commit to %d, but %d", n1.RaftLog.committed, n2.RaftLog.committed)
-	}
-}
-
 func TestRestoreIgnoreSnapshot(t *testing.T) {
 	previousEnts := []pb.Entry{{Term: 1, Index: 1}, {Term: 1, Index: 2}, {Term: 1, Index: 3}}
 	commit := uint64(1)
@@ -2641,20 +2409,6 @@ func TestAddNode(t *testing.T) {
 	}
 }
 
-// TestAddLearner tests that addLearner could update nodes correctly.
-func TestAddLearner(t *testing.T) {
-	r := newTestRaft(1, []uint64{1}, 10, 1, NewMemoryStorage())
-	r.addLearner(2)
-	nodes := r.learnerNodes()
-	wnodes := []uint64{2}
-	if !reflect.DeepEqual(nodes, wnodes) {
-		t.Errorf("nodes = %v, want %v", nodes, wnodes)
-	}
-	if !r.LearnerPrs[2].IsLearner {
-		t.Errorf("node 2 is learner %t, want %t", r.Prs[2].IsLearner, true)
-	}
-}
-
 // TestRemoveNode tests that removeNode could update nodes and
 // and removed list correctly.
 func TestRemoveNode(t *testing.T) {
@@ -2673,27 +2427,6 @@ func TestRemoveNode(t *testing.T) {
 	}
 }
 
-// TestRemoveLearner tests that removeNode could update nodes and
-// and removed list correctly.
-func TestRemoveLearner(t *testing.T) {
-	r := newTestLearnerRaft(1, []uint64{1}, []uint64{2}, 10, 1, NewMemoryStorage())
-	r.removeNode(2)
-	w := []uint64{1}
-	if g := r.nodes(); !reflect.DeepEqual(g, w) {
-		t.Errorf("nodes = %v, want %v", g, w)
-	}
-
-	w = []uint64{}
-	if g := r.learnerNodes(); !reflect.DeepEqual(g, w) {
-		t.Errorf("nodes = %v, want %v", g, w)
-	}
-
-	// remove all nodes from cluster
-	r.removeNode(1)
-	if g := r.nodes(); !reflect.DeepEqual(g, w) {
-		t.Errorf("nodes = %v, want %v", g, w)
-	}
-}
 func TestPromotable(t *testing.T) {
 	id := uint64(1)
 	tests := []struct {
@@ -3265,19 +2998,10 @@ func newNetworkWithConfig(configFunc func(*Config), peers ...stateMachine) *netw
 			sm := newRaft(cfg)
 			npeers[id] = sm
 		case *Raft:
-			learners := make(map[uint64]bool, len(v.LearnerPrs))
-			for i := range v.LearnerPrs {
-				learners[i] = true
-			}
 			v.id = id
 			v.Prs = make(map[uint64]*Progress)
-			v.LearnerPrs = make(map[uint64]*Progress)
 			for i := 0; i < size; i++ {
-				if _, ok := learners[peerAddrs[i]]; ok {
-					v.LearnerPrs[peerAddrs[i]] = &Progress{IsLearner: true}
-				} else {
-					v.Prs[peerAddrs[i]] = &Progress{}
-				}
+				v.Prs[peerAddrs[i]] = &Progress{}
 			}
 			v.reset(v.Term)
 			npeers[id] = v
@@ -3398,10 +3122,4 @@ func newTestConfig(id uint64, peers []uint64, election, heartbeat int, storage S
 
 func newTestRaft(id uint64, peers []uint64, election, heartbeat int, storage Storage) *Raft {
 	return newRaft(newTestConfig(id, peers, election, heartbeat, storage))
-}
-
-func newTestLearnerRaft(id uint64, peers []uint64, learners []uint64, election, heartbeat int, storage Storage) *Raft {
-	cfg := newTestConfig(id, peers, election, heartbeat, storage)
-	cfg.learners = learners
-	return newRaft(cfg)
 }

@@ -113,20 +113,17 @@ func (MessageType) EnumDescriptor() ([]byte, []int) {
 type ConfChangeType int32
 
 const (
-	ConfChangeType_AddNode        ConfChangeType = 0
-	ConfChangeType_RemoveNode     ConfChangeType = 1
-	ConfChangeType_AddLearnerNode ConfChangeType = 2
+	ConfChangeType_AddNode    ConfChangeType = 0
+	ConfChangeType_RemoveNode ConfChangeType = 1
 )
 
 var ConfChangeType_name = map[int32]string{
 	0: "AddNode",
 	1: "RemoveNode",
-	2: "AddLearnerNode",
 }
 var ConfChangeType_value = map[string]int32{
-	"AddNode":        0,
-	"RemoveNode":     1,
-	"AddLearnerNode": 2,
+	"AddNode":    0,
+	"RemoveNode": 1,
 }
 
 func (x ConfChangeType) String() string {
@@ -543,7 +540,6 @@ func (m *HardState) GetCommit() uint64 {
 
 type ConfState struct {
 	Nodes                []uint64 `protobuf:"varint,1,rep,packed,name=nodes" json:"nodes,omitempty"`
-	Learners             []uint64 `protobuf:"varint,2,rep,packed,name=learners" json:"learners,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
@@ -585,13 +581,6 @@ var xxx_messageInfo_ConfState proto.InternalMessageInfo
 func (m *ConfState) GetNodes() []uint64 {
 	if m != nil {
 		return m.Nodes
-	}
-	return nil
-}
-
-func (m *ConfState) GetLearners() []uint64 {
-	if m != nil {
-		return m.Learners
 	}
 	return nil
 }
@@ -972,23 +961,6 @@ func (m *ConfState) MarshalTo(dAtA []byte) (int, error) {
 		i = encodeVarintEraftpb(dAtA, i, uint64(j4))
 		i += copy(dAtA[i:], dAtA5[:j4])
 	}
-	if len(m.Learners) > 0 {
-		dAtA7 := make([]byte, len(m.Learners)*10)
-		var j6 int
-		for _, num := range m.Learners {
-			for num >= 1<<7 {
-				dAtA7[j6] = uint8(uint64(num)&0x7f | 0x80)
-				num >>= 7
-				j6++
-			}
-			dAtA7[j6] = uint8(num)
-			j6++
-		}
-		dAtA[i] = 0x12
-		i++
-		i = encodeVarintEraftpb(dAtA, i, uint64(j6))
-		i += copy(dAtA[i:], dAtA7[:j6])
-	}
 	if m.XXX_unrecognized != nil {
 		i += copy(dAtA[i:], m.XXX_unrecognized)
 	}
@@ -1182,13 +1154,6 @@ func (m *ConfState) Size() (n int) {
 	if len(m.Nodes) > 0 {
 		l = 0
 		for _, e := range m.Nodes {
-			l += sovEraftpb(uint64(e))
-		}
-		n += 1 + sovEraftpb(uint64(l)) + l
-	}
-	if len(m.Learners) > 0 {
-		l = 0
-		for _, e := range m.Learners {
 			l += sovEraftpb(uint64(e))
 		}
 		n += 1 + sovEraftpb(uint64(l)) + l
@@ -2157,68 +2122,6 @@ func (m *ConfState) Unmarshal(dAtA []byte) error {
 				}
 			} else {
 				return fmt.Errorf("proto: wrong wireType = %d for field Nodes", wireType)
-			}
-		case 2:
-			if wireType == 0 {
-				var v uint64
-				for shift := uint(0); ; shift += 7 {
-					if shift >= 64 {
-						return ErrIntOverflowEraftpb
-					}
-					if iNdEx >= l {
-						return io.ErrUnexpectedEOF
-					}
-					b := dAtA[iNdEx]
-					iNdEx++
-					v |= (uint64(b) & 0x7F) << shift
-					if b < 0x80 {
-						break
-					}
-				}
-				m.Learners = append(m.Learners, v)
-			} else if wireType == 2 {
-				var packedLen int
-				for shift := uint(0); ; shift += 7 {
-					if shift >= 64 {
-						return ErrIntOverflowEraftpb
-					}
-					if iNdEx >= l {
-						return io.ErrUnexpectedEOF
-					}
-					b := dAtA[iNdEx]
-					iNdEx++
-					packedLen |= (int(b) & 0x7F) << shift
-					if b < 0x80 {
-						break
-					}
-				}
-				if packedLen < 0 {
-					return ErrInvalidLengthEraftpb
-				}
-				postIndex := iNdEx + packedLen
-				if postIndex > l {
-					return io.ErrUnexpectedEOF
-				}
-				for iNdEx < postIndex {
-					var v uint64
-					for shift := uint(0); ; shift += 7 {
-						if shift >= 64 {
-							return ErrIntOverflowEraftpb
-						}
-						if iNdEx >= l {
-							return io.ErrUnexpectedEOF
-						}
-						b := dAtA[iNdEx]
-						iNdEx++
-						v |= (uint64(b) & 0x7F) << shift
-						if b < 0x80 {
-							break
-						}
-					}
-					m.Learners = append(m.Learners, v)
-				}
-			} else {
-				return fmt.Errorf("proto: wrong wireType = %d for field Learners", wireType)
 			}
 		default:
 			iNdEx = preIndex

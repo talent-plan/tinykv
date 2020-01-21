@@ -1,4 +1,4 @@
-package raftstore
+package snap
 
 import (
 	"github.com/coocood/badger"
@@ -36,7 +36,7 @@ func (b *snapBuilder) build() error {
 		for it.Seek(startKey); it.Valid(); it.Next() {
 			item := it.Item()
 			key := item.Key()
-			if exceedEndKey(key, endKey) {
+			if engine_util.ExceedEndKey(key, endKey) {
 				break
 			}
 			value, err := item.Value()
