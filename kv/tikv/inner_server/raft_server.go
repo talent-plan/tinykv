@@ -7,12 +7,16 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
+	"github.com/pingcap/errors"
 )
 
 type RaftInnerServer struct {
@@ -30,6 +34,82 @@ type RaftInnerServer struct {
 }
 
 type TransportBuilder = func(snapScheduler chan<- worker.Task, raftRouter message.RaftRouter, resolverScheduler chan<- worker.Task) raftstore.Transport
+
+func (ris *RaftInnerServer) Write(ctx kvrpcpb.Context, batch []Modify) error {
+	var reqs []*raft_cmdpb.Request
+	for _, m := range batch {
+		switch m.Type {
+		case ModifyTypePut:
+			put := m.Data.(Put)
+			reqs = append(reqs, &raft_cmdpb.Request{
+				CmdType: raft_cmdpb.CmdType_Put,
+				Put: &raft_cmdpb.PutRequest{
+					Cf:    put.Cf,
+					Key:   put.Key,
+					Value: put.Value,
+				}})
+		case ModifyTypeDelete:
+			delete := m.Data.(Delete)
+			reqs = append(reqs, &raft_cmdpb.Request{
+				CmdType: raft_cmdpb.CmdType_Delete,
+				Delete: &raft_cmdpb.DeleteRequest{
+					Cf:  delete.Cf,
+					Key: delete.Key,
+				}})
+		}
+	}
+
+	header := &raft_cmdpb.RaftRequestHeader{
+		RegionId:    ctx.RegionId,
+		Peer:        ctx.Peer,
+		RegionEpoch: ctx.RegionEpoch,
+		Term:        ctx.Term,
+	}
+	request := &raft_cmdpb.RaftCmdRequest{
+		Header:   header,
+		Requests: reqs,
+	}
+	cb := message.NewCallback()
+	if err := ris.raftRouter.SendRaftCommand(request, cb); err != nil {
+		return err
+	}
+	cb.Wg.Wait()
+	return ris.checkResponse(cb.Resp, len(reqs))
+}
+
+func (ris *RaftInnerServer) checkResponse(resp *raft_cmdpb.RaftCmdResponse, reqCount int) error {
+	if resp.Header.Error != nil {
+		return errors.Errorf(resp.Header.Error.String())
+	}
+	if len(resp.Responses) != reqCount {
+		return errors.Errorf("responses count %d is not equal to requests count %d",
+			len(resp.Responses), reqCount)
+	}
+	return nil
+}
+
+func (ris *RaftInnerServer) Reader(ctx kvrpcpb.Context) (dbreader.DBReader, error) {
+	header := &raft_cmdpb.RaftRequestHeader{
+		RegionId:    ctx.RegionId,
+		Peer:        ctx.Peer,
+		RegionEpoch: ctx.RegionEpoch,
+		Term:        ctx.Term,
+	}
+	request := &raft_cmdpb.RaftCmdRequest{
+		Header: header,
+		Requests: []*raft_cmdpb.Request{&raft_cmdpb.Request{
+			CmdType: raft_cmdpb.CmdType_Snap,
+			Snap:    &raft_cmdpb.SnapRequest{},
+		}},
+	}
+	cb := message.NewCallback()
+	if err := ris.raftRouter.SendRaftCommand(request, cb); err != nil {
+		return nil, err
+	}
+	cb.Wg.Wait()
+
+	return dbreader.NewRegionReader(cb.RegionSnap.Txn, cb.RegionSnap.Region), nil
+}
 
 func (ris *RaftInnerServer) Raft(stream tikvpb.Tikv_RaftServer) error {
 	for {
@@ -79,11 +159,6 @@ func (ris *RaftInnerServer) Setup(pdClient pd.Client) {
 	ris.pdWorker = worker.NewWorker("pd-worker", &wg)
 	ris.resolveWorker = worker.NewWorker("resolver", &wg)
 	ris.snapWorker = worker.NewWorker("snap-worker", &wg)
-
-	// TODO: create local reader
-	// TODO: create storage read pool
-	// TODO: create cop read pool
-	// TODO: create cop endpoint
 
 	cfg := ris.raftConfig
 	router, batchSystem := raftstore.CreateRaftBatchSystem(cfg)

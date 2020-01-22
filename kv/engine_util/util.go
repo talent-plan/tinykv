@@ -18,6 +18,15 @@ func GetCF(db *badger.DB, cf string, key []byte) (val []byte, err error) {
 	return
 }
 
+func GetCFFromTxn(txn *badger.Txn, cf string, key []byte) ([]byte, error) {
+	item, err := txn.Get(append([]byte(cf+"_"), key...))
+	if err != nil {
+		return nil, err
+	}
+	val, err := item.Value()
+	return val, err
+}
+
 func DeleteRange(db *badger.DB, startKey, endKey []byte) error {
 	batch := new(WriteBatch)
 	txn := db.NewTransaction(false)
