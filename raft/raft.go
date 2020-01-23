@@ -768,7 +768,6 @@ func (r *Raft) Step(m pb.Message) error {
 			r.becomeFollower(m.Term, None)
 		}
 	case m.Term < r.Term:
-		r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse})
 		return nil
 	}
 
