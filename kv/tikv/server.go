@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/juju/errors"
+	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/rowcodec"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
@@ -26,6 +27,8 @@ type Server struct {
 }
 
 type InnerServer interface {
+	Setup(pdClient pd.Client)
+	Start(pdClient pd.Client) error
 	Stop() error
 	// TODO:
 	// Put(...)
