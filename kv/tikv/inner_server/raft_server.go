@@ -33,8 +33,6 @@ type RaftInnerServer struct {
 	snapWorker    *worker.Worker
 }
 
-type TransportBuilder = func(snapScheduler chan<- worker.Task, raftRouter message.RaftRouter, resolverScheduler chan<- worker.Task) raftstore.Transport
-
 func (ris *RaftInnerServer) Write(ctx kvrpcpb.Context, batch []Modify) error {
 	var reqs []*raft_cmdpb.Request
 	for _, m := range batch {
@@ -176,11 +174,12 @@ func (ris *RaftInnerServer) GetStoreMeta() *metapb.Store {
 	return &ris.storeMeta
 }
 
-func (ris *RaftInnerServer) Start(pdClient pd.Client, newTrans TransportBuilder) error {
+func (ris *RaftInnerServer) Start(pdClient pd.Client) error {
 	ris.node = raftstore.NewNode(ris.batchSystem, &ris.storeMeta, ris.raftConfig, pdClient)
 
 	resolveSender := ris.resolveWorker.Sender()
-	trans := newTrans(ris.snapWorker.Sender(), ris.raftRouter, resolveSender)
+	raftClient := newRaftClient(ris.raftConfig)
+	trans := NewServerTransport(raftClient, resolveSender, ris.raftRouter, resolveSender)
 
 	resolveRunner := newResolverRunner(pdClient)
 	ris.resolveWorker.Start(resolveRunner)

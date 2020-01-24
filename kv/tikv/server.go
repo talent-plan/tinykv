@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/juju/errors"
+	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/rowcodec"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
@@ -28,6 +29,8 @@ type Server struct {
 }
 
 type InnerServer interface {
+	Setup(pdClient pd.Client)
+	Start(pdClient pd.Client) error
 	Stop() error
 	Write(ctx kvrpcpb.Context, batch []inner_server.Modify) error
 	Reader(ctx kvrpcpb.Context) (dbreader.DBReader, error)
