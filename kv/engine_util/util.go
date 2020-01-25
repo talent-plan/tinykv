@@ -35,7 +35,7 @@ func DeleteRange(db *badger.DB, startKey, endKey []byte) error {
 		deleteRangeCF(txn, batch, cf, startKey, endKey)
 	}
 
-	return batch.WriteToKV(db)
+	return batch.WriteToDB(db)
 }
 
 func deleteRangeCF(txn *badger.Txn, batch *WriteBatch, cf string, startKey, endKey []byte) {

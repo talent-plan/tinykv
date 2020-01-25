@@ -21,11 +21,11 @@ func NewEngines(kvEngine, raftEngine *badger.DB, kvPath, raftPath string) *Engin
 }
 
 func (en *Engines) WriteKV(wb *WriteBatch) error {
-	return wb.WriteToKV(en.Kv)
+	return wb.WriteToDB(en.Kv)
 }
 
 func (en *Engines) WriteRaft(wb *WriteBatch) error {
-	return wb.WriteToRaft(en.Raft)
+	return wb.WriteToDB(en.Raft)
 }
 
 func (en *Engines) SyncKVWAL() error {

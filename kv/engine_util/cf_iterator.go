@@ -16,7 +16,7 @@ func (i *CFItem) String() string {
 }
 
 func (i *CFItem) Key() []byte {
-	return i.item.Key()[i.prefixLen+1:]
+	return i.item.Key()[i.prefixLen:]
 }
 
 func (i *CFItem) KeyCopy(dst []byte) []byte {
@@ -56,28 +56,28 @@ func (i *CFItem) UserMeta() []byte {
 }
 
 type CFIterator struct {
-	iter *badger.Iterator
-	cf   string
+	iter   *badger.Iterator
+	prefix string
 }
 
 func NewCFIterator(cf string, txn *badger.Txn) *CFIterator {
 	return &CFIterator{
-		iter: txn.NewIterator(badger.DefaultIteratorOptions),
-		cf:   cf,
+		iter:   txn.NewIterator(badger.DefaultIteratorOptions),
+		prefix: cf + "_",
 	}
 }
 
 func (it *CFIterator) Item() *CFItem {
 	return &CFItem{
 		item:      it.iter.Item(),
-		prefixLen: len(it.cf),
+		prefixLen: len(it.prefix),
 	}
 }
 
-func (it *CFIterator) Valid() bool { return it.iter.ValidForPrefix([]byte(it.cf)) }
+func (it *CFIterator) Valid() bool { return it.iter.ValidForPrefix([]byte(it.prefix)) }
 
 func (it *CFIterator) ValidForPrefix(prefix []byte) bool {
-	return it.iter.ValidForPrefix(append(prefix, []byte(it.cf)...))
+	return it.iter.ValidForPrefix(append(prefix, []byte(it.prefix)...))
 }
 
 func (it *CFIterator) Close() {
@@ -89,7 +89,7 @@ func (it *CFIterator) Next() {
 }
 
 func (it *CFIterator) Seek(key []byte) {
-	it.iter.Seek(append([]byte(it.cf+"_"), key...))
+	it.iter.Seek(append([]byte(it.prefix), key...))
 }
 
 func (it *CFIterator) Rewind() {

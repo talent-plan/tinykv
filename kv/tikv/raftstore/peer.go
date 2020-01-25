@@ -249,10 +249,10 @@ func (p *Peer) Destroy(engine *engine_util.Engines, keepData bool) error {
 	WritePeerState(kvWB, region, rspb.PeerState_Tombstone)
 	// write kv rocksdb first in case of restart happen between two write
 	// Todo: sync = ctx.cfg.sync_log
-	if err := kvWB.WriteToKV(engine.Kv); err != nil {
+	if err := kvWB.WriteToDB(engine.Kv); err != nil {
 		return err
 	}
-	if err := raftWB.WriteToRaft(engine.Raft); err != nil {
+	if err := raftWB.WriteToDB(engine.Raft); err != nil {
 		return err
 	}
 

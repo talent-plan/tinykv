@@ -216,7 +216,7 @@ func (re *RaftError) Error() string {
 // 	if err != nil {
 // 		return err
 // 	}
-// 	err = applyCtx.wb.WriteToKV(w.dbBundle)
+// 	err = applyCtx.wb.WriteToDB(w.dbBundle)
 // 	if err != nil {
 // 		return err
 // 	}

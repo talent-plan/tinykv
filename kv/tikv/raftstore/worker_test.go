@@ -99,7 +99,7 @@ func fillDBData(t *testing.T, db *badger.DB) {
 	wb.SetCF(engine_util.CF_DEFAULT, []byte("key"), value)
 	wb.SetCF(engine_util.CF_WRITE, []byte("key"), value)
 	wb.SetCF(engine_util.CF_LOCK, []byte("key"), value)
-	err := wb.WriteToKV(db)
+	err := wb.WriteToDB(db)
 	require.Nil(t, err)
 }
 
@@ -156,7 +156,7 @@ func TestApplies(t *testing.T) {
 		require.Nil(t, err)
 		regionLocalState.State = rspb.PeerState_Applying
 		require.Nil(t, wb.SetMsg(RegionStateKey(regionId), regionLocalState))
-		require.Nil(t, wb.WriteToKV(engines.Kv))
+		require.Nil(t, wb.WriteToDB(engines.Kv))
 
 		// apply snapshot
 		var status = snap.JobStatus_Pending
@@ -205,7 +205,7 @@ func TestGcRaftLog(t *testing.T) {
 		k := RaftLogKey(regionId, i)
 		raftWb.Set(k, []byte("entry"))
 	}
-	raftWb.WriteToRaft(raftDb)
+	raftWb.WriteToDB(raftDb)
 
 	type tempHolder struct {
 		raftLogGcTask     worker.Task

@@ -277,7 +277,7 @@ func (snapCtx *snapContext) applySnap(regionId uint64, status *snap.JobStatus) e
 	wb := new(engine_util.WriteBatch)
 	wb.SetMsg(RegionStateKey(regionId), regionState)
 	wb.Delete(SnapshotRaftStateKey(regionId))
-	if err := wb.WriteToKV(snapCtx.engines.Kv); err != nil {
+	if err := wb.WriteToDB(snapCtx.engines.Kv); err != nil {
 		log.Errorf("update region status failed: %s", err)
 	}
 
@@ -391,7 +391,7 @@ func (r *raftLogGCTaskHandler) gcRaftLog(raftDb *badger.DB, regionId, startIdx, 
 	}
 	// todo, disable WAL here.
 	if raftWb.Len() != 0 {
-		if err := raftWb.WriteToRaft(raftDb); err != nil {
+		if err := raftWb.WriteToDB(raftDb); err != nil {
 			return 0, err
 		}
 	}

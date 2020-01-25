@@ -257,7 +257,7 @@ func (ac *applyContext) commitOpt(d *applier, persistent bool) {
 
 /// Writes all the changes into badger.
 func (ac *applyContext) writeToDB() {
-	if err := ac.wb.WriteToKV(ac.engines.Kv); err != nil {
+	if err := ac.wb.WriteToDB(ac.engines.Kv); err != nil {
 		panic(err)
 	}
 	ac.wb.Reset()
