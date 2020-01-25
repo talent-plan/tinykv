@@ -986,6 +986,22 @@ func (p *Peer) inspect(req *raft_cmdpb.RaftCmdRequest) (RequestPolicy, error) {
 			return RequestPolicy_ProposeTransferLeader, nil
 		}
 	}
+
+	hasRead, hasWrite := false, false
+	for _, r := range req.Requests {
+		switch r.CmdType {
+		case raft_cmdpb.CmdType_Get, raft_cmdpb.CmdType_Snap:
+			hasRead = true
+		case raft_cmdpb.CmdType_Delete, raft_cmdpb.CmdType_Put:
+			hasWrite = true
+		case raft_cmdpb.CmdType_Invalid:
+			return RequestPolicy_Invalid, fmt.Errorf("invalid cmd type %v, message maybe corrupted", r.CmdType)
+		}
+
+		if hasRead && hasWrite {
+			return RequestPolicy_Invalid, fmt.Errorf("read and write can't be mixed in one batch.")
+		}
+	}
 	return RequestPolicy_ProposeNormal, nil
 }
 

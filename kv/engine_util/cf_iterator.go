@@ -89,7 +89,7 @@ func (it *CFIterator) Next() {
 }
 
 func (it *CFIterator) Seek(key []byte) {
-	it.iter.Seek(append([]byte(it.cf + "_")))
+	it.iter.Seek(append([]byte(it.cf+"_"), key...))
 }
 
 func (it *CFIterator) Rewind() {

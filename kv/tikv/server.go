@@ -9,6 +9,8 @@ import (
 	"github.com/juju/errors"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/rowcodec"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
@@ -30,10 +32,8 @@ type InnerServer interface {
 	Setup(pdClient pd.Client)
 	Start(pdClient pd.Client) error
 	Stop() error
-	// TODO:
-	// Put(...)
-	// Delete(...)
-	// Snapshot(...) used for get and scan
+	Write(ctx kvrpcpb.Context, batch []inner_server.Modify) error
+	Reader(ctx kvrpcpb.Context) (dbreader.DBReader, error)
 	Raft(stream tikvpb.Tikv_RaftServer) error
 	BatchRaft(stream tikvpb.Tikv_BatchRaftServer) error
 	Snapshot(stream tikvpb.Tikv_SnapshotServer) error

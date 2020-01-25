@@ -3,6 +3,7 @@ package inner_server
 import (
 	"github.com/coocood/badger"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 )
@@ -41,4 +42,12 @@ func (is *StandAlongInnerServer) Start(pdClient pd.Client) error {
 
 func (is *StandAlongInnerServer) Stop() error {
 	return is.db.Close()
+}
+
+func (is *StandAlongInnerServer) Reader(ctx kvrpcpb.Context) (dbreader.DBReader, error) {
+	return nil, nil
+}
+
+func (is *StandAlongInnerServer) Write(ctx kvrpcpb.Context, batch []Modify) error {
+	return nil
 }
