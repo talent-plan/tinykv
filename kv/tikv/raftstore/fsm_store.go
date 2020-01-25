@@ -226,8 +226,8 @@ func (bs *RaftBatchSystem) loadPeers() ([]*peerFsm, error) {
 	if err != nil {
 		return nil, err
 	}
-	kvWB.MustWriteToKV(ctx.engine.Kv)
-	raftWB.MustWriteToRaft(ctx.engine.Raft)
+	kvWB.MustWriteToDB(ctx.engine.Kv)
+	raftWB.MustWriteToDB(ctx.engine.Raft)
 
 	// schedule applying snapshot after raft write batch were written.
 	for _, region := range applyingRegions {

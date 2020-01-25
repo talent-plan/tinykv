@@ -53,7 +53,7 @@ func fillDBData(t *testing.T, db *badger.DB) {
 	wb.SetCF(engine_util.CF_DEFAULT, snapTestKey, value)
 	wb.SetCF(engine_util.CF_WRITE, snapTestKey, value)
 	wb.SetCF(engine_util.CF_LOCK, snapTestKey, value)
-	err := wb.WriteToKV(db)
+	err := wb.WriteToDB(db)
 	require.Nil(t, err)
 }
 

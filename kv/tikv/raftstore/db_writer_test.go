@@ -49,7 +49,7 @@ package raftstore
 // 			Requests: wb.requests,
 // 		})
 // 		assert.Nil(t, err)
-// 		err = applyCtx.wb.WriteToKV(engines.Kv)
+// 		err = applyCtx.wb.WriteToDB(engines.Kv)
 // 		assert.Nil(t, err)
 // 		applyCtx.wb.Reset()
 // 		wb.requests = nil
@@ -79,7 +79,7 @@ package raftstore
 // 			Header:   new(rfpb.RaftRequestHeader),
 // 			Requests: wb.requests,
 // 		})
-// 		err := applyCtx.wb.WriteToKV(engines.Kv)
+// 		err := applyCtx.wb.WriteToDB(engines.Kv)
 // 		assert.Nil(t, err)
 // 		applyCtx.wb.Reset()
 // 		wb.requests = nil
@@ -127,7 +127,7 @@ package raftstore
 // 			Header:   new(rfpb.RaftRequestHeader),
 // 			Requests: wb.requests,
 // 		})
-// 		err := applyCtx.wb.WriteToKV(engines.Kv)
+// 		err := applyCtx.wb.WriteToDB(engines.Kv)
 // 		assert.Nil(t, err)
 // 		applyCtx.wb.Reset()
 // 		wb.requests = nil
@@ -144,7 +144,7 @@ package raftstore
 // 		Header:   new(rfpb.RaftRequestHeader),
 // 		Requests: wb.requests,
 // 	})
-// 	err := applyCtx.wb.WriteToKV(engines.Kv)
+// 	err := applyCtx.wb.WriteToDB(engines.Kv)
 // 	assert.Nil(t, err)
 // 	applyCtx.wb.Reset()
 
@@ -158,7 +158,7 @@ package raftstore
 // 		Header:   new(rfpb.RaftRequestHeader),
 // 		Requests: wb.requests,
 // 	})
-// 	err = applyCtx.wb.WriteToKV(engines.Kv)
+// 	err = applyCtx.wb.WriteToDB(engines.Kv)
 // 	assert.Nil(t, err)
 // 	applyCtx.wb.Reset()
 // 	// The lock should be deleted.
