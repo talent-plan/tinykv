@@ -19,4 +19,4 @@ The `tinykv` module is organized into the following packages:
   definitions used by TinyKV, and Go code for using them.
 * `raft`: an implementation of the Raft distributed consensus algorithm, used in TinyKV.
 * `scheduler`: implementation of the PD server.
- */
+*/
