@@ -27,9 +27,9 @@ func TestGetSyncLogFromRequest(t *testing.T) {
 
 func TestEntryCtx(t *testing.T) {
 	tbl := [][]ProposalContext{
-		[]ProposalContext{ProposalContext_Split},
-		[]ProposalContext{ProposalContext_SyncLog},
-		[]ProposalContext{ProposalContext_Split, ProposalContext_SyncLog},
+		{ProposalContext_Split},
+		{ProposalContext_SyncLog},
+		{ProposalContext_Split, ProposalContext_SyncLog},
 	}
 	for _, flags := range tbl {
 		var ctx ProposalContext

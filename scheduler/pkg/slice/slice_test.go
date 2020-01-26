@@ -16,8 +16,8 @@ package slice_test
 import (
 	"testing"
 
-	. "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/slice"
+	. "github.com/pingcap/check"
 )
 
 func Test(t *testing.T) {
