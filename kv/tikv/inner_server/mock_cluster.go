@@ -14,10 +14,44 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	tikvConf "github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 )
+
+type MockTransport struct {
+	sync.Mutex
+	routers map[uint64]message.RaftRouter
+}
+
+func NewMockTransport() MockTransport {
+	return MockTransport{
+		routers: make(map[uint64]message.RaftRouter),
+	}
+}
+
+func (t *MockTransport) AddNode(storeID uint64, raftRouter message.RaftRouter) {
+	t.Lock()
+	defer t.Unlock()
+
+	t.routers[storeID] = raftRouter
+}
+
+func (t *MockTransport) Send(msg *raft_serverpb.RaftMessage) error {
+	t.Lock()
+	defer t.Unlock()
+
+	storeID := msg.GetToPeer().GetStoreId()
+	router, ok := t.routers[storeID]
+	if !ok {
+		panic("storeID not found")
+	}
+	router.SendRaftMessage(msg)
+
+	return nil
+}
 
 type MockCluster struct {
 	trans    *MockTransport
@@ -43,32 +77,6 @@ func (c *MockCluster) Start() error {
 		}
 	}
 	return nil
-}
-
-func createDB(subPath string, conf *config.Engine) *badger.DB {
-	opts := badger.DefaultOptions
-	opts.NumCompactors = conf.NumCompactors
-	opts.ValueThreshold = conf.ValueThreshold
-	if subPath == "raft" {
-		// Do not need to write blob for raft engine because it will be deleted soon.
-		opts.ValueThreshold = 0
-	}
-	opts.ValueLogWriteOptions.WriteBufferSize = 4 * 1024 * 1024
-	opts.Dir = filepath.Join(conf.DBPath, subPath)
-	opts.ValueDir = opts.Dir
-	opts.ValueLogFileSize = conf.VlogFileSize
-	opts.MaxTableSize = conf.MaxTableSize
-	opts.NumMemtables = conf.NumMemTables
-	opts.NumLevelZeroTables = conf.NumL0Tables
-	opts.NumLevelZeroTablesStall = conf.NumL0TablesStall
-	opts.SyncWrites = conf.SyncWrite
-	opts.MaxCacheSize = conf.BlockCacheSize
-	opts.TableBuilderOptions.SuRFStartLevel = conf.SurfStartLevel
-	db, err := badger.Open(opts)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return db
 }
 
 func (c *MockCluster) addNode(nodeID uint64) error {
@@ -105,4 +113,30 @@ func (c *MockCluster) addNode(nodeID uint64) error {
 	c.nodes[nodeID] = node
 
 	return nil
+}
+
+func createDB(subPath string, conf *config.Engine) *badger.DB {
+	opts := badger.DefaultOptions
+	opts.NumCompactors = conf.NumCompactors
+	opts.ValueThreshold = conf.ValueThreshold
+	if subPath == "raft" {
+		// Do not need to write blob for raft engine because it will be deleted soon.
+		opts.ValueThreshold = 0
+	}
+	opts.ValueLogWriteOptions.WriteBufferSize = 4 * 1024 * 1024
+	opts.Dir = filepath.Join(conf.DBPath, subPath)
+	opts.ValueDir = opts.Dir
+	opts.ValueLogFileSize = conf.VlogFileSize
+	opts.MaxTableSize = conf.MaxTableSize
+	opts.NumMemtables = conf.NumMemTables
+	opts.NumLevelZeroTables = conf.NumL0Tables
+	opts.NumLevelZeroTablesStall = conf.NumL0TablesStall
+	opts.SyncWrites = conf.SyncWrite
+	opts.MaxCacheSize = conf.BlockCacheSize
+	opts.TableBuilderOptions.SuRFStartLevel = conf.SurfStartLevel
+	db, err := badger.Open(opts)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return db
 }
