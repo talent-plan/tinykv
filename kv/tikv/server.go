@@ -20,8 +20,6 @@ import (
 var _ tikvpb.TikvServer = new(Server)
 
 type Server struct {
-	// mvccStore     *MVCCStore
-	// regionManager RegionManager
 	innerServer InnerServer
 	wg          sync.WaitGroup
 	refCount    int32
@@ -68,114 +66,11 @@ func (svr *Server) Stop() {
 	}
 }
 
-// type requestCtx struct {
-// 	svr       *Server
-// 	regCtx    *regionCtx
-// 	regErr    *errorpb.Error
-// 	buf       []byte
-// 	reader    *dbreader.DBReader
-// 	method    string
-// 	startTime time.Time
-// 	rpcCtx    *kvrpcpb.Context
-// }
-
-// func newRequestCtx(svr *Server, ctx *kvrpcpb.Context, method string) (*requestCtx, error) {
-// 	atomic.AddInt32(&svr.refCount, 1)
-// 	if atomic.LoadInt32(&svr.stopped) > 0 {
-// 		atomic.AddInt32(&svr.refCount, -1)
-// 		return nil, ErrRetryable("server is closed")
-// 	}
-// 	req := &requestCtx{
-// 		svr:       svr,
-// 		method:    method,
-// 		startTime: time.Now(),
-// 		rpcCtx:    ctx,
-// 	}
-// 	req.regCtx, req.regErr = svr.regionManager.GetRegionFromCtx(ctx)
-// 	return req, nil
-// }
-
-// // For read-only requests that doesn't acquire latches, this function must be called after all locks has been checked.
-// func (req *requestCtx) getDBReader() *dbreader.DBReader {
-// 	if req.reader == nil {
-// 		mvccStore := req.svr.mvccStore
-// 		txn := mvccStore.db.NewTransaction(false)
-// 		safePoint := atomic.LoadUint64(&mvccStore.safePoint.timestamp)
-// 		req.reader = dbreader.NewDBReader(req.regCtx.startKey, req.regCtx.endKey, txn, safePoint)
-// 	}
-// 	return req.reader
-// }
-
-// func (req *requestCtx) finish() {
-// 	atomic.AddInt32(&req.svr.refCount, -1)
-// 	if req.reader != nil {
-// 		req.reader.Close()
-// 	}
-// 	if req.regCtx != nil {
-// 		req.regCtx.refCount.Done()
-// 	}
-// }
-
 func (svr *Server) KvGet(ctx context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb.GetResponse, error) {
-	// reqCtx, err := newRequestCtx(svr, req.Context, "KvGet")
-	// if err != nil {
-	// 	return &kvrpcpb.GetResponse{Error: convertToKeyError(err)}, nil
-	// }
-	// defer reqCtx.finish()
-	// if reqCtx.regErr != nil {
-	// 	return &kvrpcpb.GetResponse{RegionError: reqCtx.regErr}, nil
-	// }
-	// err = svr.mvccStore.CheckKeysLock(req.GetVersion(), req.Key)
-	// if err != nil {
-	// 	return &kvrpcpb.GetResponse{Error: convertToKeyError(err)}, nil
-	// }
-	// reader := reqCtx.getDBReader()
-	// val, err := reader.Get(req.Key, req.GetVersion())
-	// if err != nil {
-	// 	return &kvrpcpb.GetResponse{
-	// 		Error: convertToKeyError(err),
-	// 	}, nil
-	// }
-	// if rowcodec.IsRowKey(req.Key) {
-	// 	val, err = rowcodec.RowToOldRow(val, nil)
-	// } else {
-	// 	val = safeCopy(val)
-	// }
-	// return &kvrpcpb.GetResponse{
-	// 	Value: val,
-	// }, nil
 	return nil, nil
 }
 
 func (svr *Server) KvScan(ctx context.Context, req *kvrpcpb.ScanRequest) (*kvrpcpb.ScanResponse, error) {
-	// 	reqCtx, err := newRequestCtx(svr, req.Context, "KvScan")
-	// 	if err != nil {
-	// 		return &kvrpcpb.ScanResponse{Pairs: []*kvrpcpb.KvPair{{Error: convertToKeyError(err)}}}, nil
-	// 	}
-	// 	defer reqCtx.finish()
-	// 	if reqCtx.regErr != nil {
-	// 		return &kvrpcpb.ScanResponse{RegionError: reqCtx.regErr}, nil
-	// 	}
-	// 	if !isMvccRegion(reqCtx.regCtx) {
-	// 		return &kvrpcpb.ScanResponse{}, nil
-	// 	}
-	// 	startKey := req.GetStartKey()
-	// 	endKey := reqCtx.regCtx.rawEndKey()
-	// 	err = svr.mvccStore.CheckRangeLock(req.GetVersion(), startKey, endKey)
-	// 	if err != nil {
-	// 		return &kvrpcpb.ScanResponse{Pairs: []*kvrpcpb.KvPair{{Error: convertToKeyError(err)}}}, nil
-	// 	}
-	// 	var scanProc = &kvScanProcessor{}
-	// 	reader := reqCtx.getDBReader()
-	// 	err = reader.Scan(startKey, endKey, int(req.GetLimit()), req.GetVersion(), scanProc)
-	// 	if err != nil {
-	// 		scanProc.pairs = append(scanProc.pairs[:0], &kvrpcpb.KvPair{
-	// 			Error: convertToKeyError(err),
-	// 		})
-	// 	}
-	// 	return &kvrpcpb.ScanResponse{
-	// 		Pairs: scanProc.pairs,
-	// 	}, nil
 	return nil, nil
 }
 
@@ -205,173 +100,34 @@ func (p *kvScanProcessor) SkipValue() bool {
 }
 
 func (svr *Server) KvCheckTxnStatus(ctx context.Context, req *kvrpcpb.CheckTxnStatusRequest) (*kvrpcpb.CheckTxnStatusResponse, error) {
-	// reqCtx, err := newRequestCtx(svr, req.Context, "TxnHeartBeat")
-	// if err != nil {
-	// 	return &kvrpcpb.CheckTxnStatusResponse{Error: convertToKeyError(err)}, nil
-	// }
-	// defer reqCtx.finish()
-	// if reqCtx.regErr != nil {
-	// 	return &kvrpcpb.CheckTxnStatusResponse{RegionError: reqCtx.regErr}, nil
-	// }
-	// lockTTL, commitTS, action, err := svr.mvccStore.CheckTxnStatus(reqCtx, req)
-	// resp := &kvrpcpb.CheckTxnStatusResponse{LockTtl: lockTTL, CommitVersion: commitTS, Action: action}
-	// resp.Error, resp.RegionError = convertToPBError(err)
-	// return resp, nil
 	return nil, nil
 }
 
 func (svr *Server) KvPrewrite(ctx context.Context, req *kvrpcpb.PrewriteRequest) (*kvrpcpb.PrewriteResponse, error) {
-	// reqCtx, err := newRequestCtx(svr, req.Context, "KvPrewrite")
-	// if err != nil {
-	// 	return &kvrpcpb.PrewriteResponse{Errors: []*kvrpcpb.KeyError{convertToKeyError(err)}}, nil
-	// }
-	// defer reqCtx.finish()
-	// if reqCtx.regErr != nil {
-	// 	return &kvrpcpb.PrewriteResponse{RegionError: reqCtx.regErr}, nil
-	// }
-	// err = svr.mvccStore.Prewrite(reqCtx, req)
-	// resp := &kvrpcpb.PrewriteResponse{}
-	// resp.Errors, resp.RegionError = convertToPBErrors(err)
-	// return resp, nil
 	return nil, nil
 }
 
 func (svr *Server) KvCommit(ctx context.Context, req *kvrpcpb.CommitRequest) (*kvrpcpb.CommitResponse, error) {
-	// reqCtx, err := newRequestCtx(svr, req.Context, "KvCommit")
-	// if err != nil {
-	// 	return &kvrpcpb.CommitResponse{Error: convertToKeyError(err)}, nil
-	// }
-	// defer reqCtx.finish()
-	// if reqCtx.regErr != nil {
-	// 	return &kvrpcpb.CommitResponse{RegionError: reqCtx.regErr}, nil
-	// }
-	// resp := new(kvrpcpb.CommitResponse)
-	// err = svr.mvccStore.Commit(reqCtx, req.Keys, req.GetStartVersion(), req.GetCommitVersion())
-	// if err != nil {
-	// 	resp.Error, resp.RegionError = convertToPBError(err)
-	// }
-	// return resp, nil
 	return nil, nil
 }
 
 func (svr *Server) KvCleanup(ctx context.Context, req *kvrpcpb.CleanupRequest) (*kvrpcpb.CleanupResponse, error) {
-	// reqCtx, err := newRequestCtx(svr, req.Context, "KvCleanup")
-	// if err != nil {
-	// 	return &kvrpcpb.CleanupResponse{Error: convertToKeyError(err)}, nil
-	// }
-	// defer reqCtx.finish()
-	// if reqCtx.regErr != nil {
-	// 	return &kvrpcpb.CleanupResponse{RegionError: reqCtx.regErr}, nil
-	// }
-	// err = svr.mvccStore.Cleanup(reqCtx, req.Key, req.StartVersion, req.CurrentTs)
-	// resp := new(kvrpcpb.CleanupResponse)
-	// if committed, ok := err.(ErrAlreadyCommitted); ok {
-	// 	resp.CommitVersion = uint64(committed)
-	// } else if err != nil {
-	// 	log.Error(err)
-	// 	resp.Error, resp.RegionError = convertToPBError(err)
-	// }
-	// return resp, nil
 	return nil, nil
 }
 
 func (svr *Server) KvBatchGet(ctx context.Context, req *kvrpcpb.BatchGetRequest) (*kvrpcpb.BatchGetResponse, error) {
-	// reqCtx, err := newRequestCtx(svr, req.Context, "KvBatchGet")
-	// if err != nil {
-	// 	return &kvrpcpb.BatchGetResponse{Pairs: []*kvrpcpb.KvPair{{Error: convertToKeyError(err)}}}, nil
-	// }
-	// defer reqCtx.finish()
-	// if reqCtx.regErr != nil {
-	// 	return &kvrpcpb.BatchGetResponse{RegionError: reqCtx.regErr}, nil
-	// }
-	// err = svr.mvccStore.CheckKeysLock(req.GetVersion(), req.Keys...)
-	// if err != nil {
-	// 	return &kvrpcpb.BatchGetResponse{Pairs: []*kvrpcpb.KvPair{{Error: convertToKeyError(err)}}}, nil
-	// }
-	// pairs := make([]*kvrpcpb.KvPair, 0, len(req.Keys))
-	// var buf []byte
-	// batchGetFunc := func(key, value []byte, err error) {
-	// 	if len(value) != 0 {
-	// 		if rowcodec.IsRowKey(key) && err == nil {
-	// 			buf, err = rowcodec.RowToOldRow(value, buf)
-	// 			value = buf
-	// 		}
-	// 		pairs = append(pairs, &kvrpcpb.KvPair{
-	// 			Key:   safeCopy(key),
-	// 			Value: safeCopy(value),
-	// 			Error: convertToKeyError(err),
-	// 		})
-	// 	}
-	// }
-	// reqCtx.getDBReader().BatchGet(req.Keys, req.GetVersion(), batchGetFunc)
-	// return &kvrpcpb.BatchGetResponse{
-	// 	Pairs: pairs,
-	// }, nil
 	return nil, nil
 }
 
 func (svr *Server) KvBatchRollback(ctx context.Context, req *kvrpcpb.BatchRollbackRequest) (*kvrpcpb.BatchRollbackResponse, error) {
-	// reqCtx, err := newRequestCtx(svr, req.Context, "KvBatchRollback")
-	// if err != nil {
-	// 	return &kvrpcpb.BatchRollbackResponse{Error: convertToKeyError(err)}, nil
-	// }
-	// defer reqCtx.finish()
-	// if reqCtx.regErr != nil {
-	// 	return &kvrpcpb.BatchRollbackResponse{RegionError: reqCtx.regErr}, nil
-	// }
-	// resp := new(kvrpcpb.BatchRollbackResponse)
-	// err = svr.mvccStore.Rollback(reqCtx, req.Keys, req.StartVersion)
-	// resp.Error, resp.RegionError = convertToPBError(err)
-	// return resp, nil
 	return nil, nil
 }
 
 func (svr *Server) KvScanLock(ctx context.Context, req *kvrpcpb.ScanLockRequest) (*kvrpcpb.ScanLockResponse, error) {
-	// reqCtx, err := newRequestCtx(svr, req.Context, "KvScanLock")
-	// if err != nil {
-	// 	return &kvrpcpb.ScanLockResponse{Error: convertToKeyError(err)}, nil
-	// }
-	// defer reqCtx.finish()
-	// if reqCtx.regErr != nil {
-	// 	return &kvrpcpb.ScanLockResponse{RegionError: reqCtx.regErr}, nil
-	// }
-	// log.Debug("kv scan lock")
-	// if !isMvccRegion(reqCtx.regCtx) {
-	// 	return &kvrpcpb.ScanLockResponse{}, nil
-	// }
-	// locks, err := svr.mvccStore.ScanLock(reqCtx, req.MaxVersion)
-	// return &kvrpcpb.ScanLockResponse{Error: convertToKeyError(err), Locks: locks}, nil
 	return nil, nil
 }
 
 func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRequest) (*kvrpcpb.ResolveLockResponse, error) {
-	// reqCtx, err := newRequestCtx(svr, req.Context, "KvResolveLock")
-	// if err != nil {
-	// 	return &kvrpcpb.ResolveLockResponse{Error: convertToKeyError(err)}, nil
-	// }
-	// defer reqCtx.finish()
-	// if reqCtx.regErr != nil {
-	// 	return &kvrpcpb.ResolveLockResponse{RegionError: reqCtx.regErr}, nil
-	// }
-	// if !isMvccRegion(reqCtx.regCtx) {
-	// 	return &kvrpcpb.ResolveLockResponse{}, nil
-	// }
-	// resp := &kvrpcpb.ResolveLockResponse{}
-	// if len(req.TxnInfos) > 0 {
-	// 	for _, txnInfo := range req.TxnInfos {
-	// 		log.Debugf("kv resolve lock region:%d txn:%v", reqCtx.regCtx.meta.Id, txnInfo.Txn)
-	// 		err := svr.mvccStore.ResolveLock(reqCtx, txnInfo.Txn, txnInfo.Status)
-	// 		if err != nil {
-	// 			resp.Error, resp.RegionError = convertToPBError(err)
-	// 			break
-	// 		}
-	// 	}
-	// } else {
-	// 	log.Debugf("kv resolve lock region:%d txn:%v", reqCtx.regCtx.meta.Id, req.StartVersion)
-	// 	err := svr.mvccStore.ResolveLock(reqCtx, req.StartVersion, req.CommitVersion)
-	// 	resp.Error, resp.RegionError = convertToPBError(err)
-	// }
-	// return resp, nil
 	return nil, nil
 }
 
@@ -496,11 +252,3 @@ func extractRegionError(err error) *errorpb.Error {
 	}
 	return nil
 }
-
-// func isMvccRegion(regCtx *regionCtx) bool {
-// 	if len(regCtx.startKey) == 0 {
-// 		return false
-// 	}
-// 	first := regCtx.startKey[0]
-// 	return first == 't' || first == 'm'
-// }
