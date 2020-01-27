@@ -2,8 +2,7 @@ package inner_server
 
 import (
 	"context"
-	"sync"
-
+	kvConfig "github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
@@ -18,6 +17,9 @@ import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 	"github.com/pingcap/errors"
+	"os"
+	"path/filepath"
+	"sync"
 )
 
 type RaftInnerServer struct {
@@ -51,6 +53,40 @@ func (ris *RaftInnerServer) checkResponse(resp *raft_cmdpb.RaftCmdResponse, reqC
 			len(resp.Responses), reqCount)
 	}
 	return nil
+}
+
+// NewRaftInnerServer creates a new inner server backed by a raftstore.
+func NewRaftInnerServer(conf *kvConfig.Config) *RaftInnerServer {
+	dbPath := conf.Engine.DBPath
+	kvPath := filepath.Join(dbPath, "kv")
+	raftPath := filepath.Join(dbPath, "raft")
+	snapPath := filepath.Join(dbPath, "snap")
+
+	os.MkdirAll(kvPath, os.ModePerm)
+	os.MkdirAll(raftPath, os.ModePerm)
+	os.Mkdir(snapPath, os.ModePerm)
+
+	raftDB := engine_util.CreateDB("raft", &conf.Engine)
+	raftConf := config.NewDefaultConfig()
+	raftConf.SnapPath = snapPath
+	setupRaftStoreConf(raftConf, conf)
+
+	kvDB := engine_util.CreateDB("kv", &conf.Engine)
+	engines := engine_util.NewEngines(kvDB, raftDB, kvPath, raftPath)
+
+	return &RaftInnerServer{engines: engines, raftConfig: raftConf}
+}
+
+func setupRaftStoreConf(raftConf *config.Config, conf *kvConfig.Config) {
+	raftConf.Addr = conf.Server.StoreAddr
+	raftConf.RaftWorkerCnt = conf.RaftStore.RaftWorkers
+
+	// raftstore block
+	raftConf.PdHeartbeatTickInterval = kvConfig.ParseDuration(conf.RaftStore.PdHeartbeatTickInterval)
+	raftConf.RaftStoreMaxLeaderLease = kvConfig.ParseDuration(conf.RaftStore.RaftStoreMaxLeaderLease)
+	raftConf.RaftBaseTickInterval = kvConfig.ParseDuration(conf.RaftStore.RaftBaseTickInterval)
+	raftConf.RaftHeartbeatTicks = conf.RaftStore.RaftHeartbeatTicks
+	raftConf.RaftElectionTimeoutTicks = conf.RaftStore.RaftElectionTimeoutTicks
 }
 
 func (ris *RaftInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
@@ -150,24 +186,6 @@ func (ris *RaftInnerServer) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
 	return err
 }
 
-func NewRaftInnerServer(engines *engine_util.Engines, raftConfig *config.Config) *RaftInnerServer {
-	return &RaftInnerServer{engines: engines, raftConfig: raftConfig}
-}
-
-func (ris *RaftInnerServer) Setup(pdClient pd.Client) {
-	var wg sync.WaitGroup
-	ris.pdWorker = worker.NewWorker("pd-worker", &wg)
-	ris.resolveWorker = worker.NewWorker("resolver", &wg)
-	ris.snapWorker = worker.NewWorker("snap-worker", &wg)
-
-	cfg := ris.raftConfig
-	router, batchSystem := raftstore.CreateRaftBatchSystem(cfg)
-
-	ris.raftRouter = raftstore.NewRaftstoreRouter(router) // TODO: init with local reader
-	ris.snapManager = snap.NewSnapManager(cfg.SnapPath)
-	ris.batchSystem = batchSystem
-}
-
 func (ris *RaftInnerServer) GetRaftstoreRouter() *raftstore.RaftstoreRouter {
 	return ris.raftRouter
 }
@@ -177,6 +195,17 @@ func (ris *RaftInnerServer) GetStoreMeta() *metapb.Store {
 }
 
 func (ris *RaftInnerServer) Start(pdClient pd.Client) error {
+	var wg sync.WaitGroup
+	ris.pdWorker = worker.NewWorker("pd-worker", &wg)
+	ris.resolveWorker = worker.NewWorker("resolver", &wg)
+	ris.snapWorker = worker.NewWorker("snap-worker", &wg)
+
+	cfg := ris.raftConfig
+	router, batchSystem := raftstore.CreateRaftBatchSystem(cfg)
+
+	ris.snapManager = snap.NewSnapManager(cfg.SnapPath)
+	ris.batchSystem = batchSystem
+	ris.raftRouter = raftstore.NewRaftstoreRouter(router) // TODO: init with local reader
 	ris.node = raftstore.NewNode(ris.batchSystem, &ris.storeMeta, ris.raftConfig, pdClient)
 
 	resolveSender := ris.resolveWorker.Sender()
@@ -184,6 +213,7 @@ func (ris *RaftInnerServer) Start(pdClient pd.Client) error {
 	trans := NewServerTransport(raftClient, resolveSender, ris.raftRouter, resolveSender)
 
 	resolveRunner := newResolverRunner(pdClient)
+
 	ris.resolveWorker.Start(resolveRunner)
 	err := ris.node.Start(context.TODO(), ris.engines, trans, ris.snapManager, ris.pdWorker, ris.raftRouter)
 	if err != nil {
@@ -191,6 +221,7 @@ func (ris *RaftInnerServer) Start(pdClient pd.Client) error {
 	}
 	snapRunner := newSnapRunner(ris.snapManager, ris.raftConfig, ris.raftRouter)
 	ris.snapWorker.Start(snapRunner)
+
 	return nil
 }
 

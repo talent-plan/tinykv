@@ -2,14 +2,12 @@ package tikv
 
 import (
 	"context"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/coocood/badger"
 	"github.com/juju/errors"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
-	"github.com/pingcap-incubator/tinykv/kv/rowcodec"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
@@ -21,13 +19,11 @@ var _ tikvpb.TikvServer = new(Server)
 
 type Server struct {
 	innerServer InnerServer
-	wg          sync.WaitGroup
 	refCount    int32
 	stopped     int32
 }
 
 type InnerServer interface {
-	Setup(pdClient pd.Client)
 	Start(pdClient pd.Client) error
 	Stop() error
 	Write(ctx *kvrpcpb.Context, batch []inner_server.Modify) error
@@ -55,11 +51,11 @@ func (svr *Server) checkRequestSize(size int) *errorpb.Error {
 	return nil
 }
 
-func (svr *Server) Stop() {
+func (svr *Server) Stop() error {
 	atomic.StoreInt32(&svr.stopped, 1)
 	for {
 		if atomic.LoadInt32(&svr.refCount) == 0 {
-			return
+			return svr.innerServer.Stop()
 		}
 		time.Sleep(time.Millisecond * 10)
 	}
@@ -71,31 +67,6 @@ func (svr *Server) KvGet(ctx context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb
 
 func (svr *Server) KvScan(ctx context.Context, req *kvrpcpb.ScanRequest) (*kvrpcpb.ScanResponse, error) {
 	return nil, nil
-}
-
-type kvScanProcessor struct {
-	skipVal bool
-	buf     []byte
-	pairs   []*kvrpcpb.KvPair
-}
-
-func (p *kvScanProcessor) Process(key, value []byte) (err error) {
-	if rowcodec.IsRowKey(key) {
-		p.buf, err = rowcodec.RowToOldRow(value, p.buf)
-		if err != nil {
-			return err
-		}
-		value = p.buf
-	}
-	p.pairs = append(p.pairs, &kvrpcpb.KvPair{
-		Key:   safeCopy(key),
-		Value: safeCopy(value),
-	})
-	return nil
-}
-
-func (p *kvScanProcessor) SkipValue() bool {
-	return p.skipVal
 }
 
 func (svr *Server) KvCheckTxnStatus(ctx context.Context, req *kvrpcpb.CheckTxnStatusRequest) (*kvrpcpb.CheckTxnStatusResponse, error) {
@@ -231,6 +202,7 @@ func (svr *Server) RawScan(ctx context.Context, req *kvrpcpb.RawScanRequest) (*k
 func (svr *Server) Raft(stream tikvpb.Tikv_RaftServer) error {
 	return svr.innerServer.Raft(stream)
 }
+
 func (svr *Server) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
 	return svr.innerServer.Snapshot(stream)
 }

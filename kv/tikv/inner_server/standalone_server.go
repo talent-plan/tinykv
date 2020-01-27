@@ -2,6 +2,8 @@ package inner_server
 
 import (
 	"github.com/coocood/badger"
+	kvConfig "github.com/pingcap-incubator/tinykv/kv/config"
+	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
@@ -12,7 +14,8 @@ type StandAloneInnerServer struct {
 	db *badger.DB
 }
 
-func NewStandAloneInnerServer(db *badger.DB) *StandAloneInnerServer {
+func NewStandAloneInnerServer(conf *kvConfig.Config) *StandAloneInnerServer {
+	db := engine_util.CreateDB("kv", &conf.Engine)
 	return &StandAloneInnerServer{
 		db: db,
 	}
@@ -25,8 +28,6 @@ func (is *StandAloneInnerServer) Raft(stream tikvpb.Tikv_RaftServer) error {
 func (is *StandAloneInnerServer) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
 	return nil
 }
-
-func (is *StandAloneInnerServer) Setup(pdClient pd.Client) {}
 
 func (is *StandAloneInnerServer) Start(pdClient pd.Client) error {
 	return nil
