@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# This script generates Go representations of Protobuf protocols. It will generate Go code in the pkg subdirectory
+# for every protocol in the proto subdirectory. It uses protoc, the protobuf compiler, which must be installed.
+
 set -ex
 
 push () {
@@ -26,6 +29,7 @@ export PATH=$(pwd)/_tools/bin:$GOPATH/bin:$PATH
 
 echo "install tools..."
 GO111MODULE=off go get github.com/twitchtv/retool
+# Ensure we're using the right versions of our tools (see tools.json).
 GO111MODULE=off retool -base-dir=$(pwd) sync || exit 1
 
 function collect() {

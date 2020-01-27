@@ -13,6 +13,10 @@
 
 package pd
 
+/*
+Handle communication with PR (Placement Driver).
+*/
+
 import (
 	"context"
 	"net/url"
