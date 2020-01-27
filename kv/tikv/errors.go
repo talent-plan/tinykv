@@ -173,7 +173,7 @@ func convertToKeyError(err error) *kvrpcpb.KeyError {
 }
 
 func convertToPBError(err error) (*kvrpcpb.KeyError, *errorpb.Error) {
-	if regErr := extractRegionError(err); regErr != nil {
+	if regErr := ExtractRegionError(err); regErr != nil {
 		return nil, regErr
 	}
 	return convertToKeyError(err), nil
@@ -181,7 +181,7 @@ func convertToPBError(err error) (*kvrpcpb.KeyError, *errorpb.Error) {
 
 func convertToPBErrors(err error) ([]*kvrpcpb.KeyError, *errorpb.Error) {
 	if err != nil {
-		if regErr := extractRegionError(err); regErr != nil {
+		if regErr := ExtractRegionError(err); regErr != nil {
 			return nil, regErr
 		}
 		return []*kvrpcpb.KeyError{convertToKeyError(err)}, nil
@@ -189,7 +189,7 @@ func convertToPBErrors(err error) ([]*kvrpcpb.KeyError, *errorpb.Error) {
 	return nil, nil
 }
 
-func extractRegionError(err error) *errorpb.Error {
+func ExtractRegionError(err error) *errorpb.Error {
 	if regionError, ok := err.(*inner_server.RegionError); ok {
 		return regionError.RequestErr
 	}

@@ -2,13 +2,14 @@ package tikv
 
 import (
 	"context"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 	"sync/atomic"
 	"time"
 
-	"github.com/coocood/badger"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/commands"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
@@ -19,6 +20,7 @@ var _ tikvpb.TikvServer = new(Server)
 // Server is a TinyKV server, it 'faces outwards', sending and receiving messages from clients such as TinySQL.
 type Server struct {
 	innerServer InnerServer
+	scheduler   Scheduler
 	refCount    int32
 	stopped     int32
 }
@@ -34,9 +36,46 @@ type InnerServer interface {
 	Snapshot(stream tikvpb.Tikv_SnapshotServer) error
 }
 
-func NewServer(innerServer InnerServer) *Server {
+// Scheduler takes Commands and runs them asynchronously. It is up to implementations to decide the scheduling policy.
+type Scheduler interface {
+	Run(Command) <-chan RespResult
+	Stop()
+}
+
+// RespResult is a 'generic' result type for responses. It is used to return a Response/error pair over channels where
+// we can't use Go's multiple return values.
+type RespResult struct {
+	Response interface{}
+	Err      error
+}
+
+func RespOk(resp interface{}) RespResult {
+	return RespResult{
+		Response: resp,
+		Err:      nil,
+	}
+}
+
+func RespErr(err error) RespResult {
+	return RespResult{
+		Response: nil,
+		Err:      err,
+	}
+}
+
+// Command is an abstraction which covers the process from receiving a request from gRPC to returning a response.
+// That process is driven by a Scheduler.
+type Command interface {
+	BuildTxn(txn *kvstore.Txn) error
+	Context() *kvrpcpb.Context
+	Response() (interface{}, error)
+	RegionError(*errorpb.Error) interface{}
+}
+
+func NewServer(innerServer InnerServer, scheduler Scheduler) *Server {
 	return &Server{
 		innerServer: innerServer,
+		scheduler:   scheduler,
 	}
 }
 
@@ -57,13 +96,14 @@ func (svr *Server) Stop() error {
 	atomic.StoreInt32(&svr.stopped, 1)
 	for {
 		if atomic.LoadInt32(&svr.refCount) == 0 {
+			svr.scheduler.Stop()
 			return svr.innerServer.Stop()
 		}
 		time.Sleep(time.Millisecond * 10)
 	}
 }
 
-// The below functions are Server's gRPC API
+// The below functions are Server's gRPC API (implements TikvServer).
 
 // Transactional API.
 func (svr *Server) KvGet(ctx context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb.GetResponse, error) {
@@ -108,29 +148,13 @@ func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRe
 
 // Raw API.
 func (svr *Server) RawGet(ctx context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
-	resp := &kvrpcpb.RawGetResponse{}
-	reader, err := svr.innerServer.Reader(req.Context)
-	if err != nil {
-		if regErr := extractRegionError(err); regErr != nil {
-			resp.RegionError = regErr
-		} else {
-			resp.Error = err.Error()
-		}
-		return resp, nil
+	cmd := commands.NewRawGet(req)
+	resp := <-svr.scheduler.Run(&cmd)
+	if resp.Err != nil {
+		return nil, resp.Err
 	}
 
-	val, err := reader.GetCF(req.Cf, req.Key)
-	if err != nil {
-		if err == badger.ErrKeyNotFound {
-			resp.NotFound = true
-		} else {
-			resp.Error = err.Error()
-		}
-	} else {
-		resp.Value = val
-	}
-
-	return resp, nil
+	return resp.Response.(*kvrpcpb.RawGetResponse), nil
 }
 
 func (svr *Server) RawPut(ctx context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
@@ -143,7 +167,7 @@ func (svr *Server) RawPut(ctx context.Context, req *kvrpcpb.RawPutRequest) (*kvr
 			Cf:    req.Cf,
 		}}})
 	if err != nil {
-		if regErr := extractRegionError(err); regErr != nil {
+		if regErr := ExtractRegionError(err); regErr != nil {
 			resp.RegionError = regErr
 		} else {
 			resp.Error = err.Error()
@@ -161,7 +185,7 @@ func (svr *Server) RawDelete(ctx context.Context, req *kvrpcpb.RawDeleteRequest)
 			Cf:  req.Cf,
 		}}})
 	if err != nil {
-		if regErr := extractRegionError(err); regErr != nil {
+		if regErr := ExtractRegionError(err); regErr != nil {
 			resp.RegionError = regErr
 		} else {
 			resp.Error = err.Error()
@@ -174,7 +198,7 @@ func (svr *Server) RawScan(ctx context.Context, req *kvrpcpb.RawScanRequest) (*k
 	resp := &kvrpcpb.RawScanResponse{}
 	reader, err := svr.innerServer.Reader(req.Context)
 	if err != nil {
-		if regErr := extractRegionError(err); regErr != nil {
+		if regErr := ExtractRegionError(err); regErr != nil {
 			resp.RegionError = regErr
 		} else {
 			resp.Error = err.Error()

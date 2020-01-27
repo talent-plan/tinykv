@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/exec"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -67,7 +68,8 @@ func main() {
 	} else {
 		innerServer = setupStandAloneInnerServer(pdClient, conf)
 	}
-	tikvServer := tikv.NewServer(innerServer)
+	scheduler := exec.NewSeqScheduler(innerServer)
+	tikvServer := tikv.NewServer(innerServer, scheduler)
 
 	var alivePolicy = keepalive.EnforcementPolicy{
 		MinTime:             2 * time.Second, // If a client pings more than once every 2 seconds, terminate the connection
