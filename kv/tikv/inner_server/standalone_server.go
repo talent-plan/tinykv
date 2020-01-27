@@ -8,38 +8,38 @@ import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 )
 
-type StandAlongInnerServer struct {
+type StandAloneInnerServer struct {
 	db *badger.DB
 }
 
-func NewStandAlongInnerServer(db *badger.DB) *StandAlongInnerServer {
-	return &StandAlongInnerServer{
+func NewStandAloneInnerServer(db *badger.DB) *StandAloneInnerServer {
+	return &StandAloneInnerServer{
 		db: db,
 	}
 }
 
-func (is *StandAlongInnerServer) Raft(stream tikvpb.Tikv_RaftServer) error {
+func (is *StandAloneInnerServer) Raft(stream tikvpb.Tikv_RaftServer) error {
 	return nil
 }
 
-func (is *StandAlongInnerServer) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
+func (is *StandAloneInnerServer) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
 	return nil
 }
 
-func (is *StandAlongInnerServer) Setup(pdClient pd.Client) {}
+func (is *StandAloneInnerServer) Setup(pdClient pd.Client) {}
 
-func (is *StandAlongInnerServer) Start(pdClient pd.Client) error {
+func (is *StandAloneInnerServer) Start(pdClient pd.Client) error {
 	return nil
 }
 
-func (is *StandAlongInnerServer) Stop() error {
+func (is *StandAloneInnerServer) Stop() error {
 	return is.db.Close()
 }
 
-func (is *StandAlongInnerServer) Reader(ctx *kvrpcpb.Context) (dbreader.DBReader, error) {
+func (is *StandAloneInnerServer) Reader(ctx *kvrpcpb.Context) (dbreader.DBReader, error) {
 	return nil, nil
 }
 
-func (is *StandAlongInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
+func (is *StandAloneInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
 	return nil
 }

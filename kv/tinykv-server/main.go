@@ -74,7 +74,7 @@ func main() {
 	if conf.Server.Raft {
 		innerServer = setupRaftInnerServer(db, pdClient, conf)
 	} else {
-		innerServer = setupStandAlongInnerServer(db, pdClient, conf)
+		innerServer = setupStandAloneInnerServer(db, pdClient, conf)
 	}
 	tikvServer := tikv.NewServer(innerServer)
 
@@ -181,8 +181,8 @@ func setupRaftInnerServer(kvDB *badger.DB, pdClient pd.Client, conf *config.Conf
 	return innerServer
 }
 
-func setupStandAlongInnerServer(db *badger.DB, pdClient pd.Client, conf *config.Config) tikv.InnerServer {
-	innerServer := inner_server.NewStandAlongInnerServer(db)
+func setupStandAloneInnerServer(db *badger.DB, pdClient pd.Client, conf *config.Config) tikv.InnerServer {
+	innerServer := inner_server.NewStandAloneInnerServer(db)
 	innerServer.Setup(pdClient)
 
 	if err := innerServer.Start(pdClient); err != nil {
