@@ -22,6 +22,8 @@ import (
 	"sync"
 )
 
+// RaftInnerServer is an InnerServer (see tikv/server.go) backed by a Raft node. It is part of a Raft network.
+// By using Raft, reads and writes are consistent with other nodes in the TinyKV instance.
 type RaftInnerServer struct {
 	engines    *engine_util.Engines
 	raftConfig *config.Config

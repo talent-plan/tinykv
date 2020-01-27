@@ -10,6 +10,8 @@ import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 )
 
+// StandAloneInnerServer is an InnerServer (see tikv/server.go) for a single-node TinyKV instance. It does not
+// communicate with other nodes and all data is stored locally.
 type StandAloneInnerServer struct {
 	db *badger.DB
 }

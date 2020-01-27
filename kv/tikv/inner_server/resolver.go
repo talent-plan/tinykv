@@ -2,13 +2,20 @@ package inner_server
 
 import (
 	"context"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"time"
 
 	"github.com/pingcap-incubator/tinykv/kv/pd"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap/errors"
 )
+
+// Handle will resolve t's storeID into the address of the TinyKV node which should handle t. t's callback is then
+// called with that address.
+func (r *resolverRunner) Handle(t worker.Task) {
+	data := t.Data.(resolveAddrTask)
+	data.callback(r.getAddr(data.storeID))
+}
 
 const storeAddressRefreshSeconds = 60
 
@@ -32,11 +39,6 @@ func newResolverRunner(pdClient pd.Client) *resolverRunner {
 		pdClient:   pdClient,
 		storeAddrs: make(map[uint64]storeAddr),
 	}
-}
-
-func (r *resolverRunner) Handle(t worker.Task) {
-	data := t.Data.(resolveAddrTask)
-	data.callback(r.getAddr(data.storeID))
 }
 
 func (r *resolverRunner) getAddr(id uint64) (string, error) {

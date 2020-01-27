@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/coocood/badger"
-	"github.com/juju/errors"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
@@ -17,12 +16,15 @@ import (
 
 var _ tikvpb.TikvServer = new(Server)
 
+// Server is a TinyKV server, it 'faces outwards', sending and receiving messages from clients such as TinySQL.
 type Server struct {
 	innerServer InnerServer
 	refCount    int32
 	stopped     int32
 }
 
+// InnerServer represents the internal-facing server part of TinyKV, it handles sending and receiving from other
+// TinyKV nodes. As part of that responsibility, it also reads and writes data to disk (or semi-permanent memory).
 type InnerServer interface {
 	Start(pdClient pd.Client) error
 	Stop() error
@@ -61,6 +63,9 @@ func (svr *Server) Stop() error {
 	}
 }
 
+// The below functions are Server's gRPC API
+
+// Transactional API.
 func (svr *Server) KvGet(ctx context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb.GetResponse, error) {
 	return nil, nil
 }
@@ -101,7 +106,7 @@ func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRe
 	return nil, nil
 }
 
-// RawKV commands.
+// Raw API.
 func (svr *Server) RawGet(ctx context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
 	resp := &kvrpcpb.RawGetResponse{}
 	reader, err := svr.innerServer.Reader(req.Context)
@@ -198,104 +203,11 @@ func (svr *Server) RawScan(ctx context.Context, req *kvrpcpb.RawScanRequest) (*k
 	return resp, nil
 }
 
-// Raft commands (tikv <-> tikv).
+// Raft commands (tikv <-> tikv); these are trivially forwarded to innerServer.
 func (svr *Server) Raft(stream tikvpb.Tikv_RaftServer) error {
 	return svr.innerServer.Raft(stream)
 }
 
 func (svr *Server) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
 	return svr.innerServer.Snapshot(stream)
-}
-
-func convertToKeyError(err error) *kvrpcpb.KeyError {
-	if err == nil {
-		return nil
-	}
-	causeErr := errors.Cause(err)
-	switch x := causeErr.(type) {
-	case *ErrLocked:
-		return &kvrpcpb.KeyError{
-			Locked: &kvrpcpb.LockInfo{
-				Key:         x.Key,
-				PrimaryLock: x.Primary,
-				LockVersion: x.StartTS,
-				LockTtl:     x.TTL,
-			},
-		}
-	case ErrRetryable:
-		return &kvrpcpb.KeyError{
-			Retryable: x.Error(),
-		}
-	case *ErrKeyAlreadyExists:
-		return &kvrpcpb.KeyError{
-			AlreadyExist: &kvrpcpb.AlreadyExist{
-				Key: x.Key,
-			},
-		}
-	case *ErrConflict:
-		return &kvrpcpb.KeyError{
-			Conflict: &kvrpcpb.WriteConflict{
-				StartTs:          x.StartTS,
-				ConflictTs:       x.ConflictTS,
-				ConflictCommitTs: x.ConflictCommitTS,
-				Key:              x.Key,
-			},
-		}
-	case *ErrDeadlock:
-		return &kvrpcpb.KeyError{
-			Deadlock: &kvrpcpb.Deadlock{
-				LockKey:         x.LockKey,
-				LockTs:          x.LockTS,
-				DeadlockKeyHash: x.DeadlockKeyHash,
-			},
-		}
-	case *ErrCommitExpire:
-		return &kvrpcpb.KeyError{
-			CommitTsExpired: &kvrpcpb.CommitTsExpired{
-				StartTs:           x.StartTs,
-				AttemptedCommitTs: x.CommitTs,
-				Key:               x.Key,
-				MinCommitTs:       x.MinCommitTs,
-			},
-		}
-	case *ErrTxnNotFound:
-		return &kvrpcpb.KeyError{
-			TxnNotFound: &kvrpcpb.TxnNotFound{
-				StartTs:    x.StartTS,
-				PrimaryKey: x.PrimaryKey,
-			},
-		}
-	case *ErrCommitPessimisticLock:
-		return &kvrpcpb.KeyError{
-			Abort: x.Error(),
-		}
-	default:
-		return &kvrpcpb.KeyError{
-			Abort: err.Error(),
-		}
-	}
-}
-
-func convertToPBError(err error) (*kvrpcpb.KeyError, *errorpb.Error) {
-	if regErr := extractRegionError(err); regErr != nil {
-		return nil, regErr
-	}
-	return convertToKeyError(err), nil
-}
-
-func convertToPBErrors(err error) ([]*kvrpcpb.KeyError, *errorpb.Error) {
-	if err != nil {
-		if regErr := extractRegionError(err); regErr != nil {
-			return nil, regErr
-		}
-		return []*kvrpcpb.KeyError{convertToKeyError(err)}, nil
-	}
-	return nil, nil
-}
-
-func extractRegionError(err error) *errorpb.Error {
-	if regionError, ok := err.(*inner_server.RegionError); ok {
-		return regionError.RequestErr
-	}
-	return nil
 }
