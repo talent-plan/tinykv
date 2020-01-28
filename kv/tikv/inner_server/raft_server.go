@@ -95,7 +95,7 @@ func (ris *RaftInnerServer) Reader(ctx kvrpcpb.Context) (dbreader.DBReader, erro
 	}
 	request := &raft_cmdpb.RaftCmdRequest{
 		Header: header,
-		Requests: []*raft_cmdpb.Request{&raft_cmdpb.Request{
+		Requests: []*raft_cmdpb.Request{{
 			CmdType: raft_cmdpb.CmdType_Snap,
 			Snap:    &raft_cmdpb.SnapRequest{},
 		}},

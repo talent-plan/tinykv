@@ -1,4 +1,4 @@
-# unistore
+# TinyKV
 
 A fun project for evaluating some new optimizations quickly, do not use it in production.
 

@@ -17,8 +17,8 @@ import (
 	"sync"
 	"time"
 
-	. "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
+	. "github.com/pingcap/check"
 )
 
 var _ = Suite(&testDistinctScoreSuite{})

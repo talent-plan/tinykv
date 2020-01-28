@@ -16,11 +16,11 @@ package server_test
 import (
 	"testing"
 
-	. "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/tempurl"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/testutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server"
 	"github.com/pingcap-incubator/tinykv/scheduler/tests"
+	. "github.com/pingcap/check"
 
 	// Register schedulers.
 	_ "github.com/pingcap-incubator/tinykv/scheduler/server/schedulers"
