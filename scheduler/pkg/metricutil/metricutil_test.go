@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	. "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/typeutil"
+	. "github.com/pingcap/check"
 )
 
 func Test(t *testing.T) {

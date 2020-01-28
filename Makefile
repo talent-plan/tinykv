@@ -1,3 +1,4 @@
+SHELL := /bin/bash
 PROJECT=tinykv
 GOPATH ?= $(shell go env GOPATH)
 
@@ -37,7 +38,13 @@ proto:
 	GO111MODULE=on go build ./proto/pkg/...
 
 kv:
-	$(GOBUILD) -ldflags '$(LDFLAGS)' -o bin/unistore-server kv/unistore-server/main.go
+	$(GOBUILD) -ldflags '$(LDFLAGS)' -o bin/tinykv-server kv/tinykv-server/main.go
 
 scheduler:
 	$(GOBUILD) -ldflags '$(LDFLAGS)' -o bin/pd-server scheduler/cmd/pd-server/main.go
+
+ci: default test
+	@echo "Checking formatting"
+	@test -z "$$(gofmt -s -l $$(find . -name '*.go' -type f -print) | tee /dev/stderr)"
+	@echo "Running Go vet"
+	@go vet ./...

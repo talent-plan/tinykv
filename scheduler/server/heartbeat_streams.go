@@ -21,9 +21,9 @@ import (
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
-	"github.com/pingcap/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/logutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
+	"github.com/pingcap/log"
 	"go.uber.org/zap"
 )
 

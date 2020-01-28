@@ -14,7 +14,7 @@ import (
 func newTestEngines(t *testing.T) *engine_util.Engines {
 	engines := new(engine_util.Engines)
 	var err error
-	engines.KvPath, err = ioutil.TempDir("", "unistore_kv")
+	engines.KvPath, err = ioutil.TempDir("", "tinykv_kv")
 	require.Nil(t, err)
 	kvOpts := badger.DefaultOptions
 	kvOpts.Dir = engines.KvPath
@@ -22,7 +22,7 @@ func newTestEngines(t *testing.T) *engine_util.Engines {
 	kvOpts.ValueThreshold = 256
 	engines.Kv, err = badger.Open(kvOpts)
 	require.Nil(t, err)
-	engines.RaftPath, err = ioutil.TempDir("", "unistore_raft")
+	engines.RaftPath, err = ioutil.TempDir("", "tinykv_raft")
 	require.Nil(t, err)
 	raftOpts := badger.DefaultOptions
 	raftOpts.Dir = engines.RaftPath

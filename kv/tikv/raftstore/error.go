@@ -3,9 +3,9 @@ package raftstore
 import (
 	"fmt"
 
-	"github.com/pingcap/errors"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
+	"github.com/pingcap/errors"
 )
 
 type ErrNotLeader struct {

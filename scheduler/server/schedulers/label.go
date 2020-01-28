@@ -14,13 +14,13 @@
 package schedulers
 
 import (
-	"github.com/pingcap/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/filter"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/operator"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/opt"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/selector"
+	"github.com/pingcap/log"
 	"go.uber.org/zap"
 )
 

@@ -20,9 +20,9 @@ import (
 	"time"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/pingcap/errcode"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap/errcode"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
 )

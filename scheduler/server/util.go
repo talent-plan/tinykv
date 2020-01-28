@@ -21,10 +21,10 @@ import (
 	"time"
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
-	"github.com/pingcap/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/etcdutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/typeutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/config"
+	"github.com/pingcap/log"
 	"github.com/pkg/errors"
 	"go.etcd.io/etcd/clientv3"
 	"go.uber.org/zap"

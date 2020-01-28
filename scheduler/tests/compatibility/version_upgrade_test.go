@@ -18,11 +18,11 @@ import (
 	"testing"
 
 	"github.com/coreos/go-semver/semver"
-	. "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/server"
 	"github.com/pingcap-incubator/tinykv/scheduler/tests"
+	. "github.com/pingcap/check"
 )
 
 func Test(t *testing.T) {

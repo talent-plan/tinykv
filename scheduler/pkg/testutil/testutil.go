@@ -18,9 +18,9 @@ import (
 	"strings"
 	"time"
 
-	check "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/config"
+	check "github.com/pingcap/check"
 	"google.golang.org/grpc"
 )
 
