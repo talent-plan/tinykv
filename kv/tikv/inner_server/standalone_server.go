@@ -22,16 +22,8 @@ func (is *StandAlongInnerServer) Raft(stream tikvpb.Tikv_RaftServer) error {
 	return nil
 }
 
-func (is *StandAlongInnerServer) BatchRaft(stream tikvpb.Tikv_BatchRaftServer) error {
-	return nil
-}
-
 func (is *StandAlongInnerServer) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
 	return nil
-}
-
-func (is *StandAlongInnerServer) SplitRegion(req *kvrpcpb.SplitRegionRequest) *kvrpcpb.SplitRegionResponse {
-	return &kvrpcpb.SplitRegionResponse{}
 }
 
 func (is *StandAlongInnerServer) Setup(pdClient pd.Client) {}
@@ -44,10 +36,10 @@ func (is *StandAlongInnerServer) Stop() error {
 	return is.db.Close()
 }
 
-func (is *StandAlongInnerServer) Reader(ctx kvrpcpb.Context) (dbreader.DBReader, error) {
+func (is *StandAlongInnerServer) Reader(ctx *kvrpcpb.Context) (dbreader.DBReader, error) {
 	return nil, nil
 }
 
-func (is *StandAlongInnerServer) Write(ctx kvrpcpb.Context, batch []Modify) error {
+func (is *StandAlongInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
 	return nil
 }

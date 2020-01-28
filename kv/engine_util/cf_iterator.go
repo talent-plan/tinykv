@@ -1,9 +1,6 @@
 package engine_util
 
-import (
-	"github.com/coocood/badger"
-	"github.com/coocood/badger/y"
-)
+import "github.com/coocood/badger"
 
 type CFItem struct {
 	item      *badger.Item
@@ -20,7 +17,7 @@ func (i *CFItem) Key() []byte {
 }
 
 func (i *CFItem) KeyCopy(dst []byte) []byte {
-	return y.SafeCopy(dst, i.Key())
+	return i.item.KeyCopy(dst)
 }
 
 func (i *CFItem) Version() uint64 {

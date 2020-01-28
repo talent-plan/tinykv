@@ -6,12 +6,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/coocood/badger"
 	"github.com/juju/errors"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/rowcodec"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
@@ -30,10 +30,9 @@ type InnerServer interface {
 	Setup(pdClient pd.Client)
 	Start(pdClient pd.Client) error
 	Stop() error
-	Write(ctx kvrpcpb.Context, batch []inner_server.Modify) error
-	Reader(ctx kvrpcpb.Context) (dbreader.DBReader, error)
+	Write(ctx *kvrpcpb.Context, batch []inner_server.Modify) error
+	Reader(ctx *kvrpcpb.Context) (dbreader.DBReader, error)
 	Raft(stream tikvpb.Tikv_RaftServer) error
-	BatchRaft(stream tikvpb.Tikv_BatchRaftServer) error
 	Snapshot(stream tikvpb.Tikv_SnapshotServer) error
 }
 
@@ -132,20 +131,100 @@ func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRe
 }
 
 // RawKV commands.
-func (svr *Server) RawGet(context.Context, *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
-	return &kvrpcpb.RawGetResponse{}, nil
+func (svr *Server) RawGet(ctx context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
+	resp := &kvrpcpb.RawGetResponse{}
+	reader, err := svr.innerServer.Reader(req.Context)
+	if err != nil {
+		if regErr := extractRegionError(err); regErr != nil {
+			resp.RegionError = regErr
+		} else {
+			resp.Error = err.Error()
+		}
+		return resp, nil
+	}
+
+	val, err := reader.GetCF(req.Cf, req.Key)
+	if err != nil {
+		if err == badger.ErrKeyNotFound {
+			resp.NotFound = true
+		} else {
+			resp.Error = err.Error()
+		}
+	} else {
+		resp.Value = val
+	}
+
+	return resp, nil
 }
 
-func (svr *Server) RawPut(context.Context, *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
-	return &kvrpcpb.RawPutResponse{}, nil
+func (svr *Server) RawPut(ctx context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
+	resp := &kvrpcpb.RawPutResponse{}
+	err := svr.innerServer.Write(req.Context, []inner_server.Modify{{
+		Type: inner_server.ModifyTypePut,
+		Data: inner_server.Put{
+			Key:   req.Key,
+			Value: req.Value,
+			Cf:    req.Cf,
+		}}})
+	if err != nil {
+		if regErr := extractRegionError(err); regErr != nil {
+			resp.RegionError = regErr
+		} else {
+			resp.Error = err.Error()
+		}
+	}
+	return resp, nil
 }
 
-func (svr *Server) RawDelete(context.Context, *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
-	return &kvrpcpb.RawDeleteResponse{}, nil
+func (svr *Server) RawDelete(ctx context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
+	resp := &kvrpcpb.RawDeleteResponse{}
+	err := svr.innerServer.Write(req.Context, []inner_server.Modify{{
+		Type: inner_server.ModifyTypeDelete,
+		Data: inner_server.Delete{
+			Key: req.Key,
+			Cf:  req.Cf,
+		}}})
+	if err != nil {
+		if regErr := extractRegionError(err); regErr != nil {
+			resp.RegionError = regErr
+		} else {
+			resp.Error = err.Error()
+		}
+	}
+	return resp, nil
 }
 
-func (svr *Server) RawScan(context.Context, *kvrpcpb.RawScanRequest) (*kvrpcpb.RawScanResponse, error) {
-	return &kvrpcpb.RawScanResponse{}, nil
+func (svr *Server) RawScan(ctx context.Context, req *kvrpcpb.RawScanRequest) (*kvrpcpb.RawScanResponse, error) {
+	resp := &kvrpcpb.RawScanResponse{}
+	reader, err := svr.innerServer.Reader(req.Context)
+	if err != nil {
+		if regErr := extractRegionError(err); regErr != nil {
+			resp.RegionError = regErr
+		} else {
+			resp.Error = err.Error()
+		}
+		return resp, nil
+	}
+
+	pairs := make([]*kvrpcpb.KvPair, 0)
+
+	it := reader.IterCF(req.Cf)
+	for it.Seek(req.StartKey); it.Valid() && len(pairs) < int(req.Limit); it.Next() {
+		key := it.Item().KeyCopy(nil)
+		value, err := it.Item().ValueCopy(nil)
+		if err != nil {
+			resp.Error = err.Error()
+			return resp, nil
+		}
+
+		pairs = append(pairs, &kvrpcpb.KvPair{
+			Key:   key,
+			Value: value,
+		})
+	}
+	resp.Kvs = pairs
+
+	return resp, nil
 }
 
 // Raft commands (tikv <-> tikv).
@@ -154,10 +233,6 @@ func (svr *Server) Raft(stream tikvpb.Tikv_RaftServer) error {
 }
 func (svr *Server) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
 	return svr.innerServer.Snapshot(stream)
-}
-
-func (svr *Server) BatchRaft(stream tikvpb.Tikv_BatchRaftServer) error {
-	return svr.innerServer.BatchRaft(stream)
 }
 
 func convertToKeyError(err error) *kvrpcpb.KeyError {
@@ -247,8 +322,8 @@ func convertToPBErrors(err error) ([]*kvrpcpb.KeyError, *errorpb.Error) {
 }
 
 func extractRegionError(err error) *errorpb.Error {
-	if raftError, ok := err.(*raftstore.RaftError); ok {
-		return raftError.RequestErr
+	if regionError, ok := err.(*inner_server.RegionError); ok {
+		return regionError.RequestErr
 	}
 	return nil
 }
