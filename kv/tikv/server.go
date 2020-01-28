@@ -159,7 +159,7 @@ func (svr *Server) RawGet(ctx context.Context, req *kvrpcpb.RawGetRequest) (*kvr
 
 func (svr *Server) RawPut(ctx context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
 	resp := &kvrpcpb.RawPutResponse{}
-	err := svr.innerServer.Write(req.Context, []inner_server.Modify{inner_server.Modify{
+	err := svr.innerServer.Write(req.Context, []inner_server.Modify{{
 		Type: inner_server.ModifyTypePut,
 		Data: inner_server.Put{
 			Key:   req.Key,
@@ -178,7 +178,7 @@ func (svr *Server) RawPut(ctx context.Context, req *kvrpcpb.RawPutRequest) (*kvr
 
 func (svr *Server) RawDelete(ctx context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
 	resp := &kvrpcpb.RawDeleteResponse{}
-	err := svr.innerServer.Write(req.Context, []inner_server.Modify{inner_server.Modify{
+	err := svr.innerServer.Write(req.Context, []inner_server.Modify{{
 		Type: inner_server.ModifyTypeDelete,
 		Data: inner_server.Delete{
 			Key: req.Key,
