@@ -11,6 +11,8 @@ import (
 	"testing"
 )
 
+// TODO need to test error handling including region errors
+
 // TestSeqScheduled tests that the sequential scheduler schedules multiple commands sent to it and returns the results
 // in order.
 func TestSeqScheduled(t *testing.T) {

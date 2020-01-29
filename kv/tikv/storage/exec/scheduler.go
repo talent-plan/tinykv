@@ -1,6 +1,7 @@
 package exec
 
 import (
+	"fmt"
 	"github.com/pingcap-incubator/tinykv/kv/tikv"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 )
@@ -32,7 +33,8 @@ func (seq *Sequential) handleTask() {
 			return
 		}
 
-		reader, err := seq.innerServer.Reader(task.cmd.Context())
+		ctxt := task.cmd.Context()
+		reader, err := seq.innerServer.Reader(ctxt)
 		if err != nil {
 			if regResp := task.cmd.RegionError(tikv.ExtractRegionError(err)); regResp != nil {
 				task.resultChannel <- tikv.RespOk(regResp)
@@ -47,7 +49,11 @@ func (seq *Sequential) handleTask() {
 			task.resultChannel <- tikv.RespErr(err)
 		}
 
-		// TODO exectute txn
+		fmt.Printf("writes: %+v", txn.Writes)
+		err = seq.innerServer.Write(ctxt, txn.Writes)
+		if err != nil {
+			task.resultChannel <- tikv.RespErr(err)
+		}
 
 		result, err := task.cmd.Response()
 		if err != nil {

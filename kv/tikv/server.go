@@ -64,6 +64,34 @@ func RespErr(err error) RespResult {
 	}
 }
 
+func (rr *RespResult) rawGetResponse() *kvrpcpb.RawGetResponse {
+	if rr.Response == nil {
+		return nil
+	}
+	return rr.Response.(*kvrpcpb.RawGetResponse)
+}
+
+func (rr *RespResult) rawPutResponse() *kvrpcpb.RawPutResponse {
+	if rr.Response == nil {
+		return nil
+	}
+	return rr.Response.(*kvrpcpb.RawPutResponse)
+}
+
+func (rr *RespResult) rawDeleteResponse() *kvrpcpb.RawDeleteResponse {
+	if rr.Response == nil {
+		return nil
+	}
+	return rr.Response.(*kvrpcpb.RawDeleteResponse)
+}
+
+func (rr *RespResult) rawScanResponse() *kvrpcpb.RawScanResponse {
+	if rr.Response == nil {
+		return nil
+	}
+	return rr.Response.(*kvrpcpb.RawScanResponse)
+}
+
 // Command is an abstraction which covers the process from receiving a request from gRPC to returning a response.
 // That process is driven by a Scheduler.
 type Command interface {
@@ -151,41 +179,25 @@ func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRe
 func (svr *Server) RawGet(ctx context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
 	cmd := commands.NewRawGet(req)
 	resp := <-svr.scheduler.Run(&cmd)
-	if resp.Err != nil {
-		return nil, resp.Err
-	}
-
-	return resp.Response.(*kvrpcpb.RawGetResponse), nil
+	return resp.rawGetResponse(), resp.Err
 }
 
 func (svr *Server) RawPut(ctx context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
 	cmd := commands.NewRawPut(req)
 	resp := <-svr.scheduler.Run(&cmd)
-	if resp.Err != nil {
-		return nil, resp.Err
-	}
-
-	return resp.Response.(*kvrpcpb.RawPutResponse), nil
+	return resp.rawPutResponse(), resp.Err
 }
 
 func (svr *Server) RawDelete(ctx context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
 	cmd := commands.NewRawDelete(req)
 	resp := <-svr.scheduler.Run(&cmd)
-	if resp.Err != nil {
-		return nil, resp.Err
-	}
-
-	return resp.Response.(*kvrpcpb.RawDeleteResponse), nil
+	return resp.rawDeleteResponse(), resp.Err
 }
 
 func (svr *Server) RawScan(ctx context.Context, req *kvrpcpb.RawScanRequest) (*kvrpcpb.RawScanResponse, error) {
 	cmd := commands.NewRawScan(req)
 	resp := <-svr.scheduler.Run(&cmd)
-	if resp.Err != nil {
-		return nil, resp.Err
-	}
-
-	return resp.Response.(*kvrpcpb.RawScanResponse), nil
+	return resp.rawScanResponse(), resp.Err
 }
 
 // Raft commands (tikv <-> tikv); these are trivially forwarded to innerServer.

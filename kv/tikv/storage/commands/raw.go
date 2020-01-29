@@ -172,3 +172,7 @@ func (rs *RawScan) RegionError(err *errorpb.Error) interface{} {
 	rs.response.RegionError = err
 	return &rs.response
 }
+
+type context interface {
+	GetContext() *kvrpcpb.Context
+}

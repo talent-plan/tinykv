@@ -160,7 +160,7 @@ func newSizeSplitChecker(maxSize, splitSize, batchSplitLimit uint64) *sizeSplitC
 	}
 }
 
-func (checker *sizeSplitChecker) onKv(key []byte, item *engine_util.CFItem) bool {
+func (checker *sizeSplitChecker) onKv(key []byte, item engine_util.DBItem) bool {
 	valueSize := uint64(item.ValueSize())
 	size := uint64(len(key)) + valueSize
 	checker.currentSize += size
