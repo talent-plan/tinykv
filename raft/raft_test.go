@@ -86,6 +86,47 @@ func TestProgressUpdate(t *testing.T) {
 	}
 }
 
+func TestProgressMaybeDecr(t *testing.T) {
+	tests := []struct {
+		m        uint64
+		n        uint64
+		rejected uint64
+		last     uint64
+
+		w  bool
+		wn uint64
+	}{
+		{
+			// rejected is not greater than match
+			5, 10, 5, 5, false, 10,
+		},
+		{
+			// rejected is not greater than match
+			5, 10, 4, 4, false, 10,
+		},
+		{
+			// rejected is greater than match
+			// directly decrease to min(rejected, last+1)
+			5, 10, 9, 9, true, 9,
+		},
+	}
+	for i, tt := range tests {
+		p := &Progress{
+			Match: tt.m,
+			Next:  tt.n,
+		}
+		if g := p.maybeDecrTo(tt.rejected, tt.last); g != tt.w {
+			t.Errorf("#%d: maybeDecrTo= %t, want %t", i, g, tt.w)
+		}
+		if gm := p.Match; gm != tt.m {
+			t.Errorf("#%d: match= %d, want %d", i, gm, tt.m)
+		}
+		if gn := p.Next; gn != tt.wn {
+			t.Errorf("#%d: next= %d, want %d", i, gn, tt.wn)
+		}
+	}
+}
+
 func TestProgressLeader(t *testing.T) {
 	r := newTestRaft(1, []uint64{1, 2}, 5, 1, NewMemoryStorage())
 	r.becomeCandidate()
