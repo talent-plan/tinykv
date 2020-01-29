@@ -159,73 +159,33 @@ func (svr *Server) RawGet(ctx context.Context, req *kvrpcpb.RawGetRequest) (*kvr
 }
 
 func (svr *Server) RawPut(ctx context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
-	resp := &kvrpcpb.RawPutResponse{}
-	err := svr.innerServer.Write(req.Context, []inner_server.Modify{{
-		Type: inner_server.ModifyTypePut,
-		Data: inner_server.Put{
-			Key:   req.Key,
-			Value: req.Value,
-			Cf:    req.Cf,
-		}}})
-	if err != nil {
-		if regErr := ExtractRegionError(err); regErr != nil {
-			resp.RegionError = regErr
-		} else {
-			resp.Error = err.Error()
-		}
+	cmd := commands.NewRawPut(req)
+	resp := <-svr.scheduler.Run(&cmd)
+	if resp.Err != nil {
+		return nil, resp.Err
 	}
-	return resp, nil
+
+	return resp.Response.(*kvrpcpb.RawPutResponse), nil
 }
 
 func (svr *Server) RawDelete(ctx context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
-	resp := &kvrpcpb.RawDeleteResponse{}
-	err := svr.innerServer.Write(req.Context, []inner_server.Modify{{
-		Type: inner_server.ModifyTypeDelete,
-		Data: inner_server.Delete{
-			Key: req.Key,
-			Cf:  req.Cf,
-		}}})
-	if err != nil {
-		if regErr := ExtractRegionError(err); regErr != nil {
-			resp.RegionError = regErr
-		} else {
-			resp.Error = err.Error()
-		}
+	cmd := commands.NewRawDelete(req)
+	resp := <-svr.scheduler.Run(&cmd)
+	if resp.Err != nil {
+		return nil, resp.Err
 	}
-	return resp, nil
+
+	return resp.Response.(*kvrpcpb.RawDeleteResponse), nil
 }
 
 func (svr *Server) RawScan(ctx context.Context, req *kvrpcpb.RawScanRequest) (*kvrpcpb.RawScanResponse, error) {
-	resp := &kvrpcpb.RawScanResponse{}
-	reader, err := svr.innerServer.Reader(req.Context)
-	if err != nil {
-		if regErr := ExtractRegionError(err); regErr != nil {
-			resp.RegionError = regErr
-		} else {
-			resp.Error = err.Error()
-		}
-		return resp, nil
+	cmd := commands.NewRawScan(req)
+	resp := <-svr.scheduler.Run(&cmd)
+	if resp.Err != nil {
+		return nil, resp.Err
 	}
 
-	pairs := make([]*kvrpcpb.KvPair, 0)
-
-	it := reader.IterCF(req.Cf)
-	for it.Seek(req.StartKey); it.Valid() && len(pairs) < int(req.Limit); it.Next() {
-		key := it.Item().KeyCopy(nil)
-		value, err := it.Item().ValueCopy(nil)
-		if err != nil {
-			resp.Error = err.Error()
-			return resp, nil
-		}
-
-		pairs = append(pairs, &kvrpcpb.KvPair{
-			Key:   key,
-			Value: value,
-		})
-	}
-	resp.Kvs = pairs
-
-	return resp, nil
+	return resp.Response.(*kvrpcpb.RawScanResponse), nil
 }
 
 // Raft commands (tikv <-> tikv); these are trivially forwarded to innerServer.
