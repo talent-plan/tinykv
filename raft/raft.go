@@ -768,6 +768,7 @@ func (r *Raft) Step(m pb.Message) error {
 			r.becomeFollower(m.Term, None)
 		}
 	case m.Term < r.Term:
+		r.logger.Infof("%x [term: %d] ignored a %s message with lower term from %x [term: %d]", r.id, r.Term, m.MsgType, m.From, m.Term)
 		return nil
 	}
 
