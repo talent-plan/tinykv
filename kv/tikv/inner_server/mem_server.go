@@ -1,7 +1,10 @@
 package inner_server
 
 import (
+	"bytes"
+	"fmt"
 	"github.com/coocood/badger/y"
+	"github.com/petar/GoLLRB/llrb"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
@@ -12,12 +15,16 @@ import (
 // MemInnerServer is a simple inner server backed by memory for testing. Data is not written to disk, nor sent to other
 // nodes. It is intended for testing only.
 type MemInnerServer struct {
-	Data map[byte][]byte
+	CfDefault *llrb.LLRB
+	CfLock    *llrb.LLRB
+	CfWrite   *llrb.LLRB
 }
 
 func NewMemInnerServer() *MemInnerServer {
 	return &MemInnerServer{
-		Data: make(map[byte][]byte),
+		CfDefault: llrb.New(),
+		CfLock:    llrb.New(),
+		CfWrite:   llrb.New(),
 	}
 }
 
@@ -45,13 +52,73 @@ func (is *MemInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
 	for _, m := range batch {
 		switch data := m.Data.(type) {
 		case Put:
-			is.Data[data.Key[0]] = data.Value
+			item := memItem{data.Key, data.Value}
+			switch data.Cf {
+			case CfDefault:
+				is.CfDefault.ReplaceOrInsert(item)
+			case CfLock:
+				is.CfLock.ReplaceOrInsert(item)
+			case CfWrite:
+				is.CfWrite.ReplaceOrInsert(item)
+			}
 		case Delete:
-			delete(is.Data, data.Key[0])
+			item := memItem{data.Key, nil}
+			switch data.Cf {
+			case CfDefault:
+				is.CfDefault.Delete(item)
+			case CfLock:
+				is.CfLock.Delete(item)
+			case CfWrite:
+				is.CfWrite.Delete(item)
+			}
 		}
 	}
 
 	return nil
+}
+
+func (is *MemInnerServer) Get(cf string, key ...byte) []byte {
+	item := memItem{key, nil}
+	var result llrb.Item
+	switch cf {
+	case CfDefault:
+		result = is.CfDefault.Get(item)
+	case CfLock:
+		result = is.CfLock.Get(item)
+	case CfWrite:
+		result = is.CfWrite.Get(item)
+	}
+
+	if result == nil {
+		return nil
+	}
+
+	return result.(memItem).value
+}
+
+func (is *MemInnerServer) Set(cf string, value []byte, key ...byte) {
+	item := memItem{key, value}
+	switch cf {
+	case CfDefault:
+		is.CfDefault.ReplaceOrInsert(item)
+	case CfLock:
+		is.CfLock.ReplaceOrInsert(item)
+	case CfWrite:
+		is.CfWrite.ReplaceOrInsert(item)
+	}
+}
+
+func (is *MemInnerServer) Len(cf string) int {
+	switch cf {
+	case CfDefault:
+		return is.CfDefault.Len()
+	case CfLock:
+		return is.CfLock.Len()
+	case CfWrite:
+		return is.CfWrite.Len()
+	}
+
+	return -1
 }
 
 // memReader is a DBReader which reads from a MemInnerServer.
@@ -60,47 +127,79 @@ type memReader struct {
 }
 
 func (mr *memReader) GetCF(cf string, key []byte) ([]byte, error) {
-	return mr.inner.Data[key[0]], nil
+	item := memItem{key, nil}
+	var result llrb.Item
+	switch cf {
+	case CfDefault:
+		result = mr.inner.CfDefault.Get(item)
+	case CfLock:
+		result = mr.inner.CfLock.Get(item)
+	case CfWrite:
+		result = mr.inner.CfWrite.Get(item)
+	default:
+		return nil, fmt.Errorf("mem-server: bad CF %s", cf)
+	}
+
+	if result == nil {
+		return nil, nil
+	}
+
+	return result.(memItem).value, nil
 }
 
 func (mr *memReader) IterCF(cf string) engine_util.DBIterator {
-	var keys []byte
-	for k := range mr.inner.Data {
-		keys = append(keys, k)
+	var data *llrb.LLRB
+	switch cf {
+	case CfDefault:
+		data = mr.inner.CfDefault
+	case CfLock:
+		data = mr.inner.CfLock
+	case CfWrite:
+		data = mr.inner.CfWrite
+	default:
+		return nil
 	}
-	return &memIter{mr.inner, keys, 0}
+
+	return &memIter{data, data.Min().(memItem)}
 }
 
 type memIter struct {
-	inner    *MemInnerServer
-	keys     []byte
-	position int
+	data *llrb.LLRB
+	item memItem
 }
 
 func (it *memIter) Item() engine_util.DBItem {
-	key := it.keys[it.position]
-	value := it.inner.Data[key]
-	return &memItem{
-		[]byte{key}, value,
-	}
+	return it.item
 }
 func (it *memIter) Valid() bool {
-	return it.position < len(it.keys)
+	return it.item.key != nil
 }
 func (it *memIter) Next() {
-	it.position++
+	first := true
+	it.data.AscendGreaterOrEqual(it.item, func(item llrb.Item) bool {
+		// Skip the first item, which will be it.item
+		if first {
+			first = false
+			return true
+		}
+
+		if item == nil {
+			it.item = memItem{nil, nil}
+		} else {
+			it.item = item.(memItem)
+		}
+		return false
+	})
 }
 func (it *memIter) Seek(key []byte) {
-	for i, k := range it.keys {
-		if k == key[0] {
-			it.position = i
-			return
+	it.data.AscendGreaterOrEqual(memItem{key, nil}, func(item llrb.Item) bool {
+		if item == nil {
+			it.item = memItem{nil, nil}
+		} else {
+			it.item = item.(memItem)
 		}
-	}
-
-	// TODO this behaviour does not match badger. It should seek to "the next smallest key greater than provided", current
-	// behaviour leave the iterator invalid.
-	it.position = len(it.keys)
+		return false
+	})
 }
 
 type memItem struct {
@@ -108,18 +207,23 @@ type memItem struct {
 	value []byte
 }
 
-func (it *memItem) Key() []byte {
+func (it memItem) Key() []byte {
 	return it.key
 }
-func (it *memItem) KeyCopy(dst []byte) []byte {
+func (it memItem) KeyCopy(dst []byte) []byte {
 	return y.SafeCopy(dst, it.key)
 }
-func (it *memItem) Value() ([]byte, error) {
+func (it memItem) Value() ([]byte, error) {
 	return it.value, nil
 }
-func (it *memItem) ValueSize() int {
+func (it memItem) ValueSize() int {
 	return len(it.value)
 }
-func (it *memItem) ValueCopy(dst []byte) ([]byte, error) {
+func (it memItem) ValueCopy(dst []byte) ([]byte, error) {
 	return y.SafeCopy(dst, it.value), nil
+}
+
+func (it memItem) Less(than llrb.Item) bool {
+	other := than.(memItem)
+	return bytes.Compare(it.key, other.key) < 0
 }

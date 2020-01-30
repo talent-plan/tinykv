@@ -4,7 +4,6 @@ import (
 	"github.com/coocood/badger"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
 
@@ -36,17 +35,21 @@ func (rg *RawGet) Context() *kvrpcpb.Context {
 	return rg.request.Context
 }
 
-func (rg *RawGet) Response() (interface{}, error) {
-	return &rg.response, nil
+func (rg *RawGet) Response() interface{} {
+	return &rg.response
 }
 
-func (rg *RawGet) RegionError(err *errorpb.Error) interface{} {
+func (rg *RawGet) HandleError(err error) interface{} {
 	if err == nil {
 		return nil
 	}
 
-	rg.response.RegionError = err
-	return &rg.response
+	if regionErr := extractRegionError(err); regionErr != nil {
+		rg.response.RegionError = regionErr
+		return &rg.response
+	}
+
+	return nil
 }
 
 // RawPut implements the Command interface for raw put requests.
@@ -73,18 +76,22 @@ func (rp *RawPut) Context() *kvrpcpb.Context {
 	return rp.request.Context
 }
 
-func (rp *RawPut) Response() (interface{}, error) {
-	return &kvrpcpb.RawPutResponse{}, nil
+func (rp *RawPut) Response() interface{} {
+	return &kvrpcpb.RawPutResponse{}
 }
 
-func (rp *RawPut) RegionError(err *errorpb.Error) interface{} {
+func (rp *RawPut) HandleError(err error) interface{} {
 	if err == nil {
 		return nil
 	}
 
-	resp := kvrpcpb.RawPutResponse{}
-	resp.RegionError = err
-	return &resp
+	if regionErr := extractRegionError(err); regionErr != nil {
+		resp := kvrpcpb.RawPutResponse{}
+		resp.RegionError = regionErr
+		return &resp
+	}
+
+	return nil
 }
 
 // RawDelete implements the Command interface for raw delete requests.
@@ -111,18 +118,22 @@ func (rd *RawDelete) Context() *kvrpcpb.Context {
 	return rd.request.Context
 }
 
-func (rd *RawDelete) Response() (interface{}, error) {
-	return &kvrpcpb.RawDeleteResponse{}, nil
+func (rd *RawDelete) Response() interface{} {
+	return &kvrpcpb.RawDeleteResponse{}
 }
 
-func (rd *RawDelete) RegionError(err *errorpb.Error) interface{} {
+func (rd *RawDelete) HandleError(err error) interface{} {
 	if err == nil {
 		return nil
 	}
 
-	resp := kvrpcpb.RawDeleteResponse{}
-	resp.RegionError = err
-	return &resp
+	if regionErr := extractRegionError(err); regionErr != nil {
+		resp := kvrpcpb.RawDeleteResponse{}
+		resp.RegionError = regionErr
+		return &resp
+	}
+
+	return nil
 }
 
 // RawScan implements the Command interface for raw scan requests.
@@ -160,19 +171,19 @@ func (rs *RawScan) Context() *kvrpcpb.Context {
 	return rs.request.Context
 }
 
-func (rs *RawScan) Response() (interface{}, error) {
-	return &rs.response, nil
+func (rs *RawScan) Response() interface{} {
+	return &rs.response
 }
 
-func (rs *RawScan) RegionError(err *errorpb.Error) interface{} {
+func (rs *RawScan) HandleError(err error) interface{} {
 	if err == nil {
 		return nil
 	}
 
-	rs.response.RegionError = err
-	return &rs.response
-}
+	if regionErr := extractRegionError(err); regionErr != nil {
+		rs.response.RegionError = regionErr
+		return &rs.response
+	}
 
-type context interface {
-	GetContext() *kvrpcpb.Context
+	return nil
 }

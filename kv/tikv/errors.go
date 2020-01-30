@@ -43,31 +43,12 @@ func (e ErrAlreadyCommitted) Error() string {
 	return "txn already committed"
 }
 
-type ErrCommitPessimisticLock struct {
-	key []byte
-}
-
-func (e ErrCommitPessimisticLock) Error() string {
-	return fmt.Sprintf("txn commit pessimistic lock directly on key=%v", e.key)
-}
-
 type ErrKeyAlreadyExists struct {
 	Key []byte
 }
 
 func (e ErrKeyAlreadyExists) Error() string {
 	return "key already exists"
-}
-
-// ErrDeadlock is returned when deadlock is detected.
-type ErrDeadlock struct {
-	LockKey         []byte
-	LockTS          uint64
-	DeadlockKeyHash uint64
-}
-
-func (e ErrDeadlock) Error() string {
-	return "deadlock"
 }
 
 type ErrConflict struct {
@@ -161,7 +142,7 @@ func convertToKeyError(err error) *kvrpcpb.KeyError {
 }
 
 func convertToPBError(err error) (*kvrpcpb.KeyError, *errorpb.Error) {
-	if regErr := ExtractRegionError(err); regErr != nil {
+	if regErr := extractRegionError(err); regErr != nil {
 		return nil, regErr
 	}
 	return convertToKeyError(err), nil
@@ -169,7 +150,7 @@ func convertToPBError(err error) (*kvrpcpb.KeyError, *errorpb.Error) {
 
 func convertToPBErrors(err error) ([]*kvrpcpb.KeyError, *errorpb.Error) {
 	if err != nil {
-		if regErr := ExtractRegionError(err); regErr != nil {
+		if regErr := extractRegionError(err); regErr != nil {
 			return nil, regErr
 		}
 		return []*kvrpcpb.KeyError{convertToKeyError(err)}, nil
@@ -177,7 +158,7 @@ func convertToPBErrors(err error) ([]*kvrpcpb.KeyError, *errorpb.Error) {
 	return nil, nil
 }
 
-func ExtractRegionError(err error) *errorpb.Error {
+func extractRegionError(err error) *errorpb.Error {
 	if regionError, ok := err.(*inner_server.RegionError); ok {
 		return regionError.RequestErr
 	}
