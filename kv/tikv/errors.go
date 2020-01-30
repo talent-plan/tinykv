@@ -137,14 +137,6 @@ func convertToKeyError(err error) *kvrpcpb.KeyError {
 				Key:              x.Key,
 			},
 		}
-	case *ErrDeadlock:
-		return &kvrpcpb.KeyError{
-			Deadlock: &kvrpcpb.Deadlock{
-				LockKey:         x.LockKey,
-				LockTs:          x.LockTS,
-				DeadlockKeyHash: x.DeadlockKeyHash,
-			},
-		}
 	case *ErrCommitExpire:
 		return &kvrpcpb.KeyError{
 			CommitTsExpired: &kvrpcpb.CommitTsExpired{
@@ -160,10 +152,6 @@ func convertToKeyError(err error) *kvrpcpb.KeyError {
 				StartTs:    x.StartTS,
 				PrimaryKey: x.PrimaryKey,
 			},
-		}
-	case *ErrCommitPessimisticLock:
-		return &kvrpcpb.KeyError{
-			Abort: x.Error(),
 		}
 	default:
 		return &kvrpcpb.KeyError{
