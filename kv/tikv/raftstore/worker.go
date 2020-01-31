@@ -53,8 +53,6 @@ type pdRegionHeartbeatTask struct {
 	peer            *metapb.Peer
 	downPeers       []*pdpb.PeerStats
 	pendingPeers    []*metapb.Peer
-	writtenBytes    uint64
-	writtenKeys     uint64
 	approximateSize *uint64
 }
 
@@ -63,14 +61,6 @@ type pdStoreHeartbeatTask struct {
 	engine   *badger.DB
 	path     string
 	capacity uint64
-}
-
-type pdReportBatchSplitTask struct {
-	regions []*metapb.Region
-}
-
-type pdDestroyPeerTask struct {
-	regionID uint64
 }
 
 type splitCheckHandler struct {
