@@ -166,19 +166,17 @@ func (rn *RawNode) ProposeConfChange(ctx []byte, cc pb.ConfChange) error {
 // ApplyConfChange applies a config change to the local node.
 func (rn *RawNode) ApplyConfChange(cc pb.ConfChange) *pb.ConfState {
 	if cc.NodeId == None {
-		return &pb.ConfState{Nodes: rn.Raft.nodes(), Learners: rn.Raft.learnerNodes()}
+		return &pb.ConfState{Nodes: rn.Raft.nodes()}
 	}
 	switch cc.ChangeType {
 	case pb.ConfChangeType_AddNode:
 		rn.Raft.addNode(cc.NodeId)
-	case pb.ConfChangeType_AddLearnerNode:
-		rn.Raft.addLearner(cc.NodeId)
 	case pb.ConfChangeType_RemoveNode:
 		rn.Raft.removeNode(cc.NodeId)
 	default:
 		panic("unexpected conf type")
 	}
-	return &pb.ConfState{Nodes: rn.Raft.nodes(), Learners: rn.Raft.learnerNodes()}
+	return &pb.ConfState{Nodes: rn.Raft.nodes()}
 }
 
 // Step advances the state machine using the given message.
@@ -244,28 +242,13 @@ func (rn *RawNode) StatusWithoutProgress() Status {
 	return getStatusWithoutProgress(rn.Raft)
 }
 
-// ProgressType indicates the type of replica a Progress corresponds to.
-type ProgressType byte
-
-const (
-	// ProgressTypePeer accompanies a Progress for a regular peer replica.
-	ProgressTypePeer ProgressType = iota
-	// ProgressTypeLearner accompanies a Progress for a learner replica.
-	ProgressTypeLearner
-)
-
 // WithProgress is a helper to introspect the Progress for this node and its
 // peers.
-func (rn *RawNode) WithProgress(visitor func(id uint64, typ ProgressType, pr Progress)) {
+func (rn *RawNode) WithProgress(visitor func(id uint64, pr Progress)) {
 	for id, pr := range rn.Raft.Prs {
 		pr := *pr
 		pr.ins = nil
-		visitor(id, ProgressTypePeer, pr)
-	}
-	for id, pr := range rn.Raft.LearnerPrs {
-		pr := *pr
-		pr.ins = nil
-		visitor(id, ProgressTypeLearner, pr)
+		visitor(id, pr)
 	}
 }
 

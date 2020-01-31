@@ -16,8 +16,8 @@ package placement
 import (
 	"testing"
 
-	. "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
+	. "github.com/pingcap/check"
 )
 
 func TestPlacement(t *testing.T) {

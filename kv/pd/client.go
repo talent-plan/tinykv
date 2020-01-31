@@ -13,6 +13,10 @@
 
 package pd
 
+/*
+Handle communication with PR (Placement Driver).
+*/
+
 import (
 	"context"
 	"net/url"
@@ -99,7 +103,7 @@ func NewClient(pdAddrs []string, tag string) (Client, error) {
 	log.Infof("[%s][pd] create pd client with endpoints %v", tag, urls)
 
 	c := &client{
-		urls: urls,
+		urls:                     urls,
 		receiveRegionHeartbeatCh: make(chan *pdpb.RegionHeartbeatResponse, 1),
 		checkLeaderCh:            make(chan struct{}, 1),
 		ctx:                      ctx,

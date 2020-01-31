@@ -78,37 +78,11 @@ func (wb *WriteBatch) RollbackToSafePoint() {
 	wb.size = wb.safePointSize
 }
 
-// WriteToKV flush WriteBatch to DB by two steps:
-// 	1. Write entries to badger. After save ApplyState to badger, subsequent regionSnapshot will start at new raft index.
-//	2. Update lockStore, the date in lockStore may be older than the DB, so we need to restore then entries from raft log.
-func (wb *WriteBatch) WriteToKV(db *badger.DB) error {
+func (wb *WriteBatch) WriteToDB(db *badger.DB) error {
 	if len(wb.entries) > 0 {
 		err := db.Update(func(txn *badger.Txn) error {
 			for _, entry := range wb.entries {
 				var err1 error
-				if len(entry.UserMeta) == 0 && len(entry.Value) == 0 {
-					err1 = txn.Delete(entry.Key)
-				} else {
-					err1 = txn.SetEntry(entry)
-				}
-				if err1 != nil {
-					return err1
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			return errors.WithStack(err)
-		}
-	}
-	return nil
-}
-
-func (wb *WriteBatch) WriteToRaft(db *badger.DB) error {
-	if len(wb.entries) > 0 {
-		err := db.Update(func(txn *badger.Txn) error {
-			var err1 error
-			for _, entry := range wb.entries {
 				if len(entry.Value) == 0 {
 					err1 = txn.Delete(entry.Key)
 				} else {
@@ -127,15 +101,8 @@ func (wb *WriteBatch) WriteToRaft(db *badger.DB) error {
 	return nil
 }
 
-func (wb *WriteBatch) MustWriteToKV(db *badger.DB) {
-	err := wb.WriteToKV(db)
-	if err != nil {
-		panic(err)
-	}
-}
-
-func (wb *WriteBatch) MustWriteToRaft(db *badger.DB) {
-	err := wb.WriteToRaft(db)
+func (wb *WriteBatch) MustWriteToDB(db *badger.DB) {
+	err := wb.WriteToDB(db)
 	if err != nil {
 		panic(err)
 	}

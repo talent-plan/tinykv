@@ -14,10 +14,10 @@
 package schedule
 
 import (
-	. "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/operator"
+	. "github.com/pingcap/check"
 )
 
 var _ = Suite(&testWaitingOperatorSuite{})

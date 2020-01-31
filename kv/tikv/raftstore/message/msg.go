@@ -3,6 +3,8 @@ package message
 import (
 	"sync"
 
+	"github.com/coocood/badger"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 )
 
@@ -21,10 +23,9 @@ const (
 	MsgTypeApplyRes              MsgType = 15
 	MsgTypeNoop                  MsgType = 16
 
-	MsgTypeStoreRaftMessage   MsgType = 101
-	MsgTypeStoreSnapshotStats MsgType = 102
-	MsgTypeStoreTick          MsgType = 106
-	MsgTypeStoreStart         MsgType = 107
+	MsgTypeStoreRaftMessage MsgType = 101
+	MsgTypeStoreTick        MsgType = 106
+	MsgTypeStoreStart       MsgType = 107
 
 	MsgTypeFsmNormal  MsgType = 201
 	MsgTypeFsmControl MsgType = 202
@@ -57,8 +58,14 @@ type MsgRaftCmd struct {
 }
 
 type Callback struct {
-	Resp *raft_cmdpb.RaftCmdResponse
-	Wg   sync.WaitGroup
+	Resp       *raft_cmdpb.RaftCmdResponse
+	RegionSnap RegionSnapshot // used for GetSnap
+	Wg         sync.WaitGroup
+}
+
+type RegionSnapshot struct {
+	Region metapb.Region
+	Txn    *badger.Txn
 }
 
 func (cb *Callback) Done(resp *raft_cmdpb.RaftCmdResponse) {

@@ -17,9 +17,9 @@ import (
 	"fmt"
 	"math"
 
-	. "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
+	. "github.com/pingcap/check"
 	"github.com/pkg/errors"
 )
 

@@ -266,16 +266,6 @@ message CommitResponse {
     uint64 commit_version = 3;  // If the commit ts is derived from min_commit_ts, this field should be set.
 }
 
-message ImportRequest {
-    repeated Mutation mutations = 1;
-    uint64 commit_version = 2;
-}
-
-message ImportResponse {
-    errorpb.Error region_error = 1;
-    string error = 2;
-}
-
 message BatchRollbackRequest {
     Context context = 1;
     uint64 start_version = 2;
@@ -380,16 +370,6 @@ message ResolveLockResponse {
     KeyError error = 2;
 }
 
-message GCRequest {
-    Context context = 1;
-    uint64 safe_point = 2;
-}
-
-message GCResponse {
-    errorpb.Error region_error = 1;
-    KeyError error = 2;
-}
-
 message RawGetRequest {
     Context context = 1;
     bytes key = 2;
@@ -415,28 +395,6 @@ message RawPutResponse {
     string error = 2;
 }
 
-message RawBatchPutRequest {
-    Context context = 1;
-    repeated KvPair pairs = 2;
-    string cf = 3;
-}
-
-message RawBatchPutResponse {
-    errorpb.Error region_error = 1;
-    string error = 2;
-}
-
-message RawBatchGetRequest {
-    Context context = 1;
-    repeated bytes keys = 2;
-    string cf = 3;
-}
-
-message RawBatchGetResponse {
-    errorpb.Error region_error = 1;
-    repeated KvPair pairs = 2;
-}
-
 message RawDeleteRequest {
     Context context = 1;
     bytes key = 2;
@@ -448,75 +406,23 @@ message RawDeleteResponse {
     string error = 2;
 }
 
-message RawBatchDeleteRequest {
-    Context context = 1;
-    repeated bytes keys = 2;
-    string cf = 3;
-}
-
-message RawBatchDeleteResponse {
-    errorpb.Error region_error = 1;
-    string error = 2;
-}
-
-message DeleteRangeRequest {
-    Context context = 1;
-    bytes start_key = 2;
-    bytes end_key = 3;
-    bool notify_only = 4;
-}
-
-message DeleteRangeResponse {
-    errorpb.Error region_error = 1;
-    string error = 2;
-}
-
-message RawDeleteRangeRequest {
-    Context context = 1;
-    bytes start_key = 2;
-    bytes end_key = 3;
-    string cf = 4;
-}
-
-message RawDeleteRangeResponse {
-    errorpb.Error region_error = 1;
-    string error = 2;
-}
-
 message RawScanRequest {
     Context context = 1;
     bytes start_key = 2;
     uint32 limit = 3;
-    bool key_only = 4;
-    string cf = 5;
-    bool reverse = 6;
-    // For compatibility, when scanning forward, the range to scan is [start_key, end_key), where start_key < end_key;
-    // and when scanning backward, it scans [end_key, start_key) in descending order, where end_key < start_key.
-    bytes end_key = 7;
+    string cf = 4;
+
 }
 
 message RawScanResponse {
     errorpb.Error region_error = 1;
-    repeated KvPair kvs = 2;
+    string error = 2;
+    repeated KvPair kvs = 3;
 }
 
 message KeyRange {
   bytes start_key = 1;
   bytes end_key = 2;
-}
-
-message RawBatchScanRequest {
-    Context context = 1;
-    repeated KeyRange ranges = 2; // scanning range
-    uint32 each_limit = 3; // max number of returning kv pairs for each scanning range
-    bool key_only = 4;
-    string cf = 5;
-    bool reverse = 6;
-}
-
-message RawBatchScanResponse {
-    errorpb.Error region_error = 1;
-    repeated KvPair kvs = 2;
 }
 
 message MvccWrite {
@@ -578,15 +484,4 @@ message SplitRegionResponse {
     metapb.Region left  = 2 [deprecated=true]; // set when there are only 2 result regions.
     metapb.Region right = 3 [deprecated=true]; // set when there are only 2 result regions.
     repeated metapb.Region regions = 4; // include all result regions.
-}
-
-message UnsafeDestroyRangeRequest {
-    Context context = 1;
-    bytes start_key = 2;
-    bytes end_key = 3;
-}
-
-message UnsafeDestroyRangeResponse {
-    errorpb.Error region_error = 1;
-    string error = 2;
 }

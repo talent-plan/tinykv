@@ -15,7 +15,6 @@
 package raft
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"math"
@@ -100,11 +99,6 @@ type Config struct {
 	// used for testing right now.
 	peers []uint64
 
-	// learners contains the IDs of all learner nodes (including self if the
-	// local node is a learner) in the raft cluster. learners only receives
-	// entries from the leader node. It does not vote or promote itself.
-	learners []uint64
-
 	// ElectionTick is the number of Node.Tick invocations that must pass between
 	// elections. That is, if a follower does not receive any message from the
 	// leader of current term before ElectionTick has elapsed, it will become
@@ -148,10 +142,6 @@ type Config struct {
 	// overflowing that sending buffer. TODO (xiangli): feedback to application to
 	// limit the proposal rate?
 	MaxInflightMsgs int
-
-	// CheckQuorum specifies if the leader should check quorum activity. Leader
-	// steps down when quorum is not active for an electionTimeout.
-	CheckQuorum bool
 
 	skipBcastCommit bool
 
@@ -221,13 +211,9 @@ type Raft struct {
 	maxUncommittedSize uint64
 	maxInflight        int
 	Prs                map[uint64]*Progress
-	LearnerPrs         map[uint64]*Progress
 	matchBuf           uint64Slice
 
 	State StateType
-
-	// isLearner is true if the local raft node is a learner.
-	IsLearner bool
 
 	votes map[uint64]bool
 
@@ -274,8 +260,6 @@ type Raft struct {
 	// only leader keeps heartbeatElapsed.
 	heartbeatElapsed int
 
-	checkQuorum bool
-
 	skipBcastCommit bool
 
 	heartbeatTimeout int
@@ -302,45 +286,31 @@ func newRaft(c *Config) *Raft {
 		panic(err) // TODO(bdarnell)
 	}
 	peers := c.peers
-	learners := c.learners
-	if len(cs.Nodes) > 0 || len(cs.Learners) > 0 {
-		if len(peers) > 0 || len(learners) > 0 {
+	if len(cs.Nodes) > 0 {
+		if len(peers) > 0 {
 			// TODO(bdarnell): the peers argument is always nil except in
 			// tests; the argument should be removed and these tests should be
 			// updated to specify their nodes through a snapshot.
-			panic("cannot specify both newRaft(peers, learners) and ConfState.(Nodes, Learners)")
+			panic("cannot specify both newRaft (peers) and ConfState.(Nodes)")
 		}
 		peers = cs.Nodes
-		learners = cs.Learners
 	}
 	r := &Raft{
 		id:                        c.ID,
 		Lead:                      None,
-		IsLearner:                 false,
 		RaftLog:                   raftlog,
 		maxMsgSize:                c.MaxSizePerMsg,
 		maxInflight:               c.MaxInflightMsgs,
 		maxUncommittedSize:        c.MaxUncommittedEntriesSize,
 		Prs:                       make(map[uint64]*Progress),
-		LearnerPrs:                make(map[uint64]*Progress),
 		electionTimeout:           c.ElectionTick,
 		heartbeatTimeout:          c.HeartbeatTick,
 		logger:                    c.Logger,
-		checkQuorum:               c.CheckQuorum,
 		skipBcastCommit:           c.skipBcastCommit,
 		disableProposalForwarding: c.DisableProposalForwarding,
 	}
 	for _, p := range peers {
 		r.Prs[p] = &Progress{Next: 1, ins: newInflights(r.maxInflight)}
-	}
-	for _, p := range learners {
-		if _, ok := r.Prs[p]; ok {
-			panic(fmt.Sprintf("node %x is in both learner and peer list", p))
-		}
-		r.LearnerPrs[p] = &Progress{Next: 1, ins: newInflights(r.maxInflight), IsLearner: true}
-		if r.id == p {
-			r.IsLearner = true
-		}
 	}
 
 	if !isHardStateEqual(hs, emptyState) {
@@ -369,10 +339,6 @@ func (r *Raft) SkipBcastCommit(skip bool) {
 	r.skipBcastCommit = skip
 }
 
-func (r *Raft) InLease() bool {
-	return r.State == StateLeader && r.checkQuorum
-}
-
 func (r *Raft) hasLeader() bool { return r.Lead != None }
 
 func (r *Raft) softState() *SoftState {
@@ -392,15 +358,6 @@ func (r *Raft) quorum() int { return len(r.Prs)/2 + 1 }
 func (r *Raft) nodes() []uint64 {
 	nodes := make([]uint64, 0, len(r.Prs))
 	for id := range r.Prs {
-		nodes = append(nodes, id)
-	}
-	sort.Sort(uint64Slice(nodes))
-	return nodes
-}
-
-func (r *Raft) learnerNodes() []uint64 {
-	nodes := make([]uint64, 0, len(r.LearnerPrs))
-	for id := range r.LearnerPrs {
 		nodes = append(nodes, id)
 	}
 	sort.Sort(uint64Slice(nodes))
@@ -434,11 +391,7 @@ func (r *Raft) send(m pb.Message) {
 }
 
 func (r *Raft) getProgress(id uint64) *Progress {
-	if pr, ok := r.Prs[id]; ok {
-		return pr
-	}
-
-	return r.LearnerPrs[id]
+	return r.Prs[id]
 }
 
 // sendAppend sends an append RPC with new entries (if any) and the
@@ -467,11 +420,6 @@ func (r *Raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 	}
 
 	if errt != nil || erre != nil { // send snapshot if we failed to get term or entries
-		if !pr.RecentActive {
-			r.logger.Debugf("ignore sending snapshot to %x since it is not recently active", to)
-			return false
-		}
-
 		m.MsgType = pb.MessageType_MsgSnapshot
 		snapshot, err := r.RaftLog.snapshot()
 		if err != nil {
@@ -541,10 +489,6 @@ func (r *Raft) forEachProgress(f func(id uint64, pr *Progress)) {
 	for id, pr := range r.Prs {
 		f(id, pr)
 	}
-
-	for id, pr := range r.LearnerPrs {
-		f(id, pr)
-	}
 }
 
 // bcastAppend sends RPC, with entries to all peers that are not up-to-date
@@ -604,7 +548,7 @@ func (r *Raft) reset(term uint64) {
 
 	r.votes = make(map[uint64]bool)
 	r.forEachProgress(func(id uint64, pr *Progress) {
-		*pr = Progress{Next: r.RaftLog.LastIndex() + 1, ins: newInflights(r.maxInflight), IsLearner: pr.IsLearner}
+		*pr = Progress{Next: r.RaftLog.LastIndex() + 1, ins: newInflights(r.maxInflight)}
 		if id == r.id {
 			pr.Match = r.RaftLog.LastIndex()
 		}
@@ -654,9 +598,6 @@ func (r *Raft) tickHeartbeat() {
 
 	if r.electionElapsed >= r.electionTimeout {
 		r.electionElapsed = 0
-		if r.checkQuorum {
-			r.Step(pb.Message{From: r.id, MsgType: pb.MessageType_MsgCheckQuorum})
-		}
 		// If current leader cannot transfer leadership in electionTimeout, it becomes leader again.
 		if r.State == StateLeader && r.leadTransferee != None {
 			r.abortLeaderTransfer()
@@ -780,17 +721,6 @@ func (r *Raft) Step(m pb.Message) error {
 	case m.Term == 0:
 		// local message
 	case m.Term > r.Term:
-		if m.MsgType == pb.MessageType_MsgRequestVote {
-			force := bytes.Equal(m.Context, []byte(campaignTransfer))
-			inLease := r.checkQuorum && r.Lead != None && r.electionElapsed < r.electionTimeout
-			if !force && inLease {
-				// If a server receives a RequestVote request within the minimum election timeout
-				// of hearing from a current leader, it does not update its term or grant its vote
-				r.logger.Infof("%x [logterm: %d, index: %d, vote: %x] ignored %s from %x [logterm: %d, index: %d] at term %d: lease is not expired (remaining ticks: %d)",
-					r.id, r.RaftLog.lastTerm(), r.RaftLog.LastIndex(), r.Vote, m.MsgType, m.From, m.LogTerm, m.Index, r.Term, r.electionTimeout-r.electionElapsed)
-				return nil
-			}
-		}
 		r.logger.Infof("%x [term: %d] received a %s message with higher term from %x [term: %d]",
 			r.id, r.Term, m.MsgType, m.From, m.Term)
 		if m.MsgType == pb.MessageType_MsgAppend || m.MsgType == pb.MessageType_MsgHeartbeat || m.MsgType == pb.MessageType_MsgSnapshot {
@@ -798,35 +728,8 @@ func (r *Raft) Step(m pb.Message) error {
 		} else {
 			r.becomeFollower(m.Term, None)
 		}
-
 	case m.Term < r.Term:
-		if r.checkQuorum && (m.MsgType == pb.MessageType_MsgHeartbeat || m.MsgType == pb.MessageType_MsgAppend) {
-			// We have received messages from a leader at a lower term. It is possible
-			// that these messages were simply delayed in the network, but this could
-			// also mean that this node has advanced its term number during a network
-			// partition, and it is now unable to either win an election or to rejoin
-			// the majority on the old term. If checkQuorum is false, this will be
-			// handled by incrementing term numbers in response to MessageType_MsgRequestVote with a
-			// higher term, but if checkQuorum is true we may not advance the term on
-			// MessageType_MsgRequestVote and must generate other messages to advance the term. The net
-			// result of these two features is to minimize the disruption caused by
-			// nodes that have been removed from the cluster's configuration: a
-			// removed node will send MessageType_MsgRequestVotes which will be ignored,
-			// but it will not receive MessageType_MsgAppend or MessageType_MsgHeartbeat, so it will not create
-			// disruptive term increases, by notifying leader of this node's activeness.
-			//
-			// When follower gets isolated, it soon starts an election ending
-			// up with a higher term than leader, although it won't receive enough
-			// votes to win the election. When it regains connectivity, this response
-			// with "pb.MessageType_MsgAppendResponse" of higher term would force leader to step down.
-			// However, this disruption is inevitable to free this stuck node with
-			// fresh election.
-			r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse})
-		} else {
-			// ignore other cases
-			r.logger.Infof("%x [term: %d] ignored a %s message with lower term from %x [term: %d]",
-				r.id, r.Term, m.MsgType, m.From, m.Term)
-		}
+		r.logger.Infof("%x [term: %d] ignored a %s message with lower term from %x [term: %d]", r.id, r.Term, m.MsgType, m.From, m.Term)
 		return nil
 	}
 
@@ -850,12 +753,6 @@ func (r *Raft) Step(m pb.Message) error {
 		}
 
 	case pb.MessageType_MsgRequestVote:
-		if r.IsLearner {
-			// TODO: learner may need to vote, in case of node down when confchange.
-			r.logger.Infof("%x [logterm: %d, index: %d, vote: %x] ignored %s from %x [logterm: %d, index: %d] at term %d: learner can not vote",
-				r.id, r.RaftLog.lastTerm(), r.RaftLog.LastIndex(), r.Vote, m.MsgType, m.From, m.LogTerm, m.Index, r.Term)
-			return nil
-		}
 		// We can vote if this is a repeat of a vote we've already cast...
 		canVote := r.Vote == m.From ||
 			// ...we haven't voted and we don't think there's a leader yet in this term...
@@ -890,12 +787,6 @@ func stepLeader(r *Raft, m pb.Message) error {
 	switch m.MsgType {
 	case pb.MessageType_MsgBeat:
 		r.bcastHeartbeat()
-		return nil
-	case pb.MessageType_MsgCheckQuorum:
-		if !r.checkQuorumActive() {
-			r.logger.Warningf("%x stepped down to follower since quorum is not active", r.id)
-			r.becomeFollower(r.Term, None)
-		}
 		return nil
 	case pb.MessageType_MsgPropose:
 		if len(m.Entries) == 0 {
@@ -943,8 +834,6 @@ func stepLeader(r *Raft, m pb.Message) error {
 	}
 	switch m.MsgType {
 	case pb.MessageType_MsgAppendResponse:
-		pr.RecentActive = true
-
 		if m.Reject {
 			r.logger.Debugf("%x received MessageType_MsgAppend rejection(lastindex: %d) from %x for index %d",
 				r.id, m.RejectHint, m.From, m.Index)
@@ -999,7 +888,7 @@ func stepLeader(r *Raft, m pb.Message) error {
 			}
 		}
 	case pb.MessageType_MsgHeartbeatResponse:
-		pr.RecentActive = true
+
 		pr.resume()
 
 		// free one slot for the full inflights window to allow progress.
@@ -1033,10 +922,6 @@ func stepLeader(r *Raft, m pb.Message) error {
 		}
 		r.logger.Debugf("%x failed to send message to %x because it is unreachable [%s]", r.id, m.From, pr)
 	case pb.MessageType_MsgTransferLeader:
-		if pr.IsLearner {
-			r.logger.Debugf("%x is learner. Ignored transferring leadership", r.id)
-			return nil
-		}
 		leadTransferee := m.From
 		lastLeadTransferee := r.leadTransferee
 		if lastLeadTransferee != None {
@@ -1190,38 +1075,22 @@ func (r *Raft) restore(s pb.Snapshot) bool {
 		return false
 	}
 
-	// Note: in TiKV, the newly added learner is first replicated as follower and
-	// later change to learner when apply snapshot.
-	//
-	// The normal peer can't become learner.
-	// if !r.IsLearner {
-	// 	for _, id := range s.Metadata.ConfState.Learners {
-	// 		if id == r.id {
-	// 			r.logger.Errorf("%x can't become learner when restores snapshot [index: %d, term: %d]", r.id, s.Metadata.Index, s.Metadata.Term)
-	// 			return false
-	// 		}
-	// 	}
-	// }
-
 	r.logger.Infof("%x [commit: %d, lastindex: %d, lastterm: %d] starts to restore snapshot [index: %d, term: %d]",
 		r.id, r.RaftLog.committed, r.RaftLog.LastIndex(), r.RaftLog.lastTerm(), s.Metadata.Index, s.Metadata.Term)
 
 	r.RaftLog.restore(s)
 	r.Prs = make(map[uint64]*Progress)
-	r.LearnerPrs = make(map[uint64]*Progress)
-	r.restoreNode(s.Metadata.ConfState.Nodes, false)
-	r.restoreNode(s.Metadata.ConfState.Learners, true)
+	r.restoreNode(s.Metadata.ConfState.Nodes)
 	return true
 }
 
-func (r *Raft) restoreNode(nodes []uint64, isLearner bool) {
+func (r *Raft) restoreNode(nodes []uint64) {
 	for _, n := range nodes {
 		match, next := uint64(0), r.RaftLog.LastIndex()+1
 		if n == r.id {
 			match = next - 1
-			r.IsLearner = isLearner
 		}
-		r.setProgress(n, match, next, isLearner)
+		r.setProgress(n, match, next)
 		r.logger.Infof("%x restored progress of %x [%s]", r.id, n, r.getProgress(n))
 	}
 }
@@ -1242,52 +1111,18 @@ func (r *Raft) promotable() bool {
 }
 
 func (r *Raft) addNode(id uint64) {
-	r.addNodeOrLearnerNode(id, false)
-}
-
-func (r *Raft) addLearner(id uint64) {
-	r.addNodeOrLearnerNode(id, true)
-}
-
-func (r *Raft) addNodeOrLearnerNode(id uint64, isLearner bool) {
-	pr := r.getProgress(id)
-	if pr == nil {
-		r.setProgress(id, 0, r.RaftLog.LastIndex()+1, isLearner)
+	if r.getProgress(id) == nil {
+		r.setProgress(id, 0, r.RaftLog.LastIndex()+1)
 	} else {
-		if isLearner && !pr.IsLearner {
-			// can only change Learner to Voter
-			r.logger.Infof("%x ignored addLearner: do not support changing %x from raft peer to learner.", r.id, id)
-			return
-		}
-
-		if isLearner == pr.IsLearner {
-			// Ignore any redundant addNode calls (which can happen because the
-			// initial bootstrapping entries are applied twice).
-			return
-		}
-
-		// change Learner to Voter, use origin Learner progress
-		delete(r.LearnerPrs, id)
-		pr.IsLearner = false
-		r.Prs[id] = pr
+		return
 	}
-
-	if r.id == id {
-		r.IsLearner = isLearner
-	}
-
-	// When a node is first added, we should mark it as recently active.
-	// Otherwise, CheckQuorum may cause us to step down if it is invoked
-	// before the added node has a chance to communicate with us.
-	pr = r.getProgress(id)
-	pr.RecentActive = true
 }
 
 func (r *Raft) removeNode(id uint64) {
 	r.delProgress(id)
 
 	// do not try to commit or abort transferring if there is no nodes in the cluster.
-	if len(r.Prs) == 0 && len(r.LearnerPrs) == 0 {
+	if len(r.Prs) == 0 {
 		return
 	}
 
@@ -1302,22 +1137,13 @@ func (r *Raft) removeNode(id uint64) {
 	}
 }
 
-func (r *Raft) setProgress(id, match, next uint64, isLearner bool) {
-	if !isLearner {
-		delete(r.LearnerPrs, id)
-		r.Prs[id] = &Progress{Next: next, Match: match, ins: newInflights(r.maxInflight)}
-		return
-	}
-
-	if _, ok := r.Prs[id]; ok {
-		panic(fmt.Sprintf("%x unexpected changing from voter to learner for %x", r.id, id))
-	}
-	r.LearnerPrs[id] = &Progress{Next: next, Match: match, ins: newInflights(r.maxInflight), IsLearner: true}
+func (r *Raft) setProgress(id, match, next uint64) {
+	r.Prs[id] = &Progress{Next: next, Match: match, ins: newInflights(r.maxInflight)}
+	return
 }
 
 func (r *Raft) delProgress(id uint64) {
 	delete(r.Prs, id)
-	delete(r.LearnerPrs, id)
 }
 
 func (r *Raft) loadState(state pb.HardState) {
@@ -1338,29 +1164,6 @@ func (r *Raft) pastElectionTimeout() bool {
 
 func (r *Raft) resetRandomizedElectionTimeout() {
 	r.randomizedElectionTimeout = r.electionTimeout + globalRand.Intn(r.electionTimeout)
-}
-
-// checkQuorumActive returns true if the quorum is active from
-// the view of the local Raft state machine. Otherwise, it returns
-// false.
-// checkQuorumActive also resets all RecentActive to false.
-func (r *Raft) checkQuorumActive() bool {
-	var act int
-
-	r.forEachProgress(func(id uint64, pr *Progress) {
-		if id == r.id { // self is always active
-			act++
-			return
-		}
-
-		if pr.RecentActive && !pr.IsLearner {
-			act++
-		}
-
-		pr.RecentActive = false
-	})
-
-	return act >= r.quorum()
 }
 
 func (r *Raft) sendTimeoutNow(to uint64) {

@@ -14,6 +14,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
@@ -58,7 +59,7 @@ type GlobalContext struct {
 	store                *metapb.Store
 	storeMeta            *storeMeta
 	storeMetaLock        *sync.RWMutex
-	snapMgr              *SnapManager
+	snapMgr              *snap.SnapManager
 	router               *router
 	trans                Transport
 	pdTaskSender         chan<- worker.Task
@@ -131,8 +132,6 @@ func (d *storeMsgHandler) handleMsg(msg message.Msg) {
 		if err := d.onRaftMessage(msg.Data.(*rspb.RaftMessage)); err != nil {
 			log.Errorf("handle raft message failed storeID %d, %v", d.id, err)
 		}
-	case message.MsgTypeStoreSnapshotStats:
-		d.storeHeartbeatPD()
 	case message.MsgTypeStoreTick:
 		d.onTick(msg.Data.(StoreTick))
 	case message.MsgTypeStoreStart:
@@ -227,8 +226,8 @@ func (bs *RaftBatchSystem) loadPeers() ([]*peerFsm, error) {
 	if err != nil {
 		return nil, err
 	}
-	kvWB.MustWriteToKV(ctx.engine.Kv)
-	raftWB.MustWriteToRaft(ctx.engine.Raft)
+	kvWB.MustWriteToDB(ctx.engine.Kv)
+	raftWB.MustWriteToDB(ctx.engine.Raft)
 
 	// schedule applying snapshot after raft write batch were written.
 	for _, region := range applyingRegions {
@@ -290,14 +289,14 @@ func (bs *RaftBatchSystem) start(
 	engines *engine_util.Engines,
 	trans Transport,
 	pdClient pd.Client,
-	snapMgr *SnapManager,
+	snapMgr *snap.SnapManager,
 	pdWorker *worker.Worker) error {
 	y.Assert(bs.workers == nil)
 	// TODO: we can get cluster meta regularly too later.
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
-	err := snapMgr.init()
+	err := snapMgr.Init()
 	if err != nil {
 		return err
 	}
@@ -570,7 +569,7 @@ func (d *storeMsgHandler) handleSnapMgrGC() error {
 		return nil
 	}
 	var lastRegionID uint64
-	var keys []SnapKeyWithSending
+	var keys []snap.SnapKeyWithSending
 	for _, pair := range snapKeys {
 		key := pair.SnapKey
 		if lastRegionID == key.RegionID {
@@ -593,7 +592,7 @@ func (d *storeMsgHandler) handleSnapMgrGC() error {
 	return nil
 }
 
-func (d *storeMsgHandler) scheduleGCSnap(regionID uint64, keys []SnapKeyWithSending) error {
+func (d *storeMsgHandler) scheduleGCSnap(regionID uint64, keys []snap.SnapKeyWithSending) error {
 	gcSnap := message.Msg{Type: message.MsgTypeGcSnap, Data: &MsgGCSnap{Snaps: keys}}
 	if d.ctx.router.send(regionID, gcSnap) != nil {
 		// The snapshot exists because MsgAppend has been rejected. So the
@@ -603,17 +602,17 @@ func (d *storeMsgHandler) scheduleGCSnap(regionID uint64, keys []SnapKeyWithSend
 		for _, pair := range keys {
 			key := pair.SnapKey
 			isSending := pair.IsSending
-			var snap Snapshot
+			var snapshot snap.Snapshot
 			var err error
 			if isSending {
-				snap, err = d.ctx.snapMgr.GetSnapshotForSending(key)
+				snapshot, err = d.ctx.snapMgr.GetSnapshotForSending(key)
 			} else {
-				snap, err = d.ctx.snapMgr.GetSnapshotForApplying(key)
+				snapshot, err = d.ctx.snapMgr.GetSnapshotForApplying(key)
 			}
 			if err != nil {
 				return err
 			}
-			d.ctx.snapMgr.DeleteSnapshot(key, snap, false)
+			d.ctx.snapMgr.DeleteSnapshot(key, snapshot, false)
 		}
 	}
 	return nil

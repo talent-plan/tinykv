@@ -16,10 +16,10 @@ package statistics
 import (
 	"time"
 
-	. "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockoption"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
+	. "github.com/pingcap/check"
 )
 
 var _ = Suite(&testStoreStatisticsSuite{})

@@ -3,7 +3,6 @@ package raftstore
 import (
 	"bytes"
 	"fmt"
-	"time"
 
 	"github.com/coocood/badger"
 	"github.com/coocood/badger/y"
@@ -133,7 +132,7 @@ type applyCallback struct {
 	cbs    []*message.Callback
 }
 
-func (c *applyCallback) invokeAll(doneApplyTime time.Time) {
+func (c *applyCallback) invokeAll() {
 	for _, cb := range c.cbs {
 		if cb != nil {
 			cb.Wg.Done()
@@ -203,19 +202,14 @@ func newApplyMsg(apply *apply) message.Msg {
 
 type applyContext struct {
 	tag              string
-	timer            *time.Time
 	notifier         chan<- message.Msg
 	engines          *engine_util.Engines
-	txn              *badger.Txn
 	cbs              []applyCallback
 	applyTaskResList []*applyTaskRes
 	execCtx          *applyExecContext
 	wb               *engine_util.WriteBatch
 	lastAppliedIndex uint64
 	committedCount   int
-
-	// Whether synchronize WAL is preferred.
-	syncLogHint bool
 }
 
 func newApplyContext(tag string, engines *engine_util.Engines,
@@ -263,13 +257,12 @@ func (ac *applyContext) commitOpt(d *applier, persistent bool) {
 
 /// Writes all the changes into badger.
 func (ac *applyContext) writeToDB() {
-	if err := ac.wb.WriteToKV(ac.engines.Kv); err != nil {
+	if err := ac.wb.WriteToDB(ac.engines.Kv); err != nil {
 		panic(err)
 	}
 	ac.wb.Reset()
-	doneApply := time.Now()
 	for _, cb := range ac.cbs {
-		cb.invokeAll(doneApply)
+		cb.invokeAll()
 	}
 	ac.cbs = ac.cbs[:0]
 }
@@ -289,29 +282,8 @@ func (ac *applyContext) finishFor(d *applier, results []execResult) {
 	ac.applyTaskResList = append(ac.applyTaskResList, res)
 }
 
-func (ac *applyContext) getTxn() *badger.Txn {
-	if ac.txn == nil {
-		// TODO: check when discard this txn
-		ac.txn = ac.engines.Kv.NewTransaction(false)
-	}
-	return ac.txn
-}
-
 func (ac *applyContext) flush() {
-	t := ac.timer
-	ac.timer = nil
-	if t == nil {
-		return
-	}
-	if ac.txn != nil {
-		ac.txn.Discard()
-		ac.txn = nil
-	}
 	// Write to engine
-	// raftsotre.sync-log = true means we need prevent data loss when power failure.
-	// take raft log gc for example, we write kv WAL first, then write raft WAL,
-	// if power failure happen, raft WAL may synced to disk, but kv WAL may not.
-	// so we use sync-log flag here.
 	ac.writeToDB()
 	if len(ac.applyTaskResList) > 0 {
 		for _, res := range ac.applyTaskResList {
@@ -523,17 +495,19 @@ func (a *applier) processRaftCmd(aCtx *applyContext, index, term uint64, cmd *ra
 	if index == 0 {
 		panic(fmt.Sprintf("%s process raft cmd need a none zero index", a.tag))
 	}
-	if cmd.AdminRequest != nil {
-		aCtx.syncLogHint = true
-	}
 	isConfChange := GetChangePeerCmd(cmd) != nil
-	resp, result := a.applyRaftCmd(aCtx, index, term, cmd)
+	resp, txn, result := a.applyRaftCmd(aCtx, index, term, cmd)
 	log.Debugf("applied command. region_id %d, peer_id %d, index %d", a.region.Id, a.id, index)
 
 	// TODO: if we have exec_result, maybe we should return this callback too. Outer
 	// store will call it after handing exec result.
 	BindRespTerm(resp, term)
 	cmdCB := a.findCallback(index, term, isConfChange)
+	cmdCB.RegionSnap = message.RegionSnapshot{
+		Region: *a.region,
+		Txn:    txn,
+	}
+
 	aCtx.cbs[len(aCtx.cbs)-1].push(cmdCB, resp)
 	return result
 }
@@ -547,13 +521,13 @@ func (a *applier) processRaftCmd(aCtx *applyContext, index, term uint64, cmd *ra
 /// we should try to apply the entry again or panic. Considering that this
 /// usually due to disk operation fail, which is rare, so just panic is ok.
 func (a *applier) applyRaftCmd(aCtx *applyContext, index, term uint64,
-	req *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.RaftCmdResponse, applyResult) {
+	req *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.RaftCmdResponse, *badger.Txn, applyResult) {
 	// if pending remove, apply should be aborted already.
 	y.Assert(!a.pendingRemove)
 
 	aCtx.execCtx = a.newCtx(index, term)
 	aCtx.wb.SetSafePoint()
-	resp, applyResult, err := a.execRaftCmd(aCtx, req)
+	resp, txn, applyResult, err := a.execRaftCmd(aCtx, req)
 	if err != nil {
 		// clear dirty values.
 		aCtx.wb.RollbackToSafePoint()
@@ -561,6 +535,10 @@ func (a *applier) applyRaftCmd(aCtx *applyContext, index, term uint64,
 			log.Debugf("epoch not match region_id %d, peer_id %d, err %v", a.region.Id, a.id, err)
 		} else {
 			log.Errorf("execute raft command region_id %d, peer_id %d, err %v", a.region.Id, a.id, err)
+		}
+		if txn != nil {
+			txn.Discard()
+			txn = nil
 		}
 		resp = ErrResp(err)
 	}
@@ -578,7 +556,7 @@ func (a *applier) applyRaftCmd(aCtx *applyContext, index, term uint64,
 		default:
 		}
 	}
-	return resp, applyResult
+	return resp, txn, applyResult
 }
 
 func (a *applier) clearAllCommandsAsStale() {
@@ -601,7 +579,7 @@ func (a *applier) newCtx(index, term uint64) *applyExecContext {
 
 // Only errors that will also occur on all other stores should be returned.
 func (a *applier) execRaftCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdRequest) (
-	resp *raft_cmdpb.RaftCmdResponse, result applyResult, err error) {
+	resp *raft_cmdpb.RaftCmdResponse, txn *badger.Txn, result applyResult, err error) {
 	// Include region for epoch not match after merge may cause key not in range.
 	err = checkRegionEpoch(req, a.region, false)
 	if err != nil {
@@ -610,11 +588,11 @@ func (a *applier) execRaftCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdRequest
 	if req.AdminRequest != nil {
 		return a.execAdminCmd(aCtx, req)
 	}
-	return a.execWriteCmd(aCtx, req)
+	return a.execNormalCmd(aCtx, req)
 }
 
 func (a *applier) execAdminCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdRequest) (
-	resp *raft_cmdpb.RaftCmdResponse, result applyResult, err error) {
+	resp *raft_cmdpb.RaftCmdResponse, txn *badger.Txn, result applyResult, err error) {
 	adminReq := req.AdminRequest
 	cmdType := adminReq.CmdType
 	if cmdType != raft_cmdpb.AdminCmdType_CompactLog {
@@ -643,35 +621,41 @@ func (a *applier) execAdminCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdReques
 	return
 }
 
-func (a *applier) execWriteCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdRequest) (
-	resp *raft_cmdpb.RaftCmdResponse, result applyResult, err error) {
+func (a *applier) execNormalCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdRequest) (
+	resp *raft_cmdpb.RaftCmdResponse, txn *badger.Txn, result applyResult, err error) {
 	requests := req.GetRequests()
+	resps := make([]*raft_cmdpb.Response, 0, len(requests))
+	hasWrite, hasRead := false, false
 	for _, req := range requests {
 		switch req.CmdType {
 		case raft_cmdpb.CmdType_Put:
-			a.handlePut(aCtx, req.GetPut())
+			resps = append(resps, a.handlePut(aCtx, req.GetPut()))
+			hasWrite = true
 		case raft_cmdpb.CmdType_Delete:
-			a.handleDelete(aCtx, req.GetDelete())
-		case raft_cmdpb.CmdType_Get, raft_cmdpb.CmdType_Snap:
-			// TODO: implement get through raft
-			log.Fatal("unimplemented")
+			resps = append(resps, a.handleDelete(aCtx, req.GetDelete()))
+			hasWrite = true
+		case raft_cmdpb.CmdType_Get:
+			var r *raft_cmdpb.Response
+			r, err = a.handleGet(aCtx, req.GetGet())
+			resps = append(resps, r)
+			hasRead = true
+		case raft_cmdpb.CmdType_Snap:
+			resps = append(resps, new(raft_cmdpb.Response))
+			txn = aCtx.engines.Kv.NewTransaction(false)
+			hasRead = true
 		default:
 			log.Fatalf("invalid cmd type=%v", req.CmdType)
 		}
 	}
-	resps := make([]raft_cmdpb.Response, len(requests))
-	respPtrs := make([]*raft_cmdpb.Response, len(requests))
-	for i := 0; i < len(resps); i++ {
-		resp := &resps[i]
-		resp.CmdType = requests[i].CmdType
-		respPtrs[i] = resp
+	if hasWrite && hasRead {
+		panic("mixed write and read in one batch")
 	}
 	resp = newCmdRespForReq(req)
-	resp.Responses = respPtrs
+	resp.Responses = resps
 	return
 }
 
-func (a *applier) handlePut(aCtx *applyContext, req *raft_cmdpb.PutRequest) {
+func (a *applier) handlePut(aCtx *applyContext, req *raft_cmdpb.PutRequest) *raft_cmdpb.Response {
 	key, value := req.GetKey(), req.GetValue()
 
 	if cf := req.GetCf(); len(cf) != 0 {
@@ -679,9 +663,12 @@ func (a *applier) handlePut(aCtx *applyContext, req *raft_cmdpb.PutRequest) {
 	} else {
 		aCtx.wb.SetCF(engine_util.CF_DEFAULT, key, value)
 	}
+	return &raft_cmdpb.Response{
+		CmdType: raft_cmdpb.CmdType_Put,
+	}
 }
 
-func (a *applier) handleDelete(aCtx *applyContext, req *raft_cmdpb.DeleteRequest) {
+func (a *applier) handleDelete(aCtx *applyContext, req *raft_cmdpb.DeleteRequest) *raft_cmdpb.Response {
 	key := req.GetKey()
 
 	if cf := req.GetCf(); len(cf) != 0 {
@@ -689,6 +676,24 @@ func (a *applier) handleDelete(aCtx *applyContext, req *raft_cmdpb.DeleteRequest
 	} else {
 		aCtx.wb.DeleteCF(engine_util.CF_DEFAULT, key)
 	}
+	return &raft_cmdpb.Response{
+		CmdType: raft_cmdpb.CmdType_Delete,
+	}
+}
+
+func (a *applier) handleGet(aCtx *applyContext, req *raft_cmdpb.GetRequest) (*raft_cmdpb.Response, error) {
+	key := req.GetKey()
+	var val []byte
+	var err error
+	if cf := req.GetCf(); len(cf) != 0 {
+		val, err = engine_util.GetCF(aCtx.engines.Kv, cf, key)
+	} else {
+		val, err = engine_util.GetCF(aCtx.engines.Kv, engine_util.CF_DEFAULT, key)
+	}
+	return &raft_cmdpb.Response{
+		CmdType: raft_cmdpb.CmdType_Get,
+		Get:     &raft_cmdpb.GetResponse{Value: val},
+	}, err
 }
 
 func (a *applier) execChangePeer(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
@@ -885,10 +890,6 @@ func (a *applier) handleRegistration(reg *registration) {
 
 /// Handles apply tasks, and uses the applier to handle the committed entries.
 func (a *applier) handleApply(aCtx *applyContext, apply *apply) {
-	if aCtx.timer == nil {
-		now := time.Now()
-		aCtx.timer = &now
-	}
 	if len(apply.entries) == 0 || a.pendingRemove || a.stopped {
 		return
 	}

@@ -59,11 +59,6 @@ type Progress struct {
 	// is reported to be failed.
 	PendingSnapshot uint64
 
-	// RecentActive is true if the progress is recently active. Receiving any messages
-	// from the corresponding follower indicates the progress is active.
-	// RecentActive can be reset to false after an election timeout.
-	RecentActive bool
-
 	// inflights is a sliding window for the inflight messages.
 	// Each inflight message contains one or more log entries.
 	// The max number of entries per message is defined in raft config as MaxSizePerMsg.
@@ -77,9 +72,6 @@ type Progress struct {
 	// be freed by calling inflights.freeTo with the index of the last
 	// received entry.
 	ins *inflights
-
-	// IsLearner is true if this progress is tracked for a learner.
-	IsLearner bool
 }
 
 func (pr *Progress) resetState(state ProgressStateType) {

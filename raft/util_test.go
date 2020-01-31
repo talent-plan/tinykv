@@ -61,7 +61,6 @@ func TestIsLocalMsg(t *testing.T) {
 		{pb.MessageType_MsgBeat, true},
 		{pb.MessageType_MsgUnreachable, true},
 		{pb.MessageType_MsgSnapStatus, true},
-		{pb.MessageType_MsgCheckQuorum, true},
 		{pb.MessageType_MsgTransferLeader, false},
 		{pb.MessageType_MsgPropose, false},
 		{pb.MessageType_MsgAppend, false},

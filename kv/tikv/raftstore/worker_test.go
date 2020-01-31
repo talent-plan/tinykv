@@ -1,6 +1,7 @@
 package raftstore
 
 import (
+	"io"
 	"io/ioutil"
 	"os"
 	"sync"
@@ -9,18 +10,34 @@ import (
 
 	"github.com/coocood/badger"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
+	"github.com/pingcap/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// copySnapshot is a helper function to copy snapshot.
+// Only used in tests.
+func copySnapshot(to, from snap.Snapshot) error {
+	if !to.Exists() {
+		_, err := io.Copy(to, from)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+		return to.Save()
+	}
+	return nil
+}
 
 func newEnginesWithKVDb(t *testing.T, kv *badger.DB) *engine_util.Engines {
 	engines := new(engine_util.Engines)
 	engines.Kv = kv
 	var err error
-	engines.RaftPath, err = ioutil.TempDir("", "unistore_raft")
+	engines.RaftPath, err = ioutil.TempDir("", "tinykv_raft")
 	require.Nil(t, err)
 	raftOpts := badger.DefaultOptions
 	raftOpts.Dir = engines.RaftPath
@@ -29,6 +46,61 @@ func newEnginesWithKVDb(t *testing.T, kv *badger.DB) *engine_util.Engines {
 	engines.Raft, err = badger.Open(raftOpts)
 	require.Nil(t, err)
 	return engines
+}
+
+func getTestDBForRegions(t *testing.T, path string, regions []uint64) *badger.DB {
+	db := openDB(t, path)
+	fillDBData(t, db)
+	for _, regionID := range regions {
+		// Put apply state into kv engine.
+		applyState := applyState{
+			appliedIndex:   10,
+			truncatedIndex: 10,
+		}
+		require.Nil(t, putValue(db, ApplyStateKey(regionID), applyState.Marshal()))
+
+		// Put region info into kv engine.
+		region := genTestRegion(regionID, 1, 1)
+		regionState := new(rspb.RegionLocalState)
+		regionState.Region = region
+		require.Nil(t, putMsg(db, RegionStateKey(regionID), regionState))
+	}
+	return db
+}
+
+func genTestRegion(regionID, storeID, peerID uint64) *metapb.Region {
+	return &metapb.Region{
+		Id:       regionID,
+		StartKey: []byte(""),
+		EndKey:   []byte(""),
+		RegionEpoch: &metapb.RegionEpoch{
+			Version: 1,
+			ConfVer: 1,
+		},
+		Peers: []*metapb.Peer{
+			{StoreId: storeID, Id: peerID},
+		},
+	}
+}
+
+func openDB(t *testing.T, dir string) *badger.DB {
+	opts := badger.DefaultOptions
+	opts.Dir = dir
+	opts.ValueDir = dir
+	db, err := badger.Open(opts)
+	require.Nil(t, err)
+	return db
+}
+
+func fillDBData(t *testing.T, db *badger.DB) {
+	// write some data for multiple cfs.
+	wb := new(engine_util.WriteBatch)
+	value := make([]byte, 32)
+	wb.SetCF(engine_util.CF_DEFAULT, []byte("key"), value)
+	wb.SetCF(engine_util.CF_WRITE, []byte("key"), value)
+	wb.SetCF(engine_util.CF_LOCK, []byte("key"), value)
+	err := wb.WriteToDB(db)
+	require.Nil(t, err)
 }
 
 func TestApplies(t *testing.T) {
@@ -50,10 +122,10 @@ func TestApplies(t *testing.T) {
 	engines.KvPath = kvPath
 	defer cleanUpTestEngineData(engines)
 
-	snapPath, err := ioutil.TempDir("", "unistore_snap")
+	snapPath, err := ioutil.TempDir("", "tinykv_snap")
 	defer os.RemoveAll(snapPath)
 	require.Nil(t, err)
-	mgr := NewSnapManager(snapPath, nil)
+	mgr := snap.NewSnapManager(snapPath)
 	wg := new(sync.WaitGroup)
 	regionWorker := worker.NewWorker("snap-manager", wg)
 	regionRunner := newRegionTaskHandler(engines, mgr)
@@ -70,8 +142,8 @@ func TestApplies(t *testing.T) {
 		regionWorker.Sender() <- *tsk
 		s1 := <-tx
 		data := s1.Data
-		key := SnapKeyFromRegionSnap(regionId, s1)
-		mgr := NewSnapManager(snapPath, nil)
+		key := snap.SnapKeyFromRegionSnap(regionId, s1)
+		mgr := snap.NewSnapManager(snapPath)
 		s2, err := mgr.GetSnapshotForSending(key)
 		require.Nil(t, err)
 		s3, err := mgr.GetSnapshotForReceiving(key, data)
@@ -84,10 +156,10 @@ func TestApplies(t *testing.T) {
 		require.Nil(t, err)
 		regionLocalState.State = rspb.PeerState_Applying
 		require.Nil(t, wb.SetMsg(RegionStateKey(regionId), regionLocalState))
-		require.Nil(t, wb.WriteToKV(engines.Kv))
+		require.Nil(t, wb.WriteToDB(engines.Kv))
 
 		// apply snapshot
-		var status = JobStatus_Pending
+		var status = snap.JobStatus_Pending
 		tsk2 := &worker.Task{
 			Tp: worker.TaskTypeRegionApply,
 			Data: &regionTask{
@@ -133,7 +205,7 @@ func TestGcRaftLog(t *testing.T) {
 		k := RaftLogKey(regionId, i)
 		raftWb.Set(k, []byte("entry"))
 	}
-	raftWb.WriteToRaft(raftDb)
+	raftWb.WriteToDB(raftDb)
 
 	type tempHolder struct {
 		raftLogGcTask     worker.Task

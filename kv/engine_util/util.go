@@ -18,6 +18,15 @@ func GetCF(db *badger.DB, cf string, key []byte) (val []byte, err error) {
 	return
 }
 
+func GetCFFromTxn(txn *badger.Txn, cf string, key []byte) ([]byte, error) {
+	item, err := txn.Get(append([]byte(cf+"_"), key...))
+	if err != nil {
+		return nil, err
+	}
+	val, err := item.Value()
+	return val, err
+}
+
 func DeleteRange(db *badger.DB, startKey, endKey []byte) error {
 	batch := new(WriteBatch)
 	txn := db.NewTransaction(false)
@@ -26,19 +35,15 @@ func DeleteRange(db *badger.DB, startKey, endKey []byte) error {
 		deleteRangeCF(txn, batch, cf, startKey, endKey)
 	}
 
-	return batch.WriteToKV(db)
+	return batch.WriteToDB(db)
 }
 
 func deleteRangeCF(txn *badger.Txn, batch *WriteBatch, cf string, startKey, endKey []byte) {
-	if len(endKey) == 0 {
-		panic("invalid end key")
-	}
-
 	it := NewCFIterator(cf, txn)
 	for it.Seek(startKey); it.Valid(); it.Next() {
 		item := it.Item()
 		key := item.KeyCopy(nil)
-		if exceedEndKey(key, endKey) {
+		if ExceedEndKey(key, endKey) {
 			break
 		}
 		batch.DeleteCF(cf, key)
@@ -46,6 +51,6 @@ func deleteRangeCF(txn *badger.Txn, batch *WriteBatch, cf string, startKey, endK
 	defer it.Close()
 }
 
-func exceedEndKey(current, endKey []byte) bool {
+func ExceedEndKey(current, endKey []byte) bool {
 	return bytes.Compare(current, endKey) >= 0
 }
