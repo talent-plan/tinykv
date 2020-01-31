@@ -48,11 +48,10 @@ enum MessageType {
     MsgHeartbeatResponse = 9;
     MsgUnreachable = 10;
     MsgSnapStatus = 11;
-    MsgCheckQuorum = 12;
-    MsgTransferLeader = 13;
-    MsgTimeoutNow = 14;
-    MsgReadIndex = 15;
-    MsgReadIndexResp = 16;
+    MsgTransferLeader = 12;
+    MsgTimeoutNow = 13;
+    MsgReadIndex = 14;
+    MsgReadIndexResp = 15;
 }
 
 message Message {

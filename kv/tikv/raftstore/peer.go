@@ -141,7 +141,6 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 		MaxSizePerMsg:   cfg.RaftMaxSizePerMsg,
 		MaxInflightMsgs: cfg.RaftMaxInflightMsgs,
 		Applied:         appliedIndex,
-		CheckQuorum:     true,
 		Storage:         ps,
 	}
 
