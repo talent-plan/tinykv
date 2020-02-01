@@ -60,12 +60,6 @@ type Ready struct {
 	// HardState will be equal to empty state if there is no update.
 	pb.HardState
 
-	// ReadStates can be used for node to serve linearizable read requests locally
-	// when its applied index is greater than the index in ReadState.
-	// Note that the readState will be returned when raft receives MessageType_MsgReadIndex.
-	// The returned is only valid for the request that requested to read.
-	ReadStates []ReadState
-
 	// Entries specifies entries to be saved to stable storage BEFORE
 	// Messages are sent.
 	Entries []pb.Entry
@@ -109,7 +103,7 @@ func IsEmptySnap(sp *pb.Snapshot) bool {
 func (rd Ready) containsUpdates() bool {
 	return rd.SoftState != nil || !IsEmptyHardState(rd.HardState) ||
 		!IsEmptySnap(&rd.Snapshot) || len(rd.Entries) > 0 ||
-		len(rd.CommittedEntries) > 0 || len(rd.Messages) > 0 || len(rd.ReadStates) != 0
+		len(rd.CommittedEntries) > 0 || len(rd.Messages) > 0
 }
 
 // appliedCursor extracts from the Ready the highest index the client has
@@ -167,12 +161,6 @@ type Node interface {
 
 	// TransferLeadership attempts to transfer leadership to the given transferee.
 	TransferLeadership(ctx context.Context, lead, transferee uint64)
-
-	// ReadIndex request a read state. The read state will be set in the ready.
-	// Read state has a read index. Once the application advances further than the read
-	// index, any linearizable read requests issued before the read request can be
-	// processed safely. The read state will have the same rctx attached.
-	ReadIndex(ctx context.Context, rctx []byte) error
 
 	// Status returns the current status of the raft state machine.
 	Status() Status
@@ -408,7 +396,6 @@ func (n *node) run(r *Raft) {
 			}
 
 			r.msgs = nil
-			r.readStates = nil
 			r.reduceUncommittedSize(rd.CommittedEntries)
 			advancec = n.advancec
 		case <-advancec:
@@ -575,11 +562,6 @@ func (n *node) TransferLeadership(ctx context.Context, lead, transferee uint64) 
 	}
 }
 
-func (n *node) ReadIndex(ctx context.Context, rctx []byte) error {
-	entry := pb.Entry{Data: rctx}
-	return n.step(ctx, pb.Message{MsgType: pb.MessageType_MsgReadIndex, Entries: []*pb.Entry{&entry}})
-}
-
 func newReady(r *Raft, prevSoftSt *SoftState, prevHardSt pb.HardState, sinceIdx *uint64) Ready {
 	rd := Ready{
 		Entries: r.RaftLog.unstableEntries(),
@@ -601,9 +583,6 @@ func newReady(r *Raft, prevSoftSt *SoftState, prevHardSt pb.HardState, sinceIdx 
 	}
 	if r.RaftLog.unstable.snapshot != nil {
 		rd.Snapshot = *r.RaftLog.unstable.snapshot
-	}
-	if len(r.readStates) != 0 {
-		rd.ReadStates = r.readStates
 	}
 	rd.MustSync = MustSync(r.hardState(), prevHardSt, len(rd.Entries))
 	return rd
