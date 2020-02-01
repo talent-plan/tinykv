@@ -10,7 +10,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/shirou/gopsutil/disk"
 )
 
@@ -36,19 +35,14 @@ func (r *pdTaskHandler) Handle(t worker.Task) {
 		r.onHeartbeat(t.Data.(*pdRegionHeartbeatTask))
 	case worker.TaskTypePDStoreHeartbeat:
 		r.onStoreHeartbeat(t.Data.(*pdStoreHeartbeatTask))
-	case worker.TaskTypePDReportBatchSplit:
-		r.onReportBatchSplit(t.Data.(*pdReportBatchSplitTask))
-	case worker.TaskTypePDDestroyPeer:
-		r.onDestroyPeer(t.Data.(*pdDestroyPeerTask))
 	default:
 		log.Error("unsupported worker.Task type:", t.Tp)
 	}
 }
 
 func (r *pdTaskHandler) start() {
-	r.pdClient.SetRegionHeartbeatResponseHandler(r.onRegionHeartbeatResponse)
+	r.pdClient.SetRegionHeartbeatResponseHandler(r.storeID, r.onRegionHeartbeatResponse)
 }
-
 func (r *pdTaskHandler) onRegionHeartbeatResponse(resp *pdpb.RegionHeartbeatResponse) {
 	if changePeer := resp.GetChangePeer(); changePeer != nil {
 		r.sendAdminRequest(resp.RegionId, resp.RegionEpoch, resp.TargetPeer, &raft_cmdpb.AdminRequest{
@@ -92,7 +86,7 @@ func (r *pdTaskHandler) onAskBatchSplit(t *pdAskBatchSplitTask) {
 }
 
 func (r *pdTaskHandler) onHeartbeat(t *pdRegionHeartbeatTask) {
-	var size, keys int64
+	var size int64
 	if t.approximateSize != nil {
 		size = int64(*t.approximateSize)
 	}
@@ -103,9 +97,8 @@ func (r *pdTaskHandler) onHeartbeat(t *pdRegionHeartbeatTask) {
 		DownPeers:       t.downPeers,
 		PendingPeers:    t.pendingPeers,
 		ApproximateSize: uint64(size),
-		ApproximateKeys: uint64(keys),
 	}
-	r.pdClient.ReportRegion(req)
+	r.pdClient.RegionHeartbeat(req)
 }
 
 func (r *pdTaskHandler) onStoreHeartbeat(t *pdStoreHeartbeatTask) {
@@ -133,14 +126,6 @@ func (r *pdTaskHandler) onStoreHeartbeat(t *pdStoreHeartbeatTask) {
 	r.pdClient.StoreHeartbeat(context.TODO(), t.stats)
 }
 
-func (r *pdTaskHandler) onReportBatchSplit(t *pdReportBatchSplitTask) {
-	r.pdClient.ReportBatchSplit(context.TODO(), t.regions)
-}
-
-func (r *pdTaskHandler) onDestroyPeer(t *pdDestroyPeerTask) {
-	// TODO: delete it
-}
-
 func (r *pdTaskHandler) sendAdminRequest(regionID uint64, epoch *metapb.RegionEpoch, peer *metapb.Peer, req *raft_cmdpb.AdminRequest, callback *message.Callback) {
 	cmd := &raft_cmdpb.RaftCmdRequest{
 		Header: &raft_cmdpb.RaftRequestHeader{
@@ -151,18 +136,4 @@ func (r *pdTaskHandler) sendAdminRequest(regionID uint64, epoch *metapb.RegionEp
 		AdminRequest: req,
 	}
 	r.router.SendRaftCommand(cmd, callback)
-}
-
-func (r *pdTaskHandler) sendDestroyPeer(local *metapb.Region, peer *metapb.Peer, pdRegion *metapb.Region) {
-	r.router.Send(local.GetId(), message.Msg{
-		Type:     message.MsgTypeRaftMessage,
-		RegionID: local.GetId(),
-		Data: &raft_serverpb.RaftMessage{
-			RegionId:    local.GetId(),
-			FromPeer:    peer,
-			ToPeer:      peer,
-			RegionEpoch: pdRegion.GetRegionEpoch(),
-			IsTombstone: true,
-		},
-	})
 }

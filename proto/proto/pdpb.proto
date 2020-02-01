@@ -43,19 +43,7 @@ service PD {
 
     rpc ScanRegions(ScanRegionsRequest) returns (ScanRegionsResponse) {}
 
-    rpc AskSplit(AskSplitRequest) returns (AskSplitResponse) {
-        // Use AskBatchSplit instead.
-        option deprecated = true;
-    }
-
-    rpc ReportSplit(ReportSplitRequest) returns (ReportSplitResponse) {
-        // Use ResportBatchSplit instead.
-        option deprecated = true;
-    }
-
     rpc AskBatchSplit(AskBatchSplitRequest) returns (AskBatchSplitResponse) {}
-
-    rpc ReportBatchSplit(ReportBatchSplitRequest) returns (ReportBatchSplitResponse) {}
 
     rpc GetClusterConfig(GetClusterConfigRequest) returns (GetClusterConfigResponse) {}
 

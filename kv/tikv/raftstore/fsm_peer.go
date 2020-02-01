@@ -589,12 +589,6 @@ func (d *peerMsgHandler) destroyPeer(mergeByTarget bool) {
 		d.ctx.storeMetaLock.Unlock()
 		// send messages out of store meta lock.
 		d.ctx.applyMsgs.appendMsg(regionID, message.NewPeerMsg(message.MsgTypeApplyDestroy, regionID, nil))
-		d.ctx.pdTaskSender <- worker.Task{
-			Tp: worker.TaskTypePDDestroyPeer,
-			Data: &pdDestroyPeerTask{
-				regionID: regionID,
-			},
-		}
 	}()
 	meta := d.ctx.storeMeta
 	isInitialized := d.peer.isInitialized()
@@ -698,12 +692,6 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 		d.peer.HeartbeatPd(d.ctx.pdTaskSender)
 		// Notify pd immediately to let it update the region meta.
 		log.Infof("%s notify pd with split count %d", d.tag(), len(regions))
-		// Now pd only uses ReportBatchSplit for history operation show,
-		// so we send it independently here.
-		d.ctx.pdTaskSender <- worker.Task{
-			Tp:   worker.TaskTypePDReportBatchSplit,
-			Data: &pdReportBatchSplitTask{regions: regions},
-		}
 	}
 
 	lastRegion := regions[len(regions)-1]
