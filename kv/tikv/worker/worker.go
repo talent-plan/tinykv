@@ -9,11 +9,9 @@ const (
 	TaskTypeRaftLogGC  TaskType = 1
 	TaskTypeSplitCheck TaskType = 2
 
-	TaskTypePDAskBatchSplit    TaskType = 102
-	TaskTypePDHeartbeat        TaskType = 103
-	TaskTypePDStoreHeartbeat   TaskType = 104
-	TaskTypePDReportBatchSplit TaskType = 105
-	TaskTypePDDestroyPeer      TaskType = 108
+	TaskTypePDAskBatchSplit  TaskType = 102
+	TaskTypePDHeartbeat      TaskType = 103
+	TaskTypePDStoreHeartbeat TaskType = 104
 
 	TaskTypeRegionGen   TaskType = 401
 	TaskTypeRegionApply TaskType = 402

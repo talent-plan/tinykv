@@ -12,6 +12,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
@@ -33,7 +34,26 @@ type RaftInnerServer struct {
 	snapWorker    *worker.Worker
 }
 
-func (ris *RaftInnerServer) Write(ctx kvrpcpb.Context, batch []Modify) error {
+type RegionError struct {
+	RequestErr *errorpb.Error
+}
+
+func (re *RegionError) Error() string {
+	return re.RequestErr.String()
+}
+
+func (ris *RaftInnerServer) checkResponse(resp *raft_cmdpb.RaftCmdResponse, reqCount int) error {
+	if resp.Header.Error != nil {
+		return &RegionError{RequestErr: resp.Header.Error}
+	}
+	if len(resp.Responses) != reqCount {
+		return errors.Errorf("responses count %d is not equal to requests count %d",
+			len(resp.Responses), reqCount)
+	}
+	return nil
+}
+
+func (ris *RaftInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
 	var reqs []*raft_cmdpb.Request
 	for _, m := range batch {
 		switch m.Type {
@@ -75,18 +95,7 @@ func (ris *RaftInnerServer) Write(ctx kvrpcpb.Context, batch []Modify) error {
 	return ris.checkResponse(cb.Resp, len(reqs))
 }
 
-func (ris *RaftInnerServer) checkResponse(resp *raft_cmdpb.RaftCmdResponse, reqCount int) error {
-	if resp.Header.Error != nil {
-		return errors.Errorf(resp.Header.Error.String())
-	}
-	if len(resp.Responses) != reqCount {
-		return errors.Errorf("responses count %d is not equal to requests count %d",
-			len(resp.Responses), reqCount)
-	}
-	return nil
-}
-
-func (ris *RaftInnerServer) Reader(ctx kvrpcpb.Context) (dbreader.DBReader, error) {
+func (ris *RaftInnerServer) Reader(ctx *kvrpcpb.Context) (dbreader.DBReader, error) {
 	header := &raft_cmdpb.RaftRequestHeader{
 		RegionId:    ctx.RegionId,
 		Peer:        ctx.Peer,
@@ -95,7 +104,7 @@ func (ris *RaftInnerServer) Reader(ctx kvrpcpb.Context) (dbreader.DBReader, erro
 	}
 	request := &raft_cmdpb.RaftCmdRequest{
 		Header: header,
-		Requests: []*raft_cmdpb.Request{&raft_cmdpb.Request{
+		Requests: []*raft_cmdpb.Request{{
 			CmdType: raft_cmdpb.CmdType_Snap,
 			Snap:    &raft_cmdpb.SnapRequest{},
 		}},
@@ -105,7 +114,12 @@ func (ris *RaftInnerServer) Reader(ctx kvrpcpb.Context) (dbreader.DBReader, erro
 		return nil, err
 	}
 	cb.Wg.Wait()
-
+	if err := ris.checkResponse(cb.Resp, 1); err != nil {
+		if cb.RegionSnap.Txn != nil {
+			cb.RegionSnap.Txn.Discard()
+		}
+		return nil, err
+	}
 	return dbreader.NewRegionReader(cb.RegionSnap.Txn, cb.RegionSnap.Region), nil
 }
 
@@ -116,18 +130,6 @@ func (ris *RaftInnerServer) Raft(stream tikvpb.Tikv_RaftServer) error {
 			return err
 		}
 		ris.raftRouter.SendRaftMessage(msg)
-	}
-}
-
-func (ris *RaftInnerServer) BatchRaft(stream tikvpb.Tikv_BatchRaftServer) error {
-	for {
-		msgs, err := stream.Recv()
-		if err != nil {
-			return err
-		}
-		for _, msg := range msgs.GetMsgs() {
-			ris.raftRouter.SendRaftMessage(msg)
-		}
 	}
 }
 

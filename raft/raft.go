@@ -15,7 +15,6 @@
 package raft
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"math"
@@ -38,20 +37,6 @@ const (
 	StateCandidate
 	StateLeader
 	numStates
-)
-
-type ReadOnlyOption int
-
-const (
-	// ReadOnlySafe guarantees the linearizability of the read only request by
-	// communicating with the quorum. It is the default and suggested option.
-	ReadOnlySafe ReadOnlyOption = iota
-	// ReadOnlyLeaseBased ensures linearizability of the read only request by
-	// relying on the leader lease. It can be affected by clock drift.
-	// If the clock drift is unbounded, leader might keep the lease longer than it
-	// should (clock can move backward/pause without any bound). ReadIndex is not safe
-	// in that case.
-	ReadOnlyLeaseBased
 )
 
 // Possible values for CampaignType
@@ -158,24 +143,7 @@ type Config struct {
 	// limit the proposal rate?
 	MaxInflightMsgs int
 
-	// CheckQuorum specifies if the leader should check quorum activity. Leader
-	// steps down when quorum is not active for an electionTimeout.
-	CheckQuorum bool
-
 	skipBcastCommit bool
-
-	// ReadOnlyOption specifies how the read only request is processed.
-	//
-	// ReadOnlySafe guarantees the linearizability of the read only request by
-	// communicating with the quorum. It is the default and suggested option.
-	//
-	// ReadOnlyLeaseBased ensures linearizability of the read only request by
-	// relying on the leader lease. It can be affected by clock drift.
-	// If the clock drift is unbounded, leader might keep the lease longer than it
-	// should (clock can move backward/pause without any bound). ReadIndex is not safe
-	// in that case.
-	// CheckQuorum MUST be enabled if ReadOnlyOption is ReadOnlyLeaseBased.
-	ReadOnlyOption ReadOnlyOption
 
 	// Logger is the logger used for raft log. For multinode which can host
 	// multiple raft group, each raft group can have its own logger
@@ -227,10 +195,6 @@ func (c *Config) validate() error {
 		c.Logger = raftLogger
 	}
 
-	if c.ReadOnlyOption == ReadOnlyLeaseBased && !c.CheckQuorum {
-		return errors.New("CheckQuorum must be enabled when ReadOnlyOption is ReadOnlyLeaseBased")
-	}
-
 	return nil
 }
 
@@ -239,8 +203,6 @@ type Raft struct {
 
 	Term uint64
 	Vote uint64
-
-	readStates []ReadState
 
 	// the log
 	RaftLog *RaftLog
@@ -288,8 +250,6 @@ type Raft struct {
 	// term changes.
 	uncommittedSize uint64
 
-	readOnly *readOnly
-
 	// number of ticks since it reached last electionTimeout when it is leader
 	// or candidate.
 	// number of ticks since it reached last electionTimeout or received a
@@ -299,8 +259,6 @@ type Raft struct {
 	// number of ticks since it reached last heartbeatTimeout.
 	// only leader keeps heartbeatElapsed.
 	heartbeatElapsed int
-
-	checkQuorum bool
 
 	skipBcastCommit bool
 
@@ -348,9 +306,7 @@ func newRaft(c *Config) *Raft {
 		electionTimeout:           c.ElectionTick,
 		heartbeatTimeout:          c.HeartbeatTick,
 		logger:                    c.Logger,
-		checkQuorum:               c.CheckQuorum,
 		skipBcastCommit:           c.skipBcastCommit,
-		readOnly:                  newReadOnly(c.ReadOnlyOption),
 		disableProposalForwarding: c.DisableProposalForwarding,
 	}
 	for _, p := range peers {
@@ -375,24 +331,12 @@ func newRaft(c *Config) *Raft {
 	return r
 }
 
-func (r *Raft) PendingReadCount() int {
-	return len(r.readOnly.pendingReadIndex)
-}
-
-func (r *Raft) ReadyReadCount() int {
-	return len(r.readStates)
-}
-
 func (r *Raft) GetSnap() *pb.Snapshot {
 	return r.RaftLog.unstable.snapshot
 }
 
 func (r *Raft) SkipBcastCommit(skip bool) {
 	r.skipBcastCommit = skip
-}
-
-func (r *Raft) InLease() bool {
-	return r.State == StateLeader && r.checkQuorum
 }
 
 func (r *Raft) hasLeader() bool { return r.Lead != None }
@@ -436,11 +380,10 @@ func (r *Raft) send(m pb.Message) {
 		if m.Term != 0 {
 			panic(fmt.Sprintf("term should not be set when sending %s (was %d)", m.MsgType, m.Term))
 		}
-		// do not attach term to MessageType_MsgPropose, MessageType_MsgReadIndex
+		// do not attach term to MessageType_MsgPropose
 		// proposals are a way to forward to the leader and
 		// should be treated as local message.
-		// MessageType_MsgReadIndex is also forwarded to leader.
-		if m.MsgType != pb.MessageType_MsgPropose && m.MsgType != pb.MessageType_MsgReadIndex {
+		if m.MsgType != pb.MessageType_MsgPropose {
 			m.Term = r.Term
 		}
 	}
@@ -477,11 +420,6 @@ func (r *Raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 	}
 
 	if errt != nil || erre != nil { // send snapshot if we failed to get term or entries
-		if !pr.RecentActive {
-			r.logger.Debugf("ignore sending snapshot to %x since it is not recently active", to)
-			return false
-		}
-
 		m.MsgType = pb.MessageType_MsgSnapshot
 		snapshot, err := r.RaftLog.snapshot()
 		if err != nil {
@@ -530,7 +468,7 @@ func (r *Raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 }
 
 // sendHeartbeat sends a heartbeat RPC to the given peer.
-func (r *Raft) sendHeartbeat(to uint64, ctx []byte) {
+func (r *Raft) sendHeartbeat(to uint64) {
 	// Attach the commit as min(to.matched, r.committed).
 	// When the leader sends out heartbeat message,
 	// the receiver(follower) might not be matched with the leader
@@ -542,7 +480,6 @@ func (r *Raft) sendHeartbeat(to uint64, ctx []byte) {
 		To:      to,
 		MsgType: pb.MessageType_MsgHeartbeat,
 		Commit:  commit,
-		Context: ctx,
 	}
 
 	r.send(m)
@@ -568,20 +505,11 @@ func (r *Raft) bcastAppend() {
 
 // bcastHeartbeat sends RPC, without entries to all the peers.
 func (r *Raft) bcastHeartbeat() {
-	lastCtx := r.readOnly.lastPendingRequestCtx()
-	if len(lastCtx) == 0 {
-		r.bcastHeartbeatWithCtx(nil)
-	} else {
-		r.bcastHeartbeatWithCtx([]byte(lastCtx))
-	}
-}
-
-func (r *Raft) bcastHeartbeatWithCtx(ctx []byte) {
 	r.forEachProgress(func(id uint64, _ *Progress) {
 		if id == r.id {
 			return
 		}
-		r.sendHeartbeat(id, ctx)
+		r.sendHeartbeat(id)
 	})
 }
 
@@ -628,7 +556,6 @@ func (r *Raft) reset(term uint64) {
 
 	r.PendingConfIndex = 0
 	r.uncommittedSize = 0
-	r.readOnly = newReadOnly(r.readOnly.option)
 }
 
 func (r *Raft) appendEntry(es ...pb.Entry) (accepted bool) {
@@ -671,9 +598,6 @@ func (r *Raft) tickHeartbeat() {
 
 	if r.electionElapsed >= r.electionTimeout {
 		r.electionElapsed = 0
-		if r.checkQuorum {
-			r.Step(pb.Message{From: r.id, MsgType: pb.MessageType_MsgCheckQuorum})
-		}
 		// If current leader cannot transfer leadership in electionTimeout, it becomes leader again.
 		if r.State == StateLeader && r.leadTransferee != None {
 			r.abortLeaderTransfer()
@@ -797,17 +721,6 @@ func (r *Raft) Step(m pb.Message) error {
 	case m.Term == 0:
 		// local message
 	case m.Term > r.Term:
-		if m.MsgType == pb.MessageType_MsgRequestVote {
-			force := bytes.Equal(m.Context, []byte(campaignTransfer))
-			inLease := r.checkQuorum && r.Lead != None && r.electionElapsed < r.electionTimeout
-			if !force && inLease {
-				// If a server receives a RequestVote request within the minimum election timeout
-				// of hearing from a current leader, it does not update its term or grant its vote
-				r.logger.Infof("%x [logterm: %d, index: %d, vote: %x] ignored %s from %x [logterm: %d, index: %d] at term %d: lease is not expired (remaining ticks: %d)",
-					r.id, r.RaftLog.lastTerm(), r.RaftLog.LastIndex(), r.Vote, m.MsgType, m.From, m.LogTerm, m.Index, r.Term, r.electionTimeout-r.electionElapsed)
-				return nil
-			}
-		}
 		r.logger.Infof("%x [term: %d] received a %s message with higher term from %x [term: %d]",
 			r.id, r.Term, m.MsgType, m.From, m.Term)
 		if m.MsgType == pb.MessageType_MsgAppend || m.MsgType == pb.MessageType_MsgHeartbeat || m.MsgType == pb.MessageType_MsgSnapshot {
@@ -815,35 +728,8 @@ func (r *Raft) Step(m pb.Message) error {
 		} else {
 			r.becomeFollower(m.Term, None)
 		}
-
 	case m.Term < r.Term:
-		if r.checkQuorum && (m.MsgType == pb.MessageType_MsgHeartbeat || m.MsgType == pb.MessageType_MsgAppend) {
-			// We have received messages from a leader at a lower term. It is possible
-			// that these messages were simply delayed in the network, but this could
-			// also mean that this node has advanced its term number during a network
-			// partition, and it is now unable to either win an election or to rejoin
-			// the majority on the old term. If checkQuorum is false, this will be
-			// handled by incrementing term numbers in response to MessageType_MsgRequestVote with a
-			// higher term, but if checkQuorum is true we may not advance the term on
-			// MessageType_MsgRequestVote and must generate other messages to advance the term. The net
-			// result of these two features is to minimize the disruption caused by
-			// nodes that have been removed from the cluster's configuration: a
-			// removed node will send MessageType_MsgRequestVotes which will be ignored,
-			// but it will not receive MessageType_MsgAppend or MessageType_MsgHeartbeat, so it will not create
-			// disruptive term increases, by notifying leader of this node's activeness.
-			//
-			// When follower gets isolated, it soon starts an election ending
-			// up with a higher term than leader, although it won't receive enough
-			// votes to win the election. When it regains connectivity, this response
-			// with "pb.MessageType_MsgAppendResponse" of higher term would force leader to step down.
-			// However, this disruption is inevitable to free this stuck node with
-			// fresh election.
-			r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse})
-		} else {
-			// ignore other cases
-			r.logger.Infof("%x [term: %d] ignored a %s message with lower term from %x [term: %d]",
-				r.id, r.Term, m.MsgType, m.From, m.Term)
-		}
+		r.logger.Infof("%x [term: %d] ignored a %s message with lower term from %x [term: %d]", r.id, r.Term, m.MsgType, m.From, m.Term)
 		return nil
 	}
 
@@ -902,12 +788,6 @@ func stepLeader(r *Raft, m pb.Message) error {
 	case pb.MessageType_MsgBeat:
 		r.bcastHeartbeat()
 		return nil
-	case pb.MessageType_MsgCheckQuorum:
-		if !r.checkQuorumActive() {
-			r.logger.Warningf("%x stepped down to follower since quorum is not active", r.id)
-			r.becomeFollower(r.Term, None)
-		}
-		return nil
 	case pb.MessageType_MsgPropose:
 		if len(m.Entries) == 0 {
 			r.logger.Panicf("%x stepped empty MessageType_MsgPropose", r.id)
@@ -944,33 +824,6 @@ func stepLeader(r *Raft, m pb.Message) error {
 		}
 		r.bcastAppend()
 		return nil
-	case pb.MessageType_MsgReadIndex:
-		if r.quorum() > 1 {
-			if r.RaftLog.zeroTermOnErrCompacted(r.RaftLog.Term(r.RaftLog.committed)) != r.Term {
-				// Reject read only request when this leader has not committed any log entry at its term.
-				return nil
-			}
-
-			// thinking: use an interally defined context instead of the user given context.
-			// We can express this in terms of the term and index instead of a user-supplied value.
-			// This would allow multiple reads to piggyback on the same message.
-			switch r.readOnly.option {
-			case ReadOnlySafe:
-				r.readOnly.addRequest(r.RaftLog.committed, m)
-				r.bcastHeartbeatWithCtx(m.Entries[0].Data)
-			case ReadOnlyLeaseBased:
-				ri := r.RaftLog.committed
-				if m.From == None || m.From == r.id { // from local member
-					r.readStates = append(r.readStates, ReadState{Index: r.RaftLog.committed, RequestCtx: m.Entries[0].Data})
-				} else {
-					r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgReadIndexResp, Index: ri, Entries: m.Entries})
-				}
-			}
-		} else {
-			r.readStates = append(r.readStates, ReadState{Index: r.RaftLog.committed, RequestCtx: m.Entries[0].Data})
-		}
-
-		return nil
 	}
 
 	// All other message types require a progress for m.From (pr).
@@ -981,8 +834,6 @@ func stepLeader(r *Raft, m pb.Message) error {
 	}
 	switch m.MsgType {
 	case pb.MessageType_MsgAppendResponse:
-		pr.RecentActive = true
-
 		if m.Reject {
 			r.logger.Debugf("%x received MessageType_MsgAppend rejection(lastindex: %d) from %x for index %d",
 				r.id, m.RejectHint, m.From, m.Index)
@@ -1037,7 +888,7 @@ func stepLeader(r *Raft, m pb.Message) error {
 			}
 		}
 	case pb.MessageType_MsgHeartbeatResponse:
-		pr.RecentActive = true
+
 		pr.resume()
 
 		// free one slot for the full inflights window to allow progress.
@@ -1046,25 +897,6 @@ func stepLeader(r *Raft, m pb.Message) error {
 		}
 		if pr.Match < r.RaftLog.LastIndex() {
 			r.sendAppend(m.From)
-		}
-
-		if r.readOnly.option != ReadOnlySafe || len(m.Context) == 0 {
-			return nil
-		}
-
-		ackCount := r.readOnly.recvAck(m)
-		if ackCount < r.quorum() {
-			return nil
-		}
-
-		rss := r.readOnly.advance(m)
-		for _, rs := range rss {
-			req := rs.req
-			if req.From == None || req.From == r.id { // from local member
-				r.readStates = append(r.readStates, ReadState{Index: rs.index, RequestCtx: req.Entries[0].Data})
-			} else {
-				r.send(pb.Message{To: req.From, MsgType: pb.MessageType_MsgReadIndexResp, Index: rs.index, Entries: req.Entries})
-			}
 		}
 	case pb.MessageType_MsgSnapStatus:
 		if pr.State != ProgressStateSnapshot {
@@ -1189,19 +1021,6 @@ func stepFollower(r *Raft, m pb.Message) error {
 		} else {
 			r.logger.Infof("%x received MessageType_MsgTimeoutNow from %x but is not promotable", r.id, m.From)
 		}
-	case pb.MessageType_MsgReadIndex:
-		if r.Lead == None {
-			r.logger.Infof("%x no leader at term %d; dropping index reading msg", r.id, r.Term)
-			return nil
-		}
-		m.To = r.Lead
-		r.send(m)
-	case pb.MessageType_MsgReadIndexResp:
-		if len(m.Entries) != 1 {
-			r.logger.Errorf("%x invalid format of MessageType_MsgReadIndexResp from %x, entries count: %d", r.id, m.From, len(m.Entries))
-			return nil
-		}
-		r.readStates = append(r.readStates, ReadState{Index: m.Index, RequestCtx: m.Entries[0].Data})
 	}
 	return nil
 }
@@ -1297,12 +1116,6 @@ func (r *Raft) addNode(id uint64) {
 	} else {
 		return
 	}
-
-	// When a node is first added, we should mark it as recently active.
-	// Otherwise, CheckQuorum may cause us to step down if it is invoked
-	// before the added node has a chance to communicate with us.
-	pr := r.getProgress(id)
-	pr.RecentActive = true
 }
 
 func (r *Raft) removeNode(id uint64) {
@@ -1351,29 +1164,6 @@ func (r *Raft) pastElectionTimeout() bool {
 
 func (r *Raft) resetRandomizedElectionTimeout() {
 	r.randomizedElectionTimeout = r.electionTimeout + globalRand.Intn(r.electionTimeout)
-}
-
-// checkQuorumActive returns true if the quorum is active from
-// the view of the local Raft state machine. Otherwise, it returns
-// false.
-// checkQuorumActive also resets all RecentActive to false.
-func (r *Raft) checkQuorumActive() bool {
-	var act int
-
-	r.forEachProgress(func(id uint64, pr *Progress) {
-		if id == r.id { // self is always active
-			act++
-			return
-		}
-
-		if pr.RecentActive {
-			act++
-		}
-
-		pr.RecentActive = false
-	})
-
-	return act >= r.quorum()
 }
 
 func (r *Raft) sendTimeoutNow(to uint64) {

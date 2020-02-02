@@ -37,7 +37,7 @@ func newEnginesWithKVDb(t *testing.T, kv *badger.DB) *engine_util.Engines {
 	engines := new(engine_util.Engines)
 	engines.Kv = kv
 	var err error
-	engines.RaftPath, err = ioutil.TempDir("", "unistore_raft")
+	engines.RaftPath, err = ioutil.TempDir("", "tinykv_raft")
 	require.Nil(t, err)
 	raftOpts := badger.DefaultOptions
 	raftOpts.Dir = engines.RaftPath
@@ -122,7 +122,7 @@ func TestApplies(t *testing.T) {
 	engines.KvPath = kvPath
 	defer cleanUpTestEngineData(engines)
 
-	snapPath, err := ioutil.TempDir("", "unistore_snap")
+	snapPath, err := ioutil.TempDir("", "tinykv_snap")
 	defer os.RemoveAll(snapPath)
 	require.Nil(t, err)
 	mgr := snap.NewSnapManager(snapPath)

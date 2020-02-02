@@ -18,8 +18,8 @@ import (
 	"math/rand"
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/btree"
+	"github.com/pingcap/log"
 	"go.uber.org/zap"
 )
 

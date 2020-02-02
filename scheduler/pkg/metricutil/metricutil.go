@@ -17,8 +17,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/pingcap/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/typeutil"
+	"github.com/pingcap/log"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/push"
 	"go.uber.org/zap"

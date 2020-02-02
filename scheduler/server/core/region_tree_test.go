@@ -18,9 +18,9 @@ import (
 	"math/rand"
 	"testing"
 
-	. "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	. "github.com/pingcap/check"
 )
 
 var _ = Suite(&testRegionSuite{})

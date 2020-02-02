@@ -16,11 +16,11 @@ package selector
 import (
 	"testing"
 
-	. "github.com/pingcap/check"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockcluster"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockoption"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/filter"
+	. "github.com/pingcap/check"
 )
 
 func Test(t *testing.T) {

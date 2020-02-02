@@ -103,7 +103,7 @@ func (r *tickDriver) run(closeCh chan struct{}, wg *sync.WaitGroup) {
 			wg.Done()
 			return
 		case <-timer:
-			for regionID, _ := range r.regions {
+			for regionID := range r.regions {
 				if r.router.send(regionID, message.NewPeerMsg(message.MsgTypeTick, regionID, nil)) != nil {
 					delete(r.regions, regionID)
 				}
