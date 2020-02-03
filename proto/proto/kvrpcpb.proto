@@ -43,12 +43,6 @@ message WriteConflict {
     uint64 conflict_commit_ts = 5;
 }
 
-message Deadlock {
-    uint64 lock_ts = 1;
-    bytes lock_key = 2;
-    uint64 deadlock_key_hash = 3;
-}
-
 message CommitTsExpired {
     uint64 start_ts = 1;
     uint64 attempted_commit_ts = 2;
@@ -61,31 +55,14 @@ message TxnNotFound {
     bytes primary_key = 2;
 }
 
-enum CommandPri {
-    Normal = 0; // Normal must the default value
-    Low = 1;
-    High = 2;
-}
-
-enum IsolationLevel {
-    SI = 0; // SI = snapshot isolation
-    RC = 1; // RC = read committed
-}
-
 message Context {
-    reserved 4;
-    reserved "read_quorum";
     uint64 region_id = 1;
     metapb.RegionEpoch region_epoch = 2;
     metapb.Peer peer = 3;
     uint64 term = 5;
-    CommandPri priority = 6;
-    IsolationLevel isolation_level = 7;
-    bool not_fill_cache = 8;
     bool sync_log = 9;
     bool handle_time = 10; // true means return handle time detail
     bool scan_detail = 11; // true means return scan cf's detail
-    bool replica_read = 12;
     repeated uint64 resolved_locks = 13;
     uint64 max_execution_duration_ms = 14;
 
@@ -133,7 +110,6 @@ message ScanRequest {
     bytes start_key = 2;
     uint32 limit = 3;
     uint64 version = 4;
-    bool key_only = 5;
     bool reverse = 6;
     // For compatibility, when scanning forward, the range to scan is [start_key, end_key), where start_key < end_key;
     // and when scanning backward, it scans [end_key, start_key) in descending order, where end_key < start_key.
@@ -160,17 +136,10 @@ enum Op {
     Insert = 4;
 }
 
-enum Assertion {
-     None = 0;
-     Exist = 1;
-     NotExist = 2;
-}
-
 message Mutation {
     Op op = 1;
     bytes key = 2;
     bytes value = 3;
-    Assertion assertion = 4;
 }
 
 message PrewriteRequest {
@@ -180,12 +149,8 @@ message PrewriteRequest {
     bytes primary_lock = 3;
     uint64 start_version = 4;
     uint64 lock_ttl = 5;
-    bool skip_constraint_check = 6;
     // How many keys this transaction involved.
     uint64 txn_size = 7;
-    // If min_commit_ts > 0, this is large transaction proto, the final commit_ts
-    // would be infered from min_commit_ts.
-    uint64 min_commit_ts = 8;
 }
 
 message PrewriteResponse {
@@ -251,7 +216,6 @@ enum Action {
     NoAction = 0;
     TTLExpireRollback = 1;
     LockNotExistRollback = 2;
-    MinCommitTSPushed = 3;
 }
 
 message CheckTxnStatusResponse {
@@ -368,54 +332,6 @@ message RawScanResponse {
 message KeyRange {
   bytes start_key = 1;
   bytes end_key = 2;
-}
-
-message MvccWrite {
-    Op type = 1;
-    uint64 start_ts = 2;
-    uint64 commit_ts = 3;
-    bytes short_value = 4;
-}
-
-message MvccValue {
-    uint64 start_ts = 1;
-    bytes value = 2;
-}
-
-message MvccLock {
-    Op type = 1;
-    uint64 start_ts = 2;
-    bytes primary = 3;
-    bytes short_value = 4;
-}
-
-message MvccInfo {
-    MvccLock lock = 1;
-    repeated MvccWrite writes = 2;
-    repeated MvccValue values = 3;
-}
-
-message MvccGetByKeyRequest {
-    Context context = 1;
-    bytes key = 2;
-}
-
-message MvccGetByKeyResponse {
-    errorpb.Error region_error = 1;
-    string error = 2;
-    MvccInfo info = 3;
-}
-
-message MvccGetByStartTsRequest {
-    Context context = 1;
-    uint64 start_ts = 2;
-}
-
-message MvccGetByStartTsResponse {
-    errorpb.Error region_error = 1;
-    string error = 2;
-    bytes key = 3;
-    MvccInfo info = 4;
 }
 
 message SplitRegionRequest {
