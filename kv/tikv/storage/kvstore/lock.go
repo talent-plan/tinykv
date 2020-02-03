@@ -6,14 +6,17 @@ import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
 
+const TsMax uint64 = ^uint64(0)
+
 type Lock struct {
 	Primary []byte
 	TS      uint64
 }
 
-// Info creates a LockInfo object from a Lock object.
-func (lock *Lock) Info() *kvrpcpb.LockInfo {
+// Info creates a LockInfo object from a Lock object for key.
+func (lock *Lock) Info(key []byte) *kvrpcpb.LockInfo {
 	info := kvrpcpb.LockInfo{}
+	info.Key = key
 	info.LockVersion = lock.TS
 	info.PrimaryLock = lock.Primary
 	return &info

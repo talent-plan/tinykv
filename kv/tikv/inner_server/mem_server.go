@@ -160,7 +160,11 @@ func (mr *memReader) IterCF(cf string) engine_util.DBIterator {
 		return nil
 	}
 
-	return &memIter{data, data.Min().(memItem)}
+	min := data.Min()
+	if min == nil {
+		return &memIter{data, memItem{nil, nil}}
+	}
+	return &memIter{data, min.(memItem)}
 }
 
 type memIter struct {
@@ -176,28 +180,24 @@ func (it *memIter) Valid() bool {
 }
 func (it *memIter) Next() {
 	first := true
-	it.data.AscendGreaterOrEqual(it.item, func(item llrb.Item) bool {
+	oldItem := it.item
+	it.item = memItem{nil, nil}
+	it.data.AscendGreaterOrEqual(oldItem, func(item llrb.Item) bool {
 		// Skip the first item, which will be it.item
 		if first {
 			first = false
 			return true
 		}
 
-		if item == nil {
-			it.item = memItem{nil, nil}
-		} else {
-			it.item = item.(memItem)
-		}
+		it.item = item.(memItem)
 		return false
 	})
 }
 func (it *memIter) Seek(key []byte) {
+	it.item = memItem{nil, nil}
 	it.data.AscendGreaterOrEqual(memItem{key, nil}, func(item llrb.Item) bool {
-		if item == nil {
-			it.item = memItem{nil, nil}
-		} else {
-			it.item = item.(memItem)
-		}
+		it.item = item.(memItem)
+
 		return false
 	})
 }

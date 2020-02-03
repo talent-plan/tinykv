@@ -35,7 +35,7 @@ func TestSinglePrewrite(t *testing.T) {
 	assert.Equal(t, mem.Len(inner_server.CfDefault), 1)
 	assert.Equal(t, mem.Len(inner_server.CfLock), 1)
 
-	assert.Equal(t, []byte{42}, mem.Get(inner_server.CfDefault, 3, 0, 0, 0, 0, 0, 0, 0, 100))
+	assert.Equal(t, []byte{42}, mem.Get(inner_server.CfDefault, 3, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, ^byte(100)))
 	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(inner_server.CfLock, 3))
 }
 
@@ -56,7 +56,7 @@ func TestBadWritePrewrites(t *testing.T) {
 
 	assert.Equal(t, mem.Len(inner_server.CfDefault), 1)
 	assert.Equal(t, mem.Len(inner_server.CfLock), 1)
-	assert.Equal(t, []byte{42}, mem.Get(inner_server.CfDefault, 3, 0, 0, 0, 0, 0, 0, 0, 100))
+	assert.Equal(t, []byte{42}, mem.Get(inner_server.CfDefault, 3, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, ^byte(100)))
 	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(inner_server.CfLock, 3))
 }
 
@@ -77,9 +77,9 @@ func TestMultiplePrewrites(t *testing.T) {
 
 	assert.Equal(t, mem.Len(inner_server.CfDefault), 2)
 	assert.Equal(t, mem.Len(inner_server.CfLock), 2)
-	assert.Equal(t, []byte{42}, mem.Get(inner_server.CfDefault, 3, 0, 0, 0, 0, 0, 0, 0, 100))
+	assert.Equal(t, []byte{42}, mem.Get(inner_server.CfDefault, 3, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, ^byte(100)))
 	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(inner_server.CfLock, 3))
-	assert.Equal(t, []byte{53}, mem.Get(inner_server.CfDefault, 4, 0, 0, 0, 0, 0, 0, 0, 101))
+	assert.Equal(t, []byte{53}, mem.Get(inner_server.CfDefault, 4, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, ^byte(101)))
 	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 101}, mem.Get(inner_server.CfLock, 4))
 }
 
@@ -96,7 +96,7 @@ func TestPrewriteOverwrite(t *testing.T) {
 	assert.Equal(t, mem.Len(inner_server.CfDefault), 1)
 	assert.Equal(t, mem.Len(inner_server.CfLock), 1)
 
-	assert.Equal(t, []byte{45}, mem.Get(inner_server.CfDefault, 3, 0, 0, 0, 0, 0, 0, 0, 100))
+	assert.Equal(t, []byte{45}, mem.Get(inner_server.CfDefault, 3, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, ^byte(100)))
 	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(inner_server.CfLock, 3))
 }
 
@@ -120,7 +120,7 @@ func TestPrewriteMultiple(t *testing.T) {
 	assert.Equal(t, mem.Len(inner_server.CfDefault), 4)
 	assert.Equal(t, mem.Len(inner_server.CfLock), 4)
 
-	assert.Equal(t, []byte{1, 3, 5}, mem.Get(inner_server.CfDefault, 4, 0, 0, 0, 0, 0, 0, 0, 100))
+	assert.Equal(t, []byte{1, 3, 5}, mem.Get(inner_server.CfDefault, 4, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, ^byte(100)))
 }
 
 type requestBuilder struct {

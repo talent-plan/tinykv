@@ -17,7 +17,7 @@ func TestGet(t *testing.T) {
 
 	var req kvrpcpb.RawGetRequest
 	req.Key = []byte{99}
-	req.Cf = "default"
+	req.Cf = inner_server.CfDefault
 	get := commands.NewRawGet(&req)
 
 	resp := run(t, sched, &get)[0].(*kvrpcpb.RawGetResponse)
@@ -31,7 +31,7 @@ func TestPut(t *testing.T) {
 	var req kvrpcpb.RawPutRequest
 	req.Key = []byte{99}
 	req.Value = []byte{42}
-	req.Cf = "default"
+	req.Cf = inner_server.CfDefault
 	put := commands.NewRawPut(&req)
 
 	run(t, sched, &put)
@@ -46,7 +46,7 @@ func TestDelete(t *testing.T) {
 
 	var req kvrpcpb.RawDeleteRequest
 	req.Key = []byte{99}
-	req.Cf = "default"
+	req.Cf = inner_server.CfDefault
 	del := commands.NewRawDelete(&req)
 
 	run(t, sched, &del)
@@ -65,15 +65,15 @@ func TestScan(t *testing.T) {
 	var req kvrpcpb.RawScanRequest
 	req.StartKey = []byte{101}
 	req.Limit = 3
-	req.Cf = "default"
+	req.Cf = inner_server.CfDefault
 	get := commands.NewRawScan(&req)
 
 	resp := run(t, sched, &get)[0].(*kvrpcpb.RawScanResponse)
 	assert.Equal(t, 3, len(resp.Kvs))
 	expectedKeys := [][]byte{{101}, {102}, {105}}
 	for i, kv := range resp.Kvs {
-		assert.Equal(t, kv.Key, expectedKeys[i])
-		assert.Equal(t, kv.Value, []byte{42, byte(i + 2)})
+		assert.Equal(t, expectedKeys[i], kv.Key)
+		assert.Equal(t, []byte{42, byte(i + 2)}, kv.Value)
 	}
 }
 

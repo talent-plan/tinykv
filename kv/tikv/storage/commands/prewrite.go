@@ -106,7 +106,7 @@ func (p *Prewrite) prewriteMutation(txn *kvstore.Txn, mut *kvrpcpb.Mutation) (*k
 	} else if existingLock != nil {
 		if existingLock.TS != *txn.StartTS {
 			// Key is locked by someone else.
-			return existingLock.Info(), nil
+			return existingLock.Info(key), nil
 		} else {
 			// Key is locked by us
 			return nil, nil

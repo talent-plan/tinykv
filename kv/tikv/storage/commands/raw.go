@@ -151,8 +151,9 @@ func (rs *RawScan) BuildTxn(txn *kvstore.Txn) error {
 
 	it := txn.Reader.IterCF(rs.request.Cf)
 	for it.Seek(rs.request.StartKey); it.Valid() && len(pairs) < int(rs.request.Limit); it.Next() {
-		key := it.Item().KeyCopy(nil)
-		value, err := it.Item().ValueCopy(nil)
+		item := it.Item()
+		key := item.KeyCopy(nil)
+		value, err := item.ValueCopy(nil)
 		if err != nil {
 			return err
 		}
