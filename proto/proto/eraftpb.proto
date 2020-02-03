@@ -50,8 +50,6 @@ enum MessageType {
     MsgSnapStatus = 11;
     MsgTransferLeader = 12;
     MsgTimeoutNow = 13;
-    MsgReadIndex = 14;
-    MsgReadIndexResp = 15;
 }
 
 message Message {

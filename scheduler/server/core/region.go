@@ -34,10 +34,6 @@ type RegionInfo struct {
 	leader          *metapb.Peer
 	downPeers       []*pdpb.PeerStats
 	pendingPeers    []*metapb.Peer
-	writtenBytes    uint64
-	writtenKeys     uint64
-	readBytes       uint64
-	readKeys        uint64
 	approximateSize int64
 	approximateKeys int64
 	interval        *pdpb.TimeInterval
@@ -84,10 +80,6 @@ func RegionFromHeartbeat(heartbeat *pdpb.RegionHeartbeatRequest) *RegionInfo {
 		leader:          heartbeat.GetLeader(),
 		downPeers:       heartbeat.GetDownPeers(),
 		pendingPeers:    heartbeat.GetPendingPeers(),
-		writtenBytes:    heartbeat.GetBytesWritten(),
-		writtenKeys:     heartbeat.GetKeysWritten(),
-		readBytes:       heartbeat.GetBytesRead(),
-		readKeys:        heartbeat.GetKeysRead(),
 		approximateSize: int64(regionSize),
 		approximateKeys: int64(heartbeat.GetApproximateKeys()),
 		interval:        heartbeat.GetInterval(),
@@ -113,10 +105,6 @@ func (r *RegionInfo) Clone(opts ...RegionCreateOption) *RegionInfo {
 		leader:          proto.Clone(r.leader).(*metapb.Peer),
 		downPeers:       downPeers,
 		pendingPeers:    pendingPeers,
-		writtenBytes:    r.writtenBytes,
-		writtenKeys:     r.writtenKeys,
-		readBytes:       r.readBytes,
-		readKeys:        r.readKeys,
 		approximateSize: r.approximateSize,
 		approximateKeys: r.approximateKeys,
 		interval:        proto.Clone(r.interval).(*pdpb.TimeInterval),
@@ -313,26 +301,6 @@ func (r *RegionInfo) GetDownPeers() []*pdpb.PeerStats {
 // GetPendingPeers returns the pending peers of the region.
 func (r *RegionInfo) GetPendingPeers() []*metapb.Peer {
 	return r.pendingPeers
-}
-
-// GetBytesRead returns the read bytes of the region.
-func (r *RegionInfo) GetBytesRead() uint64 {
-	return r.readBytes
-}
-
-// GetBytesWritten returns the written bytes of the region.
-func (r *RegionInfo) GetBytesWritten() uint64 {
-	return r.writtenBytes
-}
-
-// GetKeysWritten returns the written keys of the region.
-func (r *RegionInfo) GetKeysWritten() uint64 {
-	return r.writtenKeys
-}
-
-// GetKeysRead returns the read keys of the region.
-func (r *RegionInfo) GetKeysRead() uint64 {
-	return r.readKeys
 }
 
 // GetLeader returns the leader of the region.

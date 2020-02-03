@@ -64,9 +64,6 @@ func (rn *RawNode) commitReady(rd Ready) {
 	if !IsEmptySnap(&rd.Snapshot) {
 		rn.Raft.RaftLog.stableSnapTo(rd.Snapshot.Metadata.Index)
 	}
-	if len(rd.ReadStates) != 0 {
-		rn.Raft.readStates = nil
-	}
 }
 
 func (rn *RawNode) commitApply(applied uint64) {
@@ -218,9 +215,6 @@ func (rn *RawNode) HasReady() bool {
 	if len(r.msgs) > 0 || len(r.RaftLog.unstableEntries()) > 0 || r.RaftLog.hasNextEnts() {
 		return true
 	}
-	if len(r.readStates) != 0 {
-		return true
-	}
 	return false
 }
 
@@ -275,15 +269,6 @@ func (rn *RawNode) TransferLeader(transferee uint64) {
 	_ = rn.Raft.Step(pb.Message{MsgType: pb.MessageType_MsgTransferLeader, From: transferee})
 }
 
-// ReadIndex requests a read state. The read state will be set in ready.
-// Read State has a read index. Once the application advances further than the read
-// index, any linearizable read requests issued before the read request can be
-// processed safely. The read state will have the same rctx attached.
-func (rn *RawNode) ReadIndex(rctx []byte) {
-	ent := pb.Entry{Data: rctx}
-	_ = rn.Raft.Step(pb.Message{MsgType: pb.MessageType_MsgReadIndex, Entries: []*pb.Entry{&ent}})
-}
-
 func (rn *RawNode) GetSnap() *pb.Snapshot {
 	return rn.Raft.GetSnap()
 }
@@ -302,9 +287,6 @@ func hardStateEqual(l, r *pb.HardState) bool {
 
 func (rn *RawNode) HasReadySince(appliedIdx *uint64) bool {
 	if len(rn.Raft.msgs) != 0 || rn.Raft.RaftLog.unstableEntries() != nil {
-		return true
-	}
-	if len(rn.Raft.readStates) != 0 {
 		return true
 	}
 	if snap := rn.GetSnap(); snap != nil && !IsEmptySnap(snap) {

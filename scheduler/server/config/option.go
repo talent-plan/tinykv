@@ -158,11 +158,6 @@ func (o *ScheduleOption) GetMergeScheduleLimit() uint64 {
 	return o.Load().MergeScheduleLimit
 }
 
-// GetHotRegionScheduleLimit returns the limit for hot region schedule.
-func (o *ScheduleOption) GetHotRegionScheduleLimit() uint64 {
-	return o.Load().HotRegionScheduleLimit
-}
-
 // GetStoreBalanceRate returns the balance rate of a store.
 func (o *ScheduleOption) GetStoreBalanceRate() float64 {
 	return o.Load().StoreBalanceRate
@@ -394,11 +389,6 @@ func (o *ScheduleOption) adjustScheduleCfg(persistentCfg *Config) {
 	persistentCfg.Schedule.Schedulers = scheduleCfg.Schedulers
 	persistentCfg.Schedule.MigrateDeprecatedFlags()
 	o.Store(scheduleCfg)
-}
-
-// GetHotRegionCacheHitsThreshold is a threshold to decide if a region is hot.
-func (o *ScheduleOption) GetHotRegionCacheHitsThreshold() int {
-	return int(o.Load().HotRegionCacheHitsThreshold)
 }
 
 // CheckLabelProperty checks the label property.

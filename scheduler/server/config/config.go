@@ -481,12 +481,6 @@ type ScheduleConfig struct {
 	ReplicaScheduleLimit uint64 `toml:"replica-schedule-limit,omitempty" json:"replica-schedule-limit"`
 	// MergeScheduleLimit is the max coexist merge schedules.
 	MergeScheduleLimit uint64 `toml:"merge-schedule-limit,omitempty" json:"merge-schedule-limit"`
-	// HotRegionScheduleLimit is the max coexist hot region schedules.
-	HotRegionScheduleLimit uint64 `toml:"hot-region-schedule-limit,omitempty" json:"hot-region-schedule-limit"`
-	// HotRegionCacheHitThreshold is the cache hits threshold of the hot region.
-	// If the number of times a region hits the hot cache is greater than this
-	// threshold, it is considered a hot region.
-	HotRegionCacheHitsThreshold uint64 `toml:"hot-region-cache-hits-threshold,omitempty" json:"hot-region-cache-hits-threshold"`
 	// StoreBalanceRate is the maximum of balance rate for each store.
 	StoreBalanceRate float64 `toml:"store-balance-rate,omitempty" json:"store-balance-rate"`
 	// TolerantSizeRatio is the ratio of buffer size for balance scheduler.
@@ -565,8 +559,6 @@ func (c *ScheduleConfig) Clone() *ScheduleConfig {
 		MergeScheduleLimit:           c.MergeScheduleLimit,
 		EnableOneWayMerge:            c.EnableOneWayMerge,
 		EnableCrossTableMerge:        c.EnableCrossTableMerge,
-		HotRegionScheduleLimit:       c.HotRegionScheduleLimit,
-		HotRegionCacheHitsThreshold:  c.HotRegionCacheHitsThreshold,
 		StoreBalanceRate:             c.StoreBalanceRate,
 		TolerantSizeRatio:            c.TolerantSizeRatio,
 		LowSpaceRatio:                c.LowSpaceRatio,
@@ -600,14 +592,10 @@ const (
 	defaultRegionScheduleLimit    = 2048
 	defaultReplicaScheduleLimit   = 64
 	defaultMergeScheduleLimit     = 8
-	defaultHotRegionScheduleLimit = 4
 	defaultStoreBalanceRate       = 15
 	defaultTolerantSizeRatio      = 0
 	defaultLowSpaceRatio          = 0.8
 	defaultHighSpaceRatio         = 0.6
-	// defaultHotRegionCacheHitsThreshold is the low hit number threshold of the
-	// hot region.
-	defaultHotRegionCacheHitsThreshold = 3
 	defaultSchedulerMaxWaitingOperator = 3
 	defaultLeaderScheduleStrategy      = "count"
 )
@@ -639,12 +627,6 @@ func (c *ScheduleConfig) adjust(meta *configMetaData) error {
 	}
 	if !meta.IsDefined("merge-schedule-limit") {
 		adjustUint64(&c.MergeScheduleLimit, defaultMergeScheduleLimit)
-	}
-	if !meta.IsDefined("hot-region-schedule-limit") {
-		adjustUint64(&c.HotRegionScheduleLimit, defaultHotRegionScheduleLimit)
-	}
-	if !meta.IsDefined("hot-region-cache-hits-threshold") {
-		adjustUint64(&c.HotRegionCacheHitsThreshold, defaultHotRegionCacheHitsThreshold)
 	}
 	if !meta.IsDefined("tolerant-size-ratio") {
 		adjustFloat64(&c.TolerantSizeRatio, defaultTolerantSizeRatio)

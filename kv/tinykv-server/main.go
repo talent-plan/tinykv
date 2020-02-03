@@ -2,12 +2,12 @@ package main
 
 import (
 	"flag"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/exec"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -18,10 +18,8 @@ import (
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv"
-	tikvConf "github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 	"google.golang.org/grpc"
@@ -41,9 +39,6 @@ var (
 const (
 	grpcInitialWindowSize     = 1 << 30
 	grpcInitialConnWindowSize = 1 << 30
-
-	subPathRaft = "raft"
-	subPathKV   = "kv"
 )
 
 func main() {
@@ -61,22 +56,20 @@ func main() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 	log.Infof("conf %v", conf)
 	config.SetGlobalConf(conf)
-	db := createDB(subPathKV, &conf.Engine)
 
 	pdClient, err := pd.NewClient(strings.Split(conf.Server.PDAddr, ","), "")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	var (
-		innerServer tikv.InnerServer
-	)
+	var innerServer tikv.InnerServer
 	if conf.Server.Raft {
-		innerServer = setupRaftInnerServer(db, pdClient, conf)
+		innerServer = setupRaftInnerServer(pdClient, conf)
 	} else {
-		innerServer = setupStandAlongInnerServer(db, pdClient, conf)
+		innerServer = setupStandAloneInnerServer(pdClient, conf)
 	}
-	tikvServer := tikv.NewServer(innerServer)
+	scheduler := exec.NewSeqScheduler(innerServer)
+	tikvServer := tikv.NewServer(innerServer, scheduler)
 
 	var alivePolicy = keepalive.EnforcementPolicy{
 		MinTime:             2 * time.Second, // If a client pings more than once every 2 seconds, terminate the connection
@@ -110,23 +103,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	tikvServer.Stop()
-	log.Info("Server stopped.")
-
-	// err = store.Close()
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// log.Info("Store closed.")
-
-	// if err = regionManager.Close(); err != nil {
-	// 	log.Fatal(err)
-	// }
-
-	err = innerServer.Stop()
+	err = tikvServer.Stop()
 	if err != nil {
 		log.Fatal(err)
 	}
+	log.Info("Server stopped.")
 }
 
 func loadConfig() *config.Config {
@@ -141,39 +122,8 @@ func loadConfig() *config.Config {
 	return &conf
 }
 
-func setupRaftStoreConf(raftConf *tikvConf.Config, conf *config.Config) {
-	raftConf.Addr = conf.Server.StoreAddr
-	raftConf.RaftWorkerCnt = conf.RaftStore.RaftWorkers
-
-	// raftstore block
-	raftConf.PdHeartbeatTickInterval = config.ParseDuration(conf.RaftStore.PdHeartbeatTickInterval)
-	raftConf.RaftStoreMaxLeaderLease = config.ParseDuration(conf.RaftStore.RaftStoreMaxLeaderLease)
-	raftConf.RaftBaseTickInterval = config.ParseDuration(conf.RaftStore.RaftBaseTickInterval)
-	raftConf.RaftHeartbeatTicks = conf.RaftStore.RaftHeartbeatTicks
-	raftConf.RaftElectionTimeoutTicks = conf.RaftStore.RaftElectionTimeoutTicks
-}
-
-func setupRaftInnerServer(kvDB *badger.DB, pdClient pd.Client, conf *config.Config) tikv.InnerServer {
-	dbPath := conf.Engine.DBPath
-	kvPath := filepath.Join(dbPath, "kv")
-	raftPath := filepath.Join(dbPath, "raft")
-	snapPath := filepath.Join(dbPath, "snap")
-
-	os.MkdirAll(kvPath, os.ModePerm)
-	os.MkdirAll(raftPath, os.ModePerm)
-	os.Mkdir(snapPath, os.ModePerm)
-
-	raftConf := tikvConf.NewDefaultConfig()
-	raftConf.SnapPath = snapPath
-	setupRaftStoreConf(raftConf, conf)
-
-	raftDB := createDB(subPathRaft, &conf.Engine)
-
-	engines := engine_util.NewEngines(kvDB, raftDB, kvPath, raftPath)
-
-	innerServer := inner_server.NewRaftInnerServer(engines, raftConf)
-	innerServer.Setup(pdClient)
-
+func setupRaftInnerServer(pdClient pd.Client, conf *config.Config) tikv.InnerServer {
+	innerServer := inner_server.NewRaftInnerServer(conf)
 	if err := innerServer.Start(pdClient); err != nil {
 		log.Fatal(err)
 	}
@@ -181,41 +131,13 @@ func setupRaftInnerServer(kvDB *badger.DB, pdClient pd.Client, conf *config.Conf
 	return innerServer
 }
 
-func setupStandAlongInnerServer(db *badger.DB, pdClient pd.Client, conf *config.Config) tikv.InnerServer {
-	innerServer := inner_server.NewStandAlongInnerServer(db)
-	innerServer.Setup(pdClient)
-
+func setupStandAloneInnerServer(pdClient pd.Client, conf *config.Config) tikv.InnerServer {
+	innerServer := inner_server.NewStandAloneInnerServer(conf)
 	if err := innerServer.Start(pdClient); err != nil {
 		log.Fatal(err)
 	}
 
 	return innerServer
-}
-
-func createDB(subPath string, conf *config.Engine) *badger.DB {
-	opts := badger.DefaultOptions
-	opts.NumCompactors = conf.NumCompactors
-	opts.ValueThreshold = conf.ValueThreshold
-	if subPath == subPathRaft {
-		// Do not need to write blob for raft engine because it will be deleted soon.
-		opts.ValueThreshold = 0
-	}
-	opts.ValueLogWriteOptions.WriteBufferSize = 4 * 1024 * 1024
-	opts.Dir = filepath.Join(conf.DBPath, subPath)
-	opts.ValueDir = opts.Dir
-	opts.ValueLogFileSize = conf.VlogFileSize
-	opts.MaxTableSize = conf.MaxTableSize
-	opts.NumMemtables = conf.NumMemTables
-	opts.NumLevelZeroTables = conf.NumL0Tables
-	opts.NumLevelZeroTablesStall = conf.NumL0TablesStall
-	opts.SyncWrites = conf.SyncWrite
-	opts.MaxCacheSize = conf.BlockCacheSize
-	opts.TableBuilderOptions.SuRFStartLevel = conf.SurfStartLevel
-	db, err := badger.Open(opts)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return db
 }
 
 func handleSignal(grpcServer *grpc.Server) {
