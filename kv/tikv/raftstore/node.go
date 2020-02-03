@@ -220,3 +220,7 @@ func (n *Node) stopNode(storeID uint64) {
 func (n *Node) Stop() {
 	n.stopNode(n.store.GetId())
 }
+
+func (n *Node) GetStoreID() uint64 {
+	return n.store.GetId()
+}

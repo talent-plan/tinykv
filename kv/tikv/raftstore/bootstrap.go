@@ -35,7 +35,7 @@ func isRangeEmpty(engine *badger.DB, startKey, endKey []byte) (bool, error) {
 	return !hasData, err
 }
 
-func BootstrapStore(engines *engine_util.Engines, clussterID, storeID uint64) error {
+func BootstrapStore(engines *engine_util.Engines, clusterID, storeID uint64) error {
 	ident := new(rspb.StoreIdent)
 	empty, err := isRangeEmpty(engines.Kv, MinKey, MaxKey)
 	if err != nil {
@@ -51,7 +51,7 @@ func BootstrapStore(engines *engine_util.Engines, clussterID, storeID uint64) er
 	if !empty {
 		return errors.New("raft store is not empty and has already had data.")
 	}
-	ident.ClusterId = clussterID
+	ident.ClusterId = clusterID
 	ident.StoreId = storeID
 	err = putMsg(engines.Kv, storeIdentKey, ident)
 	if err != nil {
