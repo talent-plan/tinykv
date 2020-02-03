@@ -91,8 +91,8 @@ func (ris *RaftInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
 	if err := ris.raftRouter.SendRaftCommand(request, cb); err != nil {
 		return err
 	}
-	cb.Wg.Wait()
-	return ris.checkResponse(cb.Resp, len(reqs))
+
+	return ris.checkResponse(cb.WaitResp(), len(reqs))
 }
 
 func (ris *RaftInnerServer) Reader(ctx *kvrpcpb.Context) (dbreader.DBReader, error) {
@@ -113,8 +113,8 @@ func (ris *RaftInnerServer) Reader(ctx *kvrpcpb.Context) (dbreader.DBReader, err
 	if err := ris.raftRouter.SendRaftCommand(request, cb); err != nil {
 		return nil, err
 	}
-	cb.Wg.Wait()
-	if err := ris.checkResponse(cb.Resp, 1); err != nil {
+
+	if err := ris.checkResponse(cb.WaitResp(), 1); err != nil {
 		if cb.RegionSnap.Txn != nil {
 			cb.RegionSnap.Txn.Discard()
 		}

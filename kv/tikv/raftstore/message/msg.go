@@ -59,7 +59,7 @@ type MsgRaftCmd struct {
 
 type Callback struct {
 	Resp       *raft_cmdpb.RaftCmdResponse
-	RegionSnap RegionSnapshot // used for GetSnap
+	RegionSnap *RegionSnapshot // used for GetSnap
 	Wg         sync.WaitGroup
 }
 
@@ -73,6 +73,14 @@ func (cb *Callback) Done(resp *raft_cmdpb.RaftCmdResponse) {
 		cb.Resp = resp
 		cb.Wg.Done()
 	}
+}
+
+func (cb *Callback) WaitResp() *raft_cmdpb.RaftCmdResponse {
+	if cb != nil {
+		cb.Wg.Wait()
+		return cb.Resp
+	}
+	return nil
 }
 
 func NewCallback() *Callback {
