@@ -137,13 +137,6 @@ func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) []*operator.Opera
 				continue
 			}
 
-			// Skip hot regions.
-			if cluster.IsRegionHot(region) {
-				log.Debug("region is hot", zap.String("scheduler", s.GetName()), zap.Uint64("region-id", region.GetID()))
-				schedulerCounter.WithLabelValues(s.GetName(), "region-hot").Inc()
-				continue
-			}
-
 			oldPeer := region.GetStorePeer(sourceID)
 			if op := s.transferPeer(cluster, region, oldPeer); op != nil {
 				schedulerCounter.WithLabelValues(s.GetName(), "new-operator").Inc()

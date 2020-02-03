@@ -1060,30 +1060,6 @@ func (s *testClusterInfoSuite) TestRegionHeartbeat(c *C) {
 		regions[i] = region
 		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
 		checkRegions(c, cluster.core.Regions, regions[:i+1])
-
-		// Change bytes written.
-		region = region.Clone(core.SetWrittenBytes(24000))
-		regions[i] = region
-		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
-		checkRegions(c, cluster.core.Regions, regions[:i+1])
-
-		// Change keys written.
-		region = region.Clone(core.SetWrittenKeys(240))
-		regions[i] = region
-		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
-		checkRegions(c, cluster.core.Regions, regions[:i+1])
-
-		// Change bytes read.
-		region = region.Clone(core.SetReadBytes(1080000))
-		regions[i] = region
-		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
-		checkRegions(c, cluster.core.Regions, regions[:i+1])
-
-		// Change keys read.
-		region = region.Clone(core.SetReadKeys(1080))
-		regions[i] = region
-		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
-		checkRegions(c, cluster.core.Regions, regions[:i+1])
 	}
 
 	regionCounts := make(map[uint64]int)

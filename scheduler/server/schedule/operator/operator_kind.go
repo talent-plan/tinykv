@@ -27,7 +27,6 @@ const (
 	OpLeader    OpKind = 1 << iota // Include leader transfer.
 	OpRegion                       // Include peer movement.
 	OpAdmin                        // Initiated by admin.
-	OpHotRegion                    // Initiated by hot region scheduler.
 	OpAdjacent                     // Initiated by adjacent region scheduler.
 	OpReplica                      // Initiated by replica checkers.
 	OpBalance                      // Initiated by balancers.
@@ -40,7 +39,6 @@ var flagToName = map[OpKind]string{
 	OpLeader:    "leader",
 	OpRegion:    "region",
 	OpAdmin:     "admin",
-	OpHotRegion: "hot-region",
 	OpAdjacent:  "adjacent",
 	OpReplica:   "replica",
 	OpBalance:   "balance",
@@ -52,7 +50,6 @@ var nameToFlag = map[string]OpKind{
 	"leader":     OpLeader,
 	"region":     OpRegion,
 	"admin":      OpAdmin,
-	"hot-region": OpHotRegion,
 	"adjacent":   OpAdjacent,
 	"replica":    OpReplica,
 	"balance":    OpBalance,
