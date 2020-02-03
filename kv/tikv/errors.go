@@ -2,6 +2,10 @@ package tikv
 
 import (
 	"fmt"
+	"github.com/juju/errors"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
 
 // ErrLocked is returned when trying to Read/Write on a locked key. Client should
@@ -97,4 +101,97 @@ type ErrTxnNotFound struct {
 
 func (e *ErrTxnNotFound) Error() string {
 	return "txn not found"
+}
+
+func convertToKeyError(err error) *kvrpcpb.KeyError {
+	if err == nil {
+		return nil
+	}
+	causeErr := errors.Cause(err)
+	switch x := causeErr.(type) {
+	case *ErrLocked:
+		return &kvrpcpb.KeyError{
+			Locked: &kvrpcpb.LockInfo{
+				Key:         x.Key,
+				PrimaryLock: x.Primary,
+				LockVersion: x.StartTS,
+				LockTtl:     x.TTL,
+			},
+		}
+	case ErrRetryable:
+		return &kvrpcpb.KeyError{
+			Retryable: x.Error(),
+		}
+	case *ErrKeyAlreadyExists:
+		return &kvrpcpb.KeyError{
+			AlreadyExist: &kvrpcpb.AlreadyExist{
+				Key: x.Key,
+			},
+		}
+	case *ErrConflict:
+		return &kvrpcpb.KeyError{
+			Conflict: &kvrpcpb.WriteConflict{
+				StartTs:          x.StartTS,
+				ConflictTs:       x.ConflictTS,
+				ConflictCommitTs: x.ConflictCommitTS,
+				Key:              x.Key,
+			},
+		}
+	case *ErrDeadlock:
+		return &kvrpcpb.KeyError{
+			Deadlock: &kvrpcpb.Deadlock{
+				LockKey:         x.LockKey,
+				LockTs:          x.LockTS,
+				DeadlockKeyHash: x.DeadlockKeyHash,
+			},
+		}
+	case *ErrCommitExpire:
+		return &kvrpcpb.KeyError{
+			CommitTsExpired: &kvrpcpb.CommitTsExpired{
+				StartTs:           x.StartTs,
+				AttemptedCommitTs: x.CommitTs,
+				Key:               x.Key,
+				MinCommitTs:       x.MinCommitTs,
+			},
+		}
+	case *ErrTxnNotFound:
+		return &kvrpcpb.KeyError{
+			TxnNotFound: &kvrpcpb.TxnNotFound{
+				StartTs:    x.StartTS,
+				PrimaryKey: x.PrimaryKey,
+			},
+		}
+	case *ErrCommitPessimisticLock:
+		return &kvrpcpb.KeyError{
+			Abort: x.Error(),
+		}
+	default:
+		return &kvrpcpb.KeyError{
+			Abort: err.Error(),
+		}
+	}
+}
+
+func convertToPBError(err error) (*kvrpcpb.KeyError, *errorpb.Error) {
+	if regErr := ExtractRegionError(err); regErr != nil {
+		return nil, regErr
+	}
+	return convertToKeyError(err), nil
+}
+
+func convertToPBErrors(err error) ([]*kvrpcpb.KeyError, *errorpb.Error) {
+	if err != nil {
+		if regErr := ExtractRegionError(err); regErr != nil {
+			return nil, regErr
+		}
+		return []*kvrpcpb.KeyError{convertToKeyError(err)}, nil
+	}
+	return nil, nil
+}
+
+func ExtractRegionError(err error) *errorpb.Error {
+	if regionError, ok := err.(*inner_server.RegionError); ok {
+		return regionError.RequestErr
+	}
+	return nil
 }
