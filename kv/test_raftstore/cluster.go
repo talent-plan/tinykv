@@ -27,7 +27,7 @@ type Cluster struct {
 	simulator Simulator
 }
 
-func NewMockCluster(clusterID uint64, count int, pdClient pd.Client) Cluster {
+func NewCluster(clusterID uint64, count int, pdClient pd.Client) Cluster {
 	simulator := NewNodeCluster(pdClient)
 	return Cluster{
 		clusterID: clusterID,

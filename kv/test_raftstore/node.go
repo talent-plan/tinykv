@@ -74,8 +74,9 @@ func (c *NodeCluster) RunNode(raftConf *tikvConf.Config, engine *engine_util.Eng
 	if err != nil {
 		return err
 	}
-
 	c.nodes = append(c.nodes, node)
+
+	c.trans.AddNode(node.GetStoreID(), raftRouter)
 
 	return nil
 }
