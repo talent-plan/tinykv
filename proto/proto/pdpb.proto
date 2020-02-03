@@ -265,12 +265,6 @@ message RegionHeartbeatRequest {
     // Pending peers are the peers that the leader can't consider as
     // working followers.
     repeated metapb.Peer pending_peers = 5;
-    // Bytes read/written during this period.
-    uint64 bytes_written = 6;
-    uint64 bytes_read = 7;
-    // Keys read/written during this period.
-    uint64 keys_written = 8;
-    uint64 keys_read = 9;
     // Approximate region size.
     uint64 approximate_size = 10;
     reserved 11;
@@ -424,14 +418,6 @@ message StoreStats {
     bool is_busy = 9;
     // Actually used space by db
     uint64 used_size = 10;
-    // Bytes written for the store during this period.
-    uint64 bytes_written = 11;
-    // Keys written for the store during this period.
-    uint64 keys_written = 12;
-    // Bytes read for the store during this period.
-    uint64 bytes_read = 13;
-    // Keys read for the store during this period.
-    uint64 keys_read = 14;
     // Actually reported time interval
     TimeInterval interval = 15;
     // Threads' CPU usages in the store

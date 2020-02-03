@@ -375,13 +375,6 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 			region.GetApproximateKeys() != origin.GetApproximateKeys() {
 			saveCache = true
 		}
-
-		if region.GetBytesWritten() != origin.GetBytesWritten() ||
-			region.GetBytesRead() != origin.GetBytesRead() ||
-			region.GetKeysWritten() != origin.GetKeysWritten() ||
-			region.GetKeysRead() != origin.GetKeysRead() {
-			saveCache = true
-		}
 	}
 
 	if saveKV && c.storage != nil {
