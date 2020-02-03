@@ -9,6 +9,7 @@ import (
 type DBReader interface {
 	GetCF(cf string, key []byte) ([]byte, error)
 	IterCF(cf string) *engine_util.CFIterator
+	Close()
 }
 
 type RegionReader struct {
@@ -33,4 +34,24 @@ func (r *RegionReader) IterCF(cf string) *engine_util.CFIterator {
 
 func (r *RegionReader) Close() {
 	r.txn.Discard()
+}
+
+type BadgerReader struct {
+	txn *badger.Txn
+}
+
+func NewBadgerReader(txn *badger.Txn) *BadgerReader {
+	return &BadgerReader{txn}
+}
+
+func (b *BadgerReader) GetCF(cf string, key []byte) ([]byte, error) {
+	return engine_util.GetCFFromTxn(b.txn, cf, key)
+}
+
+func (b *BadgerReader) IterCF(cf string) *engine_util.CFIterator {
+	return engine_util.NewCFIterator(cf, b.txn)
+}
+
+func (b *BadgerReader) Close() {
+	b.txn.Discard()
 }

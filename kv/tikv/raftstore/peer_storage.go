@@ -300,12 +300,12 @@ func getRaftEntry(db *badger.DB, regionId, idx uint64) (*eraftpb.Entry, error) {
 	return entry, nil
 }
 
-func getValueTxn(txn *badger.Txn, key []byte) ([]byte, error) {
+func getValueTxn(txn *badger.Txn, key []byte) (val []byte, err error) {
 	i, err := txn.Get(key)
 	if err != nil {
 		return nil, err
 	}
-	return i.Value()
+	return i.ValueCopy(val)
 }
 
 func getValue(engine *badger.DB, key []byte) ([]byte, error) {
@@ -315,8 +315,7 @@ func getValue(engine *badger.DB, key []byte) ([]byte, error) {
 		if err != nil {
 			return err
 		}
-		val, err := item.Value()
-		result = val
+		result, err = item.ValueCopy(result)
 		return err
 	})
 	return result, err

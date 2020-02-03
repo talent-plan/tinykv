@@ -56,3 +56,5 @@ func (mr *memReader) GetCF(cf string, key []byte) ([]byte, error) {
 func (mr *memReader) IterCF(cf string) *engine_util.CFIterator {
 	return nil
 }
+
+func (mr *memReader) Close() {}

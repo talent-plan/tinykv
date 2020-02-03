@@ -1,6 +1,7 @@
 package inner_server
 
 import (
+	"fmt"
 	"github.com/coocood/badger"
 	kvConfig "github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
@@ -40,9 +41,35 @@ func (is *StandAloneInnerServer) Stop() error {
 }
 
 func (is *StandAloneInnerServer) Reader(ctx *kvrpcpb.Context) (dbreader.DBReader, error) {
-	return nil, nil
+	txn := is.db.NewTransaction(false)
+	reader := dbreader.NewBadgerReader(txn)
+	return reader, nil
 }
 
 func (is *StandAloneInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
-	return nil
+	return is.db.Update(func(txn *badger.Txn) error {
+		for _, op := range batch {
+			var err error
+			switch op.Type {
+			case ModifyTypePut:
+				if put, ok := op.Data.(Put); ok {
+					err = txn.Set(engine_util.KeyWithCF(put.Cf, put.Key), put.Value)
+				} else {
+					return fmt.Errorf("Corrupted put request")
+				}
+			case ModifyTypeDelete:
+				if delete, ok := op.Data.(Delete); ok {
+					err = txn.Delete(engine_util.KeyWithCF(delete.Cf, delete.Key))
+				} else {
+					return fmt.Errorf("Corrupted delete request")
+				}
+			default:
+				err = fmt.Errorf("Unsupported modify type")
+			}
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

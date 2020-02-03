@@ -205,6 +205,7 @@ func (svr *Server) RawScan(ctx context.Context, req *kvrpcpb.RawScanRequest) (*k
 		}
 		return resp, nil
 	}
+	defer reader.Close()
 
 	pairs := make([]*kvrpcpb.KvPair, 0)
 
