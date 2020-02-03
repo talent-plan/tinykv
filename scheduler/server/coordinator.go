@@ -35,7 +35,6 @@ const (
 	maxLoadConfigRetries      = 10
 
 	regionheartbeatSendChanCap = 1024
-	hotRegionScheduleName      = "balance-hot-region-scheduler"
 
 	patrolScanRegionLimit = 128 // It takes about 14 minutes to iterate 1 million regions.
 )

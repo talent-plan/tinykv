@@ -346,11 +346,6 @@ func (mc *Cluster) GetMergeScheduleLimit() uint64 {
 	return mc.ScheduleOptions.GetMergeScheduleLimit()
 }
 
-// GetHotRegionScheduleLimit mocks method.
-func (mc *Cluster) GetHotRegionScheduleLimit() uint64 {
-	return mc.ScheduleOptions.GetHotRegionScheduleLimit()
-}
-
 // GetMaxReplicas mocks method.
 func (mc *Cluster) GetMaxReplicas() int {
 	return mc.ScheduleOptions.GetMaxReplicas()

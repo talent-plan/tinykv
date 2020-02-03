@@ -1059,11 +1059,6 @@ func (c *RaftCluster) GetMergeScheduleLimit() uint64 {
 	return c.opt.GetMergeScheduleLimit()
 }
 
-// GetHotRegionScheduleLimit returns the limit for hot region schedule.
-func (c *RaftCluster) GetHotRegionScheduleLimit() uint64 {
-	return c.opt.GetHotRegionScheduleLimit()
-}
-
 // GetStoreBalanceRate returns the balance rate of a store.
 func (c *RaftCluster) GetStoreBalanceRate() float64 {
 	return c.opt.GetStoreBalanceRate()
@@ -1152,11 +1147,6 @@ func (c *RaftCluster) GetStrictlyMatchLabel() bool {
 // IsPlacementRulesEnabled returns if the placement rules feature is enabled.
 func (c *RaftCluster) IsPlacementRulesEnabled() bool {
 	return c.opt.IsPlacementRulesEnabled()
-}
-
-// GetHotRegionCacheHitsThreshold gets the threshold of hitting hot region cache.
-func (c *RaftCluster) GetHotRegionCacheHitsThreshold() int {
-	return c.opt.GetHotRegionCacheHitsThreshold()
 }
 
 // IsRemoveDownReplicaEnabled returns if remove down replica is enabled.

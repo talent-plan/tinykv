@@ -610,7 +610,6 @@ func (c *testCluster) LoadRegion(regionID uint64, followerStoreIDs ...uint64) er
 // 	c.Assert(sches, HasLen, 6)
 // 	c.Assert(co.removeScheduler("balance-leader-scheduler"), IsNil)
 // 	c.Assert(co.removeScheduler("balance-region-scheduler"), IsNil)
-// 	c.Assert(co.removeScheduler("balance-hot-region-scheduler"), IsNil)
 // 	c.Assert(co.removeScheduler("label-scheduler"), IsNil)
 // 	c.Assert(co.schedulers, HasLen, 2)
 // 	c.Assert(co.cluster.opt.Persist(storage), IsNil)
@@ -714,7 +713,6 @@ func (c *testCluster) LoadRegion(regionID uint64, followerStoreIDs ...uint64) er
 // 	// remove all schedulers
 // 	c.Assert(co.removeScheduler("balance-leader-scheduler"), IsNil)
 // 	c.Assert(co.removeScheduler("balance-region-scheduler"), IsNil)
-// 	c.Assert(co.removeScheduler("balance-hot-region-scheduler"), IsNil)
 // 	c.Assert(co.removeScheduler("label-scheduler"), IsNil)
 // 	c.Assert(co.removeScheduler("grant-leader-scheduler-1"), IsNil)
 // 	// all removed
@@ -1027,7 +1025,7 @@ func (s *testScheduleControllerSuite) TestController(c *C) {
 	c.Assert(sc.AllowSchedule(), IsTrue)
 
 	// add a PriorityKind operator will remove old operator
-	op3 := newTestOperator(2, tc.GetRegion(2).GetRegionEpoch(), operator.OpHotRegion)
+	op3 := newTestOperator(2, tc.GetRegion(2).GetRegionEpoch(), operator.OpBalance)
 	op3.SetPriorityLevel(core.HighPriority)
 	c.Assert(oc.AddWaitingOperator(op1), IsTrue)
 	c.Assert(sc.AllowSchedule(), IsFalse)
@@ -1045,7 +1043,7 @@ func (s *testScheduleControllerSuite) TestController(c *C) {
 	c.Assert(oc.RemoveOperator(op4), IsTrue)
 
 	// test wrong region id.
-	op5 := newTestOperator(3, &metapb.RegionEpoch{}, operator.OpHotRegion)
+	op5 := newTestOperator(3, &metapb.RegionEpoch{}, operator.OpBalance)
 	c.Assert(oc.AddWaitingOperator(op5), IsFalse)
 
 	// test wrong region epoch.

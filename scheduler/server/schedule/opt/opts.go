@@ -26,7 +26,6 @@ type Options interface {
 	GetRegionScheduleLimit() uint64
 	GetReplicaScheduleLimit() uint64
 	GetMergeScheduleLimit() uint64
-	GetHotRegionScheduleLimit() uint64
 
 	// store limit
 	GetStoreBalanceRate() float64
@@ -45,7 +44,6 @@ type Options interface {
 	GetStrictlyMatchLabel() bool
 	IsPlacementRulesEnabled() bool
 
-	GetHotRegionCacheHitsThreshold() int
 	GetTolerantSizeRatio() float64
 	GetLowSpaceRatio() float64
 	GetHighSpaceRatio() float64

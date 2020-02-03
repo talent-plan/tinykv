@@ -32,13 +32,11 @@ const (
 	defaultRegionScheduleLimit         = 64
 	defaultReplicaScheduleLimit        = 64
 	defaultMergeScheduleLimit          = 8
-	defaultHotRegionScheduleLimit      = 4
 	defaultStoreBalanceRate            = 60
 	defaultTolerantSizeRatio           = 2.5
 	defaultLowSpaceRatio               = 0.8
 	defaultHighSpaceRatio              = 0.6
 	defaultSchedulerMaxWaitingOperator = 3
-	defaultHotRegionCacheHitsThreshold = 3
 	defaultStrictlyMatchLabel          = true
 	defaultLeaderScheduleStrategy      = "count"
 	defaultEnablePlacementRules        = false
@@ -52,7 +50,6 @@ type ScheduleOptions struct {
 	LeaderScheduleLimit          uint64
 	ReplicaScheduleLimit         uint64
 	MergeScheduleLimit           uint64
-	HotRegionScheduleLimit       uint64
 	StoreBalanceRate             float64
 	MaxSnapshotCount             uint64
 	MaxPendingPeerCount          uint64
@@ -67,7 +64,6 @@ type ScheduleOptions struct {
 	MaxReplicas                  int
 	LocationLabels               []string
 	StrictlyMatchLabel           bool
-	HotRegionCacheHitsThreshold  int
 	TolerantSizeRatio            float64
 	LowSpaceRatio                float64
 	HighSpaceRatio               float64
@@ -93,7 +89,6 @@ func NewScheduleOptions() *ScheduleOptions {
 	mso.LeaderScheduleLimit = defaultLeaderScheduleLimit
 	mso.ReplicaScheduleLimit = defaultReplicaScheduleLimit
 	mso.MergeScheduleLimit = defaultMergeScheduleLimit
-	mso.HotRegionScheduleLimit = defaultHotRegionScheduleLimit
 	mso.StoreBalanceRate = defaultStoreBalanceRate
 	mso.MaxSnapshotCount = defaultMaxSnapshotCount
 	mso.MaxMergeRegionSize = defaultMaxMergeRegionSize
@@ -104,7 +99,6 @@ func NewScheduleOptions() *ScheduleOptions {
 	mso.MaxReplicas = defaultMaxReplicas
 	mso.StrictlyMatchLabel = defaultStrictlyMatchLabel
 	mso.EnablePlacementRules = defaultEnablePlacementRules
-	mso.HotRegionCacheHitsThreshold = defaultHotRegionCacheHitsThreshold
 	mso.MaxPendingPeerCount = defaultMaxPendingPeerCount
 	mso.TolerantSizeRatio = defaultTolerantSizeRatio
 	mso.LowSpaceRatio = defaultLowSpaceRatio
@@ -137,11 +131,6 @@ func (mso *ScheduleOptions) GetReplicaScheduleLimit() uint64 {
 // GetMergeScheduleLimit mocks method
 func (mso *ScheduleOptions) GetMergeScheduleLimit() uint64 {
 	return mso.MergeScheduleLimit
-}
-
-// GetHotRegionScheduleLimit mocks method
-func (mso *ScheduleOptions) GetHotRegionScheduleLimit() uint64 {
-	return mso.HotRegionScheduleLimit
 }
 
 // GetStoreBalanceRate mocks method
@@ -207,11 +196,6 @@ func (mso *ScheduleOptions) GetStrictlyMatchLabel() bool {
 // IsPlacementRulesEnabled mocks method
 func (mso *ScheduleOptions) IsPlacementRulesEnabled() bool {
 	return mso.EnablePlacementRules
-}
-
-// GetHotRegionCacheHitsThreshold mocks method
-func (mso *ScheduleOptions) GetHotRegionCacheHitsThreshold() int {
-	return mso.HotRegionCacheHitsThreshold
 }
 
 // GetTolerantSizeRatio mocks method
