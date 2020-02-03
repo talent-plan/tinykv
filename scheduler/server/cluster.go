@@ -31,7 +31,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/server/id"
 	syncer "github.com/pingcap-incubator/tinykv/scheduler/server/region_syncer"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule"
-	"github.com/pingcap-incubator/tinykv/scheduler/server/statistics"
 	"github.com/pingcap/errcode"
 	"github.com/pingcap/log"
 	"github.com/pkg/errors"
@@ -70,11 +69,6 @@ type RaftCluster struct {
 
 	prepareChecker *prepareChecker
 	changedRegions chan *core.RegionInfo
-
-	labelLevelStats *statistics.LabelStatistics
-	regionStats     *statistics.RegionStatistics
-	storesStats     *statistics.StoresStats
-	hotSpotCache    *statistics.HotCache
 
 	coordinator *coordinator
 
@@ -145,11 +139,8 @@ func (c *RaftCluster) initCluster(id id.Allocator, opt *config.ScheduleOption, s
 	c.opt = opt
 	c.storage = storage
 	c.id = id
-	c.labelLevelStats = statistics.NewLabelStatistics()
-	c.storesStats = statistics.NewStoresStats()
 	c.prepareChecker = newPrepareChecker()
 	c.changedRegions = make(chan *core.RegionInfo, defaultChangedRegionsLimit)
-	c.hotSpotCache = statistics.NewHotCache()
 }
 
 func (c *RaftCluster) start() error {
@@ -171,7 +162,6 @@ func (c *RaftCluster) start() error {
 	}
 
 	c.coordinator = newCoordinator(c.ctx, cluster, c.s.hbStreams)
-	c.regionStats = statistics.NewRegionStatistics(c.s.scheduleOpt)
 	c.quit = make(chan struct{})
 
 	c.wg.Add(3)
@@ -212,9 +202,6 @@ func (c *RaftCluster) loadClusterInfo() (*RaftCluster, error) {
 		zap.Int("count", c.core.GetRegionCount()),
 		zap.Duration("cost", time.Since(start)),
 	)
-	for _, store := range c.GetStores() {
-		c.storesStats.CreateRollingStoreStats(store.GetID())
-	}
 	return c, nil
 }
 
@@ -228,13 +215,10 @@ func (c *RaftCluster) runBackgroundJobs(interval time.Duration) {
 	for {
 		select {
 		case <-c.quit:
-			log.Info("metrics are reset")
-			c.resetMetrics()
 			log.Info("background jobs has been stopped")
 			return
 		case <-ticker.C:
 			c.checkStores()
-			c.collectMetrics()
 			c.coordinator.opController.PruneHistory()
 		}
 	}
@@ -313,8 +297,6 @@ func (c *RaftCluster) handleStoreHeartbeat(stats *pdpb.StoreStats) error {
 	}
 	newStore := store.Clone(core.SetStoreStats(stats), core.SetLastHeartbeatTS(time.Now()))
 	c.core.PutStore(newStore)
-	c.storesStats.Observe(newStore.GetID(), newStore.GetStoreStats())
-	c.storesStats.UpdateTotalBytesRate(c.core.GetStores)
 	return nil
 }
 
@@ -330,8 +312,6 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 			}
 		}
 	}
-	writeItems := c.CheckWriteStatus(region)
-	readItems := c.CheckReadStatus(region)
 	c.RUnlock()
 
 	// Save to storage if meta is updated.
@@ -419,7 +399,7 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 		default:
 		}
 	}
-	if len(writeItems) == 0 && len(readItems) == 0 && !saveCache && !isNew {
+	if !saveCache && !isNew {
 		return nil
 	}
 
@@ -441,12 +421,6 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 				}
 			}
 		}
-		for _, item := range overlaps {
-			if c.regionStats != nil {
-				c.regionStats.ClearDefunctRegion(item.GetID())
-			}
-			c.labelLevelStats.ClearDefunctRegion(item.GetID(), c.GetLocationLabels())
-		}
 
 		// Update related stores.
 		if origin != nil {
@@ -460,16 +434,6 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 		regionEventCounter.WithLabelValues("update_cache").Inc()
 	}
 
-	if c.regionStats != nil {
-		c.regionStats.Observe(region, c.takeRegionStoresLocked(region))
-	}
-
-	for _, writeItem := range writeItems {
-		c.hotSpotCache.Update(writeItem)
-	}
-	for _, readItem := range readItems {
-		c.hotSpotCache.Update(readItem)
-	}
 	return nil
 }
 
@@ -628,17 +592,6 @@ func (c *RaftCluster) RandPendingRegion(storeID uint64, opts ...core.RegionOptio
 	return c.core.RandPendingRegion(storeID, opts...)
 }
 
-// RandHotRegionFromStore randomly picks a hot region in specified store.
-func (c *RaftCluster) RandHotRegionFromStore(store uint64, kind statistics.FlowKind) *core.RegionInfo {
-	c.RLock()
-	defer c.RUnlock()
-	r := c.hotSpotCache.RandHotRegionFromStore(store, kind, c.GetHotRegionCacheHitsThreshold())
-	if r == nil {
-		return nil
-	}
-	return c.GetRegion(r.RegionID)
-}
-
 // GetLeaderStore returns all stores that contains the region's leader peer.
 func (c *RaftCluster) GetLeaderStore(region *core.RegionInfo) *core.StoreInfo {
 	return c.core.GetLeaderStore(region)
@@ -668,20 +621,6 @@ func (c *RaftCluster) GetAverageRegionSize() int64 {
 	return c.core.GetAverageRegionSize()
 }
 
-// GetRegionStats returns region statistics from cluster.
-func (c *RaftCluster) GetRegionStats(startKey, endKey []byte) *statistics.RegionStats {
-	c.RLock()
-	defer c.RUnlock()
-	return statistics.GetRegionStats(c.core.ScanRange(startKey, endKey, -1))
-}
-
-// GetStoresStats returns stores' statistics from cluster.
-func (c *RaftCluster) GetStoresStats() *statistics.StoresStats {
-	c.RLock()
-	defer c.RUnlock()
-	return c.storesStats
-}
-
 // DropCacheRegion removes a region from the cache.
 func (c *RaftCluster) DropCacheRegion(id uint64) {
 	c.RLock()
@@ -704,13 +643,6 @@ func (c *RaftCluster) GetStores() []*core.StoreInfo {
 // GetStore gets store from cluster.
 func (c *RaftCluster) GetStore(storeID uint64) *core.StoreInfo {
 	return c.core.GetStore(storeID)
-}
-
-// IsRegionHot checks if a region is in hot state.
-func (c *RaftCluster) IsRegionHot(region *core.RegionInfo) bool {
-	c.RLock()
-	defer c.RUnlock()
-	return c.hotSpotCache.IsRegionHot(region, c.GetHotRegionCacheHitsThreshold())
 }
 
 // GetAdjacentRegions returns regions' information that are adjacent with the specific region ID.
@@ -921,7 +853,6 @@ func (c *RaftCluster) putStoreLocked(store *core.StoreInfo) error {
 		}
 	}
 	c.core.PutStore(store)
-	c.storesStats.CreateRollingStoreStats(store.GetID())
 	return nil
 }
 
@@ -997,55 +928,7 @@ func (c *RaftCluster) deleteStoreLocked(store *core.StoreInfo) error {
 		}
 	}
 	c.core.DeleteStore(store)
-	c.storesStats.RemoveRollingStoreStats(store.GetID())
 	return nil
-}
-
-func (c *RaftCluster) collectMetrics() {
-	statsMap := statistics.NewStoreStatisticsMap(c.opt)
-	stores := c.GetStores()
-	for _, s := range stores {
-		statsMap.Observe(s, c.storesStats)
-	}
-	statsMap.Collect()
-
-	c.coordinator.collectSchedulerMetrics()
-	c.coordinator.collectHotSpotMetrics()
-	c.collectClusterMetrics()
-	c.collectHealthStatus()
-}
-
-func (c *RaftCluster) resetMetrics() {
-	statsMap := statistics.NewStoreStatisticsMap(c.opt)
-	statsMap.Reset()
-
-	c.coordinator.resetSchedulerMetrics()
-	c.coordinator.resetHotSpotMetrics()
-	c.resetClusterMetrics()
-}
-
-func (c *RaftCluster) collectClusterMetrics() {
-	c.RLock()
-	defer c.RUnlock()
-	if c.regionStats == nil {
-		return
-	}
-	c.regionStats.Collect()
-	c.labelLevelStats.Collect()
-	// collect hot cache metrics
-	c.hotSpotCache.CollectMetrics(c.storesStats)
-}
-
-func (c *RaftCluster) resetClusterMetrics() {
-	c.RLock()
-	defer c.RUnlock()
-	if c.regionStats == nil {
-		return
-	}
-	c.regionStats.Reset()
-	c.labelLevelStats.Reset()
-	// reset hot cache metrics
-	c.hotSpotCache.ResetMetrics()
 }
 
 func (c *RaftCluster) collectHealthStatus() {
@@ -1061,24 +944,6 @@ func (c *RaftCluster) collectHealthStatus() {
 			continue
 		}
 		healthStatusGauge.WithLabelValues(member.GetName()).Set(1)
-	}
-}
-
-// GetRegionStatsByType gets the status of the region by types.
-func (c *RaftCluster) GetRegionStatsByType(typ statistics.RegionStatisticType) []*core.RegionInfo {
-	c.RLock()
-	defer c.RUnlock()
-	if c.regionStats == nil {
-		return nil
-	}
-	return c.regionStats.GetRegionStatsByType(typ)
-}
-
-func (c *RaftCluster) updateRegionsLabelLevelStats(regions []*core.RegionInfo) {
-	c.Lock()
-	defer c.Unlock()
-	for _, region := range regions {
-		c.labelLevelStats.Observe(region, c.takeRegionStoresLocked(region), c.GetLocationLabels())
 	}
 }
 
@@ -1346,52 +1211,6 @@ func (c *RaftCluster) isPrepared() bool {
 	c.RLock()
 	defer c.RUnlock()
 	return c.prepareChecker.check(c)
-}
-
-func (c *RaftCluster) getStoresBytesWriteStat() map[uint64]float64 {
-	c.RLock()
-	defer c.RUnlock()
-	return c.storesStats.GetStoresBytesWriteStat()
-}
-
-func (c *RaftCluster) getStoresBytesReadStat() map[uint64]float64 {
-	c.RLock()
-	defer c.RUnlock()
-	return c.storesStats.GetStoresBytesReadStat()
-}
-
-func (c *RaftCluster) getStoresKeysWriteStat() map[uint64]float64 {
-	c.RLock()
-	defer c.RUnlock()
-	return c.storesStats.GetStoresKeysWriteStat()
-}
-
-func (c *RaftCluster) getStoresKeysReadStat() map[uint64]float64 {
-	c.RLock()
-	defer c.RUnlock()
-	return c.storesStats.GetStoresKeysReadStat()
-}
-
-// RegionReadStats returns hot region's read stats.
-func (c *RaftCluster) RegionReadStats() map[uint64][]*statistics.HotPeerStat {
-	// RegionStats is a thread-safe method
-	return c.hotSpotCache.RegionStats(statistics.ReadFlow)
-}
-
-// RegionWriteStats returns hot region's write stats.
-func (c *RaftCluster) RegionWriteStats() map[uint64][]*statistics.HotPeerStat {
-	// RegionStats is a thread-safe method
-	return c.hotSpotCache.RegionStats(statistics.WriteFlow)
-}
-
-// CheckWriteStatus checks the write status, returns whether need update statistics and item.
-func (c *RaftCluster) CheckWriteStatus(region *core.RegionInfo) []*statistics.HotPeerStat {
-	return c.hotSpotCache.CheckWrite(region, c.storesStats)
-}
-
-// CheckReadStatus checks the read status, returns whether need update statistics and item.
-func (c *RaftCluster) CheckReadStatus(region *core.RegionInfo) []*statistics.HotPeerStat {
-	return c.hotSpotCache.CheckRead(region, c.storesStats)
 }
 
 func (c *RaftCluster) putRegion(region *core.RegionInfo) error {

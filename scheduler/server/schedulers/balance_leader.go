@@ -206,12 +206,6 @@ func (l *balanceLeaderScheduler) transferLeaderIn(cluster opt.Cluster, target *c
 // no new operator need to be created, otherwise create an operator that transfers
 // the leader from the source store to the target store for the region.
 func (l *balanceLeaderScheduler) createOperator(cluster opt.Cluster, region *core.RegionInfo, source, target *core.StoreInfo) []*operator.Operator {
-	if cluster.IsRegionHot(region) {
-		log.Debug("region is hot region, ignore it", zap.String("scheduler", l.GetName()), zap.Uint64("region-id", region.GetID()))
-		schedulerCounter.WithLabelValues(l.GetName(), "region-hot").Inc()
-		return nil
-	}
-
 	sourceID := source.GetID()
 	targetID := target.GetID()
 

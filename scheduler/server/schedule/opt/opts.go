@@ -18,7 +18,6 @@ import (
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
-	"github.com/pingcap-incubator/tinykv/scheduler/server/statistics"
 )
 
 // Options for schedulers.
@@ -76,7 +75,6 @@ type Cluster interface {
 	core.StoreSetInformer
 	core.StoreSetController
 
-	statistics.RegionStatInformer
 	Options
 
 	// TODO: it should be removed. Schedulers don't need to know anything
