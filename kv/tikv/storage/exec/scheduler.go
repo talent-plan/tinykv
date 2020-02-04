@@ -2,6 +2,7 @@ package exec
 
 import (
 	"github.com/pingcap-incubator/tinykv/kv/tikv"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 )
 
@@ -38,36 +39,36 @@ func (seq *Sequential) handleTask() {
 
 		// Get the data we need for execution.
 		ctxt := task.cmd.Context()
-		// TODO reader should be a snapshot of the underlying data at a given timestamp, not a generic reader.
 		reader, err := seq.innerServer.Reader(ctxt)
-		if handleError(err, task) {
+		if handleError(err, task, nil) {
 			continue
 		}
 
 		// Build an mvcc transaction.
 		txn := kvstore.NewTxn(reader)
 		err = task.cmd.BuildTxn(&txn)
-		if handleError(err, task) {
+		if handleError(err, task, reader) {
 			continue
 		}
 
 		// Building the transaction succeeded without conflict, write all its writes to backing storage (note that if
 		// using the transactional API these are prewrites, no committed writes).
 		err = seq.innerServer.Write(ctxt, txn.Writes)
-		if handleError(err, task) {
+		if handleError(err, task, reader) {
 			continue
 		}
 
 		// Send response back to the gRPC thread.
 		task.resultChannel <- tikv.RespOk(task.cmd.Response())
 
+		reader.Close()
 		close(task.resultChannel)
 	}
 }
 
 // Give the command in task an opportunity to handle err. Returns true if there was an error so the caller is done with
 // this command.
-func handleError(err error, task task) bool {
+func handleError(err error, task task, reader dbreader.DBReader) bool {
 	if err == nil {
 		return false
 	}
@@ -78,6 +79,9 @@ func handleError(err error, task task) bool {
 		task.resultChannel <- tikv.RespErr(err)
 	}
 
+	if reader != nil {
+		reader.Close()
+	}
 	close(task.resultChannel)
 	return true
 }

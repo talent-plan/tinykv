@@ -17,7 +17,7 @@ func NewPrewrite(request *kvrpcpb.PrewriteRequest) Prewrite {
 	return Prewrite{request}
 }
 
-func (p *Prewrite) BuildTxn(txn *kvstore.Txn) error {
+func (p *Prewrite) BuildTxn(txn *kvstore.MvccTxn) error {
 	txn.StartTS = &p.request.StartVersion
 
 	var locks []kvrpcpb.LockInfo
@@ -70,7 +70,7 @@ func (p *Prewrite) HandleError(err error) interface{} {
 
 // prewriteMutation prewrites mut to txn. It returns (nil, nil) on success, (lock, nil) if the key in mut is already
 // locked, and (nil, err) if an error occurs.
-func (p *Prewrite) prewriteMutation(txn *kvstore.Txn, mut *kvrpcpb.Mutation) (*kvrpcpb.LockInfo, error) {
+func (p *Prewrite) prewriteMutation(txn *kvstore.MvccTxn, mut *kvrpcpb.Mutation) (*kvrpcpb.LockInfo, error) {
 	key := mut.Key
 	// Check for write conflicts.
 	if write, writeCommitTS, err := txn.SeekWrite(key); write != nil && err == nil {

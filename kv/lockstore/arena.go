@@ -15,7 +15,7 @@ const (
 	nullArenaAddr   arenaAddr = 0
 
 	// Time waited until we reuse the empty block.
-	// CfDefault corruption can happen under this time sequence.
+	// Data corruption can happen under this time sequence.
 	// 1. a reader reads a node.
 	// 2. a writer delete the node, then free the block, put it into the writable queue
 	// 	and this block become the first writable block.

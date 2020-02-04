@@ -30,7 +30,7 @@ type dummyCmd struct {
 	id int
 }
 
-func (dc *dummyCmd) BuildTxn(txn *kvstore.Txn) error {
+func (dc *dummyCmd) BuildTxn(txn *kvstore.MvccTxn) error {
 	return nil
 }
 

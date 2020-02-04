@@ -54,21 +54,21 @@ func (is *MemInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
 		case Put:
 			item := memItem{data.Key, data.Value}
 			switch data.Cf {
-			case CfDefault:
+			case engine_util.CfDefault:
 				is.CfDefault.ReplaceOrInsert(item)
-			case CfLock:
+			case engine_util.CfLock:
 				is.CfLock.ReplaceOrInsert(item)
-			case CfWrite:
+			case engine_util.CfWrite:
 				is.CfWrite.ReplaceOrInsert(item)
 			}
 		case Delete:
 			item := memItem{data.Key, nil}
 			switch data.Cf {
-			case CfDefault:
+			case engine_util.CfDefault:
 				is.CfDefault.Delete(item)
-			case CfLock:
+			case engine_util.CfLock:
 				is.CfLock.Delete(item)
-			case CfWrite:
+			case engine_util.CfWrite:
 				is.CfWrite.Delete(item)
 			}
 		}
@@ -77,15 +77,15 @@ func (is *MemInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
 	return nil
 }
 
-func (is *MemInnerServer) Get(cf string, key ...byte) []byte {
+func (is *MemInnerServer) Get(cf string, key []byte) []byte {
 	item := memItem{key, nil}
 	var result llrb.Item
 	switch cf {
-	case CfDefault:
+	case engine_util.CfDefault:
 		result = is.CfDefault.Get(item)
-	case CfLock:
+	case engine_util.CfLock:
 		result = is.CfLock.Get(item)
-	case CfWrite:
+	case engine_util.CfWrite:
 		result = is.CfWrite.Get(item)
 	}
 
@@ -96,25 +96,25 @@ func (is *MemInnerServer) Get(cf string, key ...byte) []byte {
 	return result.(memItem).value
 }
 
-func (is *MemInnerServer) Set(cf string, value []byte, key ...byte) {
+func (is *MemInnerServer) Set(cf string, key []byte, value []byte) {
 	item := memItem{key, value}
 	switch cf {
-	case CfDefault:
+	case engine_util.CfDefault:
 		is.CfDefault.ReplaceOrInsert(item)
-	case CfLock:
+	case engine_util.CfLock:
 		is.CfLock.ReplaceOrInsert(item)
-	case CfWrite:
+	case engine_util.CfWrite:
 		is.CfWrite.ReplaceOrInsert(item)
 	}
 }
 
 func (is *MemInnerServer) Len(cf string) int {
 	switch cf {
-	case CfDefault:
+	case engine_util.CfDefault:
 		return is.CfDefault.Len()
-	case CfLock:
+	case engine_util.CfLock:
 		return is.CfLock.Len()
-	case CfWrite:
+	case engine_util.CfWrite:
 		return is.CfWrite.Len()
 	}
 
@@ -130,11 +130,11 @@ func (mr *memReader) GetCF(cf string, key []byte) ([]byte, error) {
 	item := memItem{key, nil}
 	var result llrb.Item
 	switch cf {
-	case CfDefault:
+	case engine_util.CfDefault:
 		result = mr.inner.CfDefault.Get(item)
-	case CfLock:
+	case engine_util.CfLock:
 		result = mr.inner.CfLock.Get(item)
-	case CfWrite:
+	case engine_util.CfWrite:
 		result = mr.inner.CfWrite.Get(item)
 	default:
 		return nil, fmt.Errorf("mem-server: bad CF %s", cf)
@@ -150,11 +150,11 @@ func (mr *memReader) GetCF(cf string, key []byte) ([]byte, error) {
 func (mr *memReader) IterCF(cf string) engine_util.DBIterator {
 	var data *llrb.LLRB
 	switch cf {
-	case CfDefault:
+	case engine_util.CfDefault:
 		data = mr.inner.CfDefault
-	case CfLock:
+	case engine_util.CfLock:
 		data = mr.inner.CfLock
-	case CfWrite:
+	case engine_util.CfWrite:
 		data = mr.inner.CfWrite
 	default:
 		return nil
@@ -166,6 +166,8 @@ func (mr *memReader) IterCF(cf string) engine_util.DBIterator {
 	}
 	return &memIter{data, min.(memItem)}
 }
+
+func (r *memReader) Close() {}
 
 type memIter struct {
 	data *llrb.LLRB

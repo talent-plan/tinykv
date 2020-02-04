@@ -1,6 +1,9 @@
 package tikv
 
-import "github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
+import (
+	"errors"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
+)
 
 // RespResult is a 'generic' result type for responses. It is used to return a Response/error pair over channels where
 // we can't use Go's multiple return values.
@@ -23,81 +26,172 @@ func RespErr(err error) RespResult {
 	}
 }
 
-func (rr *RespResult) getResponse() *kvrpcpb.GetResponse {
-	if rr.Response == nil {
-		return nil
+func (rr *RespResult) getResponse() (*kvrpcpb.GetResponse, error) {
+	if rr.Err != nil {
+		return nil, rr.Err
 	}
-	return rr.Response.(*kvrpcpb.GetResponse)
+	if rr.Response == nil {
+		return nil, nil
+	}
+	resp, ok := rr.Response.(*kvrpcpb.GetResponse)
+	if ok {
+		return resp, nil
+	}
+	return nil, errors.New("Unexpected type in response")
 }
-func (rr *RespResult) prewriteResponse() *kvrpcpb.PrewriteResponse {
-	if rr.Response == nil {
-		return nil
+func (rr *RespResult) prewriteResponse() (*kvrpcpb.PrewriteResponse, error) {
+	if rr.Err != nil {
+		return nil, rr.Err
 	}
-	return rr.Response.(*kvrpcpb.PrewriteResponse)
+	if rr.Response == nil {
+		return nil, nil
+	}
+	resp, ok := rr.Response.(*kvrpcpb.PrewriteResponse)
+	if ok {
+		return resp, nil
+	}
+	return nil, errors.New("Unexpected type in response")
 }
-func (rr *RespResult) scan() *kvrpcpb.ScanResponse {
-	if rr.Response == nil {
-		return nil
+func (rr *RespResult) scan() (*kvrpcpb.ScanResponse, error) {
+	if rr.Err != nil {
+		return nil, rr.Err
 	}
-	return rr.Response.(*kvrpcpb.ScanResponse)
+	if rr.Response == nil {
+		return nil, nil
+	}
+	resp, ok := rr.Response.(*kvrpcpb.ScanResponse)
+	if ok {
+		return resp, nil
+	}
+	return nil, errors.New("Unexpected type in response")
 }
-func (rr *RespResult) checkTxnStatus() *kvrpcpb.CheckTxnStatusResponse {
-	if rr.Response == nil {
-		return nil
+func (rr *RespResult) checkTxnStatus() (*kvrpcpb.CheckTxnStatusResponse, error) {
+	if rr.Err != nil {
+		return nil, rr.Err
 	}
-	return rr.Response.(*kvrpcpb.CheckTxnStatusResponse)
+	if rr.Response == nil {
+		return nil, nil
+	}
+	resp, ok := rr.Response.(*kvrpcpb.CheckTxnStatusResponse)
+	if ok {
+		return resp, nil
+	}
+	return nil, errors.New("Unexpected type in response")
 }
-func (rr *RespResult) commit() *kvrpcpb.CommitResponse {
-	if rr.Response == nil {
-		return nil
+func (rr *RespResult) commit() (*kvrpcpb.CommitResponse, error) {
+	if rr.Err != nil {
+		return nil, rr.Err
 	}
-	return rr.Response.(*kvrpcpb.CommitResponse)
+	if rr.Response == nil {
+		return nil, nil
+	}
+	resp, ok := rr.Response.(*kvrpcpb.CommitResponse)
+	if ok {
+		return resp, nil
+	}
+	return nil, errors.New("Unexpected type in response")
 }
-func (rr *RespResult) cleanup() *kvrpcpb.CleanupResponse {
-	if rr.Response == nil {
-		return nil
+func (rr *RespResult) cleanup() (*kvrpcpb.CleanupResponse, error) {
+	if rr.Err != nil {
+		return nil, rr.Err
 	}
-	return rr.Response.(*kvrpcpb.CleanupResponse)
+	if rr.Response == nil {
+		return nil, nil
+	}
+	resp, ok := rr.Response.(*kvrpcpb.CleanupResponse)
+	if ok {
+		return resp, nil
+	}
+	return nil, errors.New("Unexpected type in response")
 }
-func (rr *RespResult) batchRollback() *kvrpcpb.BatchRollbackResponse {
-	if rr.Response == nil {
-		return nil
+func (rr *RespResult) batchRollback() (*kvrpcpb.BatchRollbackResponse, error) {
+	if rr.Err != nil {
+		return nil, rr.Err
 	}
-	return rr.Response.(*kvrpcpb.BatchRollbackResponse)
+	if rr.Response == nil {
+		return nil, nil
+	}
+	resp, ok := rr.Response.(*kvrpcpb.BatchRollbackResponse)
+	if ok {
+		return resp, nil
+	}
+	return nil, errors.New("Unexpected type in response")
 }
-func (rr *RespResult) scanLock() *kvrpcpb.ScanLockResponse {
-	if rr.Response == nil {
-		return nil
+func (rr *RespResult) scanLock() (*kvrpcpb.ScanLockResponse, error) {
+	if rr.Err != nil {
+		return nil, rr.Err
 	}
-	return rr.Response.(*kvrpcpb.ScanLockResponse)
+	if rr.Response == nil {
+		return nil, nil
+	}
+	resp, ok := rr.Response.(*kvrpcpb.ScanLockResponse)
+	if ok {
+		return resp, nil
+	}
+	return nil, errors.New("Unexpected type in response")
 }
-func (rr *RespResult) resolveLock() *kvrpcpb.ResolveLockResponse {
-	if rr.Response == nil {
-		return nil
+func (rr *RespResult) resolveLock() (*kvrpcpb.ResolveLockResponse, error) {
+	if rr.Err != nil {
+		return nil, rr.Err
 	}
-	return rr.Response.(*kvrpcpb.ResolveLockResponse)
+	if rr.Response == nil {
+		return nil, nil
+	}
+	resp, ok := rr.Response.(*kvrpcpb.ResolveLockResponse)
+	if ok {
+		return resp, nil
+	}
+	return nil, errors.New("Unexpected type in response")
 }
-func (rr *RespResult) rawGetResponse() *kvrpcpb.RawGetResponse {
-	if rr.Response == nil {
-		return nil
+func (rr *RespResult) rawGetResponse() (*kvrpcpb.RawGetResponse, error) {
+	if rr.Err != nil {
+		return nil, rr.Err
 	}
-	return rr.Response.(*kvrpcpb.RawGetResponse)
+	if rr.Response == nil {
+		return nil, nil
+	}
+	resp, ok := rr.Response.(*kvrpcpb.RawGetResponse)
+	if ok {
+		return resp, nil
+	}
+	return nil, errors.New("Unexpected type in response")
 }
-func (rr *RespResult) rawPutResponse() *kvrpcpb.RawPutResponse {
-	if rr.Response == nil {
-		return nil
+func (rr *RespResult) rawPutResponse() (*kvrpcpb.RawPutResponse, error) {
+	if rr.Err != nil {
+		return nil, rr.Err
 	}
-	return rr.Response.(*kvrpcpb.RawPutResponse)
+	if rr.Response == nil {
+		return nil, nil
+	}
+	resp, ok := rr.Response.(*kvrpcpb.RawPutResponse)
+	if ok {
+		return resp, nil
+	}
+	return nil, errors.New("Unexpected type in response")
 }
-func (rr *RespResult) rawDeleteResponse() *kvrpcpb.RawDeleteResponse {
-	if rr.Response == nil {
-		return nil
+func (rr *RespResult) rawDeleteResponse() (*kvrpcpb.RawDeleteResponse, error) {
+	if rr.Err != nil {
+		return nil, rr.Err
 	}
-	return rr.Response.(*kvrpcpb.RawDeleteResponse)
+	if rr.Response == nil {
+		return nil, nil
+	}
+	resp, ok := rr.Response.(*kvrpcpb.RawDeleteResponse)
+	if ok {
+		return resp, nil
+	}
+	return nil, errors.New("Unexpected type in response")
 }
-func (rr *RespResult) rawScanResponse() *kvrpcpb.RawScanResponse {
-	if rr.Response == nil {
-		return nil
+func (rr *RespResult) rawScanResponse() (*kvrpcpb.RawScanResponse, error) {
+	if rr.Err != nil {
+		return nil, rr.Err
 	}
-	return rr.Response.(*kvrpcpb.RawScanResponse)
+	if rr.Response == nil {
+		return nil, nil
+	}
+	resp, ok := rr.Response.(*kvrpcpb.RawScanResponse)
+	if ok {
+		return resp, nil
+	}
+	return nil, errors.New("Unexpected type in response")
 }

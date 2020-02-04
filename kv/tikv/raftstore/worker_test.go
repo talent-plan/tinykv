@@ -96,9 +96,9 @@ func fillDBData(t *testing.T, db *badger.DB) {
 	// write some data for multiple cfs.
 	wb := new(engine_util.WriteBatch)
 	value := make([]byte, 32)
-	wb.SetCF(engine_util.CF_DEFAULT, []byte("key"), value)
-	wb.SetCF(engine_util.CF_WRITE, []byte("key"), value)
-	wb.SetCF(engine_util.CF_LOCK, []byte("key"), value)
+	wb.SetCF(engine_util.CfDefault, []byte("key"), value)
+	wb.SetCF(engine_util.CfWrite, []byte("key"), value)
+	wb.SetCF(engine_util.CfLock, []byte("key"), value)
 	err := wb.WriteToDB(db)
 	require.Nil(t, err)
 }

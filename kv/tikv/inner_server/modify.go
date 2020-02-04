@@ -8,12 +8,6 @@ const (
 	ModifyTypeDelete ModifyType = 2
 )
 
-const (
-	CfDefault string = "default"
-	CfLock    string = "lock"
-	CfWrite   string = "write"
-)
-
 type Put struct {
 	Key   []byte
 	Value []byte

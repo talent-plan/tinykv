@@ -17,7 +17,7 @@ func NewRawGet(request *kvrpcpb.RawGetRequest) RawGet {
 	return RawGet{request, kvrpcpb.RawGetResponse{}}
 }
 
-func (rg *RawGet) BuildTxn(txn *kvstore.Txn) error {
+func (rg *RawGet) BuildTxn(txn *kvstore.MvccTxn) error {
 	val, err := txn.Reader.GetCF(rg.request.Cf, rg.request.Key)
 	if err != nil {
 		if err == badger.ErrKeyNotFound {
@@ -61,7 +61,7 @@ func NewRawPut(request *kvrpcpb.RawPutRequest) RawPut {
 	return RawPut{request}
 }
 
-func (rp *RawPut) BuildTxn(txn *kvstore.Txn) error {
+func (rp *RawPut) BuildTxn(txn *kvstore.MvccTxn) error {
 	txn.Writes = []inner_server.Modify{{
 		Type: inner_server.ModifyTypePut,
 		Data: inner_server.Put{
@@ -103,7 +103,7 @@ func NewRawDelete(request *kvrpcpb.RawDeleteRequest) RawDelete {
 	return RawDelete{request}
 }
 
-func (rd *RawDelete) BuildTxn(txn *kvstore.Txn) error {
+func (rd *RawDelete) BuildTxn(txn *kvstore.MvccTxn) error {
 	txn.Writes = []inner_server.Modify{{
 		Type: inner_server.ModifyTypeDelete,
 		Data: inner_server.Delete{
@@ -146,7 +146,7 @@ func NewRawScan(request *kvrpcpb.RawScanRequest) RawScan {
 	return RawScan{request, kvrpcpb.RawScanResponse{}}
 }
 
-func (rs *RawScan) BuildTxn(txn *kvstore.Txn) error {
+func (rs *RawScan) BuildTxn(txn *kvstore.MvccTxn) error {
 	pairs := make([]*kvrpcpb.KvPair, 0)
 
 	it := txn.Reader.IterCF(rs.request.Cf)

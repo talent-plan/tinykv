@@ -20,7 +20,7 @@ type Scheduler interface {
 type Command interface {
 	// BuildTxn is for building writes into an write using an mvcc transaction. Commands can also make non-transactional
 	// reads and writes using txn. Returning without modifying txn means that no transaction will be executed.
-	BuildTxn(txn *kvstore.Txn) error
+	BuildTxn(txn *kvstore.MvccTxn) error
 	Context() *kvrpcpb.Context
 	// Response builds a success response to return to the client.
 	Response() interface{}

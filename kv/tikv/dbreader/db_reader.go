@@ -9,6 +9,7 @@ import (
 type DBReader interface {
 	GetCF(cf string, key []byte) ([]byte, error)
 	IterCF(cf string) engine_util.DBIterator
+	Close()
 }
 
 type RegionReader struct {

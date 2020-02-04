@@ -73,7 +73,7 @@ func (svr *Server) Stop() error {
 func (svr *Server) KvGet(ctx context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb.GetResponse, error) {
 	cmd := commands.NewGet(req)
 	resp := <-svr.scheduler.Run(&cmd)
-	return resp.getResponse(), resp.Err
+	return resp.getResponse()
 }
 
 func (svr *Server) KvScan(ctx context.Context, req *kvrpcpb.ScanRequest) (*kvrpcpb.ScanResponse, error) {
@@ -87,7 +87,7 @@ func (svr *Server) KvCheckTxnStatus(ctx context.Context, req *kvrpcpb.CheckTxnSt
 func (svr *Server) KvPrewrite(ctx context.Context, req *kvrpcpb.PrewriteRequest) (*kvrpcpb.PrewriteResponse, error) {
 	cmd := commands.NewPrewrite(req)
 	resp := <-svr.scheduler.Run(&cmd)
-	return resp.prewriteResponse(), resp.Err
+	return resp.prewriteResponse()
 }
 
 func (svr *Server) KvCommit(ctx context.Context, req *kvrpcpb.CommitRequest) (*kvrpcpb.CommitResponse, error) {
@@ -114,25 +114,25 @@ func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRe
 func (svr *Server) RawGet(ctx context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
 	cmd := commands.NewRawGet(req)
 	resp := <-svr.scheduler.Run(&cmd)
-	return resp.rawGetResponse(), resp.Err
+	return resp.rawGetResponse()
 }
 
 func (svr *Server) RawPut(ctx context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
 	cmd := commands.NewRawPut(req)
 	resp := <-svr.scheduler.Run(&cmd)
-	return resp.rawPutResponse(), resp.Err
+	return resp.rawPutResponse()
 }
 
 func (svr *Server) RawDelete(ctx context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
 	cmd := commands.NewRawDelete(req)
 	resp := <-svr.scheduler.Run(&cmd)
-	return resp.rawDeleteResponse(), resp.Err
+	return resp.rawDeleteResponse()
 }
 
 func (svr *Server) RawScan(ctx context.Context, req *kvrpcpb.RawScanRequest) (*kvrpcpb.RawScanResponse, error) {
 	cmd := commands.NewRawScan(req)
 	resp := <-svr.scheduler.Run(&cmd)
-	return resp.rawScanResponse(), resp.Err
+	return resp.rawScanResponse()
 }
 
 // Raft commands (tikv <-> tikv); these are trivially forwarded to innerServer.

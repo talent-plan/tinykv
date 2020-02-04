@@ -18,7 +18,7 @@ func NewGet(request *kvrpcpb.GetRequest) Get {
 	}
 }
 
-func (g *Get) BuildTxn(txn *kvstore.Txn) error {
+func (g *Get) BuildTxn(txn *kvstore.MvccTxn) error {
 	key := g.request.Key
 	txn.StartTS = &g.request.Version
 
