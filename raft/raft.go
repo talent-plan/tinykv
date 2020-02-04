@@ -523,7 +523,7 @@ func (r *Raft) reset(term uint64) {
 
 	r.votes = make(map[uint64]bool)
 	r.forEachProgress(func(id uint64, pr *Progress) {
-		*pr = Progress{Next: r.RaftLog.LastIndex() + 1, IsLearner: pr.IsLearner}
+		*pr = Progress{Next: r.RaftLog.LastIndex() + 1}
 		if id == r.id {
 			pr.Match = r.RaftLog.LastIndex()
 		}
