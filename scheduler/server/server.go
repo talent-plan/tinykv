@@ -77,9 +77,9 @@ var (
 )
 
 const (
-	etcdTimeout           = time.Second * 3
-	etcdStartTimeout      = time.Minute * 5
-	leaderTickInterval    = 50 * time.Millisecond
+	etcdTimeout        = time.Second * 3
+	etcdStartTimeout   = time.Minute * 5
+	leaderTickInterval = 50 * time.Millisecond
 	// pdRootPath for all pd servers.
 	pdRootPath      = "/pd"
 	pdAPIPrefix     = "/pd/"
