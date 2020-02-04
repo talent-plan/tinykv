@@ -464,20 +464,6 @@ func (c *TestCluster) HandleRegionHeartbeat(region *core.RegionInfo) error {
 	return cluster.HandleRegionHeartbeat(region)
 }
 
-// Join is used to add a new TestServer into the cluster.
-func (c *TestCluster) Join() (*TestServer, error) {
-	conf, err := c.config.Join().Generate()
-	if err != nil {
-		return nil, err
-	}
-	s, err := NewTestServer(conf)
-	if err != nil {
-		return nil, err
-	}
-	c.servers[conf.Name] = s
-	return s, nil
-}
-
 // Destroy is used to destroy a TestCluster.
 func (c *TestCluster) Destroy() {
 	for _, s := range c.servers {
