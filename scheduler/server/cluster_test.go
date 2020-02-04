@@ -589,7 +589,6 @@ func (s *testClusterSuite) TestSetScheduleOpt(c *C) {
 	//PUT GET DELETE succeed
 	replicateCfg.MaxReplicas = 5
 	scheduleCfg.MaxSnapshotCount = 10
-	pdServerCfg.UseRegionStorage = true
 	typ, labelKey, labelValue := "testTyp", "testKey", "testValue"
 
 	c.Assert(s.svr.SetScheduleConfig(*scheduleCfg), IsNil)
@@ -599,7 +598,6 @@ func (s *testClusterSuite) TestSetScheduleOpt(c *C) {
 
 	c.Assert(s.svr.GetReplicationConfig().MaxReplicas, Equals, uint64(5))
 	c.Assert(s.svr.scheduleOpt.GetMaxSnapshotCount(), Equals, uint64(10))
-	c.Assert(s.svr.scheduleOpt.LoadPDServerConfig().UseRegionStorage, Equals, true)
 	c.Assert(s.svr.scheduleOpt.LoadLabelPropertyConfig()[typ][0].Key, Equals, "testKey")
 	c.Assert(s.svr.scheduleOpt.LoadLabelPropertyConfig()[typ][0].Value, Equals, "testValue")
 
@@ -612,7 +610,6 @@ func (s *testClusterSuite) TestSetScheduleOpt(c *C) {
 	s.svr.storage = core.NewStorage(&testErrorKV{})
 	replicateCfg.MaxReplicas = 7
 	scheduleCfg.MaxSnapshotCount = 20
-	pdServerCfg.UseRegionStorage = false
 
 	c.Assert(s.svr.SetScheduleConfig(*scheduleCfg), NotNil)
 	c.Assert(s.svr.SetReplicationConfig(*replicateCfg), NotNil)
@@ -621,7 +618,6 @@ func (s *testClusterSuite) TestSetScheduleOpt(c *C) {
 
 	c.Assert(s.svr.GetReplicationConfig().MaxReplicas, Equals, uint64(5))
 	c.Assert(s.svr.scheduleOpt.GetMaxSnapshotCount(), Equals, uint64(10))
-	c.Assert(s.svr.scheduleOpt.LoadPDServerConfig().UseRegionStorage, Equals, true)
 	c.Assert(len(s.svr.scheduleOpt.LoadLabelPropertyConfig()[typ]), Equals, 0)
 
 	//DELETE failed

@@ -16,7 +16,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"time"
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
@@ -29,7 +28,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/id"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
-	syncer "github.com/pingcap-incubator/tinykv/scheduler/server/region_syncer"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/operator"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/opt"
@@ -1141,16 +1139,13 @@ func getHeartBeatStreams(ctx context.Context, c *C, tc *testCluster) (*heartbeat
 	svr, err := CreateServer(config)
 	c.Assert(err, IsNil)
 	kvBase := kv.NewEtcdKVBase(svr.client, svr.rootPath)
-	path := filepath.Join(svr.cfg.DataDir, "region-meta")
-	regionStorage, err := core.NewRegionStorage(ctx, path)
 	c.Assert(err, IsNil)
-	svr.storage = core.NewStorage(kvBase).SetRegionStorage(regionStorage)
+	svr.storage = core.NewStorage(kvBase)
 	cluster := tc.RaftCluster
 	cluster.s = svr
 	cluster.running = false
 	cluster.clusterID = tc.getClusterID()
 	cluster.clusterRoot = svr.getClusterRootPath()
-	cluster.regionSyncer = syncer.NewRegionSyncer(svr)
 	hbStreams := newHeartbeatStreams(ctx, tc.getClusterID(), cluster)
 	return hbStreams, func() { testutil.CleanServer(config) }
 }

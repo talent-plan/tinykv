@@ -672,15 +672,6 @@ func (s *Server) GetGCSafePoint(ctx context.Context, request *pdpb.GetGCSafePoin
 	}, nil
 }
 
-// SyncRegions syncs the regions.
-func (s *Server) SyncRegions(stream pdpb.PD_SyncRegionsServer) error {
-	cluster := s.GetRaftCluster()
-	if cluster == nil {
-		return ErrNotBootstrapped
-	}
-	return s.cluster.regionSyncer.Sync(stream)
-}
-
 // UpdateGCSafePoint implements gRPC PDServer.
 func (s *Server) UpdateGCSafePoint(ctx context.Context, request *pdpb.UpdateGCSafePointRequest) (*pdpb.UpdateGCSafePointResponse, error) {
 	if err := s.validateRequest(request.GetHeader()); err != nil {
