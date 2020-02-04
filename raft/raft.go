@@ -1012,14 +1012,6 @@ func stepLeader(r *Raft, m pb.Message) error {
 						r.bcastAppend()
 					}
 				}
-				// We've updated flow control information above, which may
-				// allow us to send multiple (size-limited) in-flight messages
-				// at once (such as when transitioning from probe to
-				// replicate, or when freeTo() covers multiple messages). If
-				// we have more entries to send, send as many messages as we
-				// can (without sending empty messages for the commit index)
-				for r.maybeSendAppend(m.From, false) {
-				}
 				// Transfer leadership is in progress.
 				if m.From == r.leadTransferee && pr.Match == r.RaftLog.LastIndex() {
 					r.logger.Infof("%x sent MessageType_MsgTimeoutNow to %x after received MessageType_MsgAppendResponse", r.id, m.From)
@@ -1054,6 +1046,7 @@ func stepLeader(r *Raft, m pb.Message) error {
 		}
 	case pb.MessageType_MsgSnapStatus:
 	case pb.MessageType_MsgUnreachable:
+		r.logger.Debugf("%x failed to send message to %x because it is unreachable [%s]", r.id, m.From, pr)
 	case pb.MessageType_MsgTransferLeader:
 		if pr.IsLearner {
 			r.logger.Debugf("%x is learner. Ignored transferring leadership", r.id)
