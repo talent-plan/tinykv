@@ -2,6 +2,10 @@ package inner_server
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"sync"
+
 	kvConfig "github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
@@ -17,9 +21,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 	"github.com/pingcap/errors"
-	"os"
-	"path/filepath"
-	"sync"
 )
 
 // RaftInnerServer is an InnerServer (see tikv/server.go) backed by a Raft node. It is part of a Raft network.
@@ -157,6 +158,9 @@ func (ris *RaftInnerServer) Reader(ctx *kvrpcpb.Context) (dbreader.DBReader, err
 			cb.RegionSnap.Txn.Discard()
 		}
 		return nil, err
+	}
+	if cb.RegionSnap == nil {
+		panic("can not found region snap")
 	}
 	return dbreader.NewRegionReader(cb.RegionSnap.Txn, cb.RegionSnap.Region), nil
 }
