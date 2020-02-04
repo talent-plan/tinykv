@@ -216,7 +216,6 @@ func (c *NodeCluster) ClearSendFilters(storeID uint64) {
 
 func (c *NodeCluster) AddReceiveFilter(storeID uint64, filter Filter) {
 	c.trans.AddReceiveFilter(storeID, filter)
-
 }
 
 func (c *NodeCluster) ClearReceiveFilters(storeID uint64) {
