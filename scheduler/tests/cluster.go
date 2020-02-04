@@ -26,7 +26,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/server/config"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/id"
-	"github.com/pingcap-incubator/tinykv/scheduler/server/join"
 	"github.com/pingcap/log"
 	"github.com/pkg/errors"
 	"go.etcd.io/etcd/clientv3"
@@ -61,10 +60,6 @@ func NewTestServer(cfg *config.Config) (*TestServer, error) {
 	zapLogOnce.Do(func() {
 		log.ReplaceGlobals(cfg.GetZapLogger(), cfg.GetZapLogProperties())
 	})
-	err = join.PrepareJoinCluster(cfg)
-	if err != nil {
-		return nil, err
-	}
 	svr, err := server.CreateServer(cfg)
 	if err != nil {
 		return nil, err

@@ -25,7 +25,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/metricutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/config"
-	"github.com/pingcap-incubator/tinykv/scheduler/server/join"
 	"github.com/pingcap/log"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -85,10 +84,6 @@ func main() {
 
 	metricutil.Push(&cfg.Metric)
 
-	err = join.PrepareJoinCluster(cfg)
-	if err != nil {
-		log.Fatal("join meet error", zap.Error(err))
-	}
 	svr, err := server.CreateServer(cfg)
 	if err != nil {
 		log.Fatal("create server failed", zap.Error(err))

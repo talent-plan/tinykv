@@ -58,9 +58,6 @@ type Config struct {
 	InitialCluster      string `toml:"initial-cluster" json:"initial-cluster"`
 	InitialClusterState string `toml:"initial-cluster-state" json:"initial-cluster-state"`
 
-	// Join to an existing pd cluster, a string of endpoints.
-	Join string `toml:"join" json:"join"`
-
 	// LeaderLease time, if leader doesn't update its TTL
 	// in etcd after lease time, etcd will expire the leader key
 	// and other servers can campaign the leader again.
@@ -145,7 +142,6 @@ func NewConfig() *Config {
 	fs.StringVar(&cfg.PeerUrls, "peer-urls", defaultPeerUrls, "url for peer traffic")
 	fs.StringVar(&cfg.AdvertisePeerUrls, "advertise-peer-urls", "", "advertise url for peer traffic (default '${peer-urls}')")
 	fs.StringVar(&cfg.InitialCluster, "initial-cluster", "", "initial cluster configuration for bootstrapping, e,g. pd=http://127.0.0.1:2380")
-	fs.StringVar(&cfg.Join, "join", "", "join to an existing cluster (usage: cluster's '${advertise-client-urls}'")
 
 	fs.StringVar(&cfg.Metric.PushAddress, "metrics-addr", "", "prometheus pushgateway address, leaves it empty will disable prometheus push.")
 
@@ -279,9 +275,6 @@ func (c *Config) Parse(arguments []string) error {
 
 // Validate is used to validate if some configurations are right.
 func (c *Config) Validate() error {
-	if c.Join != "" && c.InitialCluster != "" {
-		return errors.New("-initial-cluster and -join can not be provided at the same time")
-	}
 	dataDir, err := filepath.Abs(c.DataDir)
 	if err != nil {
 		return errors.WithStack(err)
@@ -383,12 +376,6 @@ func (c *Config) Adjust(meta *toml.MetaData) error {
 	}
 
 	adjustString(&c.InitialClusterState, defaultInitialClusterState)
-
-	if len(c.Join) > 0 {
-		if _, err := url.Parse(c.Join); err != nil {
-			return errors.Errorf("failed to parse join addr:%s, err:%v", c.Join, err)
-		}
-	}
 
 	adjustInt64(&c.LeaderLease, defaultLeaderLease)
 
