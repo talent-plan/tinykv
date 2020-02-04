@@ -159,54 +159,6 @@ func TestNodePropose(t *testing.T) {
 	}
 }
 
-// TestNodeReadIndex ensures that node.ReadIndex sends the MessageType_MsgReadIndex message to the underlying raft.
-// It also ensures that ReadState can be read out through ready chan.
-func TestNodeReadIndex(t *testing.T) {
-	msgs := []pb.Message{}
-	appendStep := func(r *Raft, m pb.Message) error {
-		msgs = append(msgs, m)
-		return nil
-	}
-	wrs := []ReadState{{Index: uint64(1), RequestCtx: []byte("somedata")}}
-
-	n := newNode()
-	s := NewMemoryStorage()
-	r := newTestRaft(1, []uint64{1}, 10, 1, s)
-	r.readStates = wrs
-
-	go n.run(r)
-	n.Campaign(context.TODO())
-	for {
-		rd := <-n.Ready()
-		if !reflect.DeepEqual(rd.ReadStates, wrs) {
-			t.Errorf("ReadStates = %v, want %v", rd.ReadStates, wrs)
-		}
-
-		s.Append(rd.Entries)
-
-		if rd.SoftState.Lead == r.id {
-			n.Advance()
-			break
-		}
-		n.Advance()
-	}
-
-	r.step = appendStep
-	wrequestCtx := []byte("somedata2")
-	n.ReadIndex(context.TODO(), wrequestCtx)
-	n.Stop()
-
-	if len(msgs) != 1 {
-		t.Fatalf("len(msgs) = %d, want %d", len(msgs), 1)
-	}
-	if msgs[0].MsgType != pb.MessageType_MsgReadIndex {
-		t.Errorf("msg type = %d, want %d", msgs[0].MsgType, pb.MessageType_MsgReadIndex)
-	}
-	if !bytes.Equal(msgs[0].Entries[0].Data, wrequestCtx) {
-		t.Errorf("data = %v, want %v", msgs[0].Entries[0].Data, wrequestCtx)
-	}
-}
-
 // TestDisableProposalForwarding ensures that proposals are not forwarded to
 // the leader when DisableProposalForwarding is true.
 func TestDisableProposalForwarding(t *testing.T) {
@@ -236,64 +188,6 @@ func TestDisableProposalForwarding(t *testing.T) {
 	// verify r3(follower) does not forward the proposal when DisableProposalForwarding is true
 	if len(r3.msgs) != 0 {
 		t.Fatalf("len(r3.msgs) expected 0, got %d", len(r3.msgs))
-	}
-}
-
-// TestNodeReadIndexToOldLeader ensures that pb.MessageType_MsgReadIndex to old leader
-// gets forwarded to the new leader and 'send' method does not attach its term.
-func TestNodeReadIndexToOldLeader(t *testing.T) {
-	r1 := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
-	r2 := newTestRaft(2, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
-	r3 := newTestRaft(3, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
-
-	nt := newNetwork(r1, r2, r3)
-
-	// elect r1 as leader
-	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
-
-	var testEntries = []*pb.Entry{{Data: []byte("testdata")}}
-
-	// send readindex request to r2(follower)
-	r2.Step(pb.Message{From: 2, To: 2, MsgType: pb.MessageType_MsgReadIndex, Entries: testEntries})
-
-	// verify r2(follower) forwards this message to r1(leader) with term not set
-	if len(r2.msgs) != 1 {
-		t.Fatalf("len(r2.msgs) expected 1, got %d", len(r2.msgs))
-	}
-	readIndxMsg1 := pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgReadIndex, Entries: testEntries}
-	if !reflect.DeepEqual(r2.msgs[0], readIndxMsg1) {
-		t.Fatalf("r2.msgs[0] expected %+v, got %+v", readIndxMsg1, r2.msgs[0])
-	}
-
-	// send readindex request to r3(follower)
-	r3.Step(pb.Message{From: 3, To: 3, MsgType: pb.MessageType_MsgReadIndex, Entries: testEntries})
-
-	// verify r3(follower) forwards this message to r1(leader) with term not set as well.
-	if len(r3.msgs) != 1 {
-		t.Fatalf("len(r3.msgs) expected 1, got %d", len(r3.msgs))
-	}
-	readIndxMsg2 := pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgReadIndex, Entries: testEntries}
-	if !reflect.DeepEqual(r3.msgs[0], readIndxMsg2) {
-		t.Fatalf("r3.msgs[0] expected %+v, got %+v", readIndxMsg2, r3.msgs[0])
-	}
-
-	// now elect r3 as leader
-	nt.send(pb.Message{From: 3, To: 3, MsgType: pb.MessageType_MsgHup})
-
-	// let r1 steps the two messages previously we got from r2, r3
-	r1.Step(readIndxMsg1)
-	r1.Step(readIndxMsg2)
-
-	// verify r1(follower) forwards these messages again to r3(new leader)
-	if len(r1.msgs) != 2 {
-		t.Fatalf("len(r1.msgs) expected 1, got %d", len(r1.msgs))
-	}
-	readIndxMsg3 := pb.Message{From: 1, To: 3, MsgType: pb.MessageType_MsgReadIndex, Entries: testEntries}
-	if !reflect.DeepEqual(r1.msgs[0], readIndxMsg3) {
-		t.Fatalf("r1.msgs[0] expected %+v, got %+v", readIndxMsg3, r1.msgs[0])
-	}
-	if !reflect.DeepEqual(r1.msgs[1], readIndxMsg3) {
-		t.Fatalf("r1.msgs[1] expected %+v, got %+v", readIndxMsg3, r1.msgs[1])
 	}
 }
 
@@ -789,58 +683,6 @@ func TestIsHardStateEqual(t *testing.T) {
 			t.Errorf("#%d, equal = %v, want %v", i, isHardStateEqual(tt.st, emptyState), tt.we)
 		}
 	}
-}
-
-func TestNodeProposeAddLearnerNode(t *testing.T) {
-	ticker := time.NewTicker(time.Millisecond * 100)
-	defer ticker.Stop()
-	n := newNode()
-	s := NewMemoryStorage()
-	r := newTestRaft(1, []uint64{1}, 10, 1, s)
-	go n.run(r)
-	n.Campaign(context.TODO())
-	stop := make(chan struct{})
-	done := make(chan struct{})
-	applyConfChan := make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			select {
-			case <-stop:
-				return
-			case <-ticker.C:
-				n.Tick()
-			case rd := <-n.Ready():
-				s.Append(rd.Entries)
-				t.Logf("raft: %v", rd.Entries)
-				for _, ent := range rd.Entries {
-					if ent.EntryType != pb.EntryType_EntryConfChange {
-						continue
-					}
-					var cc pb.ConfChange
-					cc.Unmarshal(ent.Data)
-					state := n.ApplyConfChange(cc)
-					if len(state.Learners) == 0 ||
-						state.Learners[0] != cc.NodeId ||
-						cc.NodeId != 2 {
-						t.Errorf("apply conf change should return new added learner: %v", state.String())
-					}
-
-					if len(state.Nodes) != 1 {
-						t.Errorf("add learner should not change the nodes: %v", state.String())
-					}
-					t.Logf("apply raft conf %v changed to: %v", cc, state.String())
-					applyConfChan <- struct{}{}
-				}
-				n.Advance()
-			}
-		}
-	}()
-	cc := pb.ConfChange{ChangeType: pb.ConfChangeType_AddLearnerNode, NodeId: 2}
-	n.ProposeConfChange(context.TODO(), cc)
-	<-applyConfChan
-	close(stop)
-	<-done
 }
 
 func TestAppendPagination(t *testing.T) {

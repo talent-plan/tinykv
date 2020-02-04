@@ -19,7 +19,6 @@ import (
 	"math/rand"
 	"net/http"
 	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -244,12 +243,7 @@ func (s *Server) startServer(ctx context.Context) error {
 		func() time.Duration { return s.scheduleOpt.LoadPDServerConfig().MaxResetTSGap },
 	)
 	kvBase := kv.NewEtcdKVBase(s.client, s.rootPath)
-	path := filepath.Join(s.cfg.DataDir, "region-meta")
-	regionStorage, err := core.NewRegionStorage(ctx, path)
-	if err != nil {
-		return err
-	}
-	s.storage = core.NewStorage(kvBase).SetRegionStorage(regionStorage)
+	s.storage = core.NewStorage(kvBase)
 	s.cluster = newRaftCluster(ctx, s, s.clusterID)
 	s.hbStreams = newHeartbeatStreams(ctx, s.clusterID, s.cluster)
 	// Server has started.
@@ -759,12 +753,8 @@ func (s *Server) leaderLoop() {
 				log.Error("reload config failed", zap.Error(err))
 				continue
 			}
-			if s.scheduleOpt.LoadPDServerConfig().UseRegionStorage {
-				s.cluster.regionSyncer.StartSyncWithLeader(leader.GetClientUrls()[0])
-			}
 			log.Info("start watch leader", zap.Stringer("leader", leader))
 			s.member.WatchLeader(s.serverLoopCtx, leader, rev)
-			s.cluster.regionSyncer.StopSyncWithLeader()
 			log.Info("leader changed, try to campaign leader")
 		}
 
@@ -877,13 +867,6 @@ func (s *Server) reloadConfigFromKV() error {
 	err := s.scheduleOpt.Reload(s.storage)
 	if err != nil {
 		return err
-	}
-	if s.scheduleOpt.LoadPDServerConfig().UseRegionStorage {
-		s.storage.SwitchToRegionStorage()
-		log.Info("server enable region storage")
-	} else {
-		s.storage.SwitchToDefaultStorage()
-		log.Info("server disable region storage")
 	}
 	return nil
 }

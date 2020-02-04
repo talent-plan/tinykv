@@ -1,10 +1,11 @@
 package raftstore
 
 import (
+	"testing"
+
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func TestRaftstoreErrToPbError(t *testing.T) {

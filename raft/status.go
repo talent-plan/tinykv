@@ -38,9 +38,6 @@ func getProgressCopy(r *Raft) map[uint64]Progress {
 		prs[id] = *p
 	}
 
-	for id, p := range r.LearnerPrs {
-		prs[id] = *p
-	}
 	return prs
 }
 

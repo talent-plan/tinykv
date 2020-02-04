@@ -18,7 +18,6 @@ import (
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
-	"github.com/pingcap-incubator/tinykv/scheduler/server/statistics"
 )
 
 // Options for schedulers.
@@ -27,7 +26,6 @@ type Options interface {
 	GetRegionScheduleLimit() uint64
 	GetReplicaScheduleLimit() uint64
 	GetMergeScheduleLimit() uint64
-	GetHotRegionScheduleLimit() uint64
 
 	// store limit
 	GetStoreBalanceRate() float64
@@ -46,7 +44,6 @@ type Options interface {
 	GetStrictlyMatchLabel() bool
 	IsPlacementRulesEnabled() bool
 
-	GetHotRegionCacheHitsThreshold() int
 	GetTolerantSizeRatio() float64
 	GetLowSpaceRatio() float64
 	GetHighSpaceRatio() float64
@@ -76,7 +73,6 @@ type Cluster interface {
 	core.StoreSetInformer
 	core.StoreSetController
 
-	statistics.RegionStatInformer
 	Options
 
 	// TODO: it should be removed. Schedulers don't need to know anything

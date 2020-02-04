@@ -24,40 +24,37 @@ type OpKind uint32
 
 // Flags for operators.
 const (
-	OpLeader    OpKind = 1 << iota // Include leader transfer.
-	OpRegion                       // Include peer movement.
-	OpAdmin                        // Initiated by admin.
-	OpHotRegion                    // Initiated by hot region scheduler.
-	OpAdjacent                     // Initiated by adjacent region scheduler.
-	OpReplica                      // Initiated by replica checkers.
-	OpBalance                      // Initiated by balancers.
-	OpMerge                        // Initiated by merge checkers or merge schedulers.
-	OpRange                        // Initiated by range scheduler.
+	OpLeader   OpKind = 1 << iota // Include leader transfer.
+	OpRegion                      // Include peer movement.
+	OpAdmin                       // Initiated by admin.
+	OpAdjacent                    // Initiated by adjacent region scheduler.
+	OpReplica                     // Initiated by replica checkers.
+	OpBalance                     // Initiated by balancers.
+	OpMerge                       // Initiated by merge checkers or merge schedulers.
+	OpRange                       // Initiated by range scheduler.
 	opMax
 )
 
 var flagToName = map[OpKind]string{
-	OpLeader:    "leader",
-	OpRegion:    "region",
-	OpAdmin:     "admin",
-	OpHotRegion: "hot-region",
-	OpAdjacent:  "adjacent",
-	OpReplica:   "replica",
-	OpBalance:   "balance",
-	OpMerge:     "merge",
-	OpRange:     "range",
+	OpLeader:   "leader",
+	OpRegion:   "region",
+	OpAdmin:    "admin",
+	OpAdjacent: "adjacent",
+	OpReplica:  "replica",
+	OpBalance:  "balance",
+	OpMerge:    "merge",
+	OpRange:    "range",
 }
 
 var nameToFlag = map[string]OpKind{
-	"leader":     OpLeader,
-	"region":     OpRegion,
-	"admin":      OpAdmin,
-	"hot-region": OpHotRegion,
-	"adjacent":   OpAdjacent,
-	"replica":    OpReplica,
-	"balance":    OpBalance,
-	"merge":      OpMerge,
-	"range":      OpRange,
+	"leader":   OpLeader,
+	"region":   OpRegion,
+	"admin":    OpAdmin,
+	"adjacent": OpAdjacent,
+	"replica":  OpReplica,
+	"balance":  OpBalance,
+	"merge":    OpMerge,
+	"range":    OpRange,
 }
 
 func (k OpKind) String() string {

@@ -20,9 +20,9 @@ import (
 	"time"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/pingcap/errcode"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap/errcode"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
 )
@@ -163,26 +163,6 @@ func (s *StoreInfo) GetAvailable() uint64 {
 // GetUsedSize returns the used size of the store.
 func (s *StoreInfo) GetUsedSize() uint64 {
 	return s.stats.GetUsedSize()
-}
-
-// GetBytesWritten returns the bytes written for the store during this period.
-func (s *StoreInfo) GetBytesWritten() uint64 {
-	return s.stats.GetBytesWritten()
-}
-
-// GetBytesRead returns the bytes read for the store during this period.
-func (s *StoreInfo) GetBytesRead() uint64 {
-	return s.stats.GetBytesRead()
-}
-
-// GetKeysWritten returns the keys written for the store during this period.
-func (s *StoreInfo) GetKeysWritten() uint64 {
-	return s.stats.GetKeysWritten()
-}
-
-// GetKeysRead returns the keys read for the store during this period.
-func (s *StoreInfo) GetKeysRead() uint64 {
-	return s.stats.GetKeysRead()
 }
 
 // IsBusy returns if the store is busy.

@@ -10,6 +10,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -133,6 +134,10 @@ type MsgSplitRegion struct {
 	Callback  *message.Callback
 }
 
+type MsgGCSnap struct {
+	Snaps []snap.SnapKeyWithSending
+}
+
 func (d *peerMsgHandler) HandleMsgs(msgs ...message.Msg) {
 	for _, msg := range msgs {
 		switch msg.Type {
@@ -197,7 +202,7 @@ func (d *peerMsgHandler) startTicker() {
 	d.ticker.schedule(PeerTickPdHeartbeat)
 }
 
-func (d *peerMsgHandler) onGCSnap(snaps []SnapKeyWithSending) {
+func (d *peerMsgHandler) onGCSnap(snaps []snap.SnapKeyWithSending) {
 	store := d.peer.Store()
 	compactedIdx := store.truncatedIndex()
 	compactedTerm := store.truncatedTerm()
@@ -476,16 +481,16 @@ func (d *peerMsgHandler) handleGCPeerMsg(msg *rspb.RaftMessage) {
 }
 
 // Returns `None` if the `msg` doesn't contain a snapshot or it contains a snapshot which
-// doesn't conflict with any other snapshots or regions. Otherwise a `SnapKey` is returned.
-func (d *peerMsgHandler) checkSnapshot(msg *rspb.RaftMessage) (*SnapKey, error) {
+// doesn't conflict with any other snapshots or regions. Otherwise a `snap.SnapKey` is returned.
+func (d *peerMsgHandler) checkSnapshot(msg *rspb.RaftMessage) (*snap.SnapKey, error) {
 	if msg.Message.Snapshot == nil {
 		return nil, nil
 	}
 	regionID := msg.RegionId
-	snap := msg.Message.Snapshot
-	key := SnapKeyFromRegionSnap(regionID, snap)
+	snapshot := msg.Message.Snapshot
+	key := snap.SnapKeyFromRegionSnap(regionID, snapshot)
 	snapData := new(rspb.RaftSnapshotData)
-	err := snapData.Unmarshal(snap.Data)
+	err := snapData.Unmarshal(snapshot.Data)
 	if err != nil {
 		return nil, err
 	}
@@ -528,7 +533,7 @@ func (d *peerMsgHandler) checkSnapshot(msg *rspb.RaftMessage) (*SnapKey, error) 
 			// Same region can overlap, we will apply the latest version of snapshot.
 			region.Id != snapRegion.Id {
 			log.Infof("pending region overlapped regionID %d peerID %d region %s snap %s",
-				d.regionID(), d.peerID(), region, snap)
+				d.regionID(), d.peerID(), region, snapshot)
 			return &key, nil
 		}
 	}
@@ -584,12 +589,6 @@ func (d *peerMsgHandler) destroyPeer(mergeByTarget bool) {
 		d.ctx.storeMetaLock.Unlock()
 		// send messages out of store meta lock.
 		d.ctx.applyMsgs.appendMsg(regionID, message.NewPeerMsg(message.MsgTypeApplyDestroy, regionID, nil))
-		d.ctx.pdTaskSender <- worker.Task{
-			Tp: worker.TaskTypePDDestroyPeer,
-			Data: &pdDestroyPeerTask{
-				regionID: regionID,
-			},
-		}
 	}()
 	meta := d.ctx.storeMeta
 	isInitialized := d.peer.isInitialized()
@@ -693,12 +692,6 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 		d.peer.HeartbeatPd(d.ctx.pdTaskSender)
 		// Notify pd immediately to let it update the region meta.
 		log.Infof("%s notify pd with split count %d", d.tag(), len(regions))
-		// Now pd only uses ReportBatchSplit for history operation show,
-		// so we send it independently here.
-		d.ctx.pdTaskSender <- worker.Task{
-			Tp:   worker.TaskTypePDReportBatchSplit,
-			Data: &pdReportBatchSplitTask{regions: regions},
-		}
 	}
 
 	lastRegion := regions[len(regions)-1]

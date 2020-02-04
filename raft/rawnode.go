@@ -64,9 +64,6 @@ func (rn *RawNode) commitReady(rd Ready) {
 	if !IsEmptySnap(&rd.Snapshot) {
 		rn.Raft.RaftLog.stableSnapTo(rd.Snapshot.Metadata.Index)
 	}
-	if len(rd.ReadStates) != 0 {
-		rn.Raft.readStates = nil
-	}
 }
 
 func (rn *RawNode) commitApply(applied uint64) {
@@ -169,19 +166,17 @@ func (rn *RawNode) ProposeConfChange(ctx []byte, cc pb.ConfChange) error {
 // ApplyConfChange applies a config change to the local node.
 func (rn *RawNode) ApplyConfChange(cc pb.ConfChange) *pb.ConfState {
 	if cc.NodeId == None {
-		return &pb.ConfState{Nodes: rn.Raft.nodes(), Learners: rn.Raft.learnerNodes()}
+		return &pb.ConfState{Nodes: rn.Raft.nodes()}
 	}
 	switch cc.ChangeType {
 	case pb.ConfChangeType_AddNode:
 		rn.Raft.addNode(cc.NodeId)
-	case pb.ConfChangeType_AddLearnerNode:
-		rn.Raft.addLearner(cc.NodeId)
 	case pb.ConfChangeType_RemoveNode:
 		rn.Raft.removeNode(cc.NodeId)
 	default:
 		panic("unexpected conf type")
 	}
-	return &pb.ConfState{Nodes: rn.Raft.nodes(), Learners: rn.Raft.learnerNodes()}
+	return &pb.ConfState{Nodes: rn.Raft.nodes()}
 }
 
 // Step advances the state machine using the given message.
@@ -220,9 +215,6 @@ func (rn *RawNode) HasReady() bool {
 	if len(r.msgs) > 0 || len(r.RaftLog.unstableEntries()) > 0 || r.RaftLog.hasNextEnts() {
 		return true
 	}
-	if len(r.readStates) != 0 {
-		return true
-	}
 	return false
 }
 
@@ -250,26 +242,12 @@ func (rn *RawNode) StatusWithoutProgress() Status {
 	return getStatusWithoutProgress(rn.Raft)
 }
 
-// ProgressType indicates the type of replica a Progress corresponds to.
-type ProgressType byte
-
-const (
-	// ProgressTypePeer accompanies a Progress for a regular peer replica.
-	ProgressTypePeer ProgressType = iota
-	// ProgressTypeLearner accompanies a Progress for a learner replica.
-	ProgressTypeLearner
-)
-
 // WithProgress is a helper to introspect the Progress for this node and its
 // peers.
-func (rn *RawNode) WithProgress(visitor func(id uint64, typ ProgressType, pr Progress)) {
+func (rn *RawNode) WithProgress(visitor func(id uint64, pr Progress)) {
 	for id, pr := range rn.Raft.Prs {
 		pr := *pr
-		visitor(id, ProgressTypePeer, pr)
-	}
-	for id, pr := range rn.Raft.LearnerPrs {
-		pr := *pr
-		visitor(id, ProgressTypeLearner, pr)
+		visitor(id, pr)
 	}
 }
 
@@ -290,15 +268,6 @@ func (rn *RawNode) TransferLeader(transferee uint64) {
 	_ = rn.Raft.Step(pb.Message{MsgType: pb.MessageType_MsgTransferLeader, From: transferee})
 }
 
-// ReadIndex requests a read state. The read state will be set in ready.
-// Read State has a read index. Once the application advances further than the read
-// index, any linearizable read requests issued before the read request can be
-// processed safely. The read state will have the same rctx attached.
-func (rn *RawNode) ReadIndex(rctx []byte) {
-	ent := pb.Entry{Data: rctx}
-	_ = rn.Raft.Step(pb.Message{MsgType: pb.MessageType_MsgReadIndex, Entries: []*pb.Entry{&ent}})
-}
-
 func (rn *RawNode) GetSnap() *pb.Snapshot {
 	return rn.Raft.GetSnap()
 }
@@ -317,9 +286,6 @@ func hardStateEqual(l, r *pb.HardState) bool {
 
 func (rn *RawNode) HasReadySince(appliedIdx *uint64) bool {
 	if len(rn.Raft.msgs) != 0 || rn.Raft.RaftLog.unstableEntries() != nil {
-		return true
-	}
-	if len(rn.Raft.readStates) != 0 {
 		return true
 	}
 	if snap := rn.GetSnap(); snap != nil && !IsEmptySnap(snap) {

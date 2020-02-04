@@ -2,43 +2,47 @@ package inner_server
 
 import (
 	"github.com/coocood/badger"
+	kvConfig "github.com/pingcap-incubator/tinykv/kv/config"
+	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 )
 
-type StandAlongInnerServer struct {
+// StandAloneInnerServer is an InnerServer (see tikv/server.go) for a single-node TinyKV instance. It does not
+// communicate with other nodes and all data is stored locally.
+type StandAloneInnerServer struct {
 	db *badger.DB
 }
 
-func NewStandAlongInnerServer(db *badger.DB) *StandAlongInnerServer {
-	return &StandAlongInnerServer{
+func NewStandAloneInnerServer(conf *kvConfig.Config) *StandAloneInnerServer {
+	db := engine_util.CreateDB("kv", &conf.Engine)
+	return &StandAloneInnerServer{
 		db: db,
 	}
 }
 
-func (is *StandAlongInnerServer) Raft(stream tikvpb.Tikv_RaftServer) error {
+func (is *StandAloneInnerServer) Raft(stream tikvpb.Tikv_RaftServer) error {
 	return nil
 }
 
-func (is *StandAlongInnerServer) BatchRaft(stream tikvpb.Tikv_BatchRaftServer) error {
+func (is *StandAloneInnerServer) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
 	return nil
 }
 
-func (is *StandAlongInnerServer) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
+func (is *StandAloneInnerServer) Start(pdClient pd.Client) error {
 	return nil
 }
 
-func (is *StandAlongInnerServer) SplitRegion(req *kvrpcpb.SplitRegionRequest) *kvrpcpb.SplitRegionResponse {
-	return &kvrpcpb.SplitRegionResponse{}
-}
-
-func (is *StandAlongInnerServer) Setup(pdClient pd.Client) {}
-
-func (is *StandAlongInnerServer) Start(pdClient pd.Client) error {
-	return nil
-}
-
-func (is *StandAlongInnerServer) Stop() error {
+func (is *StandAloneInnerServer) Stop() error {
 	return is.db.Close()
+}
+
+func (is *StandAloneInnerServer) Reader(ctx *kvrpcpb.Context) (dbreader.DBReader, error) {
+	return nil, nil
+}
+
+func (is *StandAloneInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
+	return nil
 }

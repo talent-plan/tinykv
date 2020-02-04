@@ -16,7 +16,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"time"
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
@@ -29,7 +28,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/id"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
-	syncer "github.com/pingcap-incubator/tinykv/scheduler/server/region_syncer"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/operator"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/opt"
@@ -610,7 +608,6 @@ func (c *testCluster) LoadRegion(regionID uint64, followerStoreIDs ...uint64) er
 // 	c.Assert(sches, HasLen, 6)
 // 	c.Assert(co.removeScheduler("balance-leader-scheduler"), IsNil)
 // 	c.Assert(co.removeScheduler("balance-region-scheduler"), IsNil)
-// 	c.Assert(co.removeScheduler("balance-hot-region-scheduler"), IsNil)
 // 	c.Assert(co.removeScheduler("label-scheduler"), IsNil)
 // 	c.Assert(co.schedulers, HasLen, 2)
 // 	c.Assert(co.cluster.opt.Persist(storage), IsNil)
@@ -714,7 +711,6 @@ func (c *testCluster) LoadRegion(regionID uint64, followerStoreIDs ...uint64) er
 // 	// remove all schedulers
 // 	c.Assert(co.removeScheduler("balance-leader-scheduler"), IsNil)
 // 	c.Assert(co.removeScheduler("balance-region-scheduler"), IsNil)
-// 	c.Assert(co.removeScheduler("balance-hot-region-scheduler"), IsNil)
 // 	c.Assert(co.removeScheduler("label-scheduler"), IsNil)
 // 	c.Assert(co.removeScheduler("grant-leader-scheduler-1"), IsNil)
 // 	// all removed
@@ -1027,7 +1023,7 @@ func (s *testScheduleControllerSuite) TestController(c *C) {
 	c.Assert(sc.AllowSchedule(), IsTrue)
 
 	// add a PriorityKind operator will remove old operator
-	op3 := newTestOperator(2, tc.GetRegion(2).GetRegionEpoch(), operator.OpHotRegion)
+	op3 := newTestOperator(2, tc.GetRegion(2).GetRegionEpoch(), operator.OpBalance)
 	op3.SetPriorityLevel(core.HighPriority)
 	c.Assert(oc.AddWaitingOperator(op1), IsTrue)
 	c.Assert(sc.AllowSchedule(), IsFalse)
@@ -1045,7 +1041,7 @@ func (s *testScheduleControllerSuite) TestController(c *C) {
 	c.Assert(oc.RemoveOperator(op4), IsTrue)
 
 	// test wrong region id.
-	op5 := newTestOperator(3, &metapb.RegionEpoch{}, operator.OpHotRegion)
+	op5 := newTestOperator(3, &metapb.RegionEpoch{}, operator.OpBalance)
 	c.Assert(oc.AddWaitingOperator(op5), IsFalse)
 
 	// test wrong region epoch.
@@ -1143,16 +1139,13 @@ func getHeartBeatStreams(ctx context.Context, c *C, tc *testCluster) (*heartbeat
 	svr, err := CreateServer(config)
 	c.Assert(err, IsNil)
 	kvBase := kv.NewEtcdKVBase(svr.client, svr.rootPath)
-	path := filepath.Join(svr.cfg.DataDir, "region-meta")
-	regionStorage, err := core.NewRegionStorage(ctx, path)
 	c.Assert(err, IsNil)
-	svr.storage = core.NewStorage(kvBase).SetRegionStorage(regionStorage)
+	svr.storage = core.NewStorage(kvBase)
 	cluster := tc.RaftCluster
 	cluster.s = svr
 	cluster.running = false
 	cluster.clusterID = tc.getClusterID()
 	cluster.clusterRoot = svr.getClusterRootPath()
-	cluster.regionSyncer = syncer.NewRegionSyncer(svr)
 	hbStreams := newHeartbeatStreams(ctx, tc.getClusterID(), cluster)
 	return hbStreams, func() { testutil.CleanServer(config) }
 }

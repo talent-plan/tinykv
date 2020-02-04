@@ -20,14 +20,6 @@ import "fmt"
 // progresses of all followers, and sends entries to the follower based on its progress.
 type Progress struct {
 	Match, Next uint64
-
-	// RecentActive is true if the progress is recently active. Receiving any messages
-	// from the corresponding follower indicates the progress is active.
-	// RecentActive can be reset to false after an election timeout.
-	RecentActive bool
-
-	// IsLearner is true if this progress is tracked for a learner.
-	IsLearner bool
 }
 
 // maybeUpdate returns false if the given n index comes from an outdated message.

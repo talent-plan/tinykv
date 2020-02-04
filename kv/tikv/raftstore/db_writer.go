@@ -1,7 +1,5 @@
 package raftstore
 
-import "github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
-
 type raftDBWriter struct {
 	router *router
 }
@@ -165,13 +163,13 @@ func (writer *raftDBWriter) Close() {
 // 	return writer.checkResponse(cb.resp, len(b.requests))
 // }
 
-type RaftError struct {
-	RequestErr *errorpb.Error
-}
+// type RaftError struct {
+// 	RequestErr *errorpb.Error
+// }
 
-func (re *RaftError) Error() string {
-	return re.RequestErr.String()
-}
+// func (re *RaftError) Error() string {
+// 	return re.RequestErr.String()
+// }
 
 // func (writer *raftDBWriter) checkResponse(resp *rcpb.RaftCmdResponse, reqCount int) error {
 // 	if resp.Header.Error != nil {
@@ -216,7 +214,7 @@ func (re *RaftError) Error() string {
 // 	if err != nil {
 // 		return err
 // 	}
-// 	err = applyCtx.wb.WriteToKV(w.dbBundle)
+// 	err = applyCtx.wb.WriteToDB(w.dbBundle)
 // 	if err != nil {
 // 		return err
 // 	}

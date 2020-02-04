@@ -42,9 +42,11 @@ func NewTestServer(c *check.C) (*Server, CleanupFunc, error) {
 	cfg := NewTestSingleConfig(c)
 	s, err := CreateServer(cfg)
 	if err != nil {
+		cancel()
 		return nil, nil, err
 	}
 	if err = s.Run(ctx); err != nil {
+		cancel()
 		return nil, nil, err
 	}
 

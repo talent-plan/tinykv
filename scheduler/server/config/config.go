@@ -186,9 +186,8 @@ const (
 
 	defaultLeaderPriorityCheckInterval = time.Minute
 
-	defaultUseRegionStorage = true
-	defaultMaxResetTsGap    = 24 * time.Hour
-	defaultKeyType          = "table"
+	defaultMaxResetTsGap = 24 * time.Hour
+	defaultKeyType       = "table"
 
 	defaultStrictlyMatchLabel  = false
 	defaultEnableGRPCGateway   = true
@@ -481,12 +480,6 @@ type ScheduleConfig struct {
 	ReplicaScheduleLimit uint64 `toml:"replica-schedule-limit,omitempty" json:"replica-schedule-limit"`
 	// MergeScheduleLimit is the max coexist merge schedules.
 	MergeScheduleLimit uint64 `toml:"merge-schedule-limit,omitempty" json:"merge-schedule-limit"`
-	// HotRegionScheduleLimit is the max coexist hot region schedules.
-	HotRegionScheduleLimit uint64 `toml:"hot-region-schedule-limit,omitempty" json:"hot-region-schedule-limit"`
-	// HotRegionCacheHitThreshold is the cache hits threshold of the hot region.
-	// If the number of times a region hits the hot cache is greater than this
-	// threshold, it is considered a hot region.
-	HotRegionCacheHitsThreshold uint64 `toml:"hot-region-cache-hits-threshold,omitempty" json:"hot-region-cache-hits-threshold"`
 	// StoreBalanceRate is the maximum of balance rate for each store.
 	StoreBalanceRate float64 `toml:"store-balance-rate,omitempty" json:"store-balance-rate"`
 	// TolerantSizeRatio is the ratio of buffer size for balance scheduler.
@@ -565,8 +558,6 @@ func (c *ScheduleConfig) Clone() *ScheduleConfig {
 		MergeScheduleLimit:           c.MergeScheduleLimit,
 		EnableOneWayMerge:            c.EnableOneWayMerge,
 		EnableCrossTableMerge:        c.EnableCrossTableMerge,
-		HotRegionScheduleLimit:       c.HotRegionScheduleLimit,
-		HotRegionCacheHitsThreshold:  c.HotRegionCacheHitsThreshold,
 		StoreBalanceRate:             c.StoreBalanceRate,
 		TolerantSizeRatio:            c.TolerantSizeRatio,
 		LowSpaceRatio:                c.LowSpaceRatio,
@@ -588,26 +579,22 @@ func (c *ScheduleConfig) Clone() *ScheduleConfig {
 }
 
 const (
-	defaultMaxReplicas            = 3
-	defaultMaxSnapshotCount       = 3
-	defaultMaxPendingPeerCount    = 16
-	defaultMaxMergeRegionSize     = 20
-	defaultMaxMergeRegionKeys     = 200000
-	defaultSplitMergeInterval     = 1 * time.Hour
-	defaultPatrolRegionInterval   = 100 * time.Millisecond
-	defaultMaxStoreDownTime       = 30 * time.Minute
-	defaultLeaderScheduleLimit    = 4
-	defaultRegionScheduleLimit    = 2048
-	defaultReplicaScheduleLimit   = 64
-	defaultMergeScheduleLimit     = 8
-	defaultHotRegionScheduleLimit = 4
-	defaultStoreBalanceRate       = 15
-	defaultTolerantSizeRatio      = 0
-	defaultLowSpaceRatio          = 0.8
-	defaultHighSpaceRatio         = 0.6
-	// defaultHotRegionCacheHitsThreshold is the low hit number threshold of the
-	// hot region.
-	defaultHotRegionCacheHitsThreshold = 3
+	defaultMaxReplicas                 = 3
+	defaultMaxSnapshotCount            = 3
+	defaultMaxPendingPeerCount         = 16
+	defaultMaxMergeRegionSize          = 20
+	defaultMaxMergeRegionKeys          = 200000
+	defaultSplitMergeInterval          = 1 * time.Hour
+	defaultPatrolRegionInterval        = 100 * time.Millisecond
+	defaultMaxStoreDownTime            = 30 * time.Minute
+	defaultLeaderScheduleLimit         = 4
+	defaultRegionScheduleLimit         = 2048
+	defaultReplicaScheduleLimit        = 64
+	defaultMergeScheduleLimit          = 8
+	defaultStoreBalanceRate            = 15
+	defaultTolerantSizeRatio           = 0
+	defaultLowSpaceRatio               = 0.8
+	defaultHighSpaceRatio              = 0.6
 	defaultSchedulerMaxWaitingOperator = 3
 	defaultLeaderScheduleStrategy      = "count"
 )
@@ -639,12 +626,6 @@ func (c *ScheduleConfig) adjust(meta *configMetaData) error {
 	}
 	if !meta.IsDefined("merge-schedule-limit") {
 		adjustUint64(&c.MergeScheduleLimit, defaultMergeScheduleLimit)
-	}
-	if !meta.IsDefined("hot-region-schedule-limit") {
-		adjustUint64(&c.HotRegionScheduleLimit, defaultHotRegionScheduleLimit)
-	}
-	if !meta.IsDefined("hot-region-cache-hits-threshold") {
-		adjustUint64(&c.HotRegionCacheHitsThreshold, defaultHotRegionCacheHitsThreshold)
 	}
 	if !meta.IsDefined("tolerant-size-ratio") {
 		adjustFloat64(&c.TolerantSizeRatio, defaultTolerantSizeRatio)
@@ -859,8 +840,6 @@ func (s SecurityConfig) ToTLSConfig() (*tls.Config, error) {
 
 // PDServerConfig is the configuration for pd server.
 type PDServerConfig struct {
-	// UseRegionStorage enables the independent region storage.
-	UseRegionStorage bool `toml:"use-region-storage" json:"use-region-storage,string"`
 	// MaxResetTSGap is the max gap to reset the tso.
 	MaxResetTSGap time.Duration `toml:"max-reset-ts-gap" json:"max-reset-ts-gap"`
 	// KeyType is option to specify the type of keys.
@@ -869,9 +848,6 @@ type PDServerConfig struct {
 }
 
 func (c *PDServerConfig) adjust(meta *configMetaData) error {
-	if !meta.IsDefined("use-region-storage") {
-		c.UseRegionStorage = defaultUseRegionStorage
-	}
 	if !meta.IsDefined("max-reset-ts-gap") {
 		c.MaxResetTSGap = defaultMaxResetTsGap
 	}

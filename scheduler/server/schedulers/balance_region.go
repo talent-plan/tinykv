@@ -18,13 +18,13 @@ import (
 	"strconv"
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/checker"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/filter"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/operator"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/opt"
+	"github.com/pingcap/log"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 )
@@ -134,13 +134,6 @@ func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) []*operator.Opera
 			if len(region.GetPeers()) != cluster.GetMaxReplicas() {
 				log.Debug("region has abnormal replica count", zap.String("scheduler", s.GetName()), zap.Uint64("region-id", region.GetID()))
 				schedulerCounter.WithLabelValues(s.GetName(), "abnormal-replica").Inc()
-				continue
-			}
-
-			// Skip hot regions.
-			if cluster.IsRegionHot(region) {
-				log.Debug("region is hot", zap.String("scheduler", s.GetName()), zap.Uint64("region-id", region.GetID()))
-				schedulerCounter.WithLabelValues(s.GetName(), "region-hot").Inc()
 				continue
 			}
 

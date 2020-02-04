@@ -12,6 +12,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -24,7 +25,7 @@ import (
 type regionTask struct {
 	regionId uint64
 	notifier chan<- *eraftpb.Snapshot
-	status   *JobStatus
+	status   *snap.JobStatus
 	startKey []byte
 	endKey   []byte
 }
@@ -52,8 +53,6 @@ type pdRegionHeartbeatTask struct {
 	peer            *metapb.Peer
 	downPeers       []*pdpb.PeerStats
 	pendingPeers    []*metapb.Peer
-	writtenBytes    uint64
-	writtenKeys     uint64
 	approximateSize *uint64
 }
 
@@ -62,14 +61,6 @@ type pdStoreHeartbeatTask struct {
 	engine   *badger.DB
 	path     string
 	capacity uint64
-}
-
-type pdReportBatchSplitTask struct {
-	regions []*metapb.Region
-}
-
-type pdDestroyPeerTask struct {
-	regionID uint64
 }
 
 type splitCheckHandler struct {
@@ -139,7 +130,7 @@ func (r *splitCheckHandler) splitCheck(startKey, endKey []byte) [][]byte {
 	for it.Seek(startKey); it.Valid(); it.Next() {
 		item := it.Item()
 		key := item.Key()
-		if exceedEndKey(key, endKey) {
+		if engine_util.ExceedEndKey(key, endKey) {
 			break
 		}
 		if r.checker.onKv(key, item) {
@@ -207,7 +198,7 @@ func (checker *sizeSplitChecker) getSplitKeys() [][]byte {
 type snapContext struct {
 	engines   *engine_util.Engines
 	batchSize uint64
-	mgr       *SnapManager
+	mgr       *snap.SnapManager
 }
 
 // handleGen handles the task of generating snapshot of the Region.
@@ -221,24 +212,24 @@ func (snapCtx *snapContext) handleGen(regionId uint64, notifier chan<- *eraftpb.
 }
 
 // cleanUpOriginData clear up the region data before applying snapshot
-func (snapCtx *snapContext) cleanUpOriginData(regionState *rspb.RegionLocalState, status *JobStatus) error {
+func (snapCtx *snapContext) cleanUpOriginData(regionState *rspb.RegionLocalState, status *snap.JobStatus) error {
 	startKey, endKey := regionState.GetRegion().StartKey, regionState.GetRegion().EndKey
-	if err := checkAbort(status); err != nil {
+	if err := snap.CheckAbort(status); err != nil {
 		return err
 	}
 	if err := engine_util.DeleteRange(snapCtx.engines.Kv, startKey, endKey); err != nil {
 		return err
 	}
-	if err := checkAbort(status); err != nil {
+	if err := snap.CheckAbort(status); err != nil {
 		return err
 	}
 	return nil
 }
 
 // applySnap applies snapshot data of the Region.
-func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus) error {
+func (snapCtx *snapContext) applySnap(regionId uint64, status *snap.JobStatus) error {
 	log.Infof("begin apply snap data. [regionId: %d]", regionId)
-	if err := checkAbort(status); err != nil {
+	if err := snap.CheckAbort(status); err != nil {
 		return err
 	}
 
@@ -257,18 +248,18 @@ func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus) error 
 	if err != nil {
 		return errors.New(fmt.Sprintf("failed to get raftState from %v", ApplyStateKey(regionId)))
 	}
-	snapKey := SnapKey{RegionID: regionId, Index: applyState.truncatedIndex, Term: applyState.truncatedTerm}
-	snapCtx.mgr.Register(snapKey, SnapEntryApplying)
-	defer snapCtx.mgr.Deregister(snapKey, SnapEntryApplying)
+	snapKey := snap.SnapKey{RegionID: regionId, Index: applyState.truncatedIndex, Term: applyState.truncatedTerm}
+	snapCtx.mgr.Register(snapKey, snap.SnapEntryApplying)
+	defer snapCtx.mgr.Deregister(snapKey, snap.SnapEntryApplying)
 
-	snap, err := snapCtx.mgr.GetSnapshotForApplying(snapKey)
+	snapshot, err := snapCtx.mgr.GetSnapshotForApplying(snapKey)
 	if err != nil {
-		return errors.New(fmt.Sprintf("missing snapshot file %s", snap.Path()))
+		return errors.New(fmt.Sprintf("missing snapshot file %s", snapshot.Path()))
 	}
 
 	t := time.Now()
-	applyOptions := newApplyOptions(snapCtx.engines.Kv, regionState.GetRegion(), status)
-	if err := snap.Apply(*applyOptions); err != nil {
+	applyOptions := snap.NewApplyOptions(snapCtx.engines.Kv, regionState.GetRegion(), status)
+	if err := snapshot.Apply(*applyOptions); err != nil {
 		return err
 	}
 
@@ -276,7 +267,7 @@ func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus) error 
 	wb := new(engine_util.WriteBatch)
 	wb.SetMsg(RegionStateKey(regionId), regionState)
 	wb.Delete(SnapshotRaftStateKey(regionId))
-	if err := wb.WriteToKV(snapCtx.engines.Kv); err != nil {
+	if err := wb.WriteToDB(snapCtx.engines.Kv); err != nil {
 		log.Errorf("update region status failed: %s", err)
 	}
 
@@ -285,18 +276,18 @@ func (snapCtx *snapContext) applySnap(regionId uint64, status *JobStatus) error 
 }
 
 // handleApply tries to apply the snapshot of the specified Region. It calls `applySnap` to do the actual work.
-func (snapCtx *snapContext) handleApply(regionId uint64, status *JobStatus) {
-	atomic.CompareAndSwapUint32(status, JobStatus_Pending, JobStatus_Running)
+func (snapCtx *snapContext) handleApply(regionId uint64, status *snap.JobStatus) {
+	atomic.CompareAndSwapUint32(status, snap.JobStatus_Pending, snap.JobStatus_Running)
 	err := snapCtx.applySnap(regionId, status)
 	switch err.(type) {
 	case nil:
-		atomic.SwapUint32(status, JobStatus_Finished)
-	case applySnapAbortError:
+		atomic.SwapUint32(status, snap.JobStatus_Finished)
+	case snap.ApplySnapAbortError:
 		log.Warnf("applying snapshot is aborted. [regionId: %d]", regionId)
-		y.Assert(atomic.SwapUint32(status, JobStatus_Cancelled) == JobStatus_Cancelling)
+		y.Assert(atomic.SwapUint32(status, snap.JobStatus_Cancelled) == snap.JobStatus_Cancelling)
 	default:
 		log.Errorf("failed to apply snap!!!. err: %v", err)
-		atomic.SwapUint32(status, JobStatus_Failed)
+		atomic.SwapUint32(status, snap.JobStatus_Failed)
 	}
 }
 
@@ -321,7 +312,7 @@ type regionTaskHandler struct {
 	applyStates []regionApplyState
 }
 
-func newRegionTaskHandler(engines *engine_util.Engines, mgr *SnapManager) *regionTaskHandler {
+func newRegionTaskHandler(engines *engine_util.Engines, mgr *snap.SnapManager) *regionTaskHandler {
 	return &regionTaskHandler{
 		ctx: &snapContext{
 			engines: engines,
@@ -390,7 +381,7 @@ func (r *raftLogGCTaskHandler) gcRaftLog(raftDb *badger.DB, regionId, startIdx, 
 	}
 	// todo, disable WAL here.
 	if raftWb.Len() != 0 {
-		if err := raftWb.WriteToRaft(raftDb); err != nil {
+		if err := raftWb.WriteToDB(raftDb); err != nil {
 			return 0, err
 		}
 	}
