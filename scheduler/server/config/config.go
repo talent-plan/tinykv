@@ -186,8 +186,8 @@ const (
 
 	defaultLeaderPriorityCheckInterval = time.Minute
 
-	defaultMaxResetTsGap    = 24 * time.Hour
-	defaultKeyType          = "table"
+	defaultMaxResetTsGap = 24 * time.Hour
+	defaultKeyType       = "table"
 
 	defaultStrictlyMatchLabel  = false
 	defaultEnableGRPCGateway   = true
@@ -579,22 +579,22 @@ func (c *ScheduleConfig) Clone() *ScheduleConfig {
 }
 
 const (
-	defaultMaxReplicas            = 3
-	defaultMaxSnapshotCount       = 3
-	defaultMaxPendingPeerCount    = 16
-	defaultMaxMergeRegionSize     = 20
-	defaultMaxMergeRegionKeys     = 200000
-	defaultSplitMergeInterval     = 1 * time.Hour
-	defaultPatrolRegionInterval   = 100 * time.Millisecond
-	defaultMaxStoreDownTime       = 30 * time.Minute
-	defaultLeaderScheduleLimit    = 4
-	defaultRegionScheduleLimit    = 2048
-	defaultReplicaScheduleLimit   = 64
-	defaultMergeScheduleLimit     = 8
-	defaultStoreBalanceRate       = 15
-	defaultTolerantSizeRatio      = 0
-	defaultLowSpaceRatio          = 0.8
-	defaultHighSpaceRatio         = 0.6
+	defaultMaxReplicas                 = 3
+	defaultMaxSnapshotCount            = 3
+	defaultMaxPendingPeerCount         = 16
+	defaultMaxMergeRegionSize          = 20
+	defaultMaxMergeRegionKeys          = 200000
+	defaultSplitMergeInterval          = 1 * time.Hour
+	defaultPatrolRegionInterval        = 100 * time.Millisecond
+	defaultMaxStoreDownTime            = 30 * time.Minute
+	defaultLeaderScheduleLimit         = 4
+	defaultRegionScheduleLimit         = 2048
+	defaultReplicaScheduleLimit        = 64
+	defaultMergeScheduleLimit          = 8
+	defaultStoreBalanceRate            = 15
+	defaultTolerantSizeRatio           = 0
+	defaultLowSpaceRatio               = 0.8
+	defaultHighSpaceRatio              = 0.6
 	defaultSchedulerMaxWaitingOperator = 3
 	defaultLeaderScheduleStrategy      = "count"
 )

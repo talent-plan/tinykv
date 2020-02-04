@@ -16,15 +16,16 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"math"
+	"path"
+	"strconv"
+	"strings"
+
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
 	"github.com/pkg/errors"
 	"go.etcd.io/etcd/clientv3"
-	"math"
-	"path"
-	"strconv"
-	"strings"
 )
 
 const (

@@ -71,8 +71,8 @@ type RaftCluster struct {
 
 	coordinator *coordinator
 
-	wg           sync.WaitGroup
-	quit         chan struct{}
+	wg   sync.WaitGroup
+	quit chan struct{}
 }
 
 // ClusterStatus saves some state information
@@ -83,11 +83,11 @@ type ClusterStatus struct {
 
 func newRaftCluster(ctx context.Context, s *Server, clusterID uint64) *RaftCluster {
 	return &RaftCluster{
-		ctx:          ctx,
-		s:            s,
-		running:      false,
-		clusterID:    clusterID,
-		clusterRoot:  s.getClusterRootPath(),
+		ctx:         ctx,
+		s:           s,
+		running:     false,
+		clusterID:   clusterID,
+		clusterRoot: s.getClusterRootPath(),
 	}
 }
 
