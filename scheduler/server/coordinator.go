@@ -83,7 +83,6 @@ func (c *coordinator) patrolRegions() {
 	defer timer.Stop()
 
 	log.Info("coordinator starts patrol regions")
-	start := time.Now()
 	var key []byte
 	for {
 		select {
@@ -116,10 +115,6 @@ func (c *coordinator) patrolRegions() {
 			if ops != nil {
 				c.opController.AddWaitingOperator(ops...)
 			}
-		}
-		if len(key) == 0 {
-			patrolCheckRegionsHistogram.Observe(time.Since(start).Seconds())
-			start = time.Now()
 		}
 	}
 }
@@ -261,28 +256,6 @@ func (c *coordinator) getSchedulers() []string {
 	return names
 }
 
-func (c *coordinator) collectSchedulerMetrics() {
-	c.RLock()
-	defer c.RUnlock()
-	for _, s := range c.schedulers {
-		var allowScheduler float64
-		// If the scheduler is not allowed to schedule, it will disappear in Grafana panel.
-		// See issue #1341.
-		if s.AllowSchedule() {
-			allowScheduler = 1
-		}
-		schedulerStatusGauge.WithLabelValues(s.GetName(), "allow").Set(allowScheduler)
-	}
-}
-
-func (c *coordinator) resetSchedulerMetrics() {
-	schedulerStatusGauge.Reset()
-}
-
-func (c *coordinator) resetHotSpotMetrics() {
-	hotSpotStatusGauge.Reset()
-}
-
 func (c *coordinator) shouldRun() bool {
 	return c.cluster.isPrepared()
 }
@@ -320,7 +293,6 @@ func (c *coordinator) removeScheduler(name string) error {
 	}
 
 	s.Stop()
-	schedulerStatusGauge.WithLabelValues(name, "allow").Set(0)
 	delete(c.schedulers, name)
 
 	var err error
