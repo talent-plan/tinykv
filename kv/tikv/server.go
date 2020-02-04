@@ -2,7 +2,6 @@ package tikv
 
 import (
 	"context"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 	"sync/atomic"
 	"time"
 
@@ -10,6 +9,8 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/commands"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/coprocessor"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
@@ -234,4 +235,9 @@ func (svr *Server) Raft(stream tikvpb.Tikv_RaftServer) error {
 
 func (svr *Server) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
 	return svr.innerServer.Snapshot(stream)
+}
+
+// SQL push down commands.
+func (svr *Server) Coprocessor(ctx context.Context, req *coprocessor.Request) (*coprocessor.Response, error) {
+	return &coprocessor.Response{}, nil
 }
