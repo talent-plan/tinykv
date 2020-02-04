@@ -161,12 +161,6 @@ func (t *SlowLogTxn) Commit() (*clientv3.TxnResponse, error) {
 			zap.Reflect("response", resp),
 			zap.Duration("cost", cost))
 	}
-	label := "success"
-	if err != nil {
-		label = "failed"
-	}
-	txnCounter.WithLabelValues(label).Inc()
-	txnDuration.WithLabelValues(label).Observe(cost.Seconds())
 
 	return resp, errors.WithStack(err)
 }

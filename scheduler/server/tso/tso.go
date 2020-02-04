@@ -107,8 +107,6 @@ func (t *TimestampOracle) saveTimestamp(ts time.Time) error {
 
 // SyncTimestamp is used to synchronize the timestamp.
 func (t *TimestampOracle) SyncTimestamp(lease *member.LeaderLease) error {
-	tsoCounter.WithLabelValues("sync").Inc()
-
 	last, err := t.loadTimestamp()
 	if err != nil {
 		return err
@@ -125,11 +123,9 @@ func (t *TimestampOracle) SyncTimestamp(lease *member.LeaderLease) error {
 
 	save := next.Add(t.saveInterval)
 	if err = t.saveTimestamp(save); err != nil {
-		tsoCounter.WithLabelValues("err_save_sync_ts").Inc()
 		return err
 	}
 
-	tsoCounter.WithLabelValues("sync_ok").Inc()
 	log.Info("sync and save timestamp", zap.Time("last", last), zap.Time("save", save), zap.Time("next", next))
 
 	current := &atomicObject{
@@ -144,7 +140,6 @@ func (t *TimestampOracle) SyncTimestamp(lease *member.LeaderLease) error {
 // ResetUserTimestamp update the physical part with specified tso.
 func (t *TimestampOracle) ResetUserTimestamp(tso uint64) error {
 	if t.lease == nil || t.lease.IsExpired() {
-		tsoCounter.WithLabelValues("err_lease_reset_ts").Inc()
 		return errors.New("Setup timestamp failed, lease expired")
 	}
 	physical, _ := tsoutil.ParseTS(tso)
@@ -153,25 +148,21 @@ func (t *TimestampOracle) ResetUserTimestamp(tso uint64) error {
 
 	// do not update
 	if typeutil.SubTimeByWallClock(next, prev.physical) <= 3*updateTimestampGuard {
-		tsoCounter.WithLabelValues("err_reset_small_ts").Inc()
 		return errors.New("the specified ts too small than now")
 	}
 
 	if typeutil.SubTimeByWallClock(next, prev.physical) >= t.maxResetTsGap() {
-		tsoCounter.WithLabelValues("err_reset_large_ts").Inc()
 		return errors.New("the specified ts too large than now")
 	}
 
 	save := next.Add(t.saveInterval)
 	if err := t.saveTimestamp(save); err != nil {
-		tsoCounter.WithLabelValues("err_save_reset_ts").Inc()
 		return err
 	}
 	update := &atomicObject{
 		physical: next,
 	}
 	atomic.CompareAndSwapPointer(&t.ts, unsafe.Pointer(prev), unsafe.Pointer(update))
-	tsoCounter.WithLabelValues("reset_tso_ok").Inc()
 	return nil
 }
 
@@ -190,16 +181,9 @@ func (t *TimestampOracle) UpdateTimestamp() error {
 	prev := (*atomicObject)(atomic.LoadPointer(&t.ts))
 	now := time.Now()
 
-	tsoCounter.WithLabelValues("save").Inc()
-
 	jetLag := typeutil.SubTimeByWallClock(now, prev.physical)
 	if jetLag > 3*UpdateTimestampStep {
 		log.Warn("clock offset", zap.Duration("jet-lag", jetLag), zap.Time("prev-physical", prev.physical), zap.Time("now", now))
-		tsoCounter.WithLabelValues("slow_save").Inc()
-	}
-
-	if jetLag < 0 {
-		tsoCounter.WithLabelValues("system_time_slow").Inc()
 	}
 
 	var next time.Time
@@ -214,7 +198,6 @@ func (t *TimestampOracle) UpdateTimestamp() error {
 		next = prev.physical.Add(time.Millisecond)
 	} else {
 		// It will still use the previous physical time to alloc the timestamp.
-		tsoCounter.WithLabelValues("skip_save").Inc()
 		return nil
 	}
 
@@ -223,7 +206,6 @@ func (t *TimestampOracle) UpdateTimestamp() error {
 	if typeutil.SubTimeByWallClock(t.lastSavedTime, next) <= updateTimestampGuard {
 		save := next.Add(t.saveInterval)
 		if err := t.saveTimestamp(save); err != nil {
-			tsoCounter.WithLabelValues("err_save_update_ts").Inc()
 			return err
 		}
 	}
@@ -234,7 +216,6 @@ func (t *TimestampOracle) UpdateTimestamp() error {
 	}
 
 	atomic.StorePointer(&t.ts, unsafe.Pointer(current))
-	tsoGauge.WithLabelValues("tso").Set(float64(next.Unix()))
 
 	return nil
 }
@@ -271,7 +252,6 @@ func (t *TimestampOracle) GetRespTS(count uint32) (pdpb.Timestamp, error) {
 			log.Error("logical part outside of max logical interval, please check ntp time",
 				zap.Reflect("response", resp),
 				zap.Int("retry-count", i))
-			tsoCounter.WithLabelValues("logical_overflow").Inc()
 			time.Sleep(UpdateTimestampStep)
 			continue
 		}

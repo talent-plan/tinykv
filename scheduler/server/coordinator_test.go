@@ -266,35 +266,6 @@ func (c *testCluster) LoadRegion(regionID uint64, followerStoreIDs ...uint64) er
 // 	return nil
 // }
 
-// func (s *testCoordinatorSuite) TestCollectMetrics(c *C) {
-// 	_, opt, err := newTestScheduleConfig()
-// 	c.Assert(err, IsNil)
-// 	tc := newTestCluster(opt)
-// 	hbStreams, cleanup := getHeartBeatStreams(s.ctx, c, tc)
-// 	defer cleanup()
-// 	defer hbStreams.Close()
-
-// 	tc.regionStats = statistics.NewRegionStatistics(tc.s.scheduleOpt)
-// 	co := newCoordinator(s.ctx, tc.RaftCluster, hbStreams)
-// 	co.run()
-// 	// Make sure there are no problem when concurrent write and read
-// 	for i := 0; i <= 10; i++ {
-// 		go func(i int) {
-// 			for j := 0; j < 10000; j++ {
-// 				c.Assert(tc.addRegionStore(uint64(i%5), rand.Intn(200)), IsNil)
-// 			}
-// 		}(i)
-// 	}
-// 	for i := 0; i < 1000; i++ {
-// 		co.collectHotSpotMetrics()
-// 		co.collectSchedulerMetrics()
-// 		co.cluster.collectClusterMetrics()
-// 	}
-// 	co.resetHotSpotMetrics()
-// 	co.resetSchedulerMetrics()
-// 	co.cluster.resetClusterMetrics()
-// }
-
 // func MaxUint64(nums ...uint64) uint64 {
 // 	result := uint64(0)
 // 	for _, num := range nums {

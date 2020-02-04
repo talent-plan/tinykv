@@ -108,7 +108,6 @@ func (alloc *AllocatorImpl) generate() (uint64, error) {
 	}
 
 	log.Info("idAllocator allocates a new id", zap.Uint64("alloc-id", end))
-	idGauge.WithLabelValues("idalloc").Set(float64(end))
 	return end, nil
 }
 
