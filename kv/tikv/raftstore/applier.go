@@ -503,9 +503,11 @@ func (a *applier) processRaftCmd(aCtx *applyContext, index, term uint64, cmd *ra
 	// store will call it after handing exec result.
 	BindRespTerm(resp, term)
 	cmdCB := a.findCallback(index, term, isConfChange)
-	cmdCB.RegionSnap = message.RegionSnapshot{
-		Region: *a.region,
-		Txn:    txn,
+	if txn != nil {
+		cmdCB.RegionSnap = &message.RegionSnapshot{
+			Region: *a.region,
+			Txn:    txn,
+		}
 	}
 
 	aCtx.cbs[len(aCtx.cbs)-1].push(cmdCB, resp)
@@ -629,10 +631,14 @@ func (a *applier) execNormalCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdReque
 	for _, req := range requests {
 		switch req.CmdType {
 		case raft_cmdpb.CmdType_Put:
-			resps = append(resps, a.handlePut(aCtx, req.GetPut()))
+			var r *raft_cmdpb.Response
+			r, err = a.handlePut(aCtx, req.GetPut())
+			resps = append(resps, r)
 			hasWrite = true
 		case raft_cmdpb.CmdType_Delete:
-			resps = append(resps, a.handleDelete(aCtx, req.GetDelete()))
+			var r *raft_cmdpb.Response
+			r, err = a.handleDelete(aCtx, req.GetDelete())
+			resps = append(resps, r)
 			hasWrite = true
 		case raft_cmdpb.CmdType_Get:
 			var r *raft_cmdpb.Response
@@ -655,8 +661,11 @@ func (a *applier) execNormalCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdReque
 	return
 }
 
-func (a *applier) handlePut(aCtx *applyContext, req *raft_cmdpb.PutRequest) *raft_cmdpb.Response {
+func (a *applier) handlePut(aCtx *applyContext, req *raft_cmdpb.PutRequest) (*raft_cmdpb.Response, error) {
 	key, value := req.GetKey(), req.GetValue()
+	if err := CheckKeyInRegion(key, a.region); err != nil {
+		return nil, err
+	}
 
 	if cf := req.GetCf(); len(cf) != 0 {
 		aCtx.wb.SetCF(cf, key, value)
@@ -665,11 +674,14 @@ func (a *applier) handlePut(aCtx *applyContext, req *raft_cmdpb.PutRequest) *raf
 	}
 	return &raft_cmdpb.Response{
 		CmdType: raft_cmdpb.CmdType_Put,
-	}
+	}, nil
 }
 
-func (a *applier) handleDelete(aCtx *applyContext, req *raft_cmdpb.DeleteRequest) *raft_cmdpb.Response {
+func (a *applier) handleDelete(aCtx *applyContext, req *raft_cmdpb.DeleteRequest) (*raft_cmdpb.Response, error) {
 	key := req.GetKey()
+	if err := CheckKeyInRegion(key, a.region); err != nil {
+		return nil, err
+	}
 
 	if cf := req.GetCf(); len(cf) != 0 {
 		aCtx.wb.DeleteCF(cf, key)
@@ -678,11 +690,14 @@ func (a *applier) handleDelete(aCtx *applyContext, req *raft_cmdpb.DeleteRequest
 	}
 	return &raft_cmdpb.Response{
 		CmdType: raft_cmdpb.CmdType_Delete,
-	}
+	}, nil
 }
 
 func (a *applier) handleGet(aCtx *applyContext, req *raft_cmdpb.GetRequest) (*raft_cmdpb.Response, error) {
 	key := req.GetKey()
+	if err := CheckKeyInRegion(key, a.region); err != nil {
+		return nil, err
+	}
 	var val []byte
 	var err error
 	if cf := req.GetCf(); len(cf) != 0 {

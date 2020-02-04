@@ -2,6 +2,10 @@ package inner_server
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"sync"
+
 	kvConfig "github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
@@ -17,9 +21,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 	"github.com/pingcap/errors"
-	"os"
-	"path/filepath"
-	"sync"
 )
 
 // RaftInnerServer is an InnerServer (see tikv/server.go) backed by a Raft node. It is part of a Raft network.
@@ -129,8 +130,8 @@ func (ris *RaftInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
 	if err := ris.raftRouter.SendRaftCommand(request, cb); err != nil {
 		return err
 	}
-	cb.Wg.Wait()
-	return ris.checkResponse(cb.Resp, len(reqs))
+
+	return ris.checkResponse(cb.WaitResp(), len(reqs))
 }
 
 func (ris *RaftInnerServer) Reader(ctx *kvrpcpb.Context) (dbreader.DBReader, error) {
@@ -151,12 +152,15 @@ func (ris *RaftInnerServer) Reader(ctx *kvrpcpb.Context) (dbreader.DBReader, err
 	if err := ris.raftRouter.SendRaftCommand(request, cb); err != nil {
 		return nil, err
 	}
-	cb.Wg.Wait()
-	if err := ris.checkResponse(cb.Resp, 1); err != nil {
+
+	if err := ris.checkResponse(cb.WaitResp(), 1); err != nil {
 		if cb.RegionSnap.Txn != nil {
 			cb.RegionSnap.Txn.Discard()
 		}
 		return nil, err
+	}
+	if cb.RegionSnap == nil {
+		panic("can not found region snap")
 	}
 	return dbreader.NewRegionReader(cb.RegionSnap.Txn, cb.RegionSnap.Region), nil
 }
