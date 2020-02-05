@@ -188,9 +188,9 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	require.True(t, bytes.Equal(resp.GetResponses()[1].GetGet().Value, []byte("v2")))
 	require.True(t, bytes.Equal(resp.GetResponses()[2].GetGet().Value, []byte("v3")))
 
-	require.Equal(t, newPeer.apply.appliedIndexTerm, uint64(1))
-	require.Equal(t, newPeer.apply.applyState.appliedIndex, uint64(2))
-	fetchApplyRes(rw.raftCh)
+	applyRes := fetchApplyRes(rw.raftCh)
+	require.Equal(t, applyRes.applyState.AppliedIndex, uint64(2))
+	require.Equal(t, applyRes.appliedIndexTerm, uint64(1))
 
 	cb = message.NewCallback()
 	NewEntryBuilder(3, 2).
@@ -201,10 +201,10 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError() == nil)
 	require.Equal(t, newPeer.apply.appliedIndexTerm, uint64(2))
-	require.Equal(t, newPeer.apply.applyState.appliedIndex, uint64(3))
-	applyRes := fetchApplyRes(rw.raftCh)
+	require.Equal(t, newPeer.apply.applyState.AppliedIndex, uint64(3))
+	applyRes = fetchApplyRes(rw.raftCh)
 	require.Equal(t, applyRes.regionID, uint64(1))
-	require.Equal(t, applyRes.applyState.appliedIndex, uint64(3))
+	require.Equal(t, applyRes.applyState.AppliedIndex, uint64(3))
 	require.Equal(t, applyRes.appliedIndexTerm, uint64(2))
 	require.Equal(t, len(applyRes.execResults), 0)
 
@@ -220,7 +220,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	require.Nil(t, err)
 	require.True(t, bytes.Equal(val, []byte("v11")))
 	applyRes = fetchApplyRes(rw.raftCh)
-	require.Equal(t, applyRes.applyState.appliedIndex, uint64(4))
+	require.Equal(t, applyRes.applyState.AppliedIndex, uint64(4))
 	require.Equal(t, applyRes.appliedIndexTerm, uint64(2))
 
 	cb = message.NewCallback()
@@ -231,7 +231,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError().GetEpochNotMatch() != nil)
 	applyRes = fetchApplyRes(rw.raftCh)
-	require.Equal(t, applyRes.applyState.appliedIndex, uint64(5))
+	require.Equal(t, applyRes.applyState.AppliedIndex, uint64(5))
 	require.Equal(t, applyRes.appliedIndexTerm, uint64(2))
 
 	cb = message.NewCallback()
@@ -243,7 +243,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError().GetKeyNotInRegion() != nil)
 	applyRes = fetchApplyRes(rw.raftCh)
-	require.Equal(t, applyRes.applyState.appliedIndex, uint64(6))
+	require.Equal(t, applyRes.applyState.AppliedIndex, uint64(6))
 	require.Equal(t, applyRes.appliedIndexTerm, uint64(2))
 	val, err = engine_util.GetCF(engines.Kv, engine_util.CF_DEFAULT, []byte("k3"))
 	require.Nil(t, err)
@@ -264,7 +264,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError() == nil)
 	applyRes = fetchApplyRes(rw.raftCh)
-	require.Equal(t, applyRes.applyState.appliedIndex, uint64(7))
+	require.Equal(t, applyRes.applyState.AppliedIndex, uint64(7))
 	require.Equal(t, applyRes.appliedIndexTerm, uint64(3))
 }
 

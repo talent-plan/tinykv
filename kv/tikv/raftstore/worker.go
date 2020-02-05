@@ -248,7 +248,7 @@ func (snapCtx *snapContext) applySnap(regionId uint64, status *snap.JobStatus) e
 	if err != nil {
 		return errors.New(fmt.Sprintf("failed to get raftState from %v", ApplyStateKey(regionId)))
 	}
-	snapKey := snap.SnapKey{RegionID: regionId, Index: applyState.truncatedIndex, Term: applyState.truncatedTerm}
+	snapKey := snap.SnapKey{RegionID: regionId, Index: applyState.TruncatedState.Index, Term: applyState.TruncatedState.Term}
 	snapCtx.mgr.Register(snapKey, snap.SnapEntryApplying)
 	defer snapCtx.mgr.Deregister(snapKey, snap.SnapEntryApplying)
 

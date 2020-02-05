@@ -117,20 +117,16 @@ func (bs *RaftBatchSystem) loadPeers() ([]*peerFsm, error) {
 
 func (bs *RaftBatchSystem) clearStaleMeta(kvWB, raftWB *engine_util.WriteBatch, originState *rspb.RegionLocalState) {
 	region := originState.Region
-	raftKey := RaftStateKey(region.Id)
-	raftState := raftState{}
-	val, err := getValue(bs.ctx.engine.Raft, raftKey)
+	raftState, err := getRaftLocalState(bs.ctx.engine.Raft, region.Id)
 	if err != nil {
 		// it has been cleaned up.
 		return
 	}
-	raftState.Unmarshal(val)
-	err = ClearMeta(bs.ctx.engine, kvWB, raftWB, region.Id, raftState.lastIndex)
+	err = ClearMeta(bs.ctx.engine, kvWB, raftWB, region.Id, raftState.LastIndex)
 	if err != nil {
 		panic(err)
 	}
-	key := RegionStateKey(region.Id)
-	if err := kvWB.SetMsg(key, originState); err != nil {
+	if err := kvWB.SetMsg(RegionStateKey(region.Id), originState); err != nil {
 		panic(err)
 	}
 }
