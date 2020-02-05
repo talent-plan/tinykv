@@ -167,7 +167,7 @@ func (t *MockTransport) Send(msg *raft_serverpb.RaftMessage) error {
 }
 
 type NodeCluster struct {
-	trans    MockTransport
+	trans    *MockTransport
 	pdClient pd.Client
 	nodes    []*raftstore.Node
 }
@@ -175,7 +175,7 @@ type NodeCluster struct {
 func NewNodeCluster(pdClient pd.Client) NodeCluster {
 	trans := NewMockTransport()
 	return NodeCluster{
-		trans:    trans,
+		trans:    &trans,
 		pdClient: pdClient,
 	}
 }
