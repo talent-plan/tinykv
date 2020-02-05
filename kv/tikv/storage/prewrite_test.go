@@ -111,9 +111,9 @@ func TestPrewriteMultiple(t *testing.T) {
 	cmd := commands.NewPrewrite(builder.request(
 		mutation(3, []byte{42}, kvrpcpb.Op_Put),
 		mutation(4, []byte{43}, kvrpcpb.Op_Put),
-		mutation(5, []byte{44}, kvrpcpb.Op_Insert),
+		mutation(5, []byte{44}, kvrpcpb.Op_Put),
 		mutation(4, nil, kvrpcpb.Op_Del),
-		mutation(4, []byte{1, 3, 5}, kvrpcpb.Op_Insert),
+		mutation(4, []byte{1, 3, 5}, kvrpcpb.Op_Put),
 		mutation(255, []byte{45}, kvrpcpb.Op_Put),
 	))
 	resp := run(t, sched, &cmd)[0].(*kvrpcpb.PrewriteResponse)

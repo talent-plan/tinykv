@@ -76,24 +76,10 @@ func (p *Prewrite) prewriteMutation(txn *kvstore.MvccTxn, mut *kvrpcpb.Mutation)
 	if write, writeCommitTS, err := txn.SeekWrite(key); write != nil && err == nil {
 		if writeCommitTS >= *txn.StartTS {
 			return nil, &WriteConflict{
-				startTS:          *txn.StartTS,
-				conflictTS:       write.StartTS,
-				key:              key,
-				primary:          p.request.PrimaryLock,
-				conflictCommitTS: writeCommitTS,
-			}
-		}
-		// Check data constraint - insert should not exist.
-		if mut.Op == kvrpcpb.Op_Insert {
-			switch write.Kind {
-			case kvstore.WriteKindPut:
-				return nil, &AlreadyExist{key}
-			case kvstore.WriteKindLock, kvstore.WriteKindRollback:
-				if write, err := txn.GetWrite(key, writeCommitTS-1); write != nil {
-					return nil, &AlreadyExist{key}
-				} else if err != nil {
-					return nil, err
-				}
+				startTS:    *txn.StartTS,
+				conflictTS: write.StartTS,
+				key:        key,
+				primary:    p.request.PrimaryLock,
 			}
 		}
 	} else if err != nil {

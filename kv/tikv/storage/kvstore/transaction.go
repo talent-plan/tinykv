@@ -55,8 +55,8 @@ func (txn *MvccTxn) FindWrittenValue(key []byte, ts uint64) ([]byte, error) {
 			return txn.Reader.GetCF(engine_util.CfDefault, EncodeKey(key, write.StartTS))
 		case WriteKindDelete:
 			return nil, nil
+		case WriteKindLock | WriteKindRollback:
 		}
-		// WriteKindLock or WriteKindRollback: continue
 	}
 
 	// Iterated to the end of the DB

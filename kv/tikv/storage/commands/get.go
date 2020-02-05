@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"bytes"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
@@ -27,7 +26,7 @@ func (g *Get) BuildTxn(txn *kvstore.MvccTxn) error {
 	if err != nil {
 		return err
 	}
-	if lock != nil && lock.TS <= *txn.StartTS && !(*txn.StartTS == kvstore.TsMax && bytes.Compare(key, lock.Primary) == 0) {
+	if lock.IsLockedFor(key, *txn.StartTS) {
 		// Key is locked.
 		return &LockedError{[]kvrpcpb.LockInfo{*lock.Info(key)}}
 	}

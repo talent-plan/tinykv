@@ -33,11 +33,10 @@ func (err *LockedError) keyErrors() []*kvrpcpb.KeyError {
 
 // WriteConflict occurs when writes from two transactions conflict.
 type WriteConflict struct {
-	startTS          uint64
-	conflictTS       uint64
-	key              []byte
-	primary          []byte
-	conflictCommitTS uint64
+	startTS    uint64
+	conflictTS uint64
+	key        []byte
+	primary    []byte
 }
 
 func (err *WriteConflict) Error() string {
@@ -47,11 +46,10 @@ func (err *WriteConflict) Error() string {
 func (err *WriteConflict) keyErrors() []*kvrpcpb.KeyError {
 	var result kvrpcpb.KeyError
 	result.Conflict = &kvrpcpb.WriteConflict{
-		StartTs:          err.startTS,
-		ConflictTs:       err.conflictTS,
-		Key:              err.key,
-		Primary:          err.primary,
-		ConflictCommitTs: err.conflictCommitTS,
+		StartTs:    err.startTS,
+		ConflictTs: err.conflictTS,
+		Key:        err.key,
+		Primary:    err.primary,
 	}
 	return []*kvrpcpb.KeyError{&result}
 }

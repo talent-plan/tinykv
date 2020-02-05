@@ -112,26 +112,9 @@ func convertToKeyError(err error) *kvrpcpb.KeyError {
 	case *ErrConflict:
 		return &kvrpcpb.KeyError{
 			Conflict: &kvrpcpb.WriteConflict{
-				StartTs:          x.StartTS,
-				ConflictTs:       x.ConflictTS,
-				ConflictCommitTs: x.ConflictCommitTS,
-				Key:              x.Key,
-			},
-		}
-	case *ErrCommitExpire:
-		return &kvrpcpb.KeyError{
-			CommitTsExpired: &kvrpcpb.CommitTsExpired{
-				StartTs:           x.StartTs,
-				AttemptedCommitTs: x.CommitTs,
-				Key:               x.Key,
-				MinCommitTs:       x.MinCommitTs,
-			},
-		}
-	case *ErrTxnNotFound:
-		return &kvrpcpb.KeyError{
-			TxnNotFound: &kvrpcpb.TxnNotFound{
 				StartTs:    x.StartTS,
-				PrimaryKey: x.PrimaryKey,
+				ConflictTs: x.ConflictTS,
+				Key:        x.Key,
 			},
 		}
 	default:

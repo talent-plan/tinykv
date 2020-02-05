@@ -189,7 +189,7 @@ func (c *NodeCluster) RunNode(raftConf *tikvConf.Config, engine *engine_util.Eng
 	snapManager := snap.NewSnapManager(raftConf.SnapPath)
 	node := raftstore.NewNode(batchSystem, &metapb.Store{}, raftConf, c.pdClient)
 
-	err := node.Start(ctx, engine, &c.trans, snapManager, pdWorker, raftRouter)
+	err := node.Start(ctx, engine, c.trans, snapManager, pdWorker, raftRouter)
 	if err != nil {
 		return err
 	}

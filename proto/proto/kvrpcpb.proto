@@ -16,9 +16,6 @@ message LockInfo {
     uint64 lock_version = 2;
     bytes key = 3;
     uint64 lock_ttl = 4;
-    // How many keys this transaction involved.
-    uint64 txn_size = 5;
-    Op lock_type = 6;
 }
 
 message AlreadyExist {
@@ -31,8 +28,6 @@ message KeyError {
     string abort = 3; // Client should abort the txn.
     WriteConflict conflict = 4; // Write conflict is moved from retryable to here.
     AlreadyExist already_exist = 5; // Key already exists
-    CommitTsExpired commit_ts_expired = 6; // Commit ts is earlier than min commit ts of a transaction.
-    TxnNotFound txn_not_found = 7; // Txn not found when checking txn status.
 }
 
 message WriteConflict {
@@ -40,19 +35,6 @@ message WriteConflict {
     uint64 conflict_ts = 2;
     bytes key = 3;
     bytes primary = 4;
-    uint64 conflict_commit_ts = 5;
-}
-
-message CommitTsExpired {
-    uint64 start_ts = 1;
-    uint64 attempted_commit_ts = 2;
-    bytes key = 3;
-    uint64 min_commit_ts = 4;
-}
-
-message TxnNotFound {
-    uint64 start_ts = 1;
-    bytes primary_key = 2;
 }
 
 message Context {
@@ -60,15 +42,6 @@ message Context {
     metapb.RegionEpoch region_epoch = 2;
     metapb.Peer peer = 3;
     uint64 term = 5;
-    bool sync_log = 9;
-    bool handle_time = 10; // true means return handle time detail
-    bool scan_detail = 11; // true means return scan cf's detail
-    repeated uint64 resolved_locks = 13;
-    uint64 max_execution_duration_ms = 14;
-
-    // After a region applys to `applied_index`, we can get a
-    // snapshot for the region even if the peer is follower.
-    uint64 applied_index = 15;
 }
 
 message HandleTime {
@@ -110,10 +83,6 @@ message ScanRequest {
     bytes start_key = 2;
     uint32 limit = 3;
     uint64 version = 4;
-    bool reverse = 6;
-    // For compatibility, when scanning forward, the range to scan is [start_key, end_key), where start_key < end_key;
-    // and when scanning backward, it scans [end_key, start_key) in descending order, where end_key < start_key.
-    bytes end_key = 7;
 }
 
 message KvPair {
@@ -132,8 +101,6 @@ enum Op {
     Del = 1;
     Lock = 2;
     Rollback = 3;
-    // insert operation has a constraint that key should not exist before.
-    Insert = 4;
 }
 
 message Mutation {
@@ -149,8 +116,6 @@ message PrewriteRequest {
     bytes primary_lock = 3;
     uint64 start_version = 4;
     uint64 lock_ttl = 5;
-    // How many keys this transaction involved.
-    uint64 txn_size = 7;
 }
 
 message PrewriteResponse {
@@ -173,8 +138,6 @@ message TxnHeartBeatResponse {
 }
 
 message CommitRequest {
-    reserved 5;
-    reserved "binlog";
     Context context = 1;
     uint64 start_version = 2;
     repeated bytes keys = 3;
@@ -184,7 +147,6 @@ message CommitRequest {
 message CommitResponse {
     errorpb.Error region_error = 1;
     KeyError error = 2;
-    uint64 commit_version = 3;  // If the commit ts is derived from min_commit_ts, this field should be set.
 }
 
 message BatchRollbackRequest {
@@ -231,32 +193,6 @@ message CheckTxnStatusResponse {
     // If the action is rollback, set the rollback reason.
     // If the minCommitTS is pushed, set the push flag.
     Action action = 5;
-}
-
-message CleanupRequest {
-    Context context = 1;
-    bytes key = 2;
-    uint64 start_version = 3;
-    uint64 current_ts = 4;
-}
-
-message CleanupResponse {
-    errorpb.Error region_error = 1;
-    KeyError error = 2;
-    uint64 commit_version = 3; // set this if the key is already committed
-}
-
-message ScanLockRequest {
-    Context context = 1;
-    uint64 max_version = 2;
-    bytes start_key = 3;
-    uint32 limit = 4;
-}
-
-message ScanLockResponse {
-    errorpb.Error region_error = 1;
-    KeyError error = 2;
-    repeated LockInfo locks = 3;
 }
 
 message TxnInfo {

@@ -91,19 +91,6 @@ func (rr *RespResult) commit() (*kvrpcpb.CommitResponse, error) {
 	}
 	return nil, errors.New("Unexpected type in response")
 }
-func (rr *RespResult) cleanup() (*kvrpcpb.CleanupResponse, error) {
-	if rr.Err != nil {
-		return nil, rr.Err
-	}
-	if rr.Response == nil {
-		return nil, nil
-	}
-	resp, ok := rr.Response.(*kvrpcpb.CleanupResponse)
-	if ok {
-		return resp, nil
-	}
-	return nil, errors.New("Unexpected type in response")
-}
 func (rr *RespResult) batchRollback() (*kvrpcpb.BatchRollbackResponse, error) {
 	if rr.Err != nil {
 		return nil, rr.Err
@@ -112,19 +99,6 @@ func (rr *RespResult) batchRollback() (*kvrpcpb.BatchRollbackResponse, error) {
 		return nil, nil
 	}
 	resp, ok := rr.Response.(*kvrpcpb.BatchRollbackResponse)
-	if ok {
-		return resp, nil
-	}
-	return nil, errors.New("Unexpected type in response")
-}
-func (rr *RespResult) scanLock() (*kvrpcpb.ScanLockResponse, error) {
-	if rr.Err != nil {
-		return nil, rr.Err
-	}
-	if rr.Response == nil {
-		return nil, nil
-	}
-	resp, ok := rr.Response.(*kvrpcpb.ScanLockResponse)
 	if ok {
 		return resp, nil
 	}

@@ -1,6 +1,7 @@
 package kvstore
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
@@ -39,4 +40,15 @@ func ParseLock(input []byte) (*Lock, error) {
 	ts := binary.BigEndian.Uint64(input[primaryLen:])
 
 	return &Lock{primary, ts}, nil
+}
+
+// IsLockedFor checks if lock locks key at txnStartTs.
+func (lock *Lock) IsLockedFor(key []byte, txnStartTs uint64) bool {
+	if lock == nil {
+		return false
+	}
+	if txnStartTs == TsMax && bytes.Compare(key, lock.Primary) != 0 {
+		return false
+	}
+	return lock.TS <= txnStartTs
 }
