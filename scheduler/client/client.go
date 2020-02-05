@@ -428,7 +428,6 @@ func (c *client) processTSORequests(stream pdpb.PD_TsoClient, requests []*tsoReq
 		defer span.Finish()
 	}
 	count := len(requests)
-	start := time.Now()
 	req := &pdpb.TsoRequest{
 		Header: c.requestHeader(),
 		Count:  uint32(count),
@@ -445,8 +444,6 @@ func (c *client) processTSORequests(stream pdpb.PD_TsoClient, requests []*tsoReq
 		c.finishTSORequest(requests, 0, 0, err)
 		return err
 	}
-	requestDurationTSO.Observe(time.Since(start).Seconds())
-	tsoBatchSize.Observe(float64(count))
 
 	if resp.GetCount() != uint32(len(requests)) {
 		err = errors.WithStack(errTSOLength)
@@ -557,20 +554,14 @@ type TSFuture interface {
 func (req *tsoRequest) Wait() (physical int64, logical int64, err error) {
 	// If tso command duration is observed very high, the reason could be it
 	// takes too long for Wait() be called.
-	start := time.Now()
-	cmdDurationTSOAsyncWait.Observe(start.Sub(req.start).Seconds())
 	select {
 	case err = <-req.done:
 		err = errors.WithStack(err)
 		defer tsoReqPool.Put(req)
 		if err != nil {
-			cmdFailDurationTSO.Observe(time.Since(req.start).Seconds())
 			return 0, 0, err
 		}
 		physical, logical = req.physical, req.logical
-		now := time.Now()
-		cmdDurationWait.Observe(now.Sub(start).Seconds())
-		cmdDurationTSO.Observe(now.Sub(req.start).Seconds())
 		return
 	case <-req.ctx.Done():
 		return 0, 0, errors.WithStack(req.ctx.Err())
@@ -587,8 +578,6 @@ func (c *client) GetRegion(ctx context.Context, key []byte) (*metapb.Region, *me
 		span = opentracing.StartSpan("pdclient.GetRegion", opentracing.ChildOf(span.Context()))
 		defer span.Finish()
 	}
-	start := time.Now()
-	defer func() { cmdDurationGetRegion.Observe(time.Since(start).Seconds()) }()
 
 	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
 	resp, err := c.leaderClient().GetRegion(ctx, &pdpb.GetRegionRequest{
@@ -598,7 +587,6 @@ func (c *client) GetRegion(ctx context.Context, key []byte) (*metapb.Region, *me
 	cancel()
 
 	if err != nil {
-		cmdFailDurationGetRegion.Observe(time.Since(start).Seconds())
 		c.ScheduleCheckLeader()
 		return nil, nil, errors.WithStack(err)
 	}
@@ -610,8 +598,6 @@ func (c *client) GetPrevRegion(ctx context.Context, key []byte) (*metapb.Region,
 		span = opentracing.StartSpan("pdclient.GetPrevRegion", opentracing.ChildOf(span.Context()))
 		defer span.Finish()
 	}
-	start := time.Now()
-	defer func() { cmdDurationGetPrevRegion.Observe(time.Since(start).Seconds()) }()
 
 	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
 	resp, err := c.leaderClient().GetPrevRegion(ctx, &pdpb.GetRegionRequest{
@@ -621,7 +607,6 @@ func (c *client) GetPrevRegion(ctx context.Context, key []byte) (*metapb.Region,
 	cancel()
 
 	if err != nil {
-		cmdFailDurationGetPrevRegion.Observe(time.Since(start).Seconds())
 		c.ScheduleCheckLeader()
 		return nil, nil, errors.WithStack(err)
 	}
@@ -633,8 +618,6 @@ func (c *client) GetRegionByID(ctx context.Context, regionID uint64) (*metapb.Re
 		span = opentracing.StartSpan("pdclient.GetRegionByID", opentracing.ChildOf(span.Context()))
 		defer span.Finish()
 	}
-	start := time.Now()
-	defer func() { cmdDurationGetRegionByID.Observe(time.Since(start).Seconds()) }()
 
 	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
 	resp, err := c.leaderClient().GetRegionByID(ctx, &pdpb.GetRegionByIDRequest{
@@ -644,7 +627,6 @@ func (c *client) GetRegionByID(ctx context.Context, regionID uint64) (*metapb.Re
 	cancel()
 
 	if err != nil {
-		cmdFailedDurationGetRegionByID.Observe(time.Since(start).Seconds())
 		c.ScheduleCheckLeader()
 		return nil, nil, errors.WithStack(err)
 	}
@@ -656,8 +638,6 @@ func (c *client) ScanRegions(ctx context.Context, key, endKey []byte, limit int)
 		span = opentracing.StartSpan("pdclient.ScanRegions", opentracing.ChildOf(span.Context()))
 		defer span.Finish()
 	}
-	start := time.Now()
-	defer cmdDurationScanRegions.Observe(time.Since(start).Seconds())
 	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
 	resp, err := c.leaderClient().ScanRegions(ctx, &pdpb.ScanRegionsRequest{
 		Header:   c.requestHeader(),
@@ -667,7 +647,6 @@ func (c *client) ScanRegions(ctx context.Context, key, endKey []byte, limit int)
 	})
 	cancel()
 	if err != nil {
-		cmdFailedDurationScanRegions.Observe(time.Since(start).Seconds())
 		c.ScheduleCheckLeader()
 		return nil, nil, errors.WithStack(err)
 	}
@@ -679,8 +658,6 @@ func (c *client) GetStore(ctx context.Context, storeID uint64) (*metapb.Store, e
 		span = opentracing.StartSpan("pdclient.GetStore", opentracing.ChildOf(span.Context()))
 		defer span.Finish()
 	}
-	start := time.Now()
-	defer func() { cmdDurationGetStore.Observe(time.Since(start).Seconds()) }()
 
 	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
 	resp, err := c.leaderClient().GetStore(ctx, &pdpb.GetStoreRequest{
@@ -690,7 +667,6 @@ func (c *client) GetStore(ctx context.Context, storeID uint64) (*metapb.Store, e
 	cancel()
 
 	if err != nil {
-		cmdFailedDurationGetStore.Observe(time.Since(start).Seconds())
 		c.ScheduleCheckLeader()
 		return nil, errors.WithStack(err)
 	}
@@ -715,8 +691,6 @@ func (c *client) GetAllStores(ctx context.Context, opts ...GetStoreOption) ([]*m
 		span = opentracing.StartSpan("pdclient.GetAllStores", opentracing.ChildOf(span.Context()))
 		defer span.Finish()
 	}
-	start := time.Now()
-	defer func() { cmdDurationGetAllStores.Observe(time.Since(start).Seconds()) }()
 
 	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
 	resp, err := c.leaderClient().GetAllStores(ctx, &pdpb.GetAllStoresRequest{
@@ -726,7 +700,6 @@ func (c *client) GetAllStores(ctx context.Context, opts ...GetStoreOption) ([]*m
 	cancel()
 
 	if err != nil {
-		cmdFailedDurationGetAllStores.Observe(time.Since(start).Seconds())
 		c.ScheduleCheckLeader()
 		return nil, errors.WithStack(err)
 	}
@@ -739,8 +712,6 @@ func (c *client) UpdateGCSafePoint(ctx context.Context, safePoint uint64) (uint6
 		span = opentracing.StartSpan("pdclient.UpdateGCSafePoint", opentracing.ChildOf(span.Context()))
 		defer span.Finish()
 	}
-	start := time.Now()
-	defer func() { cmdDurationUpdateGCSafePoint.Observe(time.Since(start).Seconds()) }()
 
 	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
 	resp, err := c.leaderClient().UpdateGCSafePoint(ctx, &pdpb.UpdateGCSafePointRequest{
@@ -750,7 +721,6 @@ func (c *client) UpdateGCSafePoint(ctx context.Context, safePoint uint64) (uint6
 	cancel()
 
 	if err != nil {
-		cmdFailedDurationUpdateGCSafePoint.Observe(time.Since(start).Seconds())
 		c.ScheduleCheckLeader()
 		return 0, errors.WithStack(err)
 	}
@@ -762,8 +732,6 @@ func (c *client) ScatterRegion(ctx context.Context, regionID uint64) error {
 		span = opentracing.StartSpan("pdclient.ScatterRegion", opentracing.ChildOf(span.Context()))
 		defer span.Finish()
 	}
-	start := time.Now()
-	defer func() { cmdDurationScatterRegion.Observe(time.Since(start).Seconds()) }()
 
 	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
 	resp, err := c.leaderClient().ScatterRegion(ctx, &pdpb.ScatterRegionRequest{
@@ -785,8 +753,6 @@ func (c *client) GetOperator(ctx context.Context, regionID uint64) (*pdpb.GetOpe
 		span = opentracing.StartSpan("pdclient.GetOperator", opentracing.ChildOf(span.Context()))
 		defer span.Finish()
 	}
-	start := time.Now()
-	defer func() { cmdDurationGetOperator.Observe(time.Since(start).Seconds()) }()
 
 	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
 	defer cancel()

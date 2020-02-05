@@ -17,7 +17,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"reflect"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -468,8 +467,6 @@ func (o *Operator) Step(i int) OpStep {
 func (o *Operator) Check(region *core.RegionInfo) OpStep {
 	for step := atomic.LoadInt32(&o.currentStep); int(step) < len(o.steps); step++ {
 		if o.steps[int(step)].IsFinish(region) {
-			operatorStepDuration.WithLabelValues(reflect.TypeOf(o.steps[int(step)]).Name()).
-				Observe(time.Since(time.Unix(0, atomic.LoadInt64(&o.stepTime))).Seconds())
 			atomic.StoreInt32(&o.currentStep, step+1)
 			atomic.StoreInt64(&o.stepTime, time.Now().UnixNano())
 		} else {

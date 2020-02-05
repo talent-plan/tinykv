@@ -30,10 +30,9 @@ type serverConfig struct {
 	PeerURLs            string
 	AdvertisePeerURLs   string
 	ClusterConfig       *clusterConfig
-	Join                bool
 }
 
-func newServerConfig(name string, cc *clusterConfig, join bool) *serverConfig {
+func newServerConfig(name string, cc *clusterConfig) *serverConfig {
 	tempDir, _ := ioutil.TempDir("/tmp", "pd-tests")
 	return &serverConfig{
 		Name:          name,
@@ -41,7 +40,6 @@ func newServerConfig(name string, cc *clusterConfig, join bool) *serverConfig {
 		ClientURLs:    tempurl.Alloc(),
 		PeerURLs:      tempurl.Alloc(),
 		ClusterConfig: cc,
-		Join:          join,
 	}
 }
 
@@ -54,11 +52,8 @@ func (c *serverConfig) Generate(opts ...ConfigOption) (*config.Config, error) {
 		"--peer-urls=" + c.PeerURLs,
 		"--advertise-peer-urls=" + c.AdvertisePeerURLs,
 	}
-	if c.Join {
-		arguments = append(arguments, "--join="+c.ClusterConfig.GetJoinAddr())
-	} else {
-		arguments = append(arguments, "--initial-cluster="+c.ClusterConfig.GetServerAddrs())
-	}
+
+	arguments = append(arguments, "--initial-cluster="+c.ClusterConfig.GetServerAddrs())
 
 	cfg := config.NewConfig()
 	err := cfg.Parse(arguments)
@@ -73,26 +68,19 @@ func (c *serverConfig) Generate(opts ...ConfigOption) (*config.Config, error) {
 
 type clusterConfig struct {
 	InitialServers []*serverConfig
-	JoinServers    []*serverConfig
 }
 
 func newClusterConfig(n int) *clusterConfig {
 	var cc clusterConfig
 	for i := 0; i < n; i++ {
-		c := newServerConfig(cc.nextServerName(), &cc, false)
+		c := newServerConfig(cc.nextServerName(), &cc)
 		cc.InitialServers = append(cc.InitialServers, c)
 	}
 	return &cc
 }
 
-func (c *clusterConfig) Join() *serverConfig {
-	sc := newServerConfig(c.nextServerName(), c, true)
-	c.JoinServers = append(c.JoinServers, sc)
-	return sc
-}
-
 func (c *clusterConfig) nextServerName() string {
-	return fmt.Sprintf("pd%d", len(c.InitialServers)+len(c.JoinServers)+1)
+	return fmt.Sprintf("pd%d", len(c.InitialServers)+1)
 }
 
 func (c *clusterConfig) GetServerAddrs() string {
@@ -101,10 +89,6 @@ func (c *clusterConfig) GetServerAddrs() string {
 		addrs = append(addrs, fmt.Sprintf("%s=%s", s.Name, s.PeerURLs))
 	}
 	return strings.Join(addrs, ",")
-}
-
-func (c *clusterConfig) GetJoinAddr() string {
-	return c.InitialServers[0].PeerURLs
 }
 
 func (c *clusterConfig) GetClientURLs() string {

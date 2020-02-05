@@ -18,7 +18,6 @@ import (
 	"container/list"
 	"context"
 	"fmt"
-	"strconv"
 	"sync"
 	"time"
 
@@ -102,8 +101,6 @@ func (oc *OperatorController) Dispatch(region *core.RegionInfo, source string) {
 	if op := oc.GetOperator(region.GetID()); op != nil {
 		timeout := op.IsTimeout()
 		if step := op.Check(region); step != nil && !timeout {
-			operatorCounter.WithLabelValues(op.Desc(), "check").Inc()
-
 			// When the "source" is heartbeat, the region may have a newer
 			// confver than the region that the operator holds. In this case,
 			// the operator is stale, and will not be executed even we would
@@ -117,7 +114,6 @@ func (oc *OperatorController) Dispatch(region *core.RegionInfo, source string) {
 				if oc.RemoveOperator(op) {
 					log.Info("stale operator", zap.Uint64("region-id", region.GetID()), zap.Duration("takes", op.RunningTime()),
 						zap.Reflect("operator", op), zap.Uint64("diff", changes))
-					operatorCounter.WithLabelValues(op.Desc(), "stale").Inc()
 					oc.opRecords.Put(op, pdpb.OperatorStatus_CANCEL)
 					oc.PromoteWaitingOperator()
 				}
@@ -130,14 +126,11 @@ func (oc *OperatorController) Dispatch(region *core.RegionInfo, source string) {
 		}
 		if op.IsFinish() && oc.RemoveOperator(op) {
 			log.Info("operator finish", zap.Uint64("region-id", region.GetID()), zap.Duration("takes", op.RunningTime()), zap.Reflect("operator", op))
-			operatorCounter.WithLabelValues(op.Desc(), "finish").Inc()
-			operatorDuration.WithLabelValues(op.Desc()).Observe(op.RunningTime().Seconds())
 			oc.pushHistory(op)
 			oc.opRecords.Put(op, pdpb.OperatorStatus_SUCCESS)
 			oc.PromoteWaitingOperator()
 		} else if timeout && oc.RemoveOperator(op) {
 			log.Info("operator timeout", zap.Uint64("region-id", region.GetID()), zap.Duration("takes", op.RunningTime()), zap.Reflect("operator", op))
-			operatorCounter.WithLabelValues(op.Desc(), "timeout").Inc()
 			oc.opRecords.Put(op, pdpb.OperatorStatus_TIMEOUT)
 			oc.PromoteWaitingOperator()
 		}
@@ -174,7 +167,6 @@ func (oc *OperatorController) pollNeedDispatchRegion() (r *core.RegionInfo, next
 		log.Debug("remove operator because region disappeared",
 			zap.Uint64("region-id", op.RegionID()),
 			zap.Stringer("operator", op))
-		operatorCounter.WithLabelValues(op.Desc(), "disappear").Inc()
 		oc.opRecords.Put(op, pdpb.OperatorStatus_CANCEL)
 		return nil, true
 	}
@@ -215,7 +207,6 @@ func (oc *OperatorController) AddWaitingOperator(ops ...*operator.Operator) bool
 
 	if !oc.checkAddOperator(ops...) {
 		for _, op := range ops {
-			operatorWaitCounter.WithLabelValues(op.Desc(), "add_canceled").Inc()
 			oc.opRecords.Put(op, pdpb.OperatorStatus_CANCEL)
 		}
 		oc.Unlock()
@@ -225,12 +216,10 @@ func (oc *OperatorController) AddWaitingOperator(ops ...*operator.Operator) bool
 	op := ops[0]
 	desc := op.Desc()
 	if oc.wopStatus.ops[desc] >= oc.cluster.GetSchedulerMaxWaitingOperator() {
-		operatorWaitCounter.WithLabelValues(op.Desc(), "exceed_max").Inc()
 		oc.Unlock()
 		return false
 	}
 	oc.wop.PutOperator(op)
-	operatorWaitCounter.WithLabelValues(op.Desc(), "put").Inc()
 	// This step is especially for the merge operation.
 	if len(ops) > 1 {
 		oc.wop.PutOperator(ops[1])
@@ -248,7 +237,6 @@ func (oc *OperatorController) AddOperator(ops ...*operator.Operator) bool {
 
 	if oc.exceedStoreLimit(ops...) || !oc.checkAddOperator(ops...) {
 		for _, op := range ops {
-			operatorCounter.WithLabelValues(op.Desc(), "cancel").Inc()
 			oc.opRecords.Put(op, pdpb.OperatorStatus_CANCEL)
 		}
 		return false
@@ -269,11 +257,9 @@ func (oc *OperatorController) PromoteWaitingOperator() {
 		if ops == nil {
 			return
 		}
-		operatorWaitCounter.WithLabelValues(ops[0].Desc(), "get").Inc()
 
 		if oc.exceedStoreLimit(ops...) || !oc.checkAddOperator(ops...) {
 			for _, op := range ops {
-				operatorWaitCounter.WithLabelValues(op.Desc(), "promote_canceled").Inc()
 				oc.opRecords.Put(op, pdpb.OperatorStatus_CANCEL)
 			}
 			oc.wopStatus.ops[ops[0].Desc()]--
@@ -326,21 +312,17 @@ func (oc *OperatorController) addOperatorLocked(op *operator.Operator) bool {
 	if old, ok := oc.operators[regionID]; ok {
 		_ = oc.removeOperatorLocked(old)
 		log.Info("replace old operator", zap.Uint64("region-id", regionID), zap.Duration("takes", old.RunningTime()), zap.Reflect("operator", old))
-		operatorCounter.WithLabelValues(old.Desc(), "replace").Inc()
 		oc.opRecords.Put(old, pdpb.OperatorStatus_REPLACE)
 	}
 
 	oc.operators[regionID] = op
 	op.SetStartTime(time.Now())
-	operatorCounter.WithLabelValues(op.Desc(), "start").Inc()
-	operatorWaitDuration.WithLabelValues(op.Desc()).Observe(op.ElapsedTime().Seconds())
 	opInfluence := NewTotalOpInfluence([]*operator.Operator{op}, oc.cluster)
 	for storeID := range opInfluence.StoresInfluence {
 		stepCost := opInfluence.GetStoreInfluence(storeID).StepCost
 		if stepCost == 0 {
 			continue
 		}
-		storeLimitGauge.WithLabelValues(strconv.FormatUint(storeID, 10), "take").Set(float64(stepCost) / float64(operator.RegionInfluence))
 		oc.storesLimit[storeID].Take(stepCost)
 	}
 	oc.updateCounts(oc.operators)
@@ -353,7 +335,6 @@ func (oc *OperatorController) addOperatorLocked(op *operator.Operator) bool {
 	}
 
 	heap.Push(&oc.opNotifierQueue, &operatorWithTime{op: op, time: oc.getNextPushOperatorTime(step, time.Now())})
-	operatorCounter.WithLabelValues(op.Desc(), "create").Inc()
 	return true
 }
 
@@ -382,7 +363,6 @@ func (oc *OperatorController) removeOperatorLocked(op *operator.Operator) bool {
 	if cur := oc.operators[regionID]; cur == op {
 		delete(oc.operators, regionID)
 		oc.updateCounts(oc.operators)
-		operatorCounter.WithLabelValues(op.Desc(), "remove").Inc()
 		return true
 	}
 	return false
@@ -639,7 +619,6 @@ func (oc *OperatorController) exceedStoreLimit(ops ...*operator.Operator) bool {
 		}
 
 		available := oc.getOrCreateStoreLimit(storeID).Available()
-		storeLimitGauge.WithLabelValues(strconv.FormatUint(storeID, 10), "available").Set(float64(available) / float64(operator.RegionInfluence))
 		if available < stepCost {
 			return true
 		}

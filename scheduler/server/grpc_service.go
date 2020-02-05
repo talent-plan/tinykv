@@ -100,7 +100,6 @@ func (s *Server) Tso(stream pdpb.PD_TsoServer) error {
 		if err := stream.Send(response); err != nil {
 			return errors.WithStack(err)
 		}
-		tsoHandleDuration.Observe(time.Since(start).Seconds())
 	}
 }
 
@@ -363,13 +362,9 @@ func (s *Server) RegionHeartbeat(stream pdpb.PD_RegionHeartbeatServer) error {
 		}
 		storeAddress := store.GetAddress()
 
-		regionHeartbeatCounter.WithLabelValues(storeAddress, storeLabel, "report", "recv").Inc()
-		regionHeartbeatLatency.WithLabelValues(storeAddress, storeLabel).Observe(float64(time.Now().Unix()) - float64(request.GetInterval().GetEndTimestamp()))
-
 		hbStreams := cluster.GetHeartbeatStreams()
 
 		if time.Since(lastBind) > s.cfg.HeartbeatStreamBindInterval.Duration {
-			regionHeartbeatCounter.WithLabelValues(storeAddress, storeLabel, "report", "bind").Inc()
 			hbStreams.bindStream(storeID, server)
 			lastBind = time.Now()
 		}
@@ -390,8 +385,6 @@ func (s *Server) RegionHeartbeat(stream pdpb.PD_RegionHeartbeatServer) error {
 			msg := err.Error()
 			hbStreams.sendErr(pdpb.ErrorType_UNKNOWN, msg, request.GetLeader(), storeAddress, storeLabel)
 		}
-
-		regionHeartbeatCounter.WithLabelValues(storeAddress, storeLabel, "report", "ok").Inc()
 	}
 }
 
@@ -670,15 +663,6 @@ func (s *Server) GetGCSafePoint(ctx context.Context, request *pdpb.GetGCSafePoin
 		Header:    s.header(),
 		SafePoint: safePoint,
 	}, nil
-}
-
-// SyncRegions syncs the regions.
-func (s *Server) SyncRegions(stream pdpb.PD_SyncRegionsServer) error {
-	cluster := s.GetRaftCluster()
-	if cluster == nil {
-		return ErrNotBootstrapped
-	}
-	return s.cluster.regionSyncer.Sync(stream)
 }
 
 // UpdateGCSafePoint implements gRPC PDServer.

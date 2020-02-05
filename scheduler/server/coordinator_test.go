@@ -16,7 +16,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"time"
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
@@ -29,7 +28,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/id"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
-	syncer "github.com/pingcap-incubator/tinykv/scheduler/server/region_syncer"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/operator"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/opt"
@@ -266,35 +264,6 @@ func (c *testCluster) LoadRegion(regionID uint64, followerStoreIDs ...uint64) er
 // 	}
 // 	co.opController.Dispatch(region, schedule.DispatchFromHeartBeat)
 // 	return nil
-// }
-
-// func (s *testCoordinatorSuite) TestCollectMetrics(c *C) {
-// 	_, opt, err := newTestScheduleConfig()
-// 	c.Assert(err, IsNil)
-// 	tc := newTestCluster(opt)
-// 	hbStreams, cleanup := getHeartBeatStreams(s.ctx, c, tc)
-// 	defer cleanup()
-// 	defer hbStreams.Close()
-
-// 	tc.regionStats = statistics.NewRegionStatistics(tc.s.scheduleOpt)
-// 	co := newCoordinator(s.ctx, tc.RaftCluster, hbStreams)
-// 	co.run()
-// 	// Make sure there are no problem when concurrent write and read
-// 	for i := 0; i <= 10; i++ {
-// 		go func(i int) {
-// 			for j := 0; j < 10000; j++ {
-// 				c.Assert(tc.addRegionStore(uint64(i%5), rand.Intn(200)), IsNil)
-// 			}
-// 		}(i)
-// 	}
-// 	for i := 0; i < 1000; i++ {
-// 		co.collectHotSpotMetrics()
-// 		co.collectSchedulerMetrics()
-// 		co.cluster.collectClusterMetrics()
-// 	}
-// 	co.resetHotSpotMetrics()
-// 	co.resetSchedulerMetrics()
-// 	co.cluster.resetClusterMetrics()
 // }
 
 // func MaxUint64(nums ...uint64) uint64 {
@@ -1141,16 +1110,13 @@ func getHeartBeatStreams(ctx context.Context, c *C, tc *testCluster) (*heartbeat
 	svr, err := CreateServer(config)
 	c.Assert(err, IsNil)
 	kvBase := kv.NewEtcdKVBase(svr.client, svr.rootPath)
-	path := filepath.Join(svr.cfg.DataDir, "region-meta")
-	regionStorage, err := core.NewRegionStorage(ctx, path)
 	c.Assert(err, IsNil)
-	svr.storage = core.NewStorage(kvBase).SetRegionStorage(regionStorage)
+	svr.storage = core.NewStorage(kvBase)
 	cluster := tc.RaftCluster
 	cluster.s = svr
 	cluster.running = false
 	cluster.clusterID = tc.getClusterID()
 	cluster.clusterRoot = svr.getClusterRootPath()
-	cluster.regionSyncer = syncer.NewRegionSyncer(svr)
 	hbStreams := newHeartbeatStreams(ctx, tc.getClusterID(), cluster)
 	return hbStreams, func() { testutil.CleanServer(config) }
 }

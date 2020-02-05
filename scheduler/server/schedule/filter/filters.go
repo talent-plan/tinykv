@@ -14,8 +14,6 @@
 package filter
 
 import (
-	"fmt"
-
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/cache"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/slice"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
@@ -60,11 +58,8 @@ type Filter interface {
 
 // Source checks if store can pass all Filters as source store.
 func Source(opt opt.Options, store *core.StoreInfo, filters []Filter) bool {
-	storeAddress := store.GetAddress()
-	storeID := fmt.Sprintf("%d", store.GetID())
 	for _, filter := range filters {
 		if filter.Source(opt, store) {
-			filterCounter.WithLabelValues("filter-source", storeAddress, storeID, filter.Scope(), filter.Type()).Inc()
 			return true
 		}
 	}
@@ -73,11 +68,8 @@ func Source(opt opt.Options, store *core.StoreInfo, filters []Filter) bool {
 
 // Target checks if store can pass all Filters as target store.
 func Target(opt opt.Options, store *core.StoreInfo, filters []Filter) bool {
-	storeAddress := store.GetAddress()
-	storeID := fmt.Sprintf("%d", store.GetID())
 	for _, filter := range filters {
 		if filter.Target(opt, store) {
-			filterCounter.WithLabelValues("filter-target", storeAddress, storeID, filter.Scope(), filter.Type()).Inc()
 			return true
 		}
 	}

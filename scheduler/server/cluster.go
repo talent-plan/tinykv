@@ -29,7 +29,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/server/config"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/id"
-	syncer "github.com/pingcap-incubator/tinykv/scheduler/server/region_syncer"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule"
 	"github.com/pingcap/errcode"
 	"github.com/pingcap/log"
@@ -72,9 +71,8 @@ type RaftCluster struct {
 
 	coordinator *coordinator
 
-	wg           sync.WaitGroup
-	quit         chan struct{}
-	regionSyncer *syncer.RegionSyncer
+	wg   sync.WaitGroup
+	quit chan struct{}
 }
 
 // ClusterStatus saves some state information
@@ -85,12 +83,11 @@ type ClusterStatus struct {
 
 func newRaftCluster(ctx context.Context, s *Server, clusterID uint64) *RaftCluster {
 	return &RaftCluster{
-		ctx:          ctx,
-		s:            s,
-		running:      false,
-		clusterID:    clusterID,
-		clusterRoot:  s.getClusterRootPath(),
-		regionSyncer: syncer.NewRegionSyncer(s),
+		ctx:         ctx,
+		s:           s,
+		running:     false,
+		clusterID:   clusterID,
+		clusterRoot: s.getClusterRootPath(),
 	}
 }
 
@@ -164,10 +161,9 @@ func (c *RaftCluster) start() error {
 	c.coordinator = newCoordinator(c.ctx, cluster, c.s.hbStreams)
 	c.quit = make(chan struct{})
 
-	c.wg.Add(3)
+	c.wg.Add(2)
 	go c.runCoordinator()
 	go c.runBackgroundJobs(backgroundJobInterval)
-	go c.syncRegions()
 	c.running = true
 
 	return nil
@@ -234,12 +230,6 @@ func (c *RaftCluster) runCoordinator() {
 	c.coordinator.run()
 	<-c.coordinator.ctx.Done()
 	log.Info("coordinator is stopping")
-}
-
-func (c *RaftCluster) syncRegions() {
-	defer logutil.LogPanic()
-	defer c.wg.Done()
-	c.regionSyncer.RunServer(c.changedRegionNotifier(), c.quit)
 }
 
 func (c *RaftCluster) stop() {
@@ -386,7 +376,6 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 				zap.Stringer("region-meta", core.RegionToHexMeta(region.GetMeta())),
 				zap.Error(err))
 		}
-		regionEventCounter.WithLabelValues("update_kv").Inc()
 		select {
 		case c.changedRegions <- region:
 		default:
@@ -424,7 +413,6 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 		for _, p := range region.GetPeers() {
 			c.updateStoreStatusLocked(p.GetStoreId())
 		}
-		regionEventCounter.WithLabelValues("update_cache").Inc()
 	}
 
 	return nil
@@ -933,10 +921,8 @@ func (c *RaftCluster) collectHealthStatus() {
 	unhealth := c.s.CheckHealth(members)
 	for _, member := range members {
 		if _, ok := unhealth[member.GetMemberId()]; ok {
-			healthStatusGauge.WithLabelValues(member.GetName()).Set(0)
 			continue
 		}
-		healthStatusGauge.WithLabelValues(member.GetName()).Set(1)
 	}
 }
 
