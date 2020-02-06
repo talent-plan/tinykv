@@ -135,13 +135,12 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 	appliedIndex := ps.AppliedIndex()
 
 	raftCfg := &raft.Config{
-		ID:              peer.GetId(),
-		ElectionTick:    cfg.RaftElectionTimeoutTicks,
-		HeartbeatTick:   cfg.RaftHeartbeatTicks,
-		MaxSizePerMsg:   cfg.RaftMaxSizePerMsg,
-		MaxInflightMsgs: cfg.RaftMaxInflightMsgs,
-		Applied:         appliedIndex,
-		Storage:         ps,
+		ID:            peer.GetId(),
+		ElectionTick:  cfg.RaftElectionTimeoutTicks,
+		HeartbeatTick: cfg.RaftHeartbeatTicks,
+		MaxSizePerMsg: cfg.RaftMaxSizePerMsg,
+		Applied:       appliedIndex,
+		Storage:       ps,
 	}
 
 	raftGroup, err := raft.NewRawNode(raftCfg, nil)
@@ -828,11 +827,12 @@ func (p *Peer) readyToTransferLeader(cfg *config.Config, peer *metapb.Peer) bool
 		return false
 	}
 
-	for _, pr := range status.Progress {
-		if pr.State == raft.ProgressStateSnapshot {
-			return false
-		}
-	}
+	// for _, pr := range status.Progress {
+	// 	if pr.State == raft.ProgressStateSnapshot {
+	// 		return false
+	// 	}
+	// }
+
 	lastIndex, _ := p.Store().LastIndex()
 
 	return lastIndex <= status.Progress[peerId].Match+cfg.LeaderTransferMaxLogLag

@@ -247,7 +247,6 @@ func (rn *RawNode) StatusWithoutProgress() Status {
 func (rn *RawNode) WithProgress(visitor func(id uint64, pr Progress)) {
 	for id, pr := range rn.Raft.Prs {
 		pr := *pr
-		pr.ins = nil
 		visitor(id, pr)
 	}
 }
