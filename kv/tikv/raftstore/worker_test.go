@@ -53,11 +53,13 @@ func getTestDBForRegions(t *testing.T, path string, regions []uint64) *badger.DB
 	fillDBData(t, db)
 	for _, regionID := range regions {
 		// Put apply state into kv engine.
-		applyState := applyState{
-			appliedIndex:   10,
-			truncatedIndex: 10,
+		applyState := &rspb.RaftApplyState{
+			AppliedIndex: 10,
+			TruncatedState: &rspb.RaftTruncatedState{
+				Index: 10,
+			},
 		}
-		require.Nil(t, putValue(db, ApplyStateKey(regionID), applyState.Marshal()))
+		require.Nil(t, putMsg(db, ApplyStateKey(regionID), applyState))
 
 		// Put region info into kv engine.
 		region := genTestRegion(regionID, 1, 1)

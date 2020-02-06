@@ -5,6 +5,7 @@ import (
 
 	"github.com/coocood/badger"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap/errors"
@@ -109,21 +110,25 @@ func writePrepareBootstrap(engines *engine_util.Engines, region *metapb.Region) 
 }
 
 func writeInitialApplyState(kvWB *engine_util.WriteBatch, regionID uint64) {
-	applyState := applyState{
-		appliedIndex:   RaftInitLogIndex,
-		truncatedIndex: RaftInitLogIndex,
-		truncatedTerm:  RaftInitLogTerm,
+	applyState := &rspb.RaftApplyState{
+		AppliedIndex: RaftInitLogIndex,
+		TruncatedState: &rspb.RaftTruncatedState{
+			Index: RaftInitLogIndex,
+			Term:  RaftInitLogTerm,
+		},
 	}
-	kvWB.Set(ApplyStateKey(regionID), applyState.Marshal())
+	kvWB.SetMsg(ApplyStateKey(regionID), applyState)
 }
 
 func writeInitialRaftState(raftWB *engine_util.WriteBatch, regionID uint64) {
-	raftState := raftState{
-		lastIndex: RaftInitLogIndex,
-		term:      RaftInitLogTerm,
-		commit:    RaftInitLogIndex,
+	raftState := &rspb.RaftLocalState{
+		HardState: &eraftpb.HardState{
+			Term:   RaftInitLogTerm,
+			Commit: RaftInitLogIndex,
+		},
+		LastIndex: RaftInitLogIndex,
 	}
-	raftWB.Set(RaftStateKey(regionID), raftState.Marshal())
+	raftWB.SetMsg(RaftStateKey(regionID), raftState)
 }
 
 func ClearPrepareBootstrap(engines *engine_util.Engines, regionID uint64) error {

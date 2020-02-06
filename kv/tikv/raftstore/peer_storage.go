@@ -38,18 +38,18 @@ const (
 
 // CompactRaftLog discards all log entries prior to compact_index. We must guarantee
 // that the compact_index is not greater than applied index.
-func CompactRaftLog(tag string, state *applyState, compactIndex, compactTerm uint64) error {
+func CompactRaftLog(tag string, state *rspb.RaftApplyState, compactIndex, compactTerm uint64) error {
 	log.Debugf("%s compact log entries to prior to %d", tag, compactIndex)
 
-	if compactIndex <= state.truncatedIndex {
+	if compactIndex <= state.TruncatedState.Index {
 		return errors.New("try to truncate compacted entries")
-	} else if compactIndex > state.appliedIndex {
-		return errors.Errorf("compact index %d > applied index %d", compactIndex, state.appliedIndex)
+	} else if compactIndex > state.AppliedIndex {
+		return errors.Errorf("compact index %d > applied index %d", compactIndex, state.AppliedIndex)
 	}
 
 	// we don't actually delete the logs now, we add an async task to do it.
-	state.truncatedIndex = compactIndex
-	state.truncatedTerm = compactTerm
+	state.TruncatedState.Index = compactIndex
+	state.TruncatedState.Term = compactTerm
 	return nil
 }
 
@@ -139,8 +139,8 @@ type ApplySnapResult struct {
 
 type InvokeContext struct {
 	RegionID   uint64
-	RaftState  raftState
-	ApplyState applyState
+	RaftState  rspb.RaftLocalState
+	ApplyState rspb.RaftApplyState
 	lastTerm   uint64
 	SnapRegion *metapb.Region
 }
@@ -160,39 +160,30 @@ func (ic *InvokeContext) hasSnapshot() bool {
 }
 
 func (ic *InvokeContext) saveRaftStateTo(wb *engine_util.WriteBatch) {
-	key := RaftStateKey(ic.RegionID)
-	wb.Set(key, ic.RaftState.Marshal())
+	wb.SetMsg(RaftStateKey(ic.RegionID), &ic.RaftState)
 }
 
 func (ic *InvokeContext) saveApplyStateTo(wb *engine_util.WriteBatch) {
-	key := ApplyStateKey(ic.RegionID)
-	wb.Set(key, ic.ApplyState.Marshal())
+	wb.SetMsg(ApplyStateKey(ic.RegionID), &ic.ApplyState)
 }
 
 func (ic *InvokeContext) saveSnapshotRaftStateTo(snapshotIdx uint64, wb *engine_util.WriteBatch) {
 	snapshotRaftState := ic.RaftState
-	snapshotRaftState.commit = snapshotIdx
-	snapshotRaftState.lastIndex = snapshotIdx
-	key := SnapshotRaftStateKey(ic.RegionID)
-	wb.Set(key, snapshotRaftState.Marshal())
+	snapshotRaftState.HardState.Commit = snapshotIdx
+	snapshotRaftState.LastIndex = snapshotIdx
+	wb.SetMsg(SnapshotRaftStateKey(ic.RegionID), &snapshotRaftState)
 }
 
 func recoverFromApplyingState(engines *engine_util.Engines, raftWB *engine_util.WriteBatch, regionID uint64) error {
-	snapRaftStateKey := SnapshotRaftStateKey(regionID)
-	snapRaftState := raftState{}
-	val, err := getValue(engines.Kv, snapRaftStateKey)
+	snapRaftState, err := getSnapRaftState(engines.Kv, regionID)
 	if err != nil {
 		return errors.Errorf("region %d failed to get raftstate from kv engine when recover from applying state", regionID)
 	}
-	snapRaftState.Unmarshal(val)
 
-	raftStateKey := RaftStateKey(regionID)
-	raftState := raftState{}
-	val, err = getValue(engines.Kv, raftStateKey)
+	raftState, err := getRaftLocalState(engines.Raft, regionID)
 	if err != nil && err != badger.ErrKeyNotFound {
 		return errors.WithStack(err)
 	}
-	raftState.Unmarshal(val)
 
 	// if we recv append log when applying snapshot, last_index in raft_local_state will
 	// larger than snapshot_index. since raft_local_state is written to raft engine, and
@@ -200,8 +191,8 @@ func recoverFromApplyingState(engines *engine_util.Engines, raftWB *engine_util.
 	// restart happen between the two write. so we copy raft_local_state to kv engine
 	// (snapshot_raft_state), and set snapshot_raft_state.last_index = snapshot_index.
 	// after restart, we need check last_index.
-	if snapRaftState.lastIndex > raftState.lastIndex {
-		raftWB.Set(raftStateKey, snapRaftState.Marshal())
+	if snapRaftState.LastIndex > raftState.LastIndex {
+		raftWB.SetMsg(RaftStateKey(regionID), snapRaftState)
 	}
 	return nil
 }
@@ -213,8 +204,8 @@ type PeerStorage struct {
 
 	peerID           uint64
 	region           *metapb.Region
-	raftState        raftState
-	applyState       applyState
+	raftState        rspb.RaftLocalState
+	applyState       rspb.RaftApplyState
 	appliedIndexTerm uint64
 	lastTerm         uint64
 
@@ -238,9 +229,9 @@ func NewPeerStorage(engines *engine_util.Engines, region *metapb.Region, regionS
 	if err != nil {
 		return nil, err
 	}
-	if raftState.lastIndex < applyState.appliedIndex {
+	if raftState.LastIndex < applyState.AppliedIndex {
 		panic(fmt.Sprintf("%s unexpected raft log index: lastIndex %d < appliedIndex %d",
-			tag, raftState.lastIndex, applyState.appliedIndex))
+			tag, raftState.LastIndex, applyState.AppliedIndex))
 	}
 	lastTerm, err := initLastTerm(engines.Raft, region, raftState, applyState)
 	if err != nil {
@@ -251,8 +242,8 @@ func NewPeerStorage(engines *engine_util.Engines, region *metapb.Region, regionS
 		peerID:      peerID,
 		region:      region,
 		Tag:         tag,
-		raftState:   raftState,
-		applyState:  applyState,
+		raftState:   *raftState,
+		applyState:  *applyState,
 		lastTerm:    lastTerm,
 		regionSched: regionSched,
 		cache:       &EntryCache{},
@@ -268,34 +259,43 @@ func getMsg(engine *badger.DB, key []byte, msg proto.Message) error {
 	return proto.Unmarshal(val, msg)
 }
 
-type storageError string
-
-func (e storageError) Error() string {
-	return string(e)
-}
-
 func getRegionLocalState(db *badger.DB, regionId uint64) (*rspb.RegionLocalState, error) {
 	regionLocalState := new(rspb.RegionLocalState)
 	if err := getMsg(db, RegionStateKey(regionId), regionLocalState); err != nil {
-		return nil, &ErrRegionNotFound{regionId}
+		return regionLocalState, err
 	}
 	return regionLocalState, nil
 }
 
-func getApplyState(db *badger.DB, regionId uint64) (applyState, error) {
-	applyState := applyState{}
-	val, err := getValue(db, ApplyStateKey(regionId))
-	if err != nil {
-		return applyState, storageError(fmt.Sprintf("couldn't load raft state of region %d", regionId))
+func getRaftLocalState(db *badger.DB, regionId uint64) (*rspb.RaftLocalState, error) {
+	raftLocalState := new(rspb.RaftLocalState)
+	if err := getMsg(db, RaftStateKey(regionId), raftLocalState); err != nil {
+		return raftLocalState, err
 	}
-	applyState.Unmarshal(val)
+	return raftLocalState, nil
+}
+
+func getSnapRaftState(db *badger.DB, regionId uint64) (*rspb.RaftLocalState, error) {
+	snapRaftState := new(rspb.RaftLocalState)
+	if err := getMsg(db, SnapshotRaftStateKey(regionId), snapRaftState); err != nil {
+		return nil, err
+	}
+	return snapRaftState, nil
+}
+
+func getApplyState(db *badger.DB, regionId uint64) (*rspb.RaftApplyState, error) {
+	applyState := new(rspb.RaftApplyState)
+	applyState.TruncatedState = new(rspb.RaftTruncatedState)
+	if err := getMsg(db, ApplyStateKey(regionId), applyState); err != nil {
+		return nil, err
+	}
 	return applyState, nil
 }
 
 func getRaftEntry(db *badger.DB, regionId, idx uint64) (*eraftpb.Entry, error) {
 	entry := new(eraftpb.Entry)
 	if err := getMsg(db, RaftLogKey(regionId, idx), entry); err != nil {
-		return nil, storageError(fmt.Sprintf("entry %d of %d not found", idx, regionId))
+		return nil, err
 	}
 	return entry, nil
 }
@@ -336,65 +336,55 @@ func putValue(engine *badger.DB, key, val []byte) error {
 	})
 }
 
-func initRaftState(raftEngine *badger.DB, region *metapb.Region) (raftState, error) {
-	stateKey := RaftStateKey(region.Id)
-	raftState := raftState{}
-	val, err := getValue(raftEngine, stateKey)
+func initRaftState(raftEngine *badger.DB, region *metapb.Region) (*rspb.RaftLocalState, error) {
+	raftState, err := getRaftLocalState(raftEngine, region.Id)
 	if err != nil && err != badger.ErrKeyNotFound {
-		return raftState, err
+		return nil, err
 	}
 	if err == badger.ErrKeyNotFound {
+		raftState = new(rspb.RaftLocalState)
 		if len(region.Peers) > 0 {
 			// new split region
-			raftState.lastIndex = RaftInitLogIndex
-			raftState.term = RaftInitLogTerm
-			raftState.commit = RaftInitLogIndex
-			err = putValue(raftEngine, stateKey, raftState.Marshal())
+			raftState.LastIndex = RaftInitLogIndex
+			raftState.HardState.Term = RaftInitLogTerm
+			raftState.HardState.Commit = RaftInitLogIndex
+			err = putMsg(raftEngine, RaftStateKey(region.Id), raftState)
 			if err != nil {
 				return raftState, err
 			}
 		}
-	} else {
-		raftState.Unmarshal(val)
 	}
 	return raftState, nil
 }
 
-func initApplyState(kvEngine *badger.DB, region *metapb.Region) (applyState, error) {
-	key := ApplyStateKey(region.Id)
-	applyState := applyState{}
-	val, err := getValue(kvEngine, key)
+func initApplyState(kvEngine *badger.DB, region *metapb.Region) (*rspb.RaftApplyState, error) {
+	applyState, err := getApplyState(kvEngine, region.Id)
 	if err != nil && err != badger.ErrKeyNotFound {
-		return applyState, err
+		return nil, err
 	}
 	if err == badger.ErrKeyNotFound {
 		if len(region.Peers) > 0 {
-			applyState.appliedIndex = RaftInitLogIndex
-			applyState.truncatedIndex = RaftInitLogIndex
-			applyState.truncatedTerm = RaftInitLogTerm
+			applyState.AppliedIndex = RaftInitLogIndex
+			applyState.TruncatedState.Index = RaftInitLogIndex
+			applyState.TruncatedState.Term = RaftInitLogTerm
 		}
-	} else {
-		y.AssertTruef(len(val) == 24, "apply state val %v", val)
-		applyState.Unmarshal(val)
 	}
 	return applyState, nil
 }
 
 func initLastTerm(raftEngine *badger.DB, region *metapb.Region,
-	raftState raftState, applyState applyState) (uint64, error) {
-	lastIdx := raftState.lastIndex
+	raftState *rspb.RaftLocalState, applyState *rspb.RaftApplyState) (uint64, error) {
+	lastIdx := raftState.LastIndex
 	if lastIdx == 0 {
 		return 0, nil
 	} else if lastIdx == RaftInitLogIndex {
 		return RaftInitLogTerm, nil
-	} else if lastIdx == applyState.truncatedIndex {
-		return applyState.truncatedTerm, nil
+	} else if lastIdx == applyState.TruncatedState.Index {
+		return applyState.TruncatedState.Term, nil
 	} else {
 		y.Assert(lastIdx > RaftInitLogIndex)
 	}
-	lastLogKey := RaftLogKey(region.Id, lastIdx)
-	e := new(eraftpb.Entry)
-	err := getMsg(raftEngine, lastLogKey, e)
+	e, err := getRaftEntry(raftEngine, region.Id, lastIdx)
 	if err != nil {
 		return 0, errors.Errorf("[region %s] entry at %d doesn't exist, may lost data.", region, lastIdx)
 	}
@@ -403,17 +393,13 @@ func initLastTerm(raftEngine *badger.DB, region *metapb.Region,
 
 func (ps *PeerStorage) InitialState() (eraftpb.HardState, eraftpb.ConfState, error) {
 	raftState := ps.raftState
-	if raftState.commit == 0 && raftState.term == 0 && raftState.vote == 0 {
+	if raftState.HardState.Commit == 0 && raftState.HardState.Term == 0 && raftState.HardState.Vote == 0 {
 		y.AssertTruef(!ps.isInitialized(),
-			"peer for region %s is initialized but local state %s has empty hard state",
+			"peer for region %s is initialized but local state %+v has empty hard state",
 			ps.region, ps.raftState)
 		return eraftpb.HardState{}, eraftpb.ConfState{}, nil
 	}
-	return eraftpb.HardState{
-		Term:   raftState.term,
-		Vote:   raftState.vote,
-		Commit: raftState.commit,
-	}, confStateFromRegion(ps.region), nil
+	return *raftState.HardState, confStateFromRegion(ps.region), nil
 }
 
 func confStateFromRegion(region *metapb.Region) (confState eraftpb.ConfState) {
@@ -482,7 +468,7 @@ func (ps *PeerStorage) Term(idx uint64) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	if ps.truncatedTerm() == ps.lastTerm || idx == ps.raftState.lastIndex {
+	if ps.truncatedTerm() == ps.lastTerm || idx == ps.raftState.LastIndex {
 		return ps.lastTerm, nil
 	}
 	entries, err := ps.Entries(idx, idx+1, math.MaxUint64)
@@ -497,35 +483,35 @@ func (ps *PeerStorage) checkRange(low, high uint64) error {
 		return errors.Errorf("low %d is greater than high %d", low, high)
 	} else if low <= ps.truncatedIndex() {
 		return raft.ErrCompacted
-	} else if high > ps.raftState.lastIndex+1 {
+	} else if high > ps.raftState.LastIndex+1 {
 		return errors.Errorf("entries' high %d is out of bound, lastIndex %d",
-			high, ps.raftState.lastIndex)
+			high, ps.raftState.LastIndex)
 	}
 	return nil
 }
 
 func (ps *PeerStorage) truncatedIndex() uint64 {
-	return ps.applyState.truncatedIndex
+	return ps.applyState.TruncatedState.Index
 }
 
 func (ps *PeerStorage) truncatedTerm() uint64 {
-	return ps.applyState.truncatedTerm
+	return ps.applyState.TruncatedState.Term
 }
 
 func (ps *PeerStorage) LastIndex() (uint64, error) {
-	return ps.raftState.lastIndex, nil
+	return ps.raftState.LastIndex, nil
 }
 
 func (ps *PeerStorage) AppliedIndex() uint64 {
-	return ps.applyState.appliedIndex
+	return ps.applyState.AppliedIndex
 }
 
 func (ps *PeerStorage) FirstIndex() (uint64, error) {
-	return firstIndex(ps.applyState), nil
+	return firstIndex(&ps.applyState), nil
 }
 
-func firstIndex(applyState applyState) uint64 {
-	return applyState.truncatedIndex + 1
+func firstIndex(applyState *rspb.RaftApplyState) uint64 {
+	return applyState.TruncatedState.Index + 1
 }
 
 func (ps *PeerStorage) validateSnap(snap *eraftpb.Snapshot) bool {
@@ -601,7 +587,7 @@ func (ps *PeerStorage) ScheduleGenerateSnapshot() {
 // to the return one.
 func (ps *PeerStorage) Append(invokeCtx *InvokeContext, entries []eraftpb.Entry, raftWB *engine_util.WriteBatch) error {
 	log.Debugf("%s append %d entries", ps.Tag, len(entries))
-	prevLastIndex := invokeCtx.RaftState.lastIndex
+	prevLastIndex := invokeCtx.RaftState.LastIndex
 	if len(entries) == 0 {
 		return nil
 	}
@@ -618,7 +604,7 @@ func (ps *PeerStorage) Append(invokeCtx *InvokeContext, entries []eraftpb.Entry,
 	for i := lastIndex + 1; i <= prevLastIndex; i++ {
 		raftWB.Delete(RaftLogKey(ps.region.Id, i))
 	}
-	invokeCtx.RaftState.lastIndex = lastIndex
+	invokeCtx.RaftState.LastIndex = lastIndex
 	invokeCtx.lastTerm = lastTerm
 
 	// TODO: if the writebatch is failed to commit, the cache will be wrong.
@@ -649,7 +635,7 @@ func (ps *PeerStorage) MaybeGCCache(replicatedIdx, appliedIdx uint64) {
 }
 
 func (ps *PeerStorage) clearMeta(kvWB, raftWB *engine_util.WriteBatch) error {
-	return ClearMeta(ps.Engines, kvWB, raftWB, ps.region.Id, ps.raftState.lastIndex)
+	return ClearMeta(ps.Engines, kvWB, raftWB, ps.region.Id, ps.raftState.LastIndex)
 }
 
 type CacheQueryStats struct {
@@ -833,14 +819,14 @@ func (ps *PeerStorage) ApplySnapshot(ctx *InvokeContext, snap *eraftpb.Snapshot,
 
 	lastIdx := snap.Metadata.Index
 
-	ctx.RaftState.lastIndex = lastIdx
+	ctx.RaftState.LastIndex = lastIdx
 	ctx.lastTerm = snap.Metadata.Term
-	ctx.ApplyState.appliedIndex = lastIdx
+	ctx.ApplyState.AppliedIndex = lastIdx
 
 	// The snapshot only contains log which index > applied index, so
 	// here the truncate state's (index, term) is in snapshot metadata.
-	ctx.ApplyState.truncatedIndex = lastIdx
-	ctx.ApplyState.truncatedTerm = snap.Metadata.Term
+	ctx.ApplyState.TruncatedState.Index = lastIdx
+	ctx.ApplyState.TruncatedState.Term = snap.Metadata.Term
 
 	log.Debugf("%v apply snapshot for region %v with state %v ok", ps.Tag, snapData.Region, ctx.ApplyState)
 
@@ -861,7 +847,7 @@ func (ps *PeerStorage) SaveReadyState(kvWB, raftWB *engine_util.WriteBatch, read
 		if err := ps.ApplySnapshot(ctx, &ready.Snapshot, kvWB, raftWB); err != nil {
 			return nil, err
 		}
-		snapshotIdx = ctx.RaftState.lastIndex
+		snapshotIdx = ctx.RaftState.LastIndex
 	}
 
 	if len(ready.Entries) != 0 {
@@ -872,15 +858,13 @@ func (ps *PeerStorage) SaveReadyState(kvWB, raftWB *engine_util.WriteBatch, read
 
 	// Last index is 0 means the peer is created from raft message
 	// and has not applied snapshot yet, so skip persistent hard state.
-	if ctx.RaftState.lastIndex > 0 {
+	if ctx.RaftState.LastIndex > 0 {
 		if !raft.IsEmptyHardState(ready.HardState) {
-			ctx.RaftState.commit = ready.HardState.Commit
-			ctx.RaftState.term = ready.HardState.Term
-			ctx.RaftState.vote = ready.HardState.Vote
+			ctx.RaftState.HardState = &ready.HardState
 		}
 	}
 
-	if ctx.RaftState != ps.raftState {
+	if !proto.Equal(&ctx.RaftState, &ps.raftState) {
 		ctx.saveRaftStateTo(raftWB)
 		if snapshotIdx > 0 {
 			// in case of restart happen when we just write region state to Applying,
@@ -892,7 +876,7 @@ func (ps *PeerStorage) SaveReadyState(kvWB, raftWB *engine_util.WriteBatch, read
 	}
 
 	// only when apply snapshot
-	if ctx.ApplyState != ps.applyState {
+	if !proto.Equal(&ctx.ApplyState, &ps.applyState) {
 		ctx.saveApplyStateTo(kvWB)
 	}
 
@@ -984,17 +968,17 @@ func (p *PeerStorage) CheckApplyingSnap() bool {
 }
 
 func getAppliedIdxTermForSnapshot(raft *badger.DB, kv *badger.Txn, regionId uint64) (uint64, uint64, error) {
-	applyState := applyState{}
+	applyState := new(rspb.RaftApplyState)
 	val, err := getValueTxn(kv, ApplyStateKey(regionId))
 	if err != nil {
 		return 0, 0, err
 	}
 	applyState.Unmarshal(val)
 
-	idx := applyState.appliedIndex
+	idx := applyState.AppliedIndex
 	var term uint64
-	if idx == applyState.truncatedIndex {
-		term = applyState.truncatedTerm
+	if idx == applyState.TruncatedState.Index {
+		term = applyState.TruncatedState.Term
 	} else {
 		entry, err := getRaftEntry(raft, regionId, idx)
 		if err != nil {
@@ -1030,7 +1014,7 @@ func doSnapshot(engines *engine_util.Engines, mgr *snap.SnapManager, regionId ui
 		return nil, err
 	}
 	if regionState.GetState() != rspb.PeerState_Normal {
-		return nil, storageError(fmt.Sprintf("snap job %d seems stale, skip", regionId))
+		return nil, errors.Errorf("snap job %d seems stale, skip", regionId)
 	}
 
 	region := regionState.GetRegion()
