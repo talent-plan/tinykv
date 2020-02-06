@@ -77,10 +77,9 @@ var (
 )
 
 const (
-	etcdTimeout           = time.Second * 3
-	etcdStartTimeout      = time.Minute * 5
-	serverMetricsInterval = time.Minute
-	leaderTickInterval    = 50 * time.Millisecond
+	etcdTimeout        = time.Second * 3
+	etcdStartTimeout   = time.Minute * 5
+	leaderTickInterval = 50 * time.Millisecond
 	// pdRootPath for all pd servers.
 	pdRootPath      = "/pd"
 	pdAPIPrefix     = "/pd/"
@@ -227,9 +226,6 @@ func (s *Server) startServer(ctx context.Context) error {
 		return err
 	}
 	log.Info("init cluster id", zap.Uint64("cluster-id", s.clusterID))
-	// It may lose accuracy if use float64 to store uint64. So we store the
-	// cluster id in label.
-	metadataGauge.WithLabelValues(fmt.Sprintf("cluster%d", s.clusterID)).Set(0)
 
 	s.rootPath = path.Join(pdRootPath, strconv.FormatUint(s.clusterID, 10))
 	s.member.MemberInfo(s.cfg, s.Name(), s.rootPath)
@@ -305,7 +301,6 @@ func (s *Server) IsClosed() bool {
 func (s *Server) Run(ctx context.Context) error {
 	go StartMonitor(ctx, time.Now, func() {
 		log.Error("system time jumps backward")
-		timeJumpBackCounter.Inc()
 	})
 
 	if err := s.startEtcd(ctx); err != nil {
@@ -328,38 +323,14 @@ func (s *Server) Context() context.Context {
 
 func (s *Server) startServerLoop(ctx context.Context) {
 	s.serverLoopCtx, s.serverLoopCancel = context.WithCancel(ctx)
-	s.serverLoopWg.Add(3)
+	s.serverLoopWg.Add(2)
 	go s.leaderLoop()
 	go s.etcdLeaderLoop()
-	go s.serverMetricsLoop()
 }
 
 func (s *Server) stopServerLoop() {
 	s.serverLoopCancel()
 	s.serverLoopWg.Wait()
-}
-
-func (s *Server) serverMetricsLoop() {
-	defer logutil.LogPanic()
-	defer s.serverLoopWg.Done()
-
-	ctx, cancel := context.WithCancel(s.serverLoopCtx)
-	defer cancel()
-	for {
-		select {
-		case <-time.After(serverMetricsInterval):
-			s.collectEtcdStateMetrics()
-		case <-ctx.Done():
-			log.Info("server is closed, exit metrics loop")
-			return
-		}
-	}
-}
-
-func (s *Server) collectEtcdStateMetrics() {
-	etcdStateGauge.WithLabelValues("term").Set(float64(s.member.Etcd().Server.Term()))
-	etcdStateGauge.WithLabelValues("appliedIndex").Set(float64(s.member.Etcd().Server.AppliedIndex()))
-	etcdStateGauge.WithLabelValues("committedIndex").Set(float64(s.member.Etcd().Server.CommittedIndex()))
 }
 
 func (s *Server) bootstrapCluster(req *pdpb.BootstrapRequest) (*pdpb.BootstrapResponse, error) {

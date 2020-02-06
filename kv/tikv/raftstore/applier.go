@@ -85,7 +85,7 @@ type apply struct {
 
 type applyTaskRes struct {
 	regionID         uint64
-	applyState       applyState
+	applyState       rspb.RaftApplyState
 	appliedIndexTerm uint64
 	execResults      []execResult
 	sizeDiffHint     uint64
@@ -124,7 +124,7 @@ type applyResult struct {
 type applyExecContext struct {
 	index      uint64
 	term       uint64
-	applyState applyState
+	applyState rspb.RaftApplyState
 }
 
 type applyCallback struct {
@@ -171,7 +171,7 @@ func newRegionProposal(id uint64, regionId uint64, props []*proposal) *regionPro
 type registration struct {
 	id               uint64
 	term             uint64
-	applyState       applyState
+	applyState       rspb.RaftApplyState
 	appliedIndexTerm uint64
 	region           *metapb.Region
 }
@@ -232,7 +232,7 @@ func (ac *applyContext) prepareFor(d *applier) {
 		ac.wb = new(engine_util.WriteBatch)
 	}
 	ac.cbs = append(ac.cbs, applyCallback{region: d.region})
-	ac.lastAppliedIndex = d.applyState.appliedIndex
+	ac.lastAppliedIndex = d.applyState.AppliedIndex
 }
 
 /// Commits all changes have done for applier. `persistent` indicates whether
@@ -240,7 +240,7 @@ func (ac *applyContext) prepareFor(d *applier) {
 ///
 /// This call is valid only when it's between a `prepare_for` and `finish_for`.
 func (ac *applyContext) commit(d *applier) {
-	if ac.lastAppliedIndex < d.applyState.appliedIndex {
+	if ac.lastAppliedIndex < d.applyState.AppliedIndex {
 		d.writeApplyState(ac.wb)
 	}
 	// last_applied_index doesn't need to be updated, set persistent to true will
@@ -348,7 +348,7 @@ type applier struct {
 	/// If we write it to Raft DB, apply_state and kv data (Put, Delete) are in
 	/// separate WAL file. When power failure, for current raft log, apply_index may synced
 	/// to file, but KV data may not synced to file, so we will lose data.
-	applyState applyState
+	applyState rspb.RaftApplyState
 	/// The term of the raft log at applied index.
 	appliedIndexTerm uint64
 
@@ -384,7 +384,7 @@ func (a *applier) handleRaftCommittedEntries(aCtx *applyContext, committedEntrie
 			// This peer is about to be destroyed, skip everything.
 			break
 		}
-		expectedIndex := a.applyState.appliedIndex + 1
+		expectedIndex := a.applyState.AppliedIndex + 1
 		if expectedIndex != entry.Index {
 			panic(fmt.Sprintf("%s expect index %d, but got %d", a.tag, expectedIndex, entry.Index))
 		}
@@ -405,7 +405,7 @@ func (a *applier) handleRaftCommittedEntries(aCtx *applyContext, committedEntrie
 }
 
 func (a *applier) writeApplyState(wb *engine_util.WriteBatch) {
-	wb.Set(ApplyStateKey(a.region.Id), a.applyState.Marshal())
+	wb.SetMsg(ApplyStateKey(a.region.Id), &a.applyState)
 }
 
 func (a *applier) handleRaftEntryNormal(aCtx *applyContext, entry *eraftpb.Entry) applyResult {
@@ -421,7 +421,7 @@ func (a *applier) handleRaftEntryNormal(aCtx *applyContext, entry *eraftpb.Entry
 	}
 
 	// when a peer become leader, it will send an empty entry.
-	a.applyState.appliedIndex = index
+	a.applyState.AppliedIndex = index
 	a.appliedIndexTerm = term
 	y.Assert(term > 0)
 	for {
@@ -546,7 +546,7 @@ func (a *applier) applyRaftCmd(aCtx *applyContext, index, term uint64,
 	}
 	a.applyState = aCtx.execCtx.applyState
 	aCtx.execCtx = nil
-	a.applyState.appliedIndex = index
+	a.applyState.AppliedIndex = index
 	a.appliedIndexTerm = term
 
 	if applyResult.tp == applyResultTypeExecResult {
@@ -670,7 +670,7 @@ func (a *applier) handlePut(aCtx *applyContext, req *raft_cmdpb.PutRequest) (*ra
 	if cf := req.GetCf(); len(cf) != 0 {
 		aCtx.wb.SetCF(cf, key, value)
 	} else {
-		aCtx.wb.SetCF(engine_util.CF_DEFAULT, key, value)
+		aCtx.wb.SetCF(engine_util.CfDefault, key, value)
 	}
 	return &raft_cmdpb.Response{
 		CmdType: raft_cmdpb.CmdType_Put,
@@ -686,7 +686,7 @@ func (a *applier) handleDelete(aCtx *applyContext, req *raft_cmdpb.DeleteRequest
 	if cf := req.GetCf(); len(cf) != 0 {
 		aCtx.wb.DeleteCF(cf, key)
 	} else {
-		aCtx.wb.DeleteCF(engine_util.CF_DEFAULT, key)
+		aCtx.wb.DeleteCF(engine_util.CfDefault, key)
 	}
 	return &raft_cmdpb.Response{
 		CmdType: raft_cmdpb.CmdType_Delete,
@@ -703,7 +703,7 @@ func (a *applier) handleGet(aCtx *applyContext, req *raft_cmdpb.GetRequest) (*ra
 	if cf := req.GetCf(); len(cf) != 0 {
 		val, err = engine_util.GetCF(aCtx.engines.Kv, cf, key)
 	} else {
-		val, err = engine_util.GetCF(aCtx.engines.Kv, engine_util.CF_DEFAULT, key)
+		val, err = engine_util.GetCF(aCtx.engines.Kv, engine_util.CfDefault, key)
 	}
 	return &raft_cmdpb.Response{
 		CmdType: raft_cmdpb.CmdType_Get,
@@ -864,7 +864,7 @@ func (a *applier) execCompactLog(aCtx *applyContext, req *raft_cmdpb.AdminReques
 	compactIndex := req.CompactLog.CompactIndex
 	resp = new(raft_cmdpb.AdminResponse)
 	applyState := &aCtx.execCtx.applyState
-	firstIndex := firstIndex(*applyState)
+	firstIndex := firstIndex(applyState)
 	if compactIndex <= firstIndex {
 		log.Debugf("%s compact index <= first index, no need to compact", a.tag)
 		return
@@ -883,7 +883,7 @@ func (a *applier) execCompactLog(aCtx *applyContext, req *raft_cmdpb.AdminReques
 		return
 	}
 	result = applyResult{tp: applyResultTypeExecResult, data: &execResultCompactLog{
-		truncatedIndex: applyState.truncatedIndex,
+		truncatedIndex: applyState.TruncatedState.Index,
 		firstIndex:     firstIndex,
 	}}
 	return

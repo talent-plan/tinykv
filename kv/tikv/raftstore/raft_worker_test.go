@@ -164,9 +164,9 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 
 	cb := message.NewCallback()
 	NewEntryBuilder(1, 1).
-		put(engine_util.CF_DEFAULT, []byte("k1"), []byte("v1")).
-		put(engine_util.CF_DEFAULT, []byte("k2"), []byte("v2")).
-		put(engine_util.CF_DEFAULT, []byte("k3"), []byte("v3")).
+		put(engine_util.CfDefault, []byte("k1"), []byte("v1")).
+		put(engine_util.CfDefault, []byte("k2"), []byte("v2")).
+		put(engine_util.CfDefault, []byte("k3"), []byte("v3")).
 		epoch(1, 3).
 		schedule(rw.applyCh, 3, 1, cb)
 	resp := cb.WaitResp()
@@ -176,9 +176,9 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 
 	cb = message.NewCallback()
 	NewEntryBuilder(2, 1).
-		get(engine_util.CF_DEFAULT, []byte("k1")).
-		get(engine_util.CF_DEFAULT, []byte("k2")).
-		get(engine_util.CF_DEFAULT, []byte("k3")).
+		get(engine_util.CfDefault, []byte("k1")).
+		get(engine_util.CfDefault, []byte("k2")).
+		get(engine_util.CfDefault, []byte("k3")).
 		epoch(1, 3).
 		schedule(rw.applyCh, 3, 1, cb)
 	resp = cb.WaitResp()
@@ -188,23 +188,23 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	require.True(t, bytes.Equal(resp.GetResponses()[1].GetGet().Value, []byte("v2")))
 	require.True(t, bytes.Equal(resp.GetResponses()[2].GetGet().Value, []byte("v3")))
 
-	require.Equal(t, newPeer.apply.appliedIndexTerm, uint64(1))
-	require.Equal(t, newPeer.apply.applyState.appliedIndex, uint64(2))
-	fetchApplyRes(rw.raftCh)
+	applyRes := fetchApplyRes(rw.raftCh)
+	require.Equal(t, applyRes.applyState.AppliedIndex, uint64(2))
+	require.Equal(t, applyRes.appliedIndexTerm, uint64(1))
 
 	cb = message.NewCallback()
 	NewEntryBuilder(3, 2).
-		put(engine_util.CF_LOCK, []byte("k1"), []byte("v11")).
-		delete(engine_util.CF_DEFAULT, []byte("k2")).
+		put(engine_util.CfLock, []byte("k1"), []byte("v11")).
+		delete(engine_util.CfDefault, []byte("k2")).
 		epoch(1, 3).
 		schedule(rw.applyCh, 3, 1, cb)
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError() == nil)
 	require.Equal(t, newPeer.apply.appliedIndexTerm, uint64(2))
-	require.Equal(t, newPeer.apply.applyState.appliedIndex, uint64(3))
-	applyRes := fetchApplyRes(rw.raftCh)
+	require.Equal(t, newPeer.apply.applyState.AppliedIndex, uint64(3))
+	applyRes = fetchApplyRes(rw.raftCh)
 	require.Equal(t, applyRes.regionID, uint64(1))
-	require.Equal(t, applyRes.applyState.appliedIndex, uint64(3))
+	require.Equal(t, applyRes.applyState.AppliedIndex, uint64(3))
 	require.Equal(t, applyRes.appliedIndexTerm, uint64(2))
 	require.Equal(t, len(applyRes.execResults), 0)
 
@@ -216,36 +216,36 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError() == nil)
 	require.Equal(t, len(resp.GetResponses()), 1)
-	val, err := engine_util.GetCFFromTxn(cb.RegionSnap.Txn, engine_util.CF_LOCK, []byte("k1"))
+	val, err := engine_util.GetCFFromTxn(cb.RegionSnap.Txn, engine_util.CfLock, []byte("k1"))
 	require.Nil(t, err)
 	require.True(t, bytes.Equal(val, []byte("v11")))
 	applyRes = fetchApplyRes(rw.raftCh)
-	require.Equal(t, applyRes.applyState.appliedIndex, uint64(4))
+	require.Equal(t, applyRes.applyState.AppliedIndex, uint64(4))
 	require.Equal(t, applyRes.appliedIndexTerm, uint64(2))
 
 	cb = message.NewCallback()
 	NewEntryBuilder(5, 2).
-		put(engine_util.CF_DEFAULT, []byte("k2"), []byte("v2")).
+		put(engine_util.CfDefault, []byte("k2"), []byte("v2")).
 		epoch(1, 1).
 		schedule(rw.applyCh, 3, 1, cb)
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError().GetEpochNotMatch() != nil)
 	applyRes = fetchApplyRes(rw.raftCh)
-	require.Equal(t, applyRes.applyState.appliedIndex, uint64(5))
+	require.Equal(t, applyRes.applyState.AppliedIndex, uint64(5))
 	require.Equal(t, applyRes.appliedIndexTerm, uint64(2))
 
 	cb = message.NewCallback()
 	NewEntryBuilder(6, 2).
-		put(engine_util.CF_DEFAULT, []byte("k3"), []byte("v31")).
-		put(engine_util.CF_DEFAULT, []byte("k5"), []byte("v5")).
+		put(engine_util.CfDefault, []byte("k3"), []byte("v31")).
+		put(engine_util.CfDefault, []byte("k5"), []byte("v5")).
 		epoch(1, 3).
 		schedule(rw.applyCh, 3, 1, cb)
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError().GetKeyNotInRegion() != nil)
 	applyRes = fetchApplyRes(rw.raftCh)
-	require.Equal(t, applyRes.applyState.appliedIndex, uint64(6))
+	require.Equal(t, applyRes.applyState.AppliedIndex, uint64(6))
 	require.Equal(t, applyRes.appliedIndexTerm, uint64(2))
-	val, err = engine_util.GetCF(engines.Kv, engine_util.CF_DEFAULT, []byte("k3"))
+	val, err = engine_util.GetCF(engines.Kv, engine_util.CfDefault, []byte("k3"))
 	require.Nil(t, err)
 	// a write batch should be atomic
 	require.True(t, bytes.Equal(val, []byte("v3")))
@@ -255,8 +255,8 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 		propose(rw.applyCh, 3, 1, cb1)
 	cb = message.NewCallback()
 	NewEntryBuilder(7, 3).
-		delete(engine_util.CF_LOCK, []byte("k1")).
-		delete(engine_util.CF_WRITE, []byte("k1")).
+		delete(engine_util.CfLock, []byte("k1")).
+		delete(engine_util.CfWrite, []byte("k1")).
 		epoch(1, 3).
 		schedule(rw.applyCh, 3, 1, cb)
 	resp1 := cb1.WaitResp()
@@ -264,7 +264,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError() == nil)
 	applyRes = fetchApplyRes(rw.raftCh)
-	require.Equal(t, applyRes.applyState.appliedIndex, uint64(7))
+	require.Equal(t, applyRes.applyState.AppliedIndex, uint64(7))
 	require.Equal(t, applyRes.appliedIndexTerm, uint64(3))
 }
 

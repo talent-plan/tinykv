@@ -26,7 +26,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/server/config"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/id"
-	"github.com/pingcap-incubator/tinykv/scheduler/server/join"
 	"github.com/pingcap/log"
 	"github.com/pkg/errors"
 	"go.etcd.io/etcd/clientv3"
@@ -61,10 +60,6 @@ func NewTestServer(cfg *config.Config) (*TestServer, error) {
 	zapLogOnce.Do(func() {
 		log.ReplaceGlobals(cfg.GetZapLogger(), cfg.GetZapLogProperties())
 	})
-	err = join.PrepareJoinCluster(cfg)
-	if err != nil {
-		return nil, err
-	}
 	svr, err := server.CreateServer(cfg)
 	if err != nil {
 		return nil, err
@@ -467,20 +462,6 @@ func (c *TestCluster) HandleRegionHeartbeat(region *core.RegionInfo) error {
 	leader := c.GetLeader()
 	cluster := c.servers[leader].GetRaftCluster()
 	return cluster.HandleRegionHeartbeat(region)
-}
-
-// Join is used to add a new TestServer into the cluster.
-func (c *TestCluster) Join() (*TestServer, error) {
-	conf, err := c.config.Join().Generate()
-	if err != nil {
-		return nil, err
-	}
-	s, err := NewTestServer(conf)
-	if err != nil {
-		return nil, err
-	}
-	c.servers[conf.Name] = s
-	return s, nil
 }
 
 // Destroy is used to destroy a TestCluster.

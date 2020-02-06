@@ -254,7 +254,7 @@ func TestPeerStorageAppend(t *testing.T) {
 		peerStore := newTestPeerStorageFromEnts(t, ents)
 		defer cleanUpTestData(peerStore)
 		appendEnts(t, peerStore, tt.appends)
-		li := peerStore.raftState.lastIndex
+		li := peerStore.raftState.LastIndex
 		acutualEntries, err := peerStore.Entries(4, li+1, math.MaxUint64)
 		require.Nil(t, err)
 		assert.Equal(t, tt.results, acutualEntries)

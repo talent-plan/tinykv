@@ -662,12 +662,12 @@ func (p *Peer) HandleRaftReadyApply(kv *badger.DB, applyMsgs *applyMsgs, ready *
 	}
 }
 
-func (p *Peer) PostApply(kv *badger.DB, applyState applyState, appliedIndexTerm uint64, sizeDiffHint uint64) bool {
+func (p *Peer) PostApply(kv *badger.DB, applyState rspb.RaftApplyState, appliedIndexTerm uint64, sizeDiffHint uint64) bool {
 	hasReady := false
 	if p.IsApplyingSnapshot() {
 		panic("should not applying snapshot")
 	}
-	p.RaftGroup.AdvanceApply(applyState.appliedIndex)
+	p.RaftGroup.AdvanceApply(applyState.AppliedIndex)
 
 	p.Store().applyState = applyState
 	p.Store().appliedIndexTerm = appliedIndexTerm

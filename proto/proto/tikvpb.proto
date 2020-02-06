@@ -21,10 +21,7 @@ service Tikv {
     rpc KvPrewrite(kvrpcpb.PrewriteRequest) returns (kvrpcpb.PrewriteResponse) {}
     rpc KvCommit(kvrpcpb.CommitRequest) returns (kvrpcpb.CommitResponse) {}
     rpc KvCheckTxnStatus(kvrpcpb.CheckTxnStatusRequest) returns (kvrpcpb.CheckTxnStatusResponse) {}
-    rpc KvCleanup(kvrpcpb.CleanupRequest) returns (kvrpcpb.CleanupResponse) {}
-    rpc KvBatchGet(kvrpcpb.BatchGetRequest) returns (kvrpcpb.BatchGetResponse) {}
     rpc KvBatchRollback(kvrpcpb.BatchRollbackRequest) returns (kvrpcpb.BatchRollbackResponse) {}
-    rpc KvScanLock(kvrpcpb.ScanLockRequest) returns (kvrpcpb.ScanLockResponse) {}
     rpc KvResolveLock(kvrpcpb.ResolveLockRequest) returns (kvrpcpb.ResolveLockResponse) {}
 
     // RawKV commands.
@@ -39,8 +36,4 @@ service Tikv {
 
     // Coprocessor 
     rpc Coprocessor(coprocessor.Request) returns (coprocessor.Response) {}
-}
-
-message BatchRaftMessage {
-    repeated raft_serverpb.RaftMessage msgs = 1;
 }

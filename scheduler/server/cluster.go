@@ -376,7 +376,6 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 				zap.Stringer("region-meta", core.RegionToHexMeta(region.GetMeta())),
 				zap.Error(err))
 		}
-		regionEventCounter.WithLabelValues("update_kv").Inc()
 		select {
 		case c.changedRegions <- region:
 		default:
@@ -414,7 +413,6 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 		for _, p := range region.GetPeers() {
 			c.updateStoreStatusLocked(p.GetStoreId())
 		}
-		regionEventCounter.WithLabelValues("update_cache").Inc()
 	}
 
 	return nil
@@ -923,10 +921,8 @@ func (c *RaftCluster) collectHealthStatus() {
 	unhealth := c.s.CheckHealth(members)
 	for _, member := range members {
 		if _, ok := unhealth[member.GetMemberId()]; ok {
-			healthStatusGauge.WithLabelValues(member.GetName()).Set(0)
 			continue
 		}
-		healthStatusGauge.WithLabelValues(member.GetName()).Set(1)
 	}
 }
 
