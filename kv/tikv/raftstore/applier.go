@@ -670,7 +670,7 @@ func (a *applier) handlePut(aCtx *applyContext, req *raft_cmdpb.PutRequest) (*ra
 	if cf := req.GetCf(); len(cf) != 0 {
 		aCtx.wb.SetCF(cf, key, value)
 	} else {
-		aCtx.wb.SetCF(engine_util.CF_DEFAULT, key, value)
+		aCtx.wb.SetCF(engine_util.CfDefault, key, value)
 	}
 	return &raft_cmdpb.Response{
 		CmdType: raft_cmdpb.CmdType_Put,
@@ -686,7 +686,7 @@ func (a *applier) handleDelete(aCtx *applyContext, req *raft_cmdpb.DeleteRequest
 	if cf := req.GetCf(); len(cf) != 0 {
 		aCtx.wb.DeleteCF(cf, key)
 	} else {
-		aCtx.wb.DeleteCF(engine_util.CF_DEFAULT, key)
+		aCtx.wb.DeleteCF(engine_util.CfDefault, key)
 	}
 	return &raft_cmdpb.Response{
 		CmdType: raft_cmdpb.CmdType_Delete,
@@ -703,7 +703,7 @@ func (a *applier) handleGet(aCtx *applyContext, req *raft_cmdpb.GetRequest) (*ra
 	if cf := req.GetCf(); len(cf) != 0 {
 		val, err = engine_util.GetCF(aCtx.engines.Kv, cf, key)
 	} else {
-		val, err = engine_util.GetCF(aCtx.engines.Kv, engine_util.CF_DEFAULT, key)
+		val, err = engine_util.GetCF(aCtx.engines.Kv, engine_util.CfDefault, key)
 	}
 	return &raft_cmdpb.Response{
 		CmdType: raft_cmdpb.CmdType_Get,

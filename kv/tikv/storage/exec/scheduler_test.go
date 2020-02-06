@@ -4,7 +4,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/tikv"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/stretchr/testify/assert"
 
@@ -31,7 +30,7 @@ type dummyCmd struct {
 	id int
 }
 
-func (dc *dummyCmd) BuildTxn(txn *kvstore.Txn) error {
+func (dc *dummyCmd) BuildTxn(txn *kvstore.MvccTxn) error {
 	return nil
 }
 
@@ -39,10 +38,10 @@ func (dc *dummyCmd) Context() *kvrpcpb.Context {
 	return nil
 }
 
-func (dc *dummyCmd) Response() (interface{}, error) {
-	return dc.id, nil
+func (dc *dummyCmd) Response() interface{} {
+	return dc.id
 }
 
-func (dc *dummyCmd) RegionError(err *errorpb.Error) interface{} {
+func (dc *dummyCmd) HandleError(err error) interface{} {
 	return nil
 }

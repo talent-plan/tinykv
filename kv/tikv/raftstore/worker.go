@@ -125,7 +125,7 @@ func (r *splitCheckHandler) splitCheck(startKey, endKey []byte) [][]byte {
 	txn := r.engine.NewTransaction(false)
 	defer txn.Discard()
 
-	it := engine_util.NewCFIterator(engine_util.CF_DEFAULT, txn)
+	it := engine_util.NewCFIterator(engine_util.CfDefault, txn)
 	defer it.Close()
 	for it.Seek(startKey); it.Valid(); it.Next() {
 		item := it.Item()
@@ -160,7 +160,7 @@ func newSizeSplitChecker(maxSize, splitSize, batchSplitLimit uint64) *sizeSplitC
 	}
 }
 
-func (checker *sizeSplitChecker) onKv(key []byte, item *engine_util.CFItem) bool {
+func (checker *sizeSplitChecker) onKv(key []byte, item engine_util.DBItem) bool {
 	valueSize := uint64(item.ValueSize())
 	size := uint64(len(key)) + valueSize
 	checker.currentSize += size

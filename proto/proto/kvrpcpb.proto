@@ -16,9 +16,6 @@ message LockInfo {
     uint64 lock_version = 2;
     bytes key = 3;
     uint64 lock_ttl = 4;
-    // How many keys this transaction involved.
-    uint64 txn_size = 5;
-    Op lock_type = 6;
 }
 
 message AlreadyExist {
@@ -31,9 +28,6 @@ message KeyError {
     string abort = 3; // Client should abort the txn.
     WriteConflict conflict = 4; // Write conflict is moved from retryable to here.
     AlreadyExist already_exist = 5; // Key already exists
-    Deadlock deadlock = 6; // Deadlock is used in pessimistic transaction for single statement rollback.
-    CommitTsExpired commit_ts_expired = 7; // Commit ts is earlier than min commit ts of a transaction.
-    TxnNotFound txn_not_found = 8; // Txn not found when checking txn status.
 }
 
 message WriteConflict {
@@ -41,58 +35,13 @@ message WriteConflict {
     uint64 conflict_ts = 2;
     bytes key = 3;
     bytes primary = 4;
-    uint64 conflict_commit_ts = 5;
-}
-
-message Deadlock {
-    uint64 lock_ts = 1;
-    bytes lock_key = 2;
-    uint64 deadlock_key_hash = 3;
-}
-
-message CommitTsExpired {
-    uint64 start_ts = 1;
-    uint64 attempted_commit_ts = 2;
-    bytes key = 3;
-    uint64 min_commit_ts = 4;
-}
-
-message TxnNotFound {
-    uint64 start_ts = 1;
-    bytes primary_key = 2;
-}
-
-enum CommandPri {
-    Normal = 0; // Normal must the default value
-    Low = 1;
-    High = 2;
-}
-
-enum IsolationLevel {
-    SI = 0; // SI = snapshot isolation
-    RC = 1; // RC = read committed
 }
 
 message Context {
-    reserved 4;
-    reserved "read_quorum";
     uint64 region_id = 1;
     metapb.RegionEpoch region_epoch = 2;
     metapb.Peer peer = 3;
     uint64 term = 5;
-    CommandPri priority = 6;
-    IsolationLevel isolation_level = 7;
-    bool not_fill_cache = 8;
-    bool sync_log = 9;
-    bool handle_time = 10; // true means return handle time detail
-    bool scan_detail = 11; // true means return scan cf's detail
-    bool replica_read = 12;
-    repeated uint64 resolved_locks = 13;
-    uint64 max_execution_duration_ms = 14;
-
-    // After a region applys to `applied_index`, we can get a
-    // snapshot for the region even if the peer is follower.
-    uint64 applied_index = 15;
 }
 
 message HandleTime {
@@ -134,11 +83,6 @@ message ScanRequest {
     bytes start_key = 2;
     uint32 limit = 3;
     uint64 version = 4;
-    bool key_only = 5;
-    bool reverse = 6;
-    // For compatibility, when scanning forward, the range to scan is [start_key, end_key), where start_key < end_key;
-    // and when scanning backward, it scans [end_key, start_key) in descending order, where end_key < start_key.
-    bytes end_key = 7;
 }
 
 message KvPair {
@@ -157,22 +101,12 @@ enum Op {
     Del = 1;
     Lock = 2;
     Rollback = 3;
-    // insert operation has a constraint that key should not exist before.
-    Insert = 4;
-    PessimisticLock = 5;
-}
-
-enum Assertion {
-     None = 0;
-     Exist = 1;
-     NotExist = 2;
 }
 
 message Mutation {
     Op op = 1;
     bytes key = 2;
     bytes value = 3;
-    Assertion assertion = 4;
 }
 
 message PrewriteRequest {
@@ -182,16 +116,6 @@ message PrewriteRequest {
     bytes primary_lock = 3;
     uint64 start_version = 4;
     uint64 lock_ttl = 5;
-    bool skip_constraint_check = 6;
-    // For pessimistic transaction, some mutations don't need to be locked, for example, non-unique index key.
-    repeated bool is_pessimistic_lock = 7;
-    // How many keys this transaction involved.
-    uint64 txn_size = 8;
-    // Use for pessimistic transaction, used to check if a conflict lock is already committed.
-    uint64 for_update_ts = 9;
-    // If min_commit_ts > 0, this is large transaction proto, the final commit_ts
-    // would be infered from min_commit_ts.
-    uint64 min_commit_ts = 10;
 }
 
 message PrewriteResponse {
@@ -213,47 +137,7 @@ message TxnHeartBeatResponse {
     uint64 lock_ttl = 3;
 }
 
-message PessimisticLockRequest {
-    Context context = 1;
-    // In this case the Op of the mutation must be Lock.
-    repeated Mutation mutations = 2;
-    bytes primary_lock = 3;
-    uint64 start_version = 4;
-    uint64 lock_ttl = 5;
-    uint64 for_update_ts = 6;
-    // If the request is the first lock request, we don't need to detect deadlock.
-    bool is_first_lock = 7;
-    // Time to wait for lock released in milliseconds when encountering locks.
-    // 0 means using default timeout in TiKV. Negative means no wait.
-    int64 wait_timeout = 8;
-    // If it is true, TiKV will acquire the pessimistic lock regardless of write conflict
-    // and return the latest value. Now it's only supported for single mutation.
-    bool force = 9;
-}
-
-message PessimisticLockResponse {
-    errorpb.Error region_error = 1;
-    repeated KeyError errors = 2;
-    // It carries the latest value and its commit ts if force in PessimisticLockRequest is true.
-    uint64 commit_ts = 3;
-    bytes value = 4;
-}
-
-message PessimisticRollbackRequest {
-    Context context = 1;
-    uint64 start_version = 2;
-    uint64 for_update_ts = 3;
-    repeated bytes keys = 4;
-}
-
-message PessimisticRollbackResponse {
-    errorpb.Error region_error = 1;
-    repeated KeyError errors = 2;
-}
-
 message CommitRequest {
-    reserved 5;
-    reserved "binlog";
     Context context = 1;
     uint64 start_version = 2;
     repeated bytes keys = 3;
@@ -263,7 +147,6 @@ message CommitRequest {
 message CommitResponse {
     errorpb.Error region_error = 1;
     KeyError error = 2;
-    uint64 commit_version = 3;  // If the commit ts is derived from min_commit_ts, this field should be set.
 }
 
 message BatchRollbackRequest {
@@ -279,7 +162,7 @@ message BatchRollbackResponse {
 
 // CheckTxnStatusRequest checks the status of a transaction.
 // If the transaction is rollbacked/committed, return the result;
-// If the TTL of the transaction is exhausted, abort that transaction and return rollbacked;
+// If the TTL of the transaction is exhausted, abort that transaction and return rolledback;
 // Otherwise, returns the TTL information.
 // CheckTxnStatusRequest may also push forward the minCommitTS of a large transaction.
 message CheckTxnStatusRequest {
@@ -295,7 +178,6 @@ enum Action {
     NoAction = 0;
     TTLExpireRollback = 1;
     LockNotExistRollback = 2;
-    MinCommitTSPushed = 3;
 }
 
 message CheckTxnStatusResponse {
@@ -311,43 +193,6 @@ message CheckTxnStatusResponse {
     // If the action is rollback, set the rollback reason.
     // If the minCommitTS is pushed, set the push flag.
     Action action = 5;
-}
-
-message CleanupRequest {
-    Context context = 1;
-    bytes key = 2;
-    uint64 start_version = 3;
-    uint64 current_ts = 4;
-}
-
-message CleanupResponse {
-    errorpb.Error region_error = 1;
-    KeyError error = 2;
-    uint64 commit_version = 3; // set this if the key is already committed
-}
-
-message BatchGetRequest {
-    Context context = 1;
-    repeated bytes keys = 2;
-    uint64 version = 3;
-}
-
-message BatchGetResponse {
-    errorpb.Error region_error = 1;
-    repeated KvPair pairs = 2;
-}
-
-message ScanLockRequest {
-    Context context = 1;
-    uint64 max_version = 2;
-    bytes start_key = 3;
-    uint32 limit = 4;
-}
-
-message ScanLockResponse {
-    errorpb.Error region_error = 1;
-    KeyError error = 2;
-    repeated LockInfo locks = 3;
 }
 
 message TxnInfo {
@@ -423,54 +268,6 @@ message RawScanResponse {
 message KeyRange {
   bytes start_key = 1;
   bytes end_key = 2;
-}
-
-message MvccWrite {
-    Op type = 1;
-    uint64 start_ts = 2;
-    uint64 commit_ts = 3;
-    bytes short_value = 4;
-}
-
-message MvccValue {
-    uint64 start_ts = 1;
-    bytes value = 2;
-}
-
-message MvccLock {
-    Op type = 1;
-    uint64 start_ts = 2;
-    bytes primary = 3;
-    bytes short_value = 4;
-}
-
-message MvccInfo {
-    MvccLock lock = 1;
-    repeated MvccWrite writes = 2;
-    repeated MvccValue values = 3;
-}
-
-message MvccGetByKeyRequest {
-    Context context = 1;
-    bytes key = 2;
-}
-
-message MvccGetByKeyResponse {
-    errorpb.Error region_error = 1;
-    string error = 2;
-    MvccInfo info = 3;
-}
-
-message MvccGetByStartTsRequest {
-    Context context = 1;
-    uint64 start_ts = 2;
-}
-
-message MvccGetByStartTsResponse {
-    errorpb.Error region_error = 1;
-    string error = 2;
-    bytes key = 3;
-    MvccInfo info = 4;
 }
 
 message SplitRegionRequest {
