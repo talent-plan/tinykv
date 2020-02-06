@@ -232,7 +232,7 @@ func TestGetLocked(t *testing.T) {
 	mem := inner_server.NewMemInnerServer()
 	mem.Set(engine_util.CfDefault, kvstore.EncodeKey([]byte{99}, 50), []byte{42})
 	mem.Set(engine_util.CfWrite, kvstore.EncodeKey([]byte{99}, 54), []byte{1, 0, 0, 0, 0, 0, 0, 0, 50})
-	mem.Set(engine_util.CfLock, []byte{99}, []byte{99, 0, 0, 0, 0, 0, 0, 0, 200})
+	mem.Set(engine_util.CfLock, []byte{99}, []byte{99, 1, 0, 0, 0, 0, 0, 0, 0, 200})
 	sched := exec.NewSeqScheduler(mem)
 
 	var req0 kvrpcpb.GetRequest

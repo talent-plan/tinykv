@@ -73,7 +73,7 @@ func (p *Prewrite) HandleError(err error) interface{} {
 func (p *Prewrite) prewriteMutation(txn *kvstore.MvccTxn, mut *kvrpcpb.Mutation) (*kvrpcpb.LockInfo, error) {
 	key := mut.Key
 	// Check for write conflicts.
-	if write, writeCommitTS, err := txn.SeekWrite(key); write != nil && err == nil {
+	if write, writeCommitTS, err := txn.SeekWrite(key, kvstore.TsMax); write != nil && err == nil {
 		if writeCommitTS >= *txn.StartTS {
 			return nil, &WriteConflict{
 				startTS:    *txn.StartTS,
@@ -103,6 +103,7 @@ func (p *Prewrite) prewriteMutation(txn *kvstore.MvccTxn, mut *kvrpcpb.Mutation)
 	lock := kvstore.Lock{
 		Primary: p.request.PrimaryLock,
 		TS:      *txn.StartTS,
+		Kind:    kvstore.WriteKindFromProto(mut.Op),
 	}
 	txn.PutLock(key, &lock)
 	txn.PutValue(key, mut.Value)

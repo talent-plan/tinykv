@@ -16,6 +16,7 @@ message LockInfo {
     uint64 lock_version = 2;
     bytes key = 3;
     uint64 lock_ttl = 4;
+    Op lock_type = 5;
 }
 
 message AlreadyExist {
@@ -27,7 +28,6 @@ message KeyError {
     string retryable = 2; // Client may restart the txn. e.g write conflict.
     string abort = 3; // Client should abort the txn.
     WriteConflict conflict = 4; // Write conflict is moved from retryable to here.
-    AlreadyExist already_exist = 5; // Key already exists
 }
 
 message WriteConflict {
@@ -99,8 +99,7 @@ message ScanResponse {
 enum Op {
     Put = 0;
     Del = 1;
-    Lock = 2;
-    Rollback = 3;
+    Rollback = 2;
 }
 
 message Mutation {

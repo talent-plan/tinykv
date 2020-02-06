@@ -12,6 +12,7 @@ const TsMax uint64 = ^uint64(0)
 type Lock struct {
 	Primary []byte
 	TS      uint64
+	Kind    WriteKind
 }
 
 // Info creates a LockInfo object from a Lock object for key.
@@ -20,12 +21,13 @@ func (lock *Lock) Info(key []byte) *kvrpcpb.LockInfo {
 	info.Key = key
 	info.LockVersion = lock.TS
 	info.PrimaryLock = lock.Primary
+	info.LockType = lock.Kind.ToProto()
 	return &info
 }
 
 func (lock *Lock) ToBytes() []byte {
-	buf := append(lock.Primary, 0, 0, 0, 0, 0, 0, 0, 0)
-	binary.BigEndian.PutUint64(buf[len(lock.Primary):], lock.TS)
+	buf := append(lock.Primary, byte(lock.Kind), 0, 0, 0, 0, 0, 0, 0, 0)
+	binary.BigEndian.PutUint64(buf[len(lock.Primary)+1:], lock.TS)
 	return buf
 }
 
@@ -35,11 +37,12 @@ func ParseLock(input []byte) (*Lock, error) {
 		return nil, fmt.Errorf("kvstore: error parsing lock, not enough input, found %d bytes", len(input))
 	}
 
-	primaryLen := len(input) - 8
+	primaryLen := len(input) - 9
 	primary := input[:primaryLen]
-	ts := binary.BigEndian.Uint64(input[primaryLen:])
+	kind := WriteKind(input[primaryLen])
+	ts := binary.BigEndian.Uint64(input[primaryLen+1:])
 
-	return &Lock{primary, ts}, nil
+	return &Lock{primary, ts, kind}, nil
 }
 
 // IsLockedFor checks if lock locks key at txnStartTs.

@@ -26,8 +26,27 @@ func NewTxn(reader dbreader.DBReader) MvccTxn {
 }
 
 // SeekWrite returns the Write from the DB and the write's commit timestamp, or an error.
-func (txn *MvccTxn) SeekWrite(key []byte) (*Write, uint64, error) {
-	return nil, 0, nil
+func (txn *MvccTxn) SeekWrite(key []byte, ts uint64) (*Write, uint64, error) {
+	iter := txn.Reader.IterCF(engine_util.CfWrite)
+	iter.Seek(EncodeKey(key, ts))
+	if !iter.Valid() {
+		return nil, 0, nil
+	}
+	item := iter.Item()
+	commitTs := DecodeTimestamp(item.Key())
+	if bytes.Compare(DecodeUserKey(item.Key()), key) != 0 {
+		return nil, 0, nil
+	}
+	value, err := item.Value()
+	if err != nil {
+		return nil, 0, err
+	}
+	write, err := ParseWrite(value)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return write, commitTs, nil
 }
 
 // FindWrittenValue searches for a put write at key and with a timestamp at ts or later, if it finds one, it uses the
@@ -55,7 +74,7 @@ func (txn *MvccTxn) FindWrittenValue(key []byte, ts uint64) ([]byte, error) {
 			return txn.Reader.GetCF(engine_util.CfDefault, EncodeKey(key, write.StartTS))
 		case WriteKindDelete:
 			return nil, nil
-		case WriteKindLock | WriteKindRollback:
+		case WriteKindRollback:
 		}
 	}
 
@@ -63,9 +82,45 @@ func (txn *MvccTxn) FindWrittenValue(key []byte, ts uint64) ([]byte, error) {
 	return nil, nil
 }
 
+func (txn *MvccTxn) FindWrite(key []byte, startTs uint64) (*Write, error) {
+	seekTs := TsMax
+	for {
+		write, commitTs, err := txn.SeekWrite(key, seekTs)
+		if err != nil {
+			return nil, err
+		}
+		if write == nil {
+			return nil, nil
+		}
+		if write.StartTS == startTs {
+			return write, nil
+		}
+		if commitTs <= startTs {
+			return nil, nil
+		}
+		seekTs = commitTs - 1
+	}
+}
+
+// GetWrite gets the value at precisely the given key and ts, without searching.
 func (txn *MvccTxn) GetWrite(key []byte, ts uint64) (*Write, error) {
-	// Since commit is not implemented, there are no writes in the DB.
-	return nil, nil
+	value, err := txn.Reader.GetCF(engine_util.CfWrite, EncodeKey(key, ts))
+	if err != nil {
+		return nil, err
+	}
+	return ParseWrite(value)
+}
+
+func (txn *MvccTxn) PutWrite(key []byte, write *Write, ts uint64) {
+	encodedKey := EncodeKey(key, ts)
+	txn.Writes = append(txn.Writes, inner_server.Modify{
+		Type: inner_server.ModifyTypePut,
+		Data: inner_server.Put{
+			Key:   encodedKey,
+			Value: write.ToBytes(),
+			Cf:    engine_util.CfWrite,
+		},
+	})
 }
 
 // GetLock returns a lock if key is currently locked. It will return (nil, nil) if there is no lock on key, and (nil, err)
@@ -87,18 +142,6 @@ func (txn *MvccTxn) GetLock(key []byte) (*Lock, error) {
 	return lock, nil
 }
 
-// PutValue adds a key/value write to this transaction.
-func (txn *MvccTxn) PutValue(key []byte, value []byte) {
-	txn.Writes = append(txn.Writes, inner_server.Modify{
-		Type: inner_server.ModifyTypePut,
-		Data: inner_server.Put{
-			Key:   EncodeKey(key, *txn.StartTS),
-			Value: value,
-			Cf:    engine_util.CfDefault,
-		},
-	})
-}
-
 // PutLock adds a key/lock to this transaction.
 func (txn *MvccTxn) PutLock(key []byte, lock *Lock) {
 	txn.Writes = append(txn.Writes, inner_server.Modify{
@@ -107,6 +150,29 @@ func (txn *MvccTxn) PutLock(key []byte, lock *Lock) {
 			Key:   key,
 			Value: lock.ToBytes(),
 			Cf:    engine_util.CfLock,
+		},
+	})
+}
+
+// DeleteLock adds a delete lock to this transaction.
+func (txn *MvccTxn) DeleteLock(key []byte) {
+	txn.Writes = append(txn.Writes, inner_server.Modify{
+		Type: inner_server.ModifyTypeDelete,
+		Data: inner_server.Delete{
+			Key: key,
+			Cf:  engine_util.CfLock,
+		},
+	})
+}
+
+// PutValue adds a key/value write to this transaction.
+func (txn *MvccTxn) PutValue(key []byte, value []byte) {
+	txn.Writes = append(txn.Writes, inner_server.Modify{
+		Type: inner_server.ModifyTypePut,
+		Data: inner_server.Put{
+			Key:   EncodeKey(key, *txn.StartTS),
+			Value: value,
+			Cf:    engine_util.CfDefault,
 		},
 	})
 }
@@ -148,4 +214,10 @@ func DecodeUserKey(key []byte) []byte {
 		result = append(result, key[i:i+8-int(padCount)]...)
 	}
 	return result
+}
+
+// DecodeTimestamp takes a key + timestamp and returns the timestamp part.
+func DecodeTimestamp(key []byte) uint64 {
+	keyLen := len(key) - 8
+	return binary.BigEndian.Uint64(key[keyLen:])
 }
