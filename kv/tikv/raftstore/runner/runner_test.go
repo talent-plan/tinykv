@@ -1,4 +1,4 @@
-package raftstore
+package runner
 
 import (
 	"io"
@@ -10,7 +10,9 @@ import (
 
 	"github.com/coocood/badger"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -59,13 +61,13 @@ func getTestDBForRegions(t *testing.T, path string, regions []uint64) *badger.DB
 				Index: 10,
 			},
 		}
-		require.Nil(t, putMsg(db, ApplyStateKey(regionID), applyState))
+		require.Nil(t, engine_util.PutMsg(db, meta.ApplyStateKey(regionID), applyState))
 
 		// Put region info into kv engine.
 		region := genTestRegion(regionID, 1, 1)
 		regionState := new(rspb.RegionLocalState)
 		regionState.Region = region
-		require.Nil(t, putMsg(db, RegionStateKey(regionID), regionState))
+		require.Nil(t, engine_util.PutMsg(db, meta.RegionStateKey(regionID), regionState))
 	}
 	return db
 }
@@ -130,15 +132,15 @@ func TestApplies(t *testing.T) {
 	mgr := snap.NewSnapManager(snapPath)
 	wg := new(sync.WaitGroup)
 	regionWorker := worker.NewWorker("snap-manager", wg)
-	regionRunner := newRegionTaskHandler(engines, mgr)
+	regionRunner := NewRegionTaskHandler(engines, mgr)
 	regionWorker.Start(regionRunner)
 	genAndApplySnap := func(regionId uint64) {
 		tx := make(chan *eraftpb.Snapshot, 1)
 		tsk := &worker.Task{
 			Tp: worker.TaskTypeRegionGen,
-			Data: &regionTask{
-				regionId: regionId,
-				notifier: tx,
+			Data: &RegionTask{
+				RegionId: regionId,
+				Notifier: tx,
 			},
 		}
 		regionWorker.Sender() <- *tsk
@@ -154,19 +156,19 @@ func TestApplies(t *testing.T) {
 
 		// set applying state
 		wb := new(engine_util.WriteBatch)
-		regionLocalState, err := getRegionLocalState(engines.Kv, regionId)
+		regionLocalState, err := meta.GetRegionLocalState(engines.Kv, regionId)
 		require.Nil(t, err)
 		regionLocalState.State = rspb.PeerState_Applying
-		require.Nil(t, wb.SetMsg(RegionStateKey(regionId), regionLocalState))
+		require.Nil(t, wb.SetMsg(meta.RegionStateKey(regionId), regionLocalState))
 		require.Nil(t, wb.WriteToDB(engines.Kv))
 
 		// apply snapshot
 		var status = snap.JobStatus_Pending
 		tsk2 := &worker.Task{
 			Tp: worker.TaskTypeRegionApply,
-			Data: &regionTask{
-				regionId: regionId,
-				status:   &status,
+			Data: &RegionTask{
+				RegionId: regionId,
+				Status:   &status,
 			},
 		}
 		regionWorker.Sender() <- *tsk2
@@ -175,7 +177,7 @@ func TestApplies(t *testing.T) {
 	waitApplyFinish := func(regionId uint64) {
 		for {
 			time.Sleep(time.Millisecond * 100)
-			regionLocalState, err := getRegionLocalState(engines.Kv, regionId)
+			regionLocalState, err := meta.GetRegionLocalState(engines.Kv, regionId)
 			require.Nil(t, err)
 			if regionLocalState.State == rspb.PeerState_Normal {
 				break
@@ -194,7 +196,7 @@ func TestApplies(t *testing.T) {
 }
 
 func TestGcRaftLog(t *testing.T) {
-	engines := newTestEngines(t)
+	engines := util.NewTestEngines()
 	defer cleanUpTestEngineData(engines)
 	raftDb := engines.Raft
 	taskResCh := make(chan raftLogGcTaskRes, 1)
@@ -204,7 +206,7 @@ func TestGcRaftLog(t *testing.T) {
 	regionId := uint64(1)
 	raftWb := new(engine_util.WriteBatch)
 	for i := uint64(0); i < 100; i++ {
-		k := RaftLogKey(regionId, i)
+		k := meta.RaftLogKey(regionId, i)
 		raftWb.Set(k, []byte("entry"))
 	}
 	raftWb.WriteToDB(raftDb)
@@ -219,11 +221,11 @@ func TestGcRaftLog(t *testing.T) {
 	tbls := []tempHolder{
 		{
 			raftLogGcTask: worker.Task{
-				Data: &raftLogGCTask{
-					raftEngine: raftDb,
-					regionID:   regionId,
-					startIdx:   uint64(0),
-					endIdx:     uint64(10),
+				Data: &RaftLogGCTask{
+					RaftEngine: raftDb,
+					RegionID:   regionId,
+					StartIdx:   uint64(0),
+					EndIdx:     uint64(10),
 				},
 				Tp: worker.TaskTypeRaftLogGC,
 			},
@@ -234,11 +236,11 @@ func TestGcRaftLog(t *testing.T) {
 
 		{
 			raftLogGcTask: worker.Task{
-				Data: &raftLogGCTask{
-					raftEngine: raftDb,
-					regionID:   regionId,
-					startIdx:   uint64(0),
-					endIdx:     uint64(50),
+				Data: &RaftLogGCTask{
+					RaftEngine: raftDb,
+					RegionID:   regionId,
+					StartIdx:   uint64(0),
+					EndIdx:     uint64(50),
 				},
 				Tp: worker.TaskTypeRaftLogGC,
 			},
@@ -249,11 +251,11 @@ func TestGcRaftLog(t *testing.T) {
 
 		{
 			raftLogGcTask: worker.Task{
-				Data: &raftLogGCTask{
-					raftEngine: raftDb,
-					regionID:   regionId,
-					startIdx:   uint64(50),
-					endIdx:     uint64(50),
+				Data: &RaftLogGCTask{
+					RaftEngine: raftDb,
+					RegionID:   regionId,
+					StartIdx:   uint64(50),
+					EndIdx:     uint64(50),
 				},
 				Tp: worker.TaskTypeRaftLogGC,
 			},
@@ -264,11 +266,11 @@ func TestGcRaftLog(t *testing.T) {
 
 		{
 			raftLogGcTask: worker.Task{
-				Data: &raftLogGCTask{
-					raftEngine: raftDb,
-					regionID:   regionId,
-					startIdx:   uint64(50),
-					endIdx:     uint64(60),
+				Data: &RaftLogGCTask{
+					RaftEngine: raftDb,
+					RegionID:   regionId,
+					StartIdx:   uint64(50),
+					EndIdx:     uint64(60),
 				},
 				Tp: worker.TaskTypeRaftLogGC,
 			},
@@ -289,7 +291,7 @@ func TestGcRaftLog(t *testing.T) {
 
 func raftLogMustNotExist(t *testing.T, db *badger.DB, regionId, startIdx, endIdx uint64) {
 	for i := startIdx; i < endIdx; i++ {
-		k := RaftLogKey(regionId, i)
+		k := meta.RaftLogKey(regionId, i)
 		db.View(func(txn *badger.Txn) error {
 			_, err := txn.Get(k)
 			assert.Equal(t, err, badger.ErrKeyNotFound)
@@ -300,7 +302,7 @@ func raftLogMustNotExist(t *testing.T, db *badger.DB, regionId, startIdx, endIdx
 
 func raftLogMustExist(t *testing.T, db *badger.DB, regionId, startIdx, endIdx uint64) {
 	for i := startIdx; i < endIdx; i++ {
-		k := RaftLogKey(regionId, i)
+		k := meta.RaftLogKey(regionId, i)
 		db.View(func(txn *badger.Txn) error {
 			item, err := txn.Get(k)
 			assert.Nil(t, err)
@@ -308,4 +310,9 @@ func raftLogMustExist(t *testing.T, db *badger.DB, regionId, startIdx, endIdx ui
 			return nil
 		})
 	}
+}
+
+func cleanUpTestEngineData(engines *engine_util.Engines) {
+	os.RemoveAll(engines.KvPath)
+	os.RemoveAll(engines.RaftPath)
 }

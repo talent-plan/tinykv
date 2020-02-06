@@ -13,7 +13,10 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/runner"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
@@ -156,13 +159,13 @@ func (d *storeMsgHandler) checkMsg(msg *rspb.RaftMessage) (bool, error) {
 	regionID := msg.GetRegionId()
 	fromEpoch := msg.GetRegionEpoch()
 	msgType := msg.Message.MsgType
-	isVoteMsg := isVoteMessage(msg.Message)
+	isVoteMsg := util.IsVoteMessage(msg.Message)
 	fromStoreID := msg.FromPeer.StoreId
 
 	// Check if the target is tombstone,
-	stateKey := RegionStateKey(regionID)
+	stateKey := meta.RegionStateKey(regionID)
 	localState := new(rspb.RegionLocalState)
-	err := getMsg(d.ctx.engine.Kv, stateKey, localState)
+	err := engine_util.GetMsg(d.ctx.engine.Kv, stateKey, localState)
 	if err != nil {
 		if err == badger.ErrKeyNotFound {
 			return false, nil
@@ -171,7 +174,7 @@ func (d *storeMsgHandler) checkMsg(msg *rspb.RaftMessage) (bool, error) {
 	}
 	if localState.State != rspb.PeerState_Tombstone {
 		// Maybe split, but not registered yet.
-		if isFirstVoteMessage(msg.Message) {
+		if util.IsFirstVoteMessage(msg.Message) {
 			d.ctx.storeMetaLock.Lock()
 			defer d.ctx.storeMetaLock.Unlock()
 			meta := d.ctx.storeMeta
@@ -190,10 +193,10 @@ func (d *storeMsgHandler) checkMsg(msg *rspb.RaftMessage) (bool, error) {
 	region := localState.Region
 	regionEpoch := region.RegionEpoch
 	// The region in this peer is already destroyed
-	if IsEpochStale(fromEpoch, regionEpoch) {
+	if util.IsEpochStale(fromEpoch, regionEpoch) {
 		log.Infof("tombstone peer receives a stale message. region_id:%d, from_region_epoch:%s, current_region_epoch:%s, msg_type:%s",
 			regionID, fromEpoch, regionEpoch, msgType)
-		notExist := findPeer(region, fromStoreID) == nil
+		notExist := util.FindPeer(region, fromStoreID) == nil
 		handleStaleMsg(d.ctx.trans, msg, regionEpoch, isVoteMsg && notExist)
 		return true, nil
 	}
@@ -258,7 +261,7 @@ func (d *storeMsgHandler) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage
 	if _, ok := meta.regions[regionID]; ok {
 		return true, nil
 	}
-	if !isInitialMsg(msg.Message) {
+	if !util.IsInitialMsg(msg.Message) {
 		log.Debugf("target peer %s doesn't exist", msg.ToPeer)
 		return false, nil
 	}
@@ -269,13 +272,13 @@ func (d *storeMsgHandler) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage
 		it.Next()
 	}
 	for ; it.Valid(); it.Next() {
-		regionID := regionIDFromBytes(it.Value())
+		regionID := util.RegionIDFromBytes(it.Value())
 		existRegion := meta.regions[regionID]
 		if bytes.Compare(existRegion.StartKey, msg.EndKey) >= 0 {
 			break
 		}
 		log.Debugf("msg %s is overlapped with exist region %s", msg, existRegion)
-		if isFirstVoteMessage(msg.Message) {
+		if util.IsFirstVoteMessage(msg.Message) {
 			meta.pendingVotes = append(meta.pendingVotes, msg)
 		}
 		return false, nil
@@ -300,11 +303,11 @@ func (d *storeMsgHandler) storeHeartbeatPD() {
 	d.ctx.storeMetaLock.RLock()
 	stats.RegionCount = uint32(len(d.ctx.storeMeta.regions))
 	d.ctx.storeMetaLock.RUnlock()
-	storeInfo := &pdStoreHeartbeatTask{
-		stats:    stats,
-		engine:   d.ctx.engine.Kv,
-		capacity: d.ctx.cfg.Capacity,
-		path:     d.ctx.engine.KvPath,
+	storeInfo := &runner.PdStoreHeartbeatTask{
+		Stats:    stats,
+		Engine:   d.ctx.engine.Kv,
+		Capacity: d.ctx.cfg.Capacity,
+		Path:     d.ctx.engine.KvPath,
 	}
 	d.ctx.pdTaskSender <- worker.Task{Tp: worker.TaskTypePDStoreHeartbeat, Data: storeInfo}
 }

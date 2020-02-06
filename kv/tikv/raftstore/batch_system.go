@@ -12,7 +12,10 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/runner"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
@@ -24,8 +27,8 @@ import (
 /// WARN: This store should not be used before initialized.
 func (bs *RaftBatchSystem) loadPeers() ([]*peerFsm, error) {
 	// Scan region meta to get saved regions.
-	startKey := RegionMetaMinKey
-	endKey := RegionMetaMaxKey
+	startKey := meta.RegionMetaMinKey
+	endKey := meta.RegionMetaMaxKey
 	ctx := bs.ctx
 	kvEngine := ctx.engine.Kv
 	storeID := ctx.store.Id
@@ -40,7 +43,6 @@ func (bs *RaftBatchSystem) loadPeers() ([]*peerFsm, error) {
 	var mergingCount int
 	ctx.storeMetaLock.Lock()
 	defer ctx.storeMetaLock.Unlock()
-	meta := ctx.storeMeta
 	err := kvEngine.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
@@ -49,11 +51,11 @@ func (bs *RaftBatchSystem) loadPeers() ([]*peerFsm, error) {
 			if bytes.Compare(item.Key(), endKey) >= 0 {
 				break
 			}
-			regionID, suffix, err := decodeRegionMetaKey(item.Key())
+			regionID, suffix, err := meta.DecodeRegionMetaKey(item.Key())
 			if err != nil {
 				return err
 			}
-			if suffix != RegionStateSuffix {
+			if suffix != meta.RegionStateSuffix {
 				continue
 			}
 			val, err := item.Value()
@@ -84,8 +86,8 @@ func (bs *RaftBatchSystem) loadPeers() ([]*peerFsm, error) {
 			if err != nil {
 				return err
 			}
-			meta.regionRanges.Insert(region.EndKey, regionIDToBytes(regionID))
-			meta.regions[regionID] = region
+			ctx.storeMeta.regionRanges.Insert(region.EndKey, util.RegionIDToBytes(regionID))
+			ctx.storeMeta.regions[regionID] = region
 			// No need to check duplicated here, because we use region id as the key
 			// in DB.
 			regionPeers = append(regionPeers, peer)
@@ -106,8 +108,8 @@ func (bs *RaftBatchSystem) loadPeers() ([]*peerFsm, error) {
 			return nil, err
 		}
 		peer.scheduleApplyingSnapshot()
-		meta.regionRanges.Insert(region.EndKey, regionIDToBytes(region.Id))
-		meta.regions[region.Id] = region
+		ctx.storeMeta.regionRanges.Insert(region.EndKey, util.RegionIDToBytes(region.Id))
+		ctx.storeMeta.regions[region.Id] = region
 		regionPeers = append(regionPeers, peer)
 	}
 	log.Infof("start store %d, region_count %d, tombstone_count %d, applying_count %d, merge_count %d, takes %v",
@@ -117,7 +119,7 @@ func (bs *RaftBatchSystem) loadPeers() ([]*peerFsm, error) {
 
 func (bs *RaftBatchSystem) clearStaleMeta(kvWB, raftWB *engine_util.WriteBatch, originState *rspb.RegionLocalState) {
 	region := originState.Region
-	raftState, err := getRaftLocalState(bs.ctx.engine.Raft, region.Id)
+	raftState, err := meta.GetRaftLocalState(bs.ctx.engine.Raft, region.Id)
 	if err != nil {
 		// it has been cleaned up.
 		return
@@ -126,7 +128,7 @@ func (bs *RaftBatchSystem) clearStaleMeta(kvWB, raftWB *engine_util.WriteBatch, 
 	if err != nil {
 		panic(err)
 	}
-	if err := kvWB.SetMsg(RegionStateKey(region.Id), originState); err != nil {
+	if err := kvWB.SetMsg(meta.RegionStateKey(region.Id), originState); err != nil {
 		panic(err)
 	}
 }
@@ -223,10 +225,10 @@ func (bs *RaftBatchSystem) startWorkers(peers []*peerFsm) {
 	}
 	engines := ctx.engine
 	cfg := ctx.cfg
-	workers.splitCheckWorker.Start(newSplitCheckHandler(engines.Kv, router, cfg.SplitCheck))
-	workers.regionWorker.Start(newRegionTaskHandler(engines, ctx.snapMgr))
-	workers.raftLogGCWorker.Start(&raftLogGCTaskHandler{})
-	workers.pdWorker.Start(newPDTaskHandler(ctx.store.Id, ctx.pdClient, NewRaftstoreRouter(bs.router)))
+	workers.splitCheckWorker.Start(runner.NewSplitCheckHandler(engines.Kv, NewRaftstoreRouter(router), cfg.SplitCheck))
+	workers.regionWorker.Start(runner.NewRegionTaskHandler(engines, ctx.snapMgr))
+	workers.raftLogGCWorker.Start(runner.NewRaftLogGCTaskHandler())
+	workers.pdWorker.Start(runner.NewPDTaskHandler(ctx.store.Id, ctx.pdClient, NewRaftstoreRouter(router)))
 	bs.wg.Add(1)
 	go bs.tickDriver.run(bs.closeCh, bs.wg) // TODO: temp workaround.
 }

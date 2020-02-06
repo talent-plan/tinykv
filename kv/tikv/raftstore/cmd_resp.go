@@ -1,6 +1,7 @@
 package raftstore
 
 import (
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 )
@@ -22,7 +23,7 @@ func BindRespTerm(resp *raft_cmdpb.RaftCmdResponse, term uint64) {
 
 func BindRespError(resp *raft_cmdpb.RaftCmdResponse, err error) {
 	ensureRespHeader(resp)
-	resp.Header.Error = RaftstoreErrToPbError(err)
+	resp.Header.Error = util.RaftstoreErrToPbError(err)
 }
 
 func ErrResp(err error) *raft_cmdpb.RaftCmdResponse {
@@ -38,7 +39,7 @@ func ErrRespWithTerm(err error, term uint64) *raft_cmdpb.RaftCmdResponse {
 }
 
 func ErrRespStaleCommand(term uint64) *raft_cmdpb.RaftCmdResponse {
-	return ErrRespWithTerm(new(ErrStaleCommand), term)
+	return ErrRespWithTerm(new(util.ErrStaleCommand), term)
 }
 
 func ErrRespRegionNotFound(regionID uint64) *raft_cmdpb.RaftCmdResponse {

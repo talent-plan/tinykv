@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/btree"
 	"github.com/ngaut/log"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
@@ -65,7 +65,7 @@ type Store struct {
 
 func NewStore(store *metapb.Store) *Store {
 	return &Store{
-		store:                    *store,
+		store: *store,
 		heartbeatResponseHandler: nil,
 	}
 }
@@ -208,7 +208,7 @@ func (m *MockPDClient) AskBatchSplit(ctx context.Context, region *metapb.Region,
 	if err != nil {
 		return resp, err
 	}
-	if raftstore.IsEpochStale(region.RegionEpoch, curRegion.RegionEpoch) {
+	if util.IsEpochStale(region.RegionEpoch, curRegion.RegionEpoch) {
 		return resp, errors.New("epoch is stale")
 	}
 
@@ -292,7 +292,7 @@ func (m *MockPDClient) handleHeartbeatVersion(region *metapb.Region) error {
 			if bytes.Equal(searchRegion.GetStartKey(), region.GetStartKey()) &&
 				bytes.Equal(searchRegion.GetEndKey(), region.GetEndKey()) {
 				// the two regions' range are same, must check epoch
-				if raftstore.IsEpochStale(region.RegionEpoch, searchRegion.RegionEpoch) {
+				if util.IsEpochStale(region.RegionEpoch, searchRegion.RegionEpoch) {
 					return errors.New("epoch is stale")
 				}
 				if searchRegion.RegionEpoch.Version < region.RegionEpoch.Version {
@@ -321,7 +321,7 @@ func (m *MockPDClient) handleHeartbeatVersion(region *metapb.Region) error {
 
 func (m *MockPDClient) handleHeartbeatConfVersion(region *metapb.Region) error {
 	searchRegion, _ := m.getRegionLocked(region.GetStartKey())
-	if raftstore.IsEpochStale(region.RegionEpoch, searchRegion.RegionEpoch) {
+	if util.IsEpochStale(region.RegionEpoch, searchRegion.RegionEpoch) {
 		return errors.New("epoch is stale")
 	}
 
