@@ -10,6 +10,8 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
@@ -405,7 +407,7 @@ func (a *applier) handleRaftCommittedEntries(aCtx *applyContext, committedEntrie
 }
 
 func (a *applier) writeApplyState(wb *engine_util.WriteBatch) {
-	wb.SetMsg(ApplyStateKey(a.region.Id), &a.applyState)
+	wb.SetMsg(meta.ApplyStateKey(a.region.Id), &a.applyState)
 }
 
 func (a *applier) handleRaftEntryNormal(aCtx *applyContext, entry *eraftpb.Entry) applyResult {
@@ -533,7 +535,7 @@ func (a *applier) applyRaftCmd(aCtx *applyContext, index, term uint64,
 	if err != nil {
 		// clear dirty values.
 		aCtx.wb.RollbackToSafePoint()
-		if _, ok := err.(*ErrEpochNotMatch); ok {
+		if _, ok := err.(*util.ErrEpochNotMatch); ok {
 			log.Debugf("epoch not match region_id %d, peer_id %d, err %v", a.region.Id, a.id, err)
 		} else {
 			log.Errorf("execute raft command region_id %d, peer_id %d, err %v", a.region.Id, a.id, err)
@@ -583,7 +585,7 @@ func (a *applier) newCtx(index, term uint64) *applyExecContext {
 func (a *applier) execRaftCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdRequest) (
 	resp *raft_cmdpb.RaftCmdResponse, txn *badger.Txn, result applyResult, err error) {
 	// Include region for epoch not match after merge may cause key not in range.
-	err = checkRegionEpoch(req, a.region, false)
+	err = util.CheckRegionEpoch(req, a.region, false)
 	if err != nil {
 		return
 	}
@@ -663,7 +665,7 @@ func (a *applier) execNormalCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdReque
 
 func (a *applier) handlePut(aCtx *applyContext, req *raft_cmdpb.PutRequest) (*raft_cmdpb.Response, error) {
 	key, value := req.GetKey(), req.GetValue()
-	if err := CheckKeyInRegion(key, a.region); err != nil {
+	if err := util.CheckKeyInRegion(key, a.region); err != nil {
 		return nil, err
 	}
 
@@ -679,7 +681,7 @@ func (a *applier) handlePut(aCtx *applyContext, req *raft_cmdpb.PutRequest) (*ra
 
 func (a *applier) handleDelete(aCtx *applyContext, req *raft_cmdpb.DeleteRequest) (*raft_cmdpb.Response, error) {
 	key := req.GetKey()
-	if err := CheckKeyInRegion(key, a.region); err != nil {
+	if err := util.CheckKeyInRegion(key, a.region); err != nil {
 		return nil, err
 	}
 
@@ -695,7 +697,7 @@ func (a *applier) handleDelete(aCtx *applyContext, req *raft_cmdpb.DeleteRequest
 
 func (a *applier) handleGet(aCtx *applyContext, req *raft_cmdpb.GetRequest) (*raft_cmdpb.Response, error) {
 	key := req.GetKey()
-	if err := CheckKeyInRegion(key, a.region); err != nil {
+	if err := util.CheckKeyInRegion(key, a.region); err != nil {
 		return nil, err
 	}
 	var val []byte
@@ -718,7 +720,7 @@ func (a *applier) execChangePeer(aCtx *applyContext, req *raft_cmdpb.AdminReques
 	storeID := peer.StoreId
 	changeType := request.ChangeType
 	region := new(metapb.Region)
-	err = CloneMsg(a.region, region)
+	err = util.CloneMsg(a.region, region)
 	if err != nil {
 		return
 	}
@@ -730,7 +732,7 @@ func (a *applier) execChangePeer(aCtx *applyContext, req *raft_cmdpb.AdminReques
 
 	switch changeType {
 	case eraftpb.ConfChangeType_AddNode:
-		if p := findPeer(region, storeID); p != nil {
+		if p := util.FindPeer(region, storeID); p != nil {
 			errMsg := fmt.Sprintf("%s can't add duplicated peer, peer %s, region %s",
 				a.tag, p, a.region)
 			log.Error(errMsg)
@@ -740,7 +742,7 @@ func (a *applier) execChangePeer(aCtx *applyContext, req *raft_cmdpb.AdminReques
 		region.Peers = append(region.Peers, peer)
 		log.Infof("%s add peer successfully, peer %s, region %s", a.tag, peer, a.region)
 	case eraftpb.ConfChangeType_RemoveNode:
-		if p := removePeer(region, storeID); p != nil {
+		if p := util.RemovePeer(region, storeID); p != nil {
 			if !PeerEqual(p, peer) {
 				errMsg := fmt.Sprintf("%s ignore remove unmatched peer, expected_peer %s, got_peer %s",
 					a.tag, peer, p)
@@ -794,7 +796,7 @@ func (a *applier) execBatchSplit(aCtx *applyContext, req *raft_cmdpb.AdminReques
 		return
 	}
 	derived := new(metapb.Region)
-	if err := CloneMsg(a.region, derived); err != nil {
+	if err := util.CloneMsg(a.region, derived); err != nil {
 		panic(err)
 	}
 	newRegionCnt := len(splitReqs.Requests)
@@ -819,7 +821,7 @@ func (a *applier) execBatchSplit(aCtx *applyContext, req *raft_cmdpb.AdminReques
 		keys = append(keys, splitKey)
 	}
 	keys = append(keys, derived.EndKey)
-	err = CheckKeyInRegion(keys[len(keys)-2], a.region)
+	err = util.CheckKeyInRegion(keys[len(keys)-2], a.region)
 	if err != nil {
 		return
 	}

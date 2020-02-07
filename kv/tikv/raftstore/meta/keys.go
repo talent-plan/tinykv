@@ -1,4 +1,4 @@
-package raftstore
+package meta
 
 import (
 	"bytes"
@@ -46,8 +46,8 @@ var (
 	RegionMetaMaxKey = []byte{LocalPrefix, RegionMetaPrefix + 1}
 
 	// Following keys are all local keys, so the first byte must be 0x01.
-	prepareBootstrapKey = []byte{LocalPrefix, 0x01}
-	storeIdentKey       = []byte{LocalPrefix, 0x02}
+	PrepareBootstrapKey = []byte{LocalPrefix, 0x01}
+	StoreIdentKey       = []byte{LocalPrefix, 0x02}
 )
 
 func makeRegionPrefix(regionID uint64, suffix byte) []byte {
@@ -97,7 +97,7 @@ func IsRaftStateKey(key []byte) bool {
 	return len(key) == 11 && key[0] == LocalPrefix && key[1] == RegionRaftPrefix
 }
 
-func decodeRegionMetaKey(key []byte) (uint64, byte, error) {
+func DecodeRegionMetaKey(key []byte) (uint64, byte, error) {
 	if len(RegionMetaMinKey)+8+1 != len(key) {
 		return 0, 0, errors.Errorf("invalid region meta key length for key %v", key)
 	}

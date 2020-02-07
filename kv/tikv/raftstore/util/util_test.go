@@ -1,4 +1,4 @@
-package raftstore
+package util
 
 import (
 	"testing"
@@ -59,7 +59,7 @@ func TestIsInitialMsg(t *testing.T) {
 		msg := new(eraftpb.Message)
 		msg.MsgType = m.MessageType
 		msg.Commit = m.Commit
-		assert.Equal(t, isInitialMsg(msg), m.IsInitialMsg)
+		assert.Equal(t, IsInitialMsg(msg), m.IsInitialMsg)
 	}
 }
 

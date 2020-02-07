@@ -5,6 +5,7 @@ import (
 
 	"github.com/coocood/badger"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
@@ -38,14 +39,14 @@ func isRangeEmpty(engine *badger.DB, startKey, endKey []byte) (bool, error) {
 
 func BootstrapStore(engines *engine_util.Engines, clusterID, storeID uint64) error {
 	ident := new(rspb.StoreIdent)
-	empty, err := isRangeEmpty(engines.Kv, MinKey, MaxKey)
+	empty, err := isRangeEmpty(engines.Kv, meta.MinKey, meta.MaxKey)
 	if err != nil {
 		return err
 	}
 	if !empty {
 		return errors.New("kv store is not empty and ahs alread had data.")
 	}
-	empty, err = isRangeEmpty(engines.Raft, MinKey, MaxKey)
+	empty, err = isRangeEmpty(engines.Raft, meta.MinKey, meta.MaxKey)
 	if err != nil {
 		return err
 	}
@@ -54,7 +55,7 @@ func BootstrapStore(engines *engine_util.Engines, clusterID, storeID uint64) err
 	}
 	ident.ClusterId = clusterID
 	ident.StoreId = storeID
-	err = putMsg(engines.Kv, storeIdentKey, ident)
+	err = engine_util.PutMsg(engines.Kv, meta.StoreIdentKey, ident)
 	if err != nil {
 		return err
 	}
@@ -89,8 +90,8 @@ func writePrepareBootstrap(engines *engine_util.Engines, region *metapb.Region) 
 	state := new(rspb.RegionLocalState)
 	state.Region = region
 	kvWB := new(engine_util.WriteBatch)
-	kvWB.SetMsg(prepareBootstrapKey, state)
-	kvWB.SetMsg(RegionStateKey(region.Id), state)
+	kvWB.SetMsg(meta.PrepareBootstrapKey, state)
+	kvWB.SetMsg(meta.RegionStateKey(region.Id), state)
 	writeInitialApplyState(kvWB, region.Id)
 	err := engines.WriteKV(kvWB)
 	if err != nil {
@@ -111,38 +112,38 @@ func writePrepareBootstrap(engines *engine_util.Engines, region *metapb.Region) 
 
 func writeInitialApplyState(kvWB *engine_util.WriteBatch, regionID uint64) {
 	applyState := &rspb.RaftApplyState{
-		AppliedIndex: RaftInitLogIndex,
+		AppliedIndex: meta.RaftInitLogIndex,
 		TruncatedState: &rspb.RaftTruncatedState{
-			Index: RaftInitLogIndex,
-			Term:  RaftInitLogTerm,
+			Index: meta.RaftInitLogIndex,
+			Term:  meta.RaftInitLogTerm,
 		},
 	}
-	kvWB.SetMsg(ApplyStateKey(regionID), applyState)
+	kvWB.SetMsg(meta.ApplyStateKey(regionID), applyState)
 }
 
 func writeInitialRaftState(raftWB *engine_util.WriteBatch, regionID uint64) {
 	raftState := &rspb.RaftLocalState{
 		HardState: &eraftpb.HardState{
-			Term:   RaftInitLogTerm,
-			Commit: RaftInitLogIndex,
+			Term:   meta.RaftInitLogTerm,
+			Commit: meta.RaftInitLogIndex,
 		},
-		LastIndex: RaftInitLogIndex,
+		LastIndex: meta.RaftInitLogIndex,
 	}
-	raftWB.SetMsg(RaftStateKey(regionID), raftState)
+	raftWB.SetMsg(meta.RaftStateKey(regionID), raftState)
 }
 
 func ClearPrepareBootstrap(engines *engine_util.Engines, regionID uint64) error {
 	err := engines.Raft.Update(func(txn *badger.Txn) error {
-		return txn.Delete(RaftStateKey(regionID))
+		return txn.Delete(meta.RaftStateKey(regionID))
 	})
 	if err != nil {
 		return errors.WithStack(err)
 	}
 	wb := new(engine_util.WriteBatch)
-	wb.Delete(prepareBootstrapKey)
+	wb.Delete(meta.PrepareBootstrapKey)
 	// should clear raft initial state too.
-	wb.Delete(RegionStateKey(regionID))
-	wb.Delete(ApplyStateKey(regionID))
+	wb.Delete(meta.RegionStateKey(regionID))
+	wb.Delete(meta.ApplyStateKey(regionID))
 	err = engines.WriteKV(wb)
 	if err != nil {
 		return err
@@ -152,7 +153,7 @@ func ClearPrepareBootstrap(engines *engine_util.Engines, regionID uint64) error 
 
 func ClearPrepareBootstrapState(engines *engine_util.Engines) error {
 	err := engines.Kv.Update(func(txn *badger.Txn) error {
-		return txn.Delete(prepareBootstrapKey)
+		return txn.Delete(meta.PrepareBootstrapKey)
 	})
 	engines.SyncKVWAL()
 	return errors.WithStack(err)

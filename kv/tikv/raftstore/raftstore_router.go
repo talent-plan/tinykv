@@ -28,12 +28,12 @@ func NewRaftstoreRouter(router *router) *RaftstoreRouter {
 	return &RaftstoreRouter{router: router}
 }
 
-func (r *RaftstoreRouter) Send(regionID uint64, msg message.Msg) {
-	r.router.send(regionID, msg)
+func (r *RaftstoreRouter) Send(regionID uint64, msg message.Msg) error {
+	return r.router.send(regionID, msg)
 }
 
-func (r *RaftstoreRouter) SendRaftMessage(msg *raft_serverpb.RaftMessage) {
-	r.router.sendRaftMessage(msg)
+func (r *RaftstoreRouter) SendRaftMessage(msg *raft_serverpb.RaftMessage) error {
+	return r.router.sendRaftMessage(msg)
 }
 
 func (r *RaftstoreRouter) SendRaftCommand(req *raft_cmdpb.RaftCmdRequest, cb *message.Callback) error {

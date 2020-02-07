@@ -3,15 +3,59 @@ package raftstore
 import (
 	"bytes"
 	"math"
+	"os"
 	"testing"
 
 	"github.com/coocood/badger"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/raft"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func newTestPeerStorage(t *testing.T) *PeerStorage {
+	engines := util.NewTestEngines()
+	err := BootstrapStore(engines, 1, 1)
+	require.Nil(t, err)
+	region, err := PrepareBootstrap(engines, 1, 1, 1)
+	require.Nil(t, err)
+	peerStore, err := NewPeerStorage(engines, region, nil, 1, "")
+	require.Nil(t, err)
+	return peerStore
+}
+
+func newTestPeerStorageFromEnts(t *testing.T, ents []eraftpb.Entry) *PeerStorage {
+	peerStore := newTestPeerStorage(t)
+	kvWB := new(engine_util.WriteBatch)
+	ctx := NewInvokeContext(peerStore)
+	raftWB := new(engine_util.WriteBatch)
+	require.Nil(t, peerStore.Append(ctx, ents[1:], raftWB))
+	ctx.ApplyState.TruncatedState.Index = ents[0].Index
+	ctx.ApplyState.TruncatedState.Term = ents[0].Term
+	ctx.ApplyState.AppliedIndex = ents[len(ents)-1].Index
+	ctx.saveApplyStateTo(kvWB)
+	require.Nil(t, peerStore.Engines.WriteRaft(raftWB))
+	peerStore.Engines.WriteKV(kvWB)
+	peerStore.raftState = ctx.RaftState
+	peerStore.applyState = ctx.ApplyState
+	return peerStore
+}
+
+func cleanUpTestData(peerStore *PeerStorage) {
+	os.RemoveAll(peerStore.Engines.KvPath)
+	os.RemoveAll(peerStore.Engines.RaftPath)
+}
+
+func newTestEntry(index, term uint64) eraftpb.Entry {
+	return eraftpb.Entry{
+		Index: index,
+		Term:  term,
+		Data:  []byte{0},
+	}
+}
 
 func TestPeerStorageTerm(t *testing.T) {
 	ents := []eraftpb.Entry{
@@ -51,9 +95,9 @@ func appendEnts(t *testing.T, peerStore *PeerStorage, ents []eraftpb.Entry) {
 func validateCache(t *testing.T, peerStore *PeerStorage, expEnts []eraftpb.Entry) {
 	assert.Equal(t, peerStore.cache.cache, expEnts)
 	for _, e := range expEnts {
-		key := RaftLogKey(peerStore.region.Id, e.Index)
+		key := meta.RaftLogKey(peerStore.region.Id, e.Index)
 		e2 := new(eraftpb.Entry)
-		assert.Nil(t, getMsg(peerStore.Engines.Raft, key, e2))
+		assert.Nil(t, engine_util.GetMsg(peerStore.Engines.Raft, key, e2))
 		assert.Equal(t, *e2, e)
 	}
 }
@@ -61,8 +105,8 @@ func validateCache(t *testing.T, peerStore *PeerStorage, expEnts []eraftpb.Entry
 func getMetaKeyCount(t *testing.T, peerStore *PeerStorage) int {
 	regionID := peerStore.region.Id
 	count := 0
-	metaStart := RegionMetaPrefixKey(regionID)
-	metaEnd := RegionMetaPrefixKey(regionID + 1)
+	metaStart := meta.RegionMetaPrefixKey(regionID)
+	metaEnd := meta.RegionMetaPrefixKey(regionID + 1)
 	err := peerStore.Engines.Kv.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
@@ -75,8 +119,8 @@ func getMetaKeyCount(t *testing.T, peerStore *PeerStorage) int {
 		return nil
 	})
 	require.Nil(t, err)
-	raftStart := RegionRaftPrefixKey(regionID)
-	raftEnd := RegionRaftPrefixKey(regionID + 1)
+	raftStart := meta.RegionRaftPrefixKey(regionID)
+	raftEnd := meta.RegionRaftPrefixKey(regionID + 1)
 	err = peerStore.Engines.Kv.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()

@@ -1,4 +1,4 @@
-package raftstore
+package util
 
 import (
 	"bytes"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
@@ -25,7 +26,7 @@ const InvalidID uint64 = 0
 // Heartbeat message for the store of that peer to check whether to create a new peer
 // when receiving these messages, or just to wait for a pending region split to perform
 // later.
-func isInitialMsg(msg *eraftpb.Message) bool {
+func IsInitialMsg(msg *eraftpb.Message) bool {
 	return msg.MsgType == eraftpb.MessageType_MsgRequestVote ||
 		// the peer has not been known to this leader, it may exist or not.
 		(msg.MsgType == eraftpb.MessageType_MsgHeartbeat && msg.Commit == RaftInvalidIndex)
@@ -61,6 +62,19 @@ func CheckKeyInRegionInclusive(key []byte, region *metapb.Region) error {
 /// check whether epoch is staler than check_epoch.
 func IsEpochStale(epoch *metapb.RegionEpoch, checkEpoch *metapb.RegionEpoch) bool {
 	return epoch.Version < checkEpoch.Version || epoch.ConfVer < checkEpoch.ConfVer
+}
+
+func IsVoteMessage(msg *eraftpb.Message) bool {
+	tp := msg.GetMsgType()
+	return tp == eraftpb.MessageType_MsgRequestVote
+}
+
+/// `is_first_vote_msg` checks `msg` is the first vote message or not. It's used for
+/// when the message is received but there is no such region in `Store::region_peers` and the
+/// region overlaps with others. In this case we should put `msg` into `pending_votes` instead of
+/// create the peer.
+func IsFirstVoteMessage(msg *eraftpb.Message) bool {
+	return IsVoteMessage(msg) && msg.Term == meta.RaftInitLogTerm+1
 }
 
 func CheckRegionEpoch(req *raft_cmdpb.RaftCmdRequest, region *metapb.Region, includeRegion bool) error {
@@ -118,7 +132,7 @@ func CheckRegionEpoch(req *raft_cmdpb.RaftCmdRequest, region *metapb.Region, inc
 	return nil
 }
 
-func findPeer(region *metapb.Region, storeID uint64) *metapb.Peer {
+func FindPeer(region *metapb.Region, storeID uint64) *metapb.Peer {
 	for _, peer := range region.Peers {
 		if peer.StoreId == storeID {
 			return peer
@@ -127,7 +141,7 @@ func findPeer(region *metapb.Region, storeID uint64) *metapb.Peer {
 	return nil
 }
 
-func removePeer(region *metapb.Region, storeID uint64) *metapb.Peer {
+func RemovePeer(region *metapb.Region, storeID uint64) *metapb.Peer {
 	for i, peer := range region.Peers {
 		if peer.StoreId == storeID {
 			region.Peers = append(region.Peers[:i], region.Peers[i+1:]...)
@@ -137,78 +151,24 @@ func removePeer(region *metapb.Region, storeID uint64) *metapb.Peer {
 	return nil
 }
 
-func isVoteMessage(msg *eraftpb.Message) bool {
-	tp := msg.GetMsgType()
-	return tp == eraftpb.MessageType_MsgRequestVote
+func ConfStateFromRegion(region *metapb.Region) (confState eraftpb.ConfState) {
+	for _, p := range region.Peers {
+		confState.Nodes = append(confState.Nodes, p.GetId())
+	}
+	return
 }
 
-/// `is_first_vote_msg` checks `msg` is the first vote message or not. It's used for
-/// when the message is received but there is no such region in `Store::region_peers` and the
-/// region overlaps with others. In this case we should put `msg` into `pending_votes` instead of
-/// create the peer.
-func isFirstVoteMessage(msg *eraftpb.Message) bool {
-	return isVoteMessage(msg) && msg.Term == RaftInitLogTerm+1
-}
-
-func regionIDToBytes(id uint64) []byte {
+func RegionIDToBytes(id uint64) []byte {
 	b := make([]byte, 8)
 	binary.LittleEndian.PutUint64(b, id)
 	return b
 }
 
-func regionIDFromBytes(b []byte) uint64 {
+func RegionIDFromBytes(b []byte) uint64 {
 	return binary.LittleEndian.Uint64(b)
 }
 
-func checkRegionEpoch(req *raft_cmdpb.RaftCmdRequest, region *metapb.Region, includeRegion bool) error {
-	var checkVer, checkConfVer bool
-	if req.AdminRequest == nil {
-		// for get/set/delete, we don't care conf_version.
-		checkVer = true
-	} else {
-		switch req.AdminRequest.CmdType {
-		case raft_cmdpb.AdminCmdType_CompactLog, raft_cmdpb.AdminCmdType_InvalidAdmin:
-		case raft_cmdpb.AdminCmdType_ChangePeer:
-			checkConfVer = true
-		case raft_cmdpb.AdminCmdType_BatchSplit,
-			raft_cmdpb.AdminCmdType_TransferLeader:
-			checkVer = true
-			checkConfVer = true
-		}
-	}
-	if !checkVer && !checkConfVer {
-		return nil
-	}
-	if req.Header.RegionEpoch == nil {
-		return errors.Errorf("missing epoch")
-	}
-
-	fromEpoch := req.Header.RegionEpoch
-	currentEpoch := region.RegionEpoch
-
-	// We must check epochs strictly to avoid key not in region error.
-	//
-	// A 3 nodes TiKV cluster with merge enabled, after commit merge, TiKV A
-	// tells TiDB with a epoch not match error contains the latest target Region
-	// info, TiDB updates its region cache and sends requests to TiKV B,
-	// and TiKV B has not applied commit merge yet, since the region epoch in
-	// request is higher than TiKV B, the request must be denied due to epoch
-	// not match, so it does not read on a stale snapshot, thus avoid the
-	// KeyNotInRegion error.
-	if (checkConfVer && fromEpoch.ConfVer != currentEpoch.ConfVer) ||
-		(checkVer && fromEpoch.Version != currentEpoch.Version) {
-		err := &ErrEpochNotMatch{}
-		if includeRegion {
-			err.Regions = []*metapb.Region{region}
-		}
-		err.Message = fmt.Sprintf("current epoch of region %d is %s, but you sent %s",
-			region.Id, currentEpoch, fromEpoch)
-		return err
-	}
-	return nil
-}
-
-func checkStoreID(req *raft_cmdpb.RaftCmdRequest, storeID uint64) error {
+func CheckStoreID(req *raft_cmdpb.RaftCmdRequest, storeID uint64) error {
 	peer := req.Header.Peer
 	if peer.StoreId == storeID {
 		return nil
@@ -216,7 +176,7 @@ func checkStoreID(req *raft_cmdpb.RaftCmdRequest, storeID uint64) error {
 	return errors.Errorf("store not match %d %d", peer.StoreId, storeID)
 }
 
-func checkTerm(req *raft_cmdpb.RaftCmdRequest, term uint64) error {
+func CheckTerm(req *raft_cmdpb.RaftCmdRequest, term uint64) error {
 	header := req.Header
 	if header.Term == 0 || term <= header.Term+1 {
 		return nil
@@ -226,7 +186,7 @@ func checkTerm(req *raft_cmdpb.RaftCmdRequest, term uint64) error {
 	return &ErrStaleCommand{}
 }
 
-func checkPeerID(req *raft_cmdpb.RaftCmdRequest, peerID uint64) error {
+func CheckPeerID(req *raft_cmdpb.RaftCmdRequest, peerID uint64) error {
 	peer := req.Header.Peer
 	if peer.Id == peerID {
 		return nil
@@ -242,6 +202,6 @@ func CloneMsg(origin, cloned proto.Message) error {
 	return proto.Unmarshal(data, cloned)
 }
 
-func safeCopy(b []byte) []byte {
+func SafeCopy(b []byte) []byte {
 	return append([]byte{}, b...)
 }
