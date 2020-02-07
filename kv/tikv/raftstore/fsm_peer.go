@@ -819,7 +819,7 @@ func (d *peerMsgHandler) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) (
 	leaderID := d.peer.LeaderId()
 	if !d.peer.IsLeader() {
 		leader := d.peer.getPeerFromCache(leaderID)
-		return nil, &util.ErrNotLeader{regionID, leader}
+		return nil, &util.ErrNotLeader{RegionId: regionID, Leader: leader}
 	}
 	// peer_id must be the same as peer's.
 	if err := util.CheckPeerID(req, d.peerID()); err != nil {
