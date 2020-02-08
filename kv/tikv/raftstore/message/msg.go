@@ -1,7 +1,7 @@
 package message
 
 import (
-	"sync"
+	"time"
 
 	"github.com/coocood/badger"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -68,7 +68,7 @@ type MsgSplitRegion struct {
 type Callback struct {
 	Resp       *raft_cmdpb.RaftCmdResponse
 	RegionSnap *RegionSnapshot // used for GetSnap
-	Wg         sync.WaitGroup
+	done       chan struct{}
 }
 
 type RegionSnapshot struct {
@@ -77,22 +77,28 @@ type RegionSnapshot struct {
 }
 
 func (cb *Callback) Done(resp *raft_cmdpb.RaftCmdResponse) {
-	if cb != nil {
-		cb.Resp = resp
-		cb.Wg.Done()
-	}
+	cb.Resp = resp
+	cb.done <- struct{}{}
 }
 
 func (cb *Callback) WaitResp() *raft_cmdpb.RaftCmdResponse {
-	if cb != nil {
-		cb.Wg.Wait()
+	select {
+	case <-cb.done:
 		return cb.Resp
 	}
-	return nil
+}
+
+func (cb *Callback) WaitRespWithTimeout(timeout time.Duration) *raft_cmdpb.RaftCmdResponse {
+	select {
+	case <-cb.done:
+		return cb.Resp
+	case <-time.After(timeout):
+		return cb.Resp
+	}
 }
 
 func NewCallback() *Callback {
-	cb := &Callback{}
-	cb.Wg.Add(1)
+	done := make(chan struct{})
+	cb := &Callback{done: done}
 	return cb
 }

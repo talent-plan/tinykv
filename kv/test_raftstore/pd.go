@@ -77,7 +77,7 @@ type MockPDClient struct {
 
 	meta         metapb.Cluster
 	stores       map[uint64]*Store
-	regionsRange btree.BTree       // key -> region
+	regionsRange *btree.BTree      // key -> region
 	regionsKey   map[uint64][]byte // regionID -> startKey
 
 	baseID uint64
@@ -87,6 +87,22 @@ type MockPDClient struct {
 	pendingPeers map[uint64]*metapb.Peer // peerID -> peer
 
 	bootstrapped bool
+}
+
+func NewMockPDClient(clusterID uint64) MockPDClient {
+	pdClient := MockPDClient{
+		clusterID: clusterID,
+		meta: metapb.Cluster{
+			Id: clusterID,
+		},
+		stores:       make(map[uint64]*Store),
+		regionsRange: btree.New(2),
+		regionsKey:   make(map[uint64][]byte),
+		operators:    make(map[uint64]*Operator),
+		leaders:      make(map[uint64]*metapb.Peer),
+		pendingPeers: make(map[uint64]*metapb.Peer),
+	}
+	return pdClient
 }
 
 // Implement PDClient interface

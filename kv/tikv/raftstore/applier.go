@@ -137,7 +137,7 @@ type applyCallback struct {
 func (c *applyCallback) invokeAll() {
 	for _, cb := range c.cbs {
 		if cb != nil {
-			cb.Wg.Done()
+			cb.Done(nil)
 		}
 	}
 }

@@ -3,7 +3,9 @@ package test_raftstore
 import (
 	"context"
 	"io"
+	"log"
 	"sync"
+	"time"
 
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
@@ -14,6 +16,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/raft"
 )
@@ -36,60 +39,60 @@ func NewMockTransport() MockTransport {
 	}
 }
 
-func (t *MockTransport) AddNode(storeID uint64, raftRouter message.RaftRouter, snapMgr *snap.SnapManager) {
+func (t *MockTransport) AddNode(nodeID uint64, raftRouter message.RaftRouter, snapMgr *snap.SnapManager) {
 	t.Lock()
 	defer t.Unlock()
 
-	t.routers[storeID] = raftRouter
-	t.snapMgrs[storeID] = snapMgr
+	t.routers[nodeID] = raftRouter
+	t.snapMgrs[nodeID] = snapMgr
 }
 
-func (t *MockTransport) getSendFilters(storeID uint64) []Filter {
-	filters := t.sendFilters[storeID]
+func (t *MockTransport) getSendFilters(nodeID uint64) []Filter {
+	filters := t.sendFilters[nodeID]
 	if filters == nil {
-		filters = make([]Filter, 0, 0)
+		filters = make([]Filter, 0)
 	}
 	return filters
 }
 
-func (t *MockTransport) getRecvFilters(storeID uint64) []Filter {
-	filters := t.recvFilters[storeID]
+func (t *MockTransport) getRecvFilters(nodeID uint64) []Filter {
+	filters := t.recvFilters[nodeID]
 	if filters == nil {
-		filters = make([]Filter, 0, 0)
+		filters = make([]Filter, 0)
 	}
 	return filters
 }
 
-func (t *MockTransport) AddSendFilter(storeID uint64, filter Filter) {
+func (t *MockTransport) AddSendFilter(nodeID uint64, filter Filter) {
 	t.Lock()
 	defer t.Unlock()
 
-	filters := t.getSendFilters(storeID)
+	filters := t.getSendFilters(nodeID)
 	filters = append(filters, filter)
-	t.sendFilters[storeID] = filters
+	t.sendFilters[nodeID] = filters
 }
 
-func (t *MockTransport) AddReceiveFilter(storeID uint64, filter Filter) {
+func (t *MockTransport) AddReceiveFilter(nodeID uint64, filter Filter) {
 	t.Lock()
 	defer t.Unlock()
 
-	filters := t.getRecvFilters(storeID)
+	filters := t.getRecvFilters(nodeID)
 	filters = append(filters, filter)
-	t.recvFilters[storeID] = filters
+	t.recvFilters[nodeID] = filters
 }
 
-func (t *MockTransport) ClearSendFilters(storeID uint64) {
+func (t *MockTransport) ClearSendFilters(nodeID uint64) {
 	t.Lock()
 	defer t.Unlock()
 
-	t.sendFilters[storeID] = nil
+	t.sendFilters[nodeID] = nil
 }
 
-func (t *MockTransport) ClearReceiveFilters(storeID uint64) {
+func (t *MockTransport) ClearReceiveFilters(nodeID uint64) {
 	t.Lock()
 	defer t.Unlock()
 
-	t.recvFilters[storeID] = nil
+	t.recvFilters[nodeID] = nil
 }
 
 func (t *MockTransport) Send(msg *raft_serverpb.RaftMessage) error {
@@ -166,21 +169,22 @@ func (t *MockTransport) Send(msg *raft_serverpb.RaftMessage) error {
 	return nil
 }
 
-type NodeCluster struct {
+type NodeSimulator struct {
 	trans    *MockTransport
 	pdClient pd.Client
-	nodes    []*raftstore.Node
+	nodes    map[uint64]*raftstore.Node
 }
 
-func NewNodeCluster(pdClient pd.Client) NodeCluster {
+func NewNodeSimulator(pdClient pd.Client) NodeSimulator {
 	trans := NewMockTransport()
-	return NodeCluster{
+	return NodeSimulator{
 		trans:    &trans,
 		pdClient: pdClient,
+		nodes:    make(map[uint64]*raftstore.Node),
 	}
 }
 
-func (c *NodeCluster) RunNode(raftConf *tikvConf.Config, engine *engine_util.Engines, ctx context.Context) error {
+func (c *NodeSimulator) RunNode(raftConf *tikvConf.Config, engine *engine_util.Engines, ctx context.Context) error {
 	var wg sync.WaitGroup
 	pdWorker := worker.NewWorker("pd-worker", &wg)
 
@@ -193,31 +197,76 @@ func (c *NodeCluster) RunNode(raftConf *tikvConf.Config, engine *engine_util.Eng
 	if err != nil {
 		return err
 	}
-	c.nodes = append(c.nodes, node)
 
-	c.trans.AddNode(node.GetStoreID(), raftRouter, snapManager)
+	storeID := node.GetStoreID()
+	c.nodes[storeID] = node
+	c.trans.AddNode(storeID, raftRouter, snapManager)
 
 	return nil
 }
 
-func (c *NodeCluster) StopNodes() {
-	for _, node := range c.nodes {
-		node.Stop()
+func (c *NodeSimulator) StopNode(nodeID uint64) {
+	node := c.nodes[nodeID]
+	if node == nil {
+		log.Panicf("Can not find node %d", nodeID)
 	}
+	node.Stop()
 }
 
-func (c *NodeCluster) AddSendFilter(storeID uint64, filter Filter) {
-	c.trans.AddSendFilter(storeID, filter)
+func (c *NodeSimulator) AddSendFilter(nodeID uint64, filter Filter) {
+	c.trans.AddSendFilter(nodeID, filter)
 }
 
-func (c *NodeCluster) ClearSendFilters(storeID uint64) {
-	c.trans.ClearSendFilters(storeID)
+func (c *NodeSimulator) ClearSendFilters(nodeID uint64) {
+	c.trans.ClearSendFilters(nodeID)
 }
 
-func (c *NodeCluster) AddReceiveFilter(storeID uint64, filter Filter) {
-	c.trans.AddReceiveFilter(storeID, filter)
+func (c *NodeSimulator) AddReceiveFilter(nodeID uint64, filter Filter) {
+	c.trans.AddReceiveFilter(nodeID, filter)
 }
 
-func (c *NodeCluster) ClearReceiveFilters(storeID uint64) {
-	c.trans.ClearReceiveFilters(storeID)
+func (c *NodeSimulator) ClearReceiveFilters(nodeID uint64) {
+	c.trans.ClearReceiveFilters(nodeID)
+}
+
+func (c *NodeSimulator) GetNodeIds() []uint64 {
+	nodeIDs := make([]uint64, len(c.nodes))
+	for i, node := range c.nodes {
+		nodeIDs[i] = node.GetStoreID()
+	}
+	return nodeIDs
+}
+
+func (c *NodeSimulator) CallCommandOnNode(nodeID uint64, request *raft_cmdpb.RaftCmdRequest, timeout time.Duration) *raft_cmdpb.RaftCmdResponse {
+	c.trans.Lock()
+	defer c.trans.Unlock()
+
+	router := c.trans.routers[nodeID]
+	if router == nil {
+		log.Panicf("Can not find node %d", nodeID)
+	}
+
+	cb := message.NewCallback()
+	err := router.SendRaftCommand(request, cb)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	resp := cb.WaitRespWithTimeout(timeout)
+
+	if resp == nil {
+		return nil
+	}
+
+	reqCount := len(request.Requests)
+
+	if resp.Header.Error != nil {
+		log.Fatal(&resp.Header.Error)
+	}
+	if len(resp.Responses) != reqCount {
+		log.Panicf("responses count %d is not equal to requests count %d",
+			len(resp.Responses), reqCount)
+	}
+
+	return resp
 }
