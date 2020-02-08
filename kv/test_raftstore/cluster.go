@@ -15,6 +15,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	tikvConf "github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
@@ -46,7 +47,6 @@ type Cluster struct {
 
 func NewCluster(count int, pdClient pd.Client, simulator Simulator) Cluster {
 	return Cluster{
-		context:   context.TODO(),
 		count:     count,
 		pdClient:  pdClient,
 		simulator: simulator,
@@ -54,6 +54,8 @@ func NewCluster(count int, pdClient pd.Client, simulator Simulator) Cluster {
 }
 
 func (c *Cluster) Start() error {
+	ctx := context.TODO()
+	clusterID := c.pdClient.GetClusterID(ctx)
 	for nodeID := uint64(1); nodeID <= uint64(c.count); nodeID++ {
 		dbPath, err := ioutil.TempDir("", "test-raftstore")
 		kvPath := filepath.Join(dbPath, "kv")
@@ -82,6 +84,10 @@ func (c *Cluster) Start() error {
 
 		kvDB := engine_util.CreateDB("kv", &conf.Engine)
 		engine := engine_util.NewEngines(kvDB, raftDB, kvPath, raftPath)
+		err = raftstore.BootstrapStore(engine, clusterID, nodeID)
+		if err != nil {
+			return err
+		}
 		c.engines = append(c.engines, engine)
 
 		err = c.simulator.RunNode(raftConf, engine, c.context)
