@@ -44,7 +44,7 @@ type TaskHandler interface {
 }
 
 type Starter interface {
-	start()
+	Start()
 }
 
 func (w *Worker) Start(handler TaskHandler) {
@@ -52,7 +52,7 @@ func (w *Worker) Start(handler TaskHandler) {
 	go func() {
 		defer w.wg.Done()
 		if s, ok := handler.(Starter); ok {
-			s.start()
+			s.Start()
 		}
 		for {
 			Task := <-w.receiver
