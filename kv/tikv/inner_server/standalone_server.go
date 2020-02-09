@@ -1,7 +1,6 @@
 package inner_server
 
 import (
-	"fmt"
 	"github.com/coocood/badger"
 	kvConfig "github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
@@ -9,6 +8,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
+	"github.com/pingcap/errors"
 )
 
 // StandAloneInnerServer is an InnerServer (see tikv/server.go) for a single-node TinyKV instance. It does not
@@ -55,16 +55,16 @@ func (is *StandAloneInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) err
 				if put, ok := op.Data.(Put); ok {
 					err = txn.Set(engine_util.KeyWithCF(put.Cf, put.Key), put.Value)
 				} else {
-					return fmt.Errorf("Corrupted put request")
+					return errors.New("Corrupted put request")
 				}
 			case ModifyTypeDelete:
 				if delete, ok := op.Data.(Delete); ok {
 					err = txn.Delete(engine_util.KeyWithCF(delete.Cf, delete.Key))
 				} else {
-					return fmt.Errorf("Corrupted delete request")
+					return errors.New("Corrupted delete request")
 				}
 			default:
-				err = fmt.Errorf("Unsupported modify type")
+				err = errors.New("Unsupported modify type")
 			}
 			if err != nil {
 				return err
