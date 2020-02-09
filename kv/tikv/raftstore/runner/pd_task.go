@@ -63,7 +63,7 @@ func (r *pdTaskHandler) Handle(t worker.Task) {
 	}
 }
 
-func (r *pdTaskHandler) start() {
+func (r *pdTaskHandler) Start() {
 	r.pdClient.SetRegionHeartbeatResponseHandler(r.storeID, r.onRegionHeartbeatResponse)
 }
 
