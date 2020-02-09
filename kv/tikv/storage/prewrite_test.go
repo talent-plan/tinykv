@@ -1,14 +1,15 @@
 package storage
 
 import (
-	"github.com/pingcap-incubator/tinykv/kv/engine_util"
+	"testing"
+
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/commands"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/exec"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
+	"github.com/pingcap-incubator/tinykv/kv/util/codec"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 // TestEmptyPrewrite tests that a Prewrite with no mutations succeeds and changes nothing.
@@ -37,7 +38,7 @@ func TestSinglePrewrite(t *testing.T) {
 	assert.Equal(t, mem.Len(engine_util.CfDefault), 1)
 	assert.Equal(t, mem.Len(engine_util.CfLock), 1)
 
-	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 100)))
+	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{3}, 100)))
 	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
 }
 
@@ -58,7 +59,7 @@ func TestBadWritePrewrites(t *testing.T) {
 
 	assert.Equal(t, mem.Len(engine_util.CfDefault), 1)
 	assert.Equal(t, mem.Len(engine_util.CfLock), 1)
-	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 100)))
+	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{3}, 100)))
 	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
 }
 
@@ -79,9 +80,9 @@ func TestMultiplePrewrites(t *testing.T) {
 
 	assert.Equal(t, mem.Len(engine_util.CfDefault), 2)
 	assert.Equal(t, mem.Len(engine_util.CfLock), 2)
-	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 100)))
+	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{3}, 100)))
 	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
-	assert.Equal(t, []byte{53}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{4}, 101)))
+	assert.Equal(t, []byte{53}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{4}, 101)))
 	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 101}, mem.Get(engine_util.CfLock, []byte{4}))
 }
 
@@ -98,7 +99,7 @@ func TestPrewriteOverwrite(t *testing.T) {
 	assert.Equal(t, mem.Len(engine_util.CfDefault), 1)
 	assert.Equal(t, mem.Len(engine_util.CfLock), 1)
 
-	assert.Equal(t, []byte{45}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 100)))
+	assert.Equal(t, []byte{45}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{3}, 100)))
 	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
 }
 
@@ -122,7 +123,7 @@ func TestPrewriteMultiple(t *testing.T) {
 	assert.Equal(t, mem.Len(engine_util.CfDefault), 4)
 	assert.Equal(t, mem.Len(engine_util.CfLock), 4)
 
-	assert.Equal(t, []byte{1, 3, 5}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{4}, 100)))
+	assert.Equal(t, []byte{1, 3, 5}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{4}, 100)))
 }
 
 type requestBuilder struct {

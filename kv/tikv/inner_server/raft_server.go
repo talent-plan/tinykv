@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	kvConfig "github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
@@ -15,6 +14,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"

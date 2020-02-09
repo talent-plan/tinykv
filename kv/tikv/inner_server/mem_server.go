@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"github.com/coocood/badger/y"
 	"github.com/petar/GoLLRB/llrb"
-	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 )

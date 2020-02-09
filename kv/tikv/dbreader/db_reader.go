@@ -2,7 +2,7 @@ package dbreader
 
 import (
 	"github.com/coocood/badger"
-	"github.com/pingcap-incubator/tinykv/kv/engine_util"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 )
 

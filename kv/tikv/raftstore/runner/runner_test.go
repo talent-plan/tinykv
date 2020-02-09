@@ -9,14 +9,18 @@ import (
 	"time"
 
 	"github.com/coocood/badger"
-	"github.com/pingcap-incubator/tinykv/kv/engine_util"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
+	"github.com/pingcap-incubator/tinykv/kv/util/codec"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
+	"github.com/pingcap-incubator/tinykv/raft"
 	"github.com/pingcap/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -116,7 +120,7 @@ func TestApplies(t *testing.T) {
 		require.Nil(t, db.Update(func(txn *badger.Txn) error {
 			require.Nil(t, txn.Set([]byte{k}, []byte{k}))
 			require.Nil(t, txn.Set([]byte{k + 1}, []byte{k + 1}))
-			// todo, there might be flush method needed.
+			// t  odo, there might be flush method needed.
 			// todo, test also test level 0 files, we add later when badger export level 0 files api.
 			return nil
 		}))
@@ -315,4 +319,67 @@ func raftLogMustExist(t *testing.T, db *badger.DB, regionId, startIdx, endIdx ui
 func cleanUpTestEngineData(engines *engine_util.Engines) {
 	os.RemoveAll(engines.KvPath)
 	os.RemoveAll(engines.RaftPath)
+}
+
+type TaskResRouter struct {
+	ch chan<- message.Msg
+}
+
+func (r *TaskResRouter) Send(regionID uint64, msg message.Msg) error {
+	r.ch <- msg
+	return nil
+}
+
+func (r *TaskResRouter) SendRaftMessage(msg *rspb.RaftMessage) error {
+	return nil
+}
+
+func (r *TaskResRouter) SendRaftCommand(req *raft_cmdpb.RaftCmdRequest, cb *message.Callback) error {
+	return nil
+}
+
+func (r *TaskResRouter) ReportSnapshotStatus(regionID uint64, toPeerID uint64, status raft.SnapshotStatus) error {
+	return nil
+}
+
+func (r *TaskResRouter) ReportUnreachable(regionID, toPeerID uint64) error {
+	return nil
+}
+
+func TestSplitCheck(t *testing.T) {
+	engines := util.NewTestEngines()
+	defer cleanUpTestEngineData(engines)
+	db := engines.Kv
+	taskResCh := make(chan message.Msg, 1)
+
+	runner := &splitCheckHandler{
+		engine:  db,
+		router:  &TaskResRouter{ch: taskResCh},
+		checker: newSizeSplitChecker(100, 50),
+	}
+
+	kvWb := new(engine_util.WriteBatch)
+	// the length of each kv pair is 21
+	kvWb.SetCF(engine_util.CfDefault, codec.EncodeKey([]byte("k1"), 1), []byte("entry"))
+	kvWb.SetCF(engine_util.CfDefault, codec.EncodeKey([]byte("k1"), 2), []byte("entry"))
+	kvWb.SetCF(engine_util.CfDefault, codec.EncodeKey([]byte("k2"), 1), []byte("entry"))
+	kvWb.SetCF(engine_util.CfDefault, codec.EncodeKey([]byte("k2"), 2), []byte("entry"))
+	kvWb.SetCF(engine_util.CfDefault, codec.EncodeKey([]byte("k3"), 3), []byte("entry"))
+	kvWb.MustWriteToDB(db)
+
+	task := worker.Task{
+		Data: &SplitCheckTask{
+			Region: &metapb.Region{
+				StartKey: []byte(""),
+				EndKey:   []byte(""),
+			},
+		},
+		Tp: worker.TaskTypeSplitCheck,
+	}
+
+	runner.Handle(task)
+	msg := <-taskResCh
+	split, ok := msg.Data.(*message.MsgSplitRegion)
+	assert.True(t, ok)
+	assert.Equal(t, split.SplitKeys[0], codec.EncodeBytes([]byte("k2")))
 }

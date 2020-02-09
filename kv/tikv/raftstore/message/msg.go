@@ -59,10 +59,8 @@ type MsgRaftCmd struct {
 
 type MsgSplitRegion struct {
 	RegionEpoch *metapb.RegionEpoch
-	// It's an encoded key.
-	// TODO: support meta key.
-	SplitKeys [][]byte
-	Callback  *Callback
+	SplitKeys   [][]byte
+	Callback    *Callback
 }
 
 type Callback struct {

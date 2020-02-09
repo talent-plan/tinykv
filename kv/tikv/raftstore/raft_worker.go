@@ -3,8 +3,8 @@ package raftstore
 import (
 	"sync"
 
-	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"go.uber.org/atomic"
 )
 

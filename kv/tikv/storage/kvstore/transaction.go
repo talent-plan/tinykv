@@ -3,9 +3,11 @@ package kvstore
 import (
 	"bytes"
 	"encoding/binary"
-	"github.com/pingcap-incubator/tinykv/kv/engine_util"
+
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
+	"github.com/pingcap-incubator/tinykv/kv/util/codec"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 )
 
 // MvccTxn represents an mvcc transaction (see tikv/storage/doc.go for a definition). It permits reading from a snapshot
@@ -36,10 +38,10 @@ func (txn *MvccTxn) FindWrittenValue(key []byte, ts uint64) ([]byte, error) {
 	iter := txn.Reader.IterCF(engine_util.CfWrite)
 	bts := [8]byte{}
 	binary.BigEndian.PutUint64(bts[:], ts)
-	for iter.Seek(EncodeKey(key, ts)); iter.Valid(); iter.Next() {
+	for iter.Seek(codec.EncodeKey(key, ts)); iter.Valid(); iter.Next() {
 		item := iter.Item()
 		// If the user key part of the combined key has changed, then we've got to the next key without finding a put write.
-		if bytes.Compare(DecodeUserKey(item.Key()), key) != 0 {
+		if bytes.Compare(codec.DecodeUserKey(item.Key()), key) != 0 {
 			return nil, nil
 		}
 		value, err := item.Value()
@@ -52,7 +54,7 @@ func (txn *MvccTxn) FindWrittenValue(key []byte, ts uint64) ([]byte, error) {
 		}
 		switch write.Kind {
 		case WriteKindPut:
-			return txn.Reader.GetCF(engine_util.CfDefault, EncodeKey(key, write.StartTS))
+			return txn.Reader.GetCF(engine_util.CfDefault, codec.EncodeKey(key, write.StartTS))
 		case WriteKindDelete:
 			return nil, nil
 		case WriteKindLock | WriteKindRollback:
@@ -92,7 +94,7 @@ func (txn *MvccTxn) PutValue(key []byte, value []byte) {
 	txn.Writes = append(txn.Writes, inner_server.Modify{
 		Type: inner_server.ModifyTypePut,
 		Data: inner_server.Put{
-			Key:   EncodeKey(key, *txn.StartTS),
+			Key:   codec.EncodeKey(key, *txn.StartTS),
 			Value: value,
 			Cf:    engine_util.CfDefault,
 		},
@@ -109,43 +111,4 @@ func (txn *MvccTxn) PutLock(key []byte, lock *Lock) {
 			Cf:    engine_util.CfLock,
 		},
 	})
-}
-
-// EncodeKey encodes a user key and appends an encoded timestamp to a key. Keys and timestamps are encoded so that
-// timestamped keys are sorted first by key (ascending), then by timestamp (descending). The encoding is based on
-// https://github.com/facebook/mysql-5.6/wiki/MyRocks-record-format#memcomparable-format.
-func EncodeKey(key []byte, ts uint64) []byte {
-	newLen := (len(key)/8+1)*9 + 8
-	newKey := make([]byte, 0, newLen)
-
-	for i := 0; i <= len(key); i += 8 {
-		remaining := len(key) - i
-		var padCount byte
-		if remaining >= 8 {
-			padCount = 0
-			newKey = append(newKey, key[i:i+8]...)
-		} else {
-			padCount = 8 - byte(remaining)
-			newKey = append(newKey, key[i:]...)
-			newKey = append(newKey, make([]byte, padCount)...)
-		}
-
-		newKey = append(newKey, 0xff-padCount)
-	}
-
-	// Append the timestamp, Note we invert the timestamp so that when sorted, they are in descending order.
-	newKey = append(newKey, make([]byte, 8)...)
-	binary.BigEndian.PutUint64(newKey[newLen-8:], ^ts)
-	return newKey
-}
-
-// DecodeUserKey takes a key + timestamp and returns the key part.
-func DecodeUserKey(key []byte) []byte {
-	keyLen := len(key) - 8
-	result := make([]byte, 0, (keyLen/9)*8)
-	for i := 0; i < keyLen; i += 9 {
-		padCount := 0xff - key[i+8]
-		result = append(result, key[i:i+8-int(padCount)]...)
-	}
-	return result
 }
