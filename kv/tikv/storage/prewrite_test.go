@@ -41,8 +41,8 @@ func TestSinglePrewrite(t *testing.T) {
 	assert.Equal(t, []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
 }
 
-// TestBadWritePrewrites tests that two prewrites to the same key causes a lock error.
-func TestBadWritePrewrites(t *testing.T) {
+// TestPrewriteLocked tests that two prewrites to the same key causes a lock error.
+func TestPrewriteLocked(t *testing.T) {
 	mem := inner_server.NewMemInnerServer()
 	sched := exec.NewSeqScheduler(mem)
 
@@ -58,6 +58,47 @@ func TestBadWritePrewrites(t *testing.T) {
 
 	assert.Equal(t, mem.Len(engine_util.CfDefault), 1)
 	assert.Equal(t, mem.Len(engine_util.CfLock), 1)
+	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 100)))
+	assert.Equal(t, []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
+}
+
+// TestPrewriteWritten tests an attempted prewrite with a write conflict.
+func TestPrewriteWritten(t *testing.T) {
+	mem := inner_server.NewMemInnerServer()
+	mem.Set(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 80), []byte{5})
+	mem.Set(engine_util.CfWrite, kvstore.EncodeKey([]byte{3}, 101), []byte{1, 0, 0, 0, 0, 0, 0, 0, 80})
+	sched := exec.NewSeqScheduler(mem)
+
+	builder := newReqBuilder()
+	cmd := commands.NewPrewrite(builder.prewriteRequest(mutation(3, []byte{42}, kvrpcpb.Op_Put)))
+	resp := run(t, sched, &cmd)[0].(*kvrpcpb.PrewriteResponse)
+	assert.Equal(t, 1, len(resp.Errors))
+	assert.NotNil(t, resp.Errors[0].Conflict)
+	assert.Nil(t, resp.RegionError)
+	assert.Equal(t, mem.Len(engine_util.CfDefault), 1)
+	assert.Equal(t, mem.Len(engine_util.CfLock), 0)
+	assert.Equal(t, mem.Len(engine_util.CfWrite), 1)
+
+	assert.Equal(t, []byte{5}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 80)))
+}
+
+// TestPrewriteWrittenNoConflict tests an attempted prewrite with a write already present, but no conflict.
+func TestPrewriteWrittenNoConflict(t *testing.T) {
+	mem := inner_server.NewMemInnerServer()
+	mem.Set(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 80), []byte{5})
+	mem.Set(engine_util.CfWrite, kvstore.EncodeKey([]byte{3}, 90), []byte{1, 0, 0, 0, 0, 0, 0, 0, 80})
+	sched := exec.NewSeqScheduler(mem)
+
+	builder := newReqBuilder()
+	cmd := commands.NewPrewrite(builder.prewriteRequest(mutation(3, []byte{42}, kvrpcpb.Op_Put)))
+	resp := run(t, sched, &cmd)[0].(*kvrpcpb.PrewriteResponse)
+	assert.Empty(t, resp.Errors)
+	assert.Nil(t, resp.RegionError)
+	assert.Equal(t, mem.Len(engine_util.CfDefault), 2)
+	assert.Equal(t, mem.Len(engine_util.CfLock), 1)
+	assert.Equal(t, mem.Len(engine_util.CfWrite), 1)
+
+	assert.Equal(t, []byte{5}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 80)))
 	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 100)))
 	assert.Equal(t, []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
 }

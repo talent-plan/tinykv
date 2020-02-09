@@ -59,7 +59,7 @@ func commitKey(key []byte, commitTs uint64, txn *kvstore.MvccTxn) error {
 	}
 
 	// Commit a Write object to the DB
-	write := kvstore.Write{*txn.StartTS, lock.Kind}
+	write := kvstore.Write{StartTS: *txn.StartTS, Kind: lock.Kind}
 	txn.PutWrite(key, &write, commitTs)
 	// Unlock the key
 	txn.DeleteLock(key)

@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"fmt"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
@@ -75,6 +76,7 @@ func (p *Prewrite) prewriteMutation(txn *kvstore.MvccTxn, mut *kvrpcpb.Mutation)
 	// Check for write conflicts.
 	if write, writeCommitTS, err := txn.SeekWrite(key, kvstore.TsMax); write != nil && err == nil {
 		if writeCommitTS >= *txn.StartTS {
+			fmt.Printf("commit TS %d\n", writeCommitTS)
 			return nil, &WriteConflict{
 				startTS:    *txn.StartTS,
 				conflictTS: write.StartTS,

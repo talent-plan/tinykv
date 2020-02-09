@@ -219,5 +219,5 @@ func DecodeUserKey(key []byte) []byte {
 // DecodeTimestamp takes a key + timestamp and returns the timestamp part.
 func DecodeTimestamp(key []byte) uint64 {
 	keyLen := len(key) - 8
-	return binary.BigEndian.Uint64(key[keyLen:])
+	return ^binary.BigEndian.Uint64(key[keyLen:])
 }
