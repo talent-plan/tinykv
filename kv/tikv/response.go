@@ -91,7 +91,7 @@ func (rr *RespResult) commitResponse() (*kvrpcpb.CommitResponse, error) {
 	}
 	return nil, errors.New("Unexpected type in response")
 }
-func (rr *RespResult) batchRollbackResponse() (*kvrpcpb.BatchRollbackResponse, error) {
+func (rr *RespResult) rollbackResponse() (*kvrpcpb.BatchRollbackResponse, error) {
 	if rr.Err != nil {
 		return nil, rr.Err
 	}

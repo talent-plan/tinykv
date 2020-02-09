@@ -179,6 +179,17 @@ func (txn *MvccTxn) PutValue(key []byte, value []byte) {
 	})
 }
 
+// DeleteValue removes a key/value pair in this transaction.
+func (txn *MvccTxn) DeleteValue(key []byte) {
+	txn.Writes = append(txn.Writes, inner_server.Modify{
+		Type: inner_server.ModifyTypeDelete,
+		Data: inner_server.Delete{
+			Key: EncodeKey(key, *txn.StartTS),
+			Cf:  engine_util.CfDefault,
+		},
+	})
+}
+
 // EncodeKey encodes a user key and appends an encoded timestamp to a key. Keys and timestamps are encoded so that
 // timestamped keys are sorted first by key (ascending), then by timestamp (descending). The encoding is based on
 // https://github.com/facebook/mysql-5.6/wiki/MyRocks-record-format#memcomparable-format.
