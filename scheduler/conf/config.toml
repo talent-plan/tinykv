@@ -46,12 +46,6 @@ level = "info"
 ## rotate log by day
 # log-rotate = true
 
-[metric]
-## prometheus client push interval, set "0s" to disable prometheus.
-interval = "15s"
-## prometheus pushgateway address, leaves it empty will disable prometheus.
-address = ""
-
 [schedule]
 max-merge-region-size = 20
 max-merge-region-keys = 200000
@@ -63,7 +57,6 @@ leader-schedule-limit = 4
 region-schedule-limit = 2048
 replica-schedule-limit = 64
 merge-schedule-limit = 8
-hot-region-schedule-limit = 4
 ## There are some strategics supported: ["count", "size"], default: "count"
 # leader-schedule-strategy = "count" 
 ## When the score difference between the leader or Region of the two stores is 
@@ -81,7 +74,7 @@ hot-region-schedule-limit = 4
 # enable-cross-table-merge = false
 
 ## customized schedulers, the format is as below
-## if empty, it will use balance-leader, balance-region, hot-region as default
+## if empty, it will use balance-leader, balance-region as default
 # [[schedule.schedulers]]
 # type = "evict-leader"
 # args = ["1"]

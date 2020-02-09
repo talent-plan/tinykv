@@ -495,12 +495,11 @@ func TestNodeStart(t *testing.T) {
 	}
 	storage := NewMemoryStorage()
 	c := &Config{
-		ID:              1,
-		ElectionTick:    10,
-		HeartbeatTick:   1,
-		Storage:         storage,
-		MaxSizePerMsg:   noLimit,
-		MaxInflightMsgs: 256,
+		ID:            1,
+		ElectionTick:  10,
+		HeartbeatTick: 1,
+		Storage:       storage,
+		MaxSizePerMsg: noLimit,
 	}
 	n := StartNode(c, []Peer{{ID: 1}})
 	defer n.Stop()
@@ -550,12 +549,11 @@ func TestNodeRestart(t *testing.T) {
 	storage.SetHardState(st)
 	storage.Append(entries)
 	c := &Config{
-		ID:              1,
-		ElectionTick:    10,
-		HeartbeatTick:   1,
-		Storage:         storage,
-		MaxSizePerMsg:   noLimit,
-		MaxInflightMsgs: 256,
+		ID:            1,
+		ElectionTick:  10,
+		HeartbeatTick: 1,
+		Storage:       storage,
+		MaxSizePerMsg: noLimit,
 	}
 	n := RestartNode(c)
 	defer n.Stop()
@@ -596,12 +594,11 @@ func TestNodeRestartFromSnapshot(t *testing.T) {
 	s.ApplySnapshot(snap)
 	s.Append(entries)
 	c := &Config{
-		ID:              1,
-		ElectionTick:    10,
-		HeartbeatTick:   1,
-		Storage:         s,
-		MaxSizePerMsg:   noLimit,
-		MaxInflightMsgs: 256,
+		ID:            1,
+		ElectionTick:  10,
+		HeartbeatTick: 1,
+		Storage:       s,
+		MaxSizePerMsg: noLimit,
 	}
 	n := RestartNode(c)
 	defer n.Stop()
@@ -624,12 +621,11 @@ func TestNodeAdvance(t *testing.T) {
 
 	storage := NewMemoryStorage()
 	c := &Config{
-		ID:              1,
-		ElectionTick:    10,
-		HeartbeatTick:   1,
-		Storage:         storage,
-		MaxSizePerMsg:   noLimit,
-		MaxInflightMsgs: 256,
+		ID:            1,
+		ElectionTick:  10,
+		HeartbeatTick: 1,
+		Storage:       storage,
+		MaxSizePerMsg: noLimit,
 	}
 	n := StartNode(c, []Peer{{ID: 1}})
 	defer n.Stop()

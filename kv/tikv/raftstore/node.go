@@ -11,7 +11,9 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
@@ -53,7 +55,7 @@ func (n *Node) Start(ctx context.Context, engines *engine_util.Engines, trans Tr
 	if err != nil {
 		return err
 	}
-	if storeID == InvalidID {
+	if storeID == util.InvalidID {
 		storeID, err = n.bootstrapStore(ctx, engines)
 	}
 	if err != nil {
@@ -86,7 +88,7 @@ func (n *Node) Start(ctx context.Context, engines *engine_util.Engines, trans Tr
 }
 
 func (n *Node) checkStore(engines *engine_util.Engines) (uint64, error) {
-	val, err := getValue(engines.Kv, storeIdentKey)
+	val, err := engine_util.GetValue(engines.Kv, meta.StoreIdentKey)
 	if err != nil {
 		if err == badger.ErrKeyNotFound {
 			return 0, nil
@@ -107,7 +109,7 @@ func (n *Node) checkStore(engines *engine_util.Engines) (uint64, error) {
 		return 0, errors.Errorf("cluster ID mismatch, local %d != remote %d", ident.ClusterId, n.clusterID)
 	}
 
-	if ident.StoreId == InvalidID {
+	if ident.StoreId == util.InvalidID {
 		return 0, errors.Errorf("invalid store ident %s", &ident)
 	}
 	return ident.StoreId, nil
@@ -128,7 +130,7 @@ func (n *Node) allocID(ctx context.Context) (uint64, error) {
 
 func (n *Node) checkOrPrepareBootstrapCluster(ctx context.Context, engines *engine_util.Engines, storeID uint64) (*metapb.Region, error) {
 	var state raft_serverpb.RegionLocalState
-	if err := getMsg(engines.Kv, prepareBootstrapKey, &state); err == nil {
+	if err := engine_util.GetMsg(engines.Kv, meta.PrepareBootstrapKey, &state); err == nil {
 		return state.Region, nil
 	}
 	bootstrapped, err := n.checkClusterBootstrapped(ctx)
@@ -219,4 +221,8 @@ func (n *Node) stopNode(storeID uint64) {
 
 func (n *Node) Stop() {
 	n.stopNode(n.store.GetId())
+}
+
+func (n *Node) GetStoreID() uint64 {
+	return n.store.GetId()
 }

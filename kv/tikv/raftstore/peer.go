@@ -10,6 +10,8 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/runner"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -34,7 +36,7 @@ func NotifyStaleReq(term uint64, cb *message.Callback) {
 }
 
 func NotifyReqRegionRemoved(regionId uint64, cb *message.Callback) {
-	regionNotFound := &ErrRegionNotFound{RegionId: regionId}
+	regionNotFound := &util.ErrRegionNotFound{RegionId: regionId}
 	resp := ErrResp(regionNotFound)
 	cb.Done(resp)
 }
@@ -122,7 +124,7 @@ type Peer struct {
 
 func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, region *metapb.Region, regionSched chan<- worker.Task,
 	peer *metapb.Peer) (*Peer, error) {
-	if peer.GetId() == InvalidID {
+	if peer.GetId() == util.InvalidID {
 		return nil, fmt.Errorf("invalid peer id")
 	}
 	tag := fmt.Sprintf("[region %v] %v", region.GetId(), peer.GetId())
@@ -135,13 +137,12 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 	appliedIndex := ps.AppliedIndex()
 
 	raftCfg := &raft.Config{
-		ID:              peer.GetId(),
-		ElectionTick:    cfg.RaftElectionTimeoutTicks,
-		HeartbeatTick:   cfg.RaftHeartbeatTicks,
-		MaxSizePerMsg:   cfg.RaftMaxSizePerMsg,
-		MaxInflightMsgs: cfg.RaftMaxInflightMsgs,
-		Applied:         appliedIndex,
-		Storage:         ps,
+		ID:            peer.GetId(),
+		ElectionTick:  cfg.RaftElectionTimeoutTicks,
+		HeartbeatTick: cfg.RaftHeartbeatTicks,
+		MaxSizePerMsg: cfg.RaftMaxSizePerMsg,
+		Applied:       appliedIndex,
+		Storage:       ps,
 	}
 
 	raftGroup, err := raft.NewRawNode(raftCfg, nil)
@@ -333,7 +334,7 @@ func (p *Peer) Send(trans Transport, msgs []eraftpb.Message) error {
 
 /// Steps the raft message.
 func (p *Peer) Step(m *eraftpb.Message) error {
-	if p.IsLeader() && m.GetFrom() != InvalidID {
+	if p.IsLeader() && m.GetFrom() != util.InvalidID {
 		p.PeerHeartbeats[m.GetFrom()] = time.Now()
 	}
 	return p.RaftGroup.Step(*m)
@@ -562,12 +563,12 @@ func (p *Peer) Stop() {
 func (p *Peer) HeartbeatPd(pdScheduler chan<- worker.Task) {
 	pdScheduler <- worker.Task{
 		Tp: worker.TaskTypePDHeartbeat,
-		Data: &pdRegionHeartbeatTask{
-			region:          p.Region(),
-			peer:            p.Meta,
-			downPeers:       p.CollectDownPeers(time.Minute * 5),
-			pendingPeers:    p.CollectPendingPeers(),
-			approximateSize: p.ApproximateSize,
+		Data: &runner.PdRegionHeartbeatTask{
+			Region:          p.Region(),
+			Peer:            p.Meta,
+			DownPeers:       p.CollectDownPeers(time.Minute * 5),
+			PendingPeers:    p.CollectPendingPeers(),
+			ApproximateSize: p.ApproximateSize,
 		},
 	}
 }
@@ -599,7 +600,7 @@ func (p *Peer) sendRaftMessage(msg eraftpb.Message, trans Transport) error {
 	// Heartbeat message for the store of that peer to check whether to create a new peer
 	// when receiving these messages, or just to wait for a pending region split to perform
 	// later.
-	if p.Store().isInitialized() && isInitialMsg(&msg) {
+	if p.Store().isInitialized() && util.IsInitialMsg(&msg) {
 		sendMsg.StartKey = append([]byte{}, p.Region().StartKey...)
 		sendMsg.EndKey = append([]byte{}, p.Region().EndKey...)
 	}
@@ -663,12 +664,12 @@ func (p *Peer) HandleRaftReadyApply(kv *badger.DB, applyMsgs *applyMsgs, ready *
 	}
 }
 
-func (p *Peer) PostApply(kv *badger.DB, applyState applyState, appliedIndexTerm uint64, sizeDiffHint uint64) bool {
+func (p *Peer) PostApply(kv *badger.DB, applyState rspb.RaftApplyState, appliedIndexTerm uint64, sizeDiffHint uint64) bool {
 	hasReady := false
 	if p.IsApplyingSnapshot() {
 		panic("should not applying snapshot")
 	}
-	p.RaftGroup.AdvanceApply(applyState.appliedIndex)
+	p.RaftGroup.AdvanceApply(applyState.AppliedIndex)
 
 	p.Store().applyState = applyState
 	p.Store().appliedIndexTerm = appliedIndexTerm
@@ -828,11 +829,12 @@ func (p *Peer) readyToTransferLeader(cfg *config.Config, peer *metapb.Peer) bool
 		return false
 	}
 
-	for _, pr := range status.Progress {
-		if pr.State == raft.ProgressStateSnapshot {
-			return false
-		}
-	}
+	// for _, pr := range status.Progress {
+	// 	if pr.State == raft.ProgressStateSnapshot {
+	// 		return false
+	// 	}
+	// }
+
 	lastIndex, _ := p.Store().LastIndex()
 
 	return lastIndex <= status.Progress[peerId].Match+cfg.LeaderTransferMaxLogLag
@@ -887,7 +889,7 @@ func (p *Peer) ProposeNormal(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest)
 
 	if uint64(len(data)) > cfg.RaftEntryMaxSize {
 		log.Errorf("entry is too large, entry size %v", len(data))
-		return 0, &ErrRaftEntryTooLarge{RegionId: p.regionId, EntrySize: uint64(len(data))}
+		return 0, &util.ErrRaftEntryTooLarge{RegionId: p.regionId, EntrySize: uint64(len(data))}
 	}
 
 	proposeIndex := p.nextProposalIndex()
@@ -898,7 +900,7 @@ func (p *Peer) ProposeNormal(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest)
 	if proposeIndex == p.nextProposalIndex() {
 		// The message is dropped silently, this usually due to leader absence
 		// or transferring leader. Both cases can be considered as NotLeader error.
-		return 0, &ErrNotLeader{RegionId: p.regionId}
+		return 0, &util.ErrNotLeader{RegionId: p.regionId}
 	}
 
 	return proposeIndex, nil
@@ -961,7 +963,7 @@ func (p *Peer) ProposeConfChange(cfg *config.Config, req *raft_cmdpb.RaftCmdRequ
 	if p.nextProposalIndex() == proposeIndex {
 		// The message is dropped silently, this usually due to leader absence
 		// or transferring leader. Both cases can be considered as NotLeader error.
-		return 0, &ErrNotLeader{RegionId: p.regionId}
+		return 0, &util.ErrNotLeader{RegionId: p.regionId}
 	}
 
 	return proposeIndex, nil

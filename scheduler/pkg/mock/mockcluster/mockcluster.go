@@ -23,7 +23,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockid"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockoption"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
-	"github.com/pingcap-incubator/tinykv/scheduler/server/statistics"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
 )
@@ -33,8 +32,6 @@ type Cluster struct {
 	*core.BasicCluster
 	*mockid.IDAllocator
 	*mockoption.ScheduleOptions
-	*statistics.HotCache
-	*statistics.StoresStats
 	ID uint64
 }
 
@@ -44,8 +41,6 @@ func NewCluster(opt *mockoption.ScheduleOptions) *Cluster {
 		BasicCluster:    core.NewBasicCluster(),
 		IDAllocator:     mockid.NewIDAllocator(),
 		ScheduleOptions: opt,
-		HotCache:        statistics.NewHotCache(),
-		StoresStats:     statistics.NewStoresStats(),
 	}
 }
 
@@ -73,30 +68,6 @@ func (mc *Cluster) GetStoreRegionCount(storeID uint64) int {
 // GetStore gets a store with a given store ID.
 func (mc *Cluster) GetStore(storeID uint64) *core.StoreInfo {
 	return mc.Stores.GetStore(storeID)
-}
-
-// IsRegionHot checks if the region is hot.
-func (mc *Cluster) IsRegionHot(region *core.RegionInfo) bool {
-	return mc.HotCache.IsRegionHot(region, mc.GetHotRegionCacheHitsThreshold())
-}
-
-// RegionReadStats returns hot region's read stats.
-func (mc *Cluster) RegionReadStats() map[uint64][]*statistics.HotPeerStat {
-	return mc.HotCache.RegionStats(statistics.ReadFlow)
-}
-
-// RegionWriteStats returns hot region's write stats.
-func (mc *Cluster) RegionWriteStats() map[uint64][]*statistics.HotPeerStat {
-	return mc.HotCache.RegionStats(statistics.WriteFlow)
-}
-
-// RandHotRegionFromStore random picks a hot region in specify store.
-func (mc *Cluster) RandHotRegionFromStore(store uint64, kind statistics.FlowKind) *core.RegionInfo {
-	r := mc.HotCache.RandHotRegionFromStore(store, kind, mc.GetHotRegionCacheHitsThreshold())
-	if r == nil {
-		return nil
-	}
-	return mc.GetRegion(r.RegionID)
 }
 
 // AllocPeer allocs a new peer on a store.
@@ -238,30 +209,6 @@ func (mc *Cluster) AddLeaderRegionWithRange(regionID uint64, startKey string, en
 	mc.PutRegion(r)
 }
 
-// AddLeaderRegionWithReadInfo adds region with specified leader, followers and read info.
-func (mc *Cluster) AddLeaderRegionWithReadInfo(regionID uint64, leaderID uint64, readBytes uint64, reportInterval uint64, followerIds ...uint64) {
-	r := mc.newMockRegionInfo(regionID, leaderID, followerIds...)
-	r = r.Clone(core.SetReadBytes(readBytes))
-	r = r.Clone(core.SetReportInterval(reportInterval))
-	items := mc.HotCache.CheckRead(r, mc.StoresStats)
-	for _, item := range items {
-		mc.HotCache.Update(item)
-	}
-	mc.PutRegion(r)
-}
-
-// AddLeaderRegionWithWriteInfo adds region with specified leader, followers and write info.
-func (mc *Cluster) AddLeaderRegionWithWriteInfo(regionID uint64, leaderID uint64, writtenBytes uint64, reportInterval uint64, followerIds ...uint64) {
-	r := mc.newMockRegionInfo(regionID, leaderID, followerIds...)
-	r = r.Clone(core.SetWrittenBytes(writtenBytes))
-	r = r.Clone(core.SetReportInterval(reportInterval))
-	items := mc.HotCache.CheckWrite(r, mc.StoresStats)
-	for _, item := range items {
-		mc.HotCache.Update(item)
-	}
-	mc.PutRegion(r)
-}
-
 // UpdateStoreLeaderWeight updates store leader weight.
 func (mc *Cluster) UpdateStoreLeaderWeight(storeID uint64, weight float64) {
 	store := mc.GetStore(storeID)
@@ -347,30 +294,6 @@ func (mc *Cluster) UpdateStorageRatio(storeID uint64, usedRatio, availableRatio 
 	mc.PutStore(newStore)
 }
 
-// UpdateStorageWrittenBytes updates store written bytes.
-func (mc *Cluster) UpdateStorageWrittenBytes(storeID uint64, bytesWritten uint64) {
-	store := mc.GetStore(storeID)
-	newStats := proto.Clone(store.GetStoreStats()).(*pdpb.StoreStats)
-	newStats.BytesWritten = bytesWritten
-	now := time.Now().Second()
-	interval := &pdpb.TimeInterval{StartTimestamp: uint64(now - statistics.StoreHeartBeatReportInterval), EndTimestamp: uint64(now)}
-	newStats.Interval = interval
-	newStore := store.Clone(core.SetStoreStats(newStats))
-	mc.PutStore(newStore)
-}
-
-// UpdateStorageReadBytes updates store read bytes.
-func (mc *Cluster) UpdateStorageReadBytes(storeID uint64, bytesRead uint64) {
-	store := mc.GetStore(storeID)
-	newStats := proto.Clone(store.GetStoreStats()).(*pdpb.StoreStats)
-	newStats.BytesRead = bytesRead
-	now := time.Now().Second()
-	interval := &pdpb.TimeInterval{StartTimestamp: uint64(now - statistics.StoreHeartBeatReportInterval), EndTimestamp: uint64(now)}
-	newStats.Interval = interval
-	newStore := store.Clone(core.SetStoreStats(newStats))
-	mc.PutStore(newStore)
-}
-
 // UpdateStoreStatus updates store status.
 func (mc *Cluster) UpdateStoreStatus(id uint64) {
 	leaderCount := mc.Regions.GetStoreLeaderCount(id)
@@ -421,11 +344,6 @@ func (mc *Cluster) GetReplicaScheduleLimit() uint64 {
 // GetMergeScheduleLimit mocks method.
 func (mc *Cluster) GetMergeScheduleLimit() uint64 {
 	return mc.ScheduleOptions.GetMergeScheduleLimit()
-}
-
-// GetHotRegionScheduleLimit mocks method.
-func (mc *Cluster) GetHotRegionScheduleLimit() uint64 {
-	return mc.ScheduleOptions.GetHotRegionScheduleLimit()
 }
 
 // GetMaxReplicas mocks method.

@@ -8,16 +8,16 @@ package storage
 //
 // Note that there are two kinds of transactions in play: TinySQL transactions are collaborative between TinyKV and its
 // client (e.g., TinySQL). They are implemented using multiple TinyKV commands and ensure that multiple SQL commands can
-// be executed atomically. There are also internal transactions which are an implementation detail of this
+// be executed atomically. There are also mvcc transactions which are an implementation detail of this
 // layer in TinyKV (represented by Txn in tikv/storage/exec/transaction.go). These ensure that a *single* TinyKV command
 // is executed atomically.
 //
 // *Locks* are used to implement TinySQL transactions. Setting or checking a lock in a TinySQL transaction is lowered to
 // writing or reading a key and value in the InnerServer store. TODO explain this encoding in detail.
 //
-// *Latches* are used to implement internal transactions and are not visible to the client. They are stored outside the
+// *Latches* are used to implement mvcc transactions and are not visible to the client. They are stored outside the
 // underlying storage (or equivalently, you can think of every key having its own latch). TODO explain latching in more detail.
 //
-// Within this package, `commands` contains code to lower TinySQL requests to internal transactions. `exec` contains
+// Within this package, `commands` contains code to lower TinySQL requests to mvcc transactions. `exec` contains
 // code to handle scheduling and running commands. `kvstore` contains code for interacting with the underlying storage
 // (InnerServer).

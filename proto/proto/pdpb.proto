@@ -55,8 +55,6 @@ service PD {
 
     rpc UpdateGCSafePoint(UpdateGCSafePointRequest) returns (UpdateGCSafePointResponse) {}
 
-    rpc SyncRegions(stream SyncRegionRequest) returns (stream SyncRegionResponse) {}
-
     rpc GetOperator(GetOperatorRequest) returns (GetOperatorResponse) {}
 }
 
@@ -265,12 +263,6 @@ message RegionHeartbeatRequest {
     // Pending peers are the peers that the leader can't consider as
     // working followers.
     repeated metapb.Peer pending_peers = 5;
-    // Bytes read/written during this period.
-    uint64 bytes_written = 6;
-    uint64 bytes_read = 7;
-    // Keys read/written during this period.
-    uint64 keys_written = 8;
-    uint64 keys_read = 9;
     // Approximate region size.
     uint64 approximate_size = 10;
     reserved 11;
@@ -424,14 +416,6 @@ message StoreStats {
     bool is_busy = 9;
     // Actually used space by db
     uint64 used_size = 10;
-    // Bytes written for the store during this period.
-    uint64 bytes_written = 11;
-    // Keys written for the store during this period.
-    uint64 keys_written = 12;
-    // Bytes read for the store during this period.
-    uint64 bytes_read = 13;
-    // Keys read for the store during this period.
-    uint64 keys_read = 14;
     // Actually reported time interval
     TimeInterval interval = 15;
     // Threads' CPU usages in the store
@@ -489,22 +473,6 @@ message UpdateGCSafePointResponse {
     ResponseHeader header = 1;
 
     uint64 new_safe_point = 2;
-}
-
-message SyncRegionRequest{
-    RequestHeader header = 1;
-    Member member = 2;
-    // the follower PD will use the start index to locate historical changes
-    // that require synchronization.
-    uint64 start_index = 3;
-}
-
-message SyncRegionResponse{
-    ResponseHeader header = 1;
-    // the leader PD will send the repsonds include
-    // changed regions records and the index of the first record.
-    repeated metapb.Region regions = 2;
-    uint64 start_index = 3;
 }
 
 message GetOperatorRequest {

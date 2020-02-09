@@ -15,12 +15,12 @@ type WriteBatch struct {
 }
 
 const (
-	CF_DEFAULT string = "default"
-	CF_WRITE   string = "write"
-	CF_LOCK    string = "lock"
+	CfDefault string = "default"
+	CfWrite   string = "write"
+	CfLock    string = "lock"
 )
 
-var CFs [3]string = [3]string{CF_DEFAULT, CF_WRITE, CF_LOCK}
+var CFs [3]string = [3]string{CfDefault, CfWrite, CfLock}
 
 func (wb *WriteBatch) Len() int {
 	return len(wb.entries)

@@ -48,3 +48,6 @@ ci: default test
 	@test -z "$$(gofmt -s -l $$(find . -name '*.go' -type f -print) | tee /dev/stderr)"
 	@echo "Running Go vet"
 	@go vet ./...
+
+format:
+	@gofmt -s -w `find . -name '*.go' -type f ! -path '*/_tools/*' -print`

@@ -4,8 +4,8 @@ package inner_server
 type ModifyType int64
 
 const (
-	ModifyTypePut    ModifyType = 0
-	ModifyTypeDelete ModifyType = 1
+	ModifyTypePut    ModifyType = 1
+	ModifyTypeDelete ModifyType = 2
 )
 
 type Put struct {

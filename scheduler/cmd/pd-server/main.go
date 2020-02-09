@@ -20,12 +20,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/logutil"
-	"github.com/pingcap-incubator/tinykv/scheduler/pkg/metricutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/config"
-	"github.com/pingcap-incubator/tinykv/scheduler/server/join"
 	"github.com/pingcap/log"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -80,15 +77,6 @@ func main() {
 		log.Warn(msg)
 	}
 
-	// TODO: Make it configurable if it has big impact on performance.
-	grpc_prometheus.EnableHandlingTimeHistogram()
-
-	metricutil.Push(&cfg.Metric)
-
-	err = join.PrepareJoinCluster(cfg)
-	if err != nil {
-		log.Fatal("join meet error", zap.Error(err))
-	}
 	svr, err := server.CreateServer(cfg)
 	if err != nil {
 		log.Fatal("create server failed", zap.Error(err))

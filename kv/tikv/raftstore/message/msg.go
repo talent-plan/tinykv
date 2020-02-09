@@ -57,9 +57,17 @@ type MsgRaftCmd struct {
 	Callback *Callback
 }
 
+type MsgSplitRegion struct {
+	RegionEpoch *metapb.RegionEpoch
+	// It's an encoded key.
+	// TODO: support meta key.
+	SplitKeys [][]byte
+	Callback  *Callback
+}
+
 type Callback struct {
 	Resp       *raft_cmdpb.RaftCmdResponse
-	RegionSnap RegionSnapshot // used for GetSnap
+	RegionSnap *RegionSnapshot // used for GetSnap
 	Wg         sync.WaitGroup
 }
 
@@ -73,6 +81,14 @@ func (cb *Callback) Done(resp *raft_cmdpb.RaftCmdResponse) {
 		cb.Resp = resp
 		cb.Wg.Done()
 	}
+}
+
+func (cb *Callback) WaitResp() *raft_cmdpb.RaftCmdResponse {
+	if cb != nil {
+		cb.Wg.Wait()
+		return cb.Resp
+	}
+	return nil
 }
 
 func NewCallback() *Callback {

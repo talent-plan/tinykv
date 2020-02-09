@@ -3,6 +3,7 @@ package raftstore
 import (
 	"testing"
 
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,7 +19,7 @@ func TestCmdResp(t *testing.T) {
 	assert.Equal(t, resp.Header.CurrentTerm, term)
 
 	regionId := uint64(2)
-	notLeader := &ErrNotLeader{RegionId: regionId}
+	notLeader := &util.ErrNotLeader{RegionId: regionId}
 	BindRespError(resp, notLeader)
 	require.NotNil(t, resp.Header.Error.NotLeader)
 	assert.Equal(t, resp.Header.Error.NotLeader.RegionId, regionId)

@@ -8,7 +8,7 @@ import (
 
 type DBReader interface {
 	GetCF(cf string, key []byte) ([]byte, error)
-	IterCF(cf string) *engine_util.CFIterator
+	IterCF(cf string) engine_util.DBIterator
 	Close()
 }
 
@@ -28,7 +28,7 @@ func (r *RegionReader) GetCF(cf string, key []byte) ([]byte, error) {
 	return engine_util.GetCFFromTxn(r.txn, cf, key)
 }
 
-func (r *RegionReader) IterCF(cf string) *engine_util.CFIterator {
+func (r *RegionReader) IterCF(cf string) engine_util.DBIterator {
 	return engine_util.NewCFIterator(cf, r.txn)
 }
 
@@ -48,7 +48,7 @@ func (b *BadgerReader) GetCF(cf string, key []byte) ([]byte, error) {
 	return engine_util.GetCFFromTxn(b.txn, cf, key)
 }
 
-func (b *BadgerReader) IterCF(cf string) *engine_util.CFIterator {
+func (b *BadgerReader) IterCF(cf string) engine_util.DBIterator {
 	return engine_util.NewCFIterator(cf, b.txn)
 }
 

@@ -26,7 +26,6 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/coreos/go-semver/semver"
-	"github.com/pingcap-incubator/tinykv/scheduler/pkg/metricutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/typeutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule"
 	"github.com/pingcap/log"
@@ -58,9 +57,6 @@ type Config struct {
 	InitialCluster      string `toml:"initial-cluster" json:"initial-cluster"`
 	InitialClusterState string `toml:"initial-cluster-state" json:"initial-cluster-state"`
 
-	// Join to an existing pd cluster, a string of endpoints.
-	Join string `toml:"join" json:"join"`
-
 	// LeaderLease time, if leader doesn't update its TTL
 	// in etcd after lease time, etcd will expire the leader key
 	// and other servers can campaign the leader again.
@@ -76,8 +72,6 @@ type Config struct {
 
 	// TsoSaveInterval is the interval to save timestamp.
 	TsoSaveInterval typeutil.Duration `toml:"tso-save-interval" json:"tso-save-interval"`
-
-	Metric metricutil.MetricConfig `toml:"metric" json:"metric"`
 
 	Schedule ScheduleConfig `toml:"schedule" json:"schedule"`
 
@@ -145,9 +139,6 @@ func NewConfig() *Config {
 	fs.StringVar(&cfg.PeerUrls, "peer-urls", defaultPeerUrls, "url for peer traffic")
 	fs.StringVar(&cfg.AdvertisePeerUrls, "advertise-peer-urls", "", "advertise url for peer traffic (default '${peer-urls}')")
 	fs.StringVar(&cfg.InitialCluster, "initial-cluster", "", "initial cluster configuration for bootstrapping, e,g. pd=http://127.0.0.1:2380")
-	fs.StringVar(&cfg.Join, "join", "", "join to an existing cluster (usage: cluster's '${advertise-client-urls}'")
-
-	fs.StringVar(&cfg.Metric.PushAddress, "metrics-addr", "", "prometheus pushgateway address, leaves it empty will disable prometheus push.")
 
 	fs.StringVar(&cfg.Log.Level, "L", "", "log level: debug, info, warn, error, fatal (default 'info')")
 	fs.StringVar(&cfg.Log.File.Filename, "log-file", "", "log file path")
@@ -180,15 +171,12 @@ const (
 	// embed etcd has a check that `5 * tick > election`
 	defaultElectionInterval = 3000 * time.Millisecond
 
-	defaultMetricsPushInterval = 15 * time.Second
-
 	defaultHeartbeatStreamRebindInterval = time.Minute
 
 	defaultLeaderPriorityCheckInterval = time.Minute
 
-	defaultUseRegionStorage = true
-	defaultMaxResetTsGap    = 24 * time.Hour
-	defaultKeyType          = "table"
+	defaultMaxResetTsGap = 24 * time.Hour
+	defaultKeyType       = "table"
 
 	defaultStrictlyMatchLabel  = false
 	defaultEnableGRPCGateway   = true
@@ -280,9 +268,6 @@ func (c *Config) Parse(arguments []string) error {
 
 // Validate is used to validate if some configurations are right.
 func (c *Config) Validate() error {
-	if c.Join != "" && c.InitialCluster != "" {
-		return errors.New("-initial-cluster and -join can not be provided at the same time")
-	}
 	dataDir, err := filepath.Abs(c.DataDir)
 	if err != nil {
 		return errors.WithStack(err)
@@ -369,7 +354,6 @@ func (c *Config) Adjust(meta *toml.MetaData) error {
 	adjustString(&c.AdvertiseClientUrls, c.ClientUrls)
 	adjustString(&c.PeerUrls, defaultPeerUrls)
 	adjustString(&c.AdvertisePeerUrls, c.PeerUrls)
-	adjustDuration(&c.Metric.PushInterval, defaultMetricsPushInterval)
 
 	if len(c.InitialCluster) == 0 {
 		// The advertise peer urls may be http://127.0.0.1:2380,http://127.0.0.1:2381
@@ -385,12 +369,6 @@ func (c *Config) Adjust(meta *toml.MetaData) error {
 
 	adjustString(&c.InitialClusterState, defaultInitialClusterState)
 
-	if len(c.Join) > 0 {
-		if _, err := url.Parse(c.Join); err != nil {
-			return errors.Errorf("failed to parse join addr:%s, err:%v", c.Join, err)
-		}
-	}
-
 	adjustInt64(&c.LeaderLease, defaultLeaderLease)
 
 	adjustDuration(&c.TsoSaveInterval, time.Duration(defaultLeaderLease)*time.Second)
@@ -403,8 +381,6 @@ func (c *Config) Adjust(meta *toml.MetaData) error {
 	adjustString(&c.AutoCompactionRetention, defaultAutoCompactionRetention)
 	adjustDuration(&c.TickInterval, defaultTickInterval)
 	adjustDuration(&c.ElectionInterval, defaultElectionInterval)
-
-	adjustString(&c.Metric.PushJob, c.Name)
 
 	if err := c.Schedule.adjust(configMetaData.Child("schedule")); err != nil {
 		return err
@@ -481,12 +457,6 @@ type ScheduleConfig struct {
 	ReplicaScheduleLimit uint64 `toml:"replica-schedule-limit,omitempty" json:"replica-schedule-limit"`
 	// MergeScheduleLimit is the max coexist merge schedules.
 	MergeScheduleLimit uint64 `toml:"merge-schedule-limit,omitempty" json:"merge-schedule-limit"`
-	// HotRegionScheduleLimit is the max coexist hot region schedules.
-	HotRegionScheduleLimit uint64 `toml:"hot-region-schedule-limit,omitempty" json:"hot-region-schedule-limit"`
-	// HotRegionCacheHitThreshold is the cache hits threshold of the hot region.
-	// If the number of times a region hits the hot cache is greater than this
-	// threshold, it is considered a hot region.
-	HotRegionCacheHitsThreshold uint64 `toml:"hot-region-cache-hits-threshold,omitempty" json:"hot-region-cache-hits-threshold"`
 	// StoreBalanceRate is the maximum of balance rate for each store.
 	StoreBalanceRate float64 `toml:"store-balance-rate,omitempty" json:"store-balance-rate"`
 	// TolerantSizeRatio is the ratio of buffer size for balance scheduler.
@@ -565,8 +535,6 @@ func (c *ScheduleConfig) Clone() *ScheduleConfig {
 		MergeScheduleLimit:           c.MergeScheduleLimit,
 		EnableOneWayMerge:            c.EnableOneWayMerge,
 		EnableCrossTableMerge:        c.EnableCrossTableMerge,
-		HotRegionScheduleLimit:       c.HotRegionScheduleLimit,
-		HotRegionCacheHitsThreshold:  c.HotRegionCacheHitsThreshold,
 		StoreBalanceRate:             c.StoreBalanceRate,
 		TolerantSizeRatio:            c.TolerantSizeRatio,
 		LowSpaceRatio:                c.LowSpaceRatio,
@@ -588,26 +556,22 @@ func (c *ScheduleConfig) Clone() *ScheduleConfig {
 }
 
 const (
-	defaultMaxReplicas            = 3
-	defaultMaxSnapshotCount       = 3
-	defaultMaxPendingPeerCount    = 16
-	defaultMaxMergeRegionSize     = 20
-	defaultMaxMergeRegionKeys     = 200000
-	defaultSplitMergeInterval     = 1 * time.Hour
-	defaultPatrolRegionInterval   = 100 * time.Millisecond
-	defaultMaxStoreDownTime       = 30 * time.Minute
-	defaultLeaderScheduleLimit    = 4
-	defaultRegionScheduleLimit    = 2048
-	defaultReplicaScheduleLimit   = 64
-	defaultMergeScheduleLimit     = 8
-	defaultHotRegionScheduleLimit = 4
-	defaultStoreBalanceRate       = 15
-	defaultTolerantSizeRatio      = 0
-	defaultLowSpaceRatio          = 0.8
-	defaultHighSpaceRatio         = 0.6
-	// defaultHotRegionCacheHitsThreshold is the low hit number threshold of the
-	// hot region.
-	defaultHotRegionCacheHitsThreshold = 3
+	defaultMaxReplicas                 = 3
+	defaultMaxSnapshotCount            = 3
+	defaultMaxPendingPeerCount         = 16
+	defaultMaxMergeRegionSize          = 20
+	defaultMaxMergeRegionKeys          = 200000
+	defaultSplitMergeInterval          = 1 * time.Hour
+	defaultPatrolRegionInterval        = 100 * time.Millisecond
+	defaultMaxStoreDownTime            = 30 * time.Minute
+	defaultLeaderScheduleLimit         = 4
+	defaultRegionScheduleLimit         = 2048
+	defaultReplicaScheduleLimit        = 64
+	defaultMergeScheduleLimit          = 8
+	defaultStoreBalanceRate            = 15
+	defaultTolerantSizeRatio           = 0
+	defaultLowSpaceRatio               = 0.8
+	defaultHighSpaceRatio              = 0.6
 	defaultSchedulerMaxWaitingOperator = 3
 	defaultLeaderScheduleStrategy      = "count"
 )
@@ -639,12 +603,6 @@ func (c *ScheduleConfig) adjust(meta *configMetaData) error {
 	}
 	if !meta.IsDefined("merge-schedule-limit") {
 		adjustUint64(&c.MergeScheduleLimit, defaultMergeScheduleLimit)
-	}
-	if !meta.IsDefined("hot-region-schedule-limit") {
-		adjustUint64(&c.HotRegionScheduleLimit, defaultHotRegionScheduleLimit)
-	}
-	if !meta.IsDefined("hot-region-cache-hits-threshold") {
-		adjustUint64(&c.HotRegionCacheHitsThreshold, defaultHotRegionCacheHitsThreshold)
 	}
 	if !meta.IsDefined("tolerant-size-ratio") {
 		adjustFloat64(&c.TolerantSizeRatio, defaultTolerantSizeRatio)
@@ -859,8 +817,6 @@ func (s SecurityConfig) ToTLSConfig() (*tls.Config, error) {
 
 // PDServerConfig is the configuration for pd server.
 type PDServerConfig struct {
-	// UseRegionStorage enables the independent region storage.
-	UseRegionStorage bool `toml:"use-region-storage" json:"use-region-storage,string"`
 	// MaxResetTSGap is the max gap to reset the tso.
 	MaxResetTSGap time.Duration `toml:"max-reset-ts-gap" json:"max-reset-ts-gap"`
 	// KeyType is option to specify the type of keys.
@@ -869,9 +825,6 @@ type PDServerConfig struct {
 }
 
 func (c *PDServerConfig) adjust(meta *configMetaData) error {
-	if !meta.IsDefined("use-region-storage") {
-		c.UseRegionStorage = defaultUseRegionStorage
-	}
 	if !meta.IsDefined("max-reset-ts-gap") {
 		c.MaxResetTSGap = defaultMaxResetTsGap
 	}

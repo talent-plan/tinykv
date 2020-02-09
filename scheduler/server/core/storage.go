@@ -20,7 +20,6 @@ import (
 	"path"
 	"strconv"
 	"strings"
-	"sync/atomic"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -47,8 +46,6 @@ const (
 // Storage wraps all kv operations, keep it stateless.
 type Storage struct {
 	kv.Base
-	regionStorage    *RegionStorage
-	useRegionStorage int32
 }
 
 // NewStorage creates Storage instance with Base.
@@ -56,27 +53,6 @@ func NewStorage(base kv.Base) *Storage {
 	return &Storage{
 		Base: base,
 	}
-}
-
-// SetRegionStorage sets the region storage.
-func (s *Storage) SetRegionStorage(regionStorage *RegionStorage) *Storage {
-	s.regionStorage = regionStorage
-	return s
-}
-
-// GetRegionStorage gets the region storage.
-func (s *Storage) GetRegionStorage() *RegionStorage {
-	return s.regionStorage
-}
-
-// SwitchToRegionStorage switches to the region storage.
-func (s *Storage) SwitchToRegionStorage() {
-	atomic.StoreInt32(&s.useRegionStorage, 1)
-}
-
-// SwitchToDefaultStorage switches to the to default storage.
-func (s *Storage) SwitchToDefaultStorage() {
-	atomic.StoreInt32(&s.useRegionStorage, 0)
 }
 
 func (s *Storage) storePath(storeID uint64) string {
@@ -145,33 +121,21 @@ func (s *Storage) DeleteStore(store *metapb.Store) error {
 
 // LoadRegion loads one regoin from storage.
 func (s *Storage) LoadRegion(regionID uint64, region *metapb.Region) (bool, error) {
-	if atomic.LoadInt32(&s.useRegionStorage) > 0 {
-		return loadProto(s.regionStorage, regionPath(regionID), region)
-	}
 	return loadProto(s.Base, regionPath(regionID), region)
 }
 
 // LoadRegions loads all regions from storage to RegionsInfo.
 func (s *Storage) LoadRegions(f func(region *RegionInfo) []*RegionInfo) error {
-	if atomic.LoadInt32(&s.useRegionStorage) > 0 {
-		return loadRegions(s.regionStorage, f)
-	}
 	return loadRegions(s.Base, f)
 }
 
 // SaveRegion saves one region to storage.
 func (s *Storage) SaveRegion(region *metapb.Region) error {
-	if atomic.LoadInt32(&s.useRegionStorage) > 0 {
-		return s.regionStorage.SaveRegion(region)
-	}
 	return saveProto(s.Base, regionPath(region.GetId()), region)
 }
 
 // DeleteRegion deletes one region from storage.
 func (s *Storage) DeleteRegion(region *metapb.Region) error {
-	if atomic.LoadInt32(&s.useRegionStorage) > 0 {
-		return deleteRegion(s.regionStorage, region)
-	}
 	return deleteRegion(s.Base, region)
 }
 
@@ -286,17 +250,11 @@ func (s *Storage) loadFloatWithDefaultValue(path string, def float64) (float64, 
 
 // Flush flushes the dirty region to storage.
 func (s *Storage) Flush() error {
-	if s.regionStorage != nil {
-		return s.regionStorage.FlushRegion()
-	}
 	return nil
 }
 
 // Close closes the s.
 func (s *Storage) Close() error {
-	if s.regionStorage != nil {
-		return s.regionStorage.Close()
-	}
 	return nil
 }
 
@@ -351,4 +309,47 @@ func saveProto(s kv.Base, key string, msg proto.Message) error {
 		return errors.WithStack(err)
 	}
 	return s.Save(key, string(value))
+}
+
+func loadRegions(kv kv.Base, f func(region *RegionInfo) []*RegionInfo) error {
+	nextID := uint64(0)
+	endKey := regionPath(math.MaxUint64)
+
+	// Since the region key may be very long, using a larger rangeLimit will cause
+	// the message packet to exceed the grpc message size limit (4MB). Here we use
+	// a variable rangeLimit to work around.
+	rangeLimit := maxKVRangeLimit
+	for {
+		startKey := regionPath(nextID)
+		_, res, err := kv.LoadRange(startKey, endKey, rangeLimit)
+		if err != nil {
+			if rangeLimit /= 2; rangeLimit >= minKVRangeLimit {
+				continue
+			}
+			return err
+		}
+
+		for _, s := range res {
+			region := &metapb.Region{}
+			if err := region.Unmarshal([]byte(s)); err != nil {
+				return errors.WithStack(err)
+			}
+
+			nextID = region.GetId() + 1
+			overlaps := f(NewRegionInfo(region, nil))
+			for _, item := range overlaps {
+				if err := deleteRegion(kv, item.GetMeta()); err != nil {
+					return err
+				}
+			}
+		}
+
+		if len(res) < rangeLimit {
+			return nil
+		}
+	}
+}
+
+func deleteRegion(kv kv.Base, region *metapb.Region) error {
+	return kv.Remove(regionPath(region.GetId()))
 }

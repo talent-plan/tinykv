@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"github.com/pingcap-incubator/tinykv/kv/engine_util"
+	"github.com/pingcap-incubator/tinykv/kv/tikv"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/commands"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/exec"
@@ -11,19 +13,79 @@ import (
 
 func TestGet(t *testing.T) {
 	mem := inner_server.NewMemInnerServer()
-	mem.Data[99] = []byte{42}
+	mem.Set(engine_util.CfDefault, []byte{99}, []byte{42})
 	sched := exec.NewSeqScheduler(mem)
 
 	var req kvrpcpb.RawGetRequest
 	req.Key = []byte{99}
-	req.Cf = "default"
+	req.Cf = engine_util.CfDefault
 	get := commands.NewRawGet(&req)
 
-	ch := sched.Run(&get)
-	result := <-ch
-	sched.Stop()
+	resp := run(t, sched, &get)[0].(*kvrpcpb.RawGetResponse)
+	assert.Equal(t, []byte{42}, resp.Value)
+}
 
-	assert.Nil(t, result.Err)
-	resp := result.Response.(*kvrpcpb.RawGetResponse)
-	assert.Equal(t, resp.Value, []byte{42})
+func TestPut(t *testing.T) {
+	mem := inner_server.NewMemInnerServer()
+	sched := exec.NewSeqScheduler(mem)
+
+	var req kvrpcpb.RawPutRequest
+	req.Key = []byte{99}
+	req.Value = []byte{42}
+	req.Cf = engine_util.CfDefault
+	put := commands.NewRawPut(&req)
+
+	run(t, sched, &put)
+	assert.Equal(t, 1, mem.Len(engine_util.CfDefault))
+	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, []byte{99}))
+}
+
+func TestDelete(t *testing.T) {
+	mem := inner_server.NewMemInnerServer()
+	mem.Set(engine_util.CfDefault, []byte{99}, []byte{42})
+	sched := exec.NewSeqScheduler(mem)
+
+	var req kvrpcpb.RawDeleteRequest
+	req.Key = []byte{99}
+	req.Cf = engine_util.CfDefault
+	del := commands.NewRawDelete(&req)
+
+	run(t, sched, &del)
+	assert.Equal(t, 0, mem.Len(engine_util.CfDefault))
+}
+
+func TestScan(t *testing.T) {
+	mem := inner_server.NewMemInnerServer()
+	mem.Set(engine_util.CfDefault, []byte{99}, []byte{42})
+	mem.Set(engine_util.CfDefault, []byte{101}, []byte{42, 2})
+	mem.Set(engine_util.CfDefault, []byte{102}, []byte{42, 3})
+	mem.Set(engine_util.CfDefault, []byte{105}, []byte{42, 4})
+	mem.Set(engine_util.CfDefault, []byte{255}, []byte{42, 5})
+	sched := exec.NewSeqScheduler(mem)
+
+	var req kvrpcpb.RawScanRequest
+	req.StartKey = []byte{101}
+	req.Limit = 3
+	req.Cf = engine_util.CfDefault
+	get := commands.NewRawScan(&req)
+
+	resp := run(t, sched, &get)[0].(*kvrpcpb.RawScanResponse)
+	assert.Equal(t, 3, len(resp.Kvs))
+	expectedKeys := [][]byte{{101}, {102}, {105}}
+	for i, kv := range resp.Kvs {
+		assert.Equal(t, expectedKeys[i], kv.Key)
+		assert.Equal(t, []byte{42, byte(i + 2)}, kv.Value)
+	}
+}
+
+func run(t *testing.T, sched tikv.Scheduler, cmds ...tikv.Command) []interface{} {
+	var result []interface{}
+	for _, c := range cmds {
+		ch := sched.Run(c)
+		r := <-ch
+		assert.Nil(t, r.Err)
+		result = append(result, r.Response)
+	}
+	sched.Stop()
+	return result
 }

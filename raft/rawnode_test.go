@@ -213,6 +213,90 @@ func TestRawNodeProposeAddDuplicateNode(t *testing.T) {
 	}
 }
 
+// TestBlockProposal from node_test.go has no equivalent in rawNode because there is
+// no leader check in RawNode.
+
+// TestNodeTick from node_test.go has no equivalent in rawNode because
+// it reaches into the raft object which is not exposed.
+
+// TestNodeStop from node_test.go has no equivalent in rawNode because there is
+// no goroutine in RawNode.
+
+// TestRawNodeStart ensures that a node can be started correctly. The node should
+// start with correct configuration change entries, and can accept and commit
+// proposals.
+
+func TestRawNodeStart(t *testing.T) {
+	cc := pb.ConfChange{ChangeType: pb.ConfChangeType_AddNode, NodeId: 1}
+	ccdata, err := cc.Marshal()
+	if err != nil {
+		t.Fatalf("unexpected marshal error: %v", err)
+	}
+	wants := []Ready{
+		{
+			HardState: pb.HardState{Term: 1, Commit: 1, Vote: 0},
+			Entries: []pb.Entry{
+				{EntryType: pb.EntryType_EntryConfChange, Term: 1, Index: 1, Data: ccdata},
+			},
+			CommittedEntries: []pb.Entry{
+				{EntryType: pb.EntryType_EntryConfChange, Term: 1, Index: 1, Data: ccdata},
+			},
+			MustSync: true,
+		},
+		{
+			HardState:        pb.HardState{Term: 2, Commit: 3, Vote: 1},
+			Entries:          []pb.Entry{{Term: 2, Index: 3, Context: []byte(""), Data: []byte("foo")}},
+			CommittedEntries: []pb.Entry{{Term: 2, Index: 3, Context: []byte(""), Data: []byte("foo")}},
+			MustSync:         true,
+		},
+	}
+
+	storage := NewMemoryStorage()
+	rawNode, err := NewRawNode(newTestConfig(1, nil, 10, 1, storage), []Peer{{ID: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rd := rawNode.Ready()
+	t.Logf("rd %v", rd)
+	if !reflect.DeepEqual(rd, wants[0]) {
+		t.Fatalf("#%d: g = %+v,\n             w   %+v", 1, rd, wants[0])
+	} else {
+		storage.Append(rd.Entries)
+		rawNode.Advance(rd)
+		if idx := rd.appliedCursor(); idx > 0 {
+			rawNode.AdvanceApply(idx)
+		}
+	}
+	storage.Append(rd.Entries)
+	rawNode.Advance(rd)
+	if idx := rd.appliedCursor(); idx > 0 {
+		rawNode.AdvanceApply(idx)
+	}
+
+	rawNode.Campaign()
+	rd = rawNode.Ready()
+	storage.Append(rd.Entries)
+	rawNode.Advance(rd)
+	if idx := rd.appliedCursor(); idx > 0 {
+		rawNode.AdvanceApply(idx)
+	}
+
+	rawNode.Propose([]byte(""), []byte("foo"))
+	if rd = rawNode.Ready(); !reflect.DeepEqual(rd, wants[1]) {
+		t.Errorf("#%d: g = %+v,\n             w   %+v", 2, rd, wants[1])
+	} else {
+		storage.Append(rd.Entries)
+		rawNode.Advance(rd)
+		if idx := rd.appliedCursor(); idx > 0 {
+			rawNode.AdvanceApply(idx)
+		}
+	}
+
+	if rawNode.HasReady() {
+		t.Errorf("unexpected Ready: %+v", rawNode.Ready())
+	}
+}
+
 func TestRawNodeRestart(t *testing.T) {
 	entries := []pb.Entry{
 		{Term: 1, Index: 1},

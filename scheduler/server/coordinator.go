@@ -15,7 +15,6 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -23,7 +22,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/server/config"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/operator"
-	"github.com/pingcap-incubator/tinykv/scheduler/server/statistics"
 	"github.com/pingcap/log"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -37,7 +35,6 @@ const (
 	maxLoadConfigRetries      = 10
 
 	regionheartbeatSendChanCap = 1024
-	hotRegionScheduleName      = "balance-hot-region-scheduler"
 
 	patrolScanRegionLimit = 128 // It takes about 14 minutes to iterate 1 million regions.
 )
@@ -86,7 +83,6 @@ func (c *coordinator) patrolRegions() {
 	defer timer.Stop()
 
 	log.Info("coordinator starts patrol regions")
-	start := time.Now()
 	var key []byte
 	for {
 		select {
@@ -119,12 +115,6 @@ func (c *coordinator) patrolRegions() {
 			if ops != nil {
 				c.opController.AddWaitingOperator(ops...)
 			}
-		}
-		// Updates the label level isolation statistics.
-		c.cluster.updateRegionsLabelLevelStats(regions)
-		if len(key) == 0 {
-			patrolCheckRegionsHistogram.Observe(time.Since(start).Seconds())
-			start = time.Now()
 		}
 	}
 }
@@ -255,39 +245,6 @@ func (c *coordinator) stop() {
 	c.cancel()
 }
 
-// Hack to retrieve info from scheduler.
-// TODO: remove it.
-type hasHotStatus interface {
-	GetHotReadStatus() *statistics.StoreHotRegionInfos
-	GetHotWriteStatus() *statistics.StoreHotRegionInfos
-}
-
-func (c *coordinator) getHotWriteRegions() *statistics.StoreHotRegionInfos {
-	c.RLock()
-	defer c.RUnlock()
-	s, ok := c.schedulers[hotRegionScheduleName]
-	if !ok {
-		return nil
-	}
-	if h, ok := s.Scheduler.(hasHotStatus); ok {
-		return h.GetHotWriteStatus()
-	}
-	return nil
-}
-
-func (c *coordinator) getHotReadRegions() *statistics.StoreHotRegionInfos {
-	c.RLock()
-	defer c.RUnlock()
-	s, ok := c.schedulers[hotRegionScheduleName]
-	if !ok {
-		return nil
-	}
-	if h, ok := s.Scheduler.(hasHotStatus); ok {
-		return h.GetHotReadStatus()
-	}
-	return nil
-}
-
 func (c *coordinator) getSchedulers() []string {
 	c.RLock()
 	defer c.RUnlock()
@@ -297,78 +254,6 @@ func (c *coordinator) getSchedulers() []string {
 		names = append(names, name)
 	}
 	return names
-}
-
-func (c *coordinator) collectSchedulerMetrics() {
-	c.RLock()
-	defer c.RUnlock()
-	for _, s := range c.schedulers {
-		var allowScheduler float64
-		// If the scheduler is not allowed to schedule, it will disappear in Grafana panel.
-		// See issue #1341.
-		if s.AllowSchedule() {
-			allowScheduler = 1
-		}
-		schedulerStatusGauge.WithLabelValues(s.GetName(), "allow").Set(allowScheduler)
-	}
-}
-
-func (c *coordinator) resetSchedulerMetrics() {
-	schedulerStatusGauge.Reset()
-}
-
-func (c *coordinator) collectHotSpotMetrics() {
-	c.RLock()
-	defer c.RUnlock()
-	// Collects hot write region metrics.
-	s, ok := c.schedulers[hotRegionScheduleName]
-	if !ok {
-		return
-	}
-	stores := c.cluster.GetStores()
-	status := s.Scheduler.(hasHotStatus).GetHotWriteStatus()
-	for _, s := range stores {
-		storeAddress := s.GetAddress()
-		storeID := s.GetID()
-		storeLabel := fmt.Sprintf("%d", storeID)
-		stat, ok := status.AsPeer[storeID]
-		if ok {
-			hotSpotStatusGauge.WithLabelValues(storeAddress, storeLabel, "total_written_bytes_as_peer").Set(stat.TotalBytesRate)
-			hotSpotStatusGauge.WithLabelValues(storeAddress, storeLabel, "hot_write_region_as_peer").Set(float64(stat.RegionsCount))
-		} else {
-			hotSpotStatusGauge.WithLabelValues(storeAddress, storeLabel, "total_written_bytes_as_peer").Set(0)
-			hotSpotStatusGauge.WithLabelValues(storeAddress, storeLabel, "hot_write_region_as_peer").Set(0)
-		}
-
-		stat, ok = status.AsLeader[storeID]
-		if ok {
-			hotSpotStatusGauge.WithLabelValues(storeAddress, storeLabel, "total_written_bytes_as_leader").Set(stat.TotalBytesRate)
-			hotSpotStatusGauge.WithLabelValues(storeAddress, storeLabel, "hot_write_region_as_leader").Set(float64(stat.RegionsCount))
-		} else {
-			hotSpotStatusGauge.WithLabelValues(storeAddress, storeLabel, "total_written_bytes_as_leader").Set(0)
-			hotSpotStatusGauge.WithLabelValues(storeAddress, storeLabel, "hot_write_region_as_leader").Set(0)
-		}
-	}
-
-	// Collects hot read region metrics.
-	status = s.Scheduler.(hasHotStatus).GetHotReadStatus()
-	for _, s := range stores {
-		storeAddress := s.GetAddress()
-		storeID := s.GetID()
-		storeLabel := fmt.Sprintf("%d", storeID)
-		stat, ok := status.AsLeader[storeID]
-		if ok {
-			hotSpotStatusGauge.WithLabelValues(storeAddress, storeLabel, "total_read_bytes_as_leader").Set(stat.TotalBytesRate)
-			hotSpotStatusGauge.WithLabelValues(storeAddress, storeLabel, "hot_read_region_as_leader").Set(float64(stat.RegionsCount))
-		} else {
-			hotSpotStatusGauge.WithLabelValues(storeAddress, storeLabel, "total_read_bytes_as_leader").Set(0)
-			hotSpotStatusGauge.WithLabelValues(storeAddress, storeLabel, "hot_read_region_as_leader").Set(0)
-		}
-	}
-}
-
-func (c *coordinator) resetHotSpotMetrics() {
-	hotSpotStatusGauge.Reset()
 }
 
 func (c *coordinator) shouldRun() bool {
@@ -408,7 +293,6 @@ func (c *coordinator) removeScheduler(name string) error {
 	}
 
 	s.Stop()
-	schedulerStatusGauge.WithLabelValues(name, "allow").Set(0)
 	delete(c.schedulers, name)
 
 	var err error
