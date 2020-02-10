@@ -211,11 +211,11 @@ func (c *Cluster) GetStoreIdsOfRegion(regionID uint64) []uint64 {
 }
 
 func (c *Cluster) MustPut(key, value []byte) {
-	c.MustPutCF("default", key, value)
+	c.MustPutCF(engine_util.CfDefault, key, value)
 }
 
 func (c *Cluster) MustPutCF(cf string, key, value []byte) {
-	req := NewPutCfCmd("cf", key, value)
+	req := NewPutCfCmd(cf, key, value)
 	resp := c.Request(key, []*raft_cmdpb.Request{req}, false, 5*time.Second)
 	if resp.Header.Error != nil {
 		log.Fatal(resp.Header.Error)
@@ -244,5 +244,5 @@ func (c *Cluster) MustGet(engineID uint, cf string, key []byte, value []byte) {
 }
 
 func (c *Cluster) MustGetEqual(engineID uint, key []byte, value []byte) {
-	c.MustGet(engineID, "default", key, value)
+	c.MustGet(engineID, engine_util.CfDefault, key, value)
 }
