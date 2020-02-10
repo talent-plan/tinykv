@@ -42,6 +42,7 @@ type Cluster struct {
 	context   context.Context
 	count     int
 	engines   []*engine_util.Engines
+	dirs      []string
 	simulator Simulator
 }
 
@@ -61,6 +62,7 @@ func (c *Cluster) Start() error {
 		kvPath := filepath.Join(dbPath, "kv")
 		raftPath := filepath.Join(dbPath, "raft")
 		snapPath := filepath.Join(dbPath, "snap")
+		c.dirs = []string{kvPath, raftPath, snapPath}
 
 		err = os.MkdirAll(kvPath, os.ModePerm)
 		if err != nil {
@@ -99,13 +101,24 @@ func (c *Cluster) Start() error {
 	return nil
 }
 
+func (c *Cluster) Shutdown() {
+	for _, nodeID := range c.simulator.GetNodeIds() {
+		c.simulator.StopNode(nodeID)
+	}
+	for _, dir := range c.dirs {
+		os.RemoveAll(dir)
+	}
+}
+
 func (c *Cluster) Request(key []byte, reqs []*raft_cmdpb.Request, readQuorum bool, timeout time.Duration) *raft_cmdpb.RaftCmdResponse {
 	region := c.GetRegion(key)
 	regionID := region.GetId()
 	req := NewRequest(regionID, region.RegionEpoch, reqs, readQuorum)
 	for i := 0; i < 10; i++ {
 		resp := c.CallCommandOnLeader(&req, timeout)
-		if resp == nil || resp.Header.Error.GetEpochNotMatch() != nil || strings.Contains(resp.Header.Error.Message, "merging mode") {
+		if resp == nil || resp.Header != nil &&
+			resp.Header.Error != nil &&
+			(resp.Header.Error.GetEpochNotMatch() != nil || strings.Contains(resp.Header.Error.Message, "merging mode")) {
 			SleepMS(100)
 			continue
 		}

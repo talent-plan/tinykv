@@ -12,6 +12,7 @@ func testPartitionWrite(cluster Cluster) {
 	value := []byte("v1")
 	cluster.MustPut(key, value)
 	cluster.MustGetEqual(1, key, value)
+	cluster.Shutdown()
 }
 
 func TestNodePartitionWrite(t *testing.T) {

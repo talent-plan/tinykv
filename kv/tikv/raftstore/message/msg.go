@@ -77,7 +77,9 @@ type RegionSnapshot struct {
 }
 
 func (cb *Callback) Done(resp *raft_cmdpb.RaftCmdResponse) {
-	cb.Resp = resp
+	if resp != nil {
+		cb.Resp = resp
+	}
 	cb.done <- struct{}{}
 }
 

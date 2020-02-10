@@ -230,9 +230,9 @@ func (c *NodeSimulator) ClearReceiveFilters(nodeID uint64) {
 }
 
 func (c *NodeSimulator) GetNodeIds() []uint64 {
-	nodeIDs := make([]uint64, len(c.nodes))
-	for i, node := range c.nodes {
-		nodeIDs[i] = node.GetStoreID()
+	nodeIDs := make([]uint64, 0, len(c.nodes))
+	for nodeID := range c.nodes {
+		nodeIDs = append(nodeIDs, nodeID)
 	}
 	return nodeIDs
 }
