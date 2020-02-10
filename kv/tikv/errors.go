@@ -2,6 +2,7 @@ package tikv
 
 import (
 	"fmt"
+
 	"github.com/juju/errors"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
@@ -62,18 +63,6 @@ func (e *ErrConflict) Error() string {
 	return "write conflict"
 }
 
-// ErrCommitExpire is returned when commit key commitTs smaller than lock.MinCommitTs
-type ErrCommitExpire struct {
-	StartTs     uint64
-	CommitTs    uint64
-	MinCommitTs uint64
-	Key         []byte
-}
-
-func (e *ErrCommitExpire) Error() string {
-	return "commit expired"
-}
-
 // ErrTxnNotFound is returned if the required txn info not found on storage
 type ErrTxnNotFound struct {
 	StartTS    uint64
@@ -102,12 +91,6 @@ func convertToKeyError(err error) *kvrpcpb.KeyError {
 	case ErrRetryable:
 		return &kvrpcpb.KeyError{
 			Retryable: x.Error(),
-		}
-	case *ErrKeyAlreadyExists:
-		return &kvrpcpb.KeyError{
-			AlreadyExist: &kvrpcpb.AlreadyExist{
-				Key: x.Key,
-			},
 		}
 	case *ErrConflict:
 		return &kvrpcpb.KeyError{
