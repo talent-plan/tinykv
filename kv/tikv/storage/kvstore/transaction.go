@@ -13,7 +13,6 @@ import (
 // MvccTxn represents an mvcc transaction (see tikv/storage/doc.go for a definition). It permits reading from a snapshot
 // and stores writes in a buffer for atomic writing.
 type MvccTxn struct {
-	// TODO: is reader a snapshot or not?
 	Reader  dbreader.DBReader
 	Writes  []inner_server.Modify
 	StartTS *uint64
@@ -35,8 +34,8 @@ func (txn *MvccTxn) SeekWrite(key []byte, ts uint64) (*Write, uint64, error) {
 		return nil, 0, nil
 	}
 	item := iter.Item()
-	commitTs := DecodeTimestamp(item.Key())
-	if bytes.Compare(DecodeUserKey(item.Key()), key) != 0 {
+	commitTs := decodeTimestamp(item.Key())
+	if bytes.Compare(decodeUserKey(item.Key()), key) != 0 {
 		return nil, 0, nil
 	}
 	value, err := item.Value()
@@ -60,7 +59,7 @@ func (txn *MvccTxn) FindWrittenValue(key []byte, ts uint64) ([]byte, error) {
 	for iter.Seek(EncodeKey(key, ts)); iter.Valid(); iter.Next() {
 		item := iter.Item()
 		// If the user key part of the combined key has changed, then we've got to the next key without finding a put write.
-		if bytes.Compare(DecodeUserKey(item.Key()), key) != 0 {
+		if bytes.Compare(decodeUserKey(item.Key()), key) != 0 {
 			return nil, nil
 		}
 		value, err := item.Value()
@@ -104,7 +103,7 @@ func (txn *MvccTxn) FindWrite(key []byte, startTs uint64) (*Write, error) {
 	}
 }
 
-// GetWrite gets the value at precisely the given key and ts, without searching.
+// GetWrite gets the write at precisely the given key and ts, without searching.
 func (txn *MvccTxn) GetWrite(key []byte, ts uint64) (*Write, error) {
 	value, err := txn.Reader.GetCF(engine_util.CfWrite, EncodeKey(key, ts))
 	if err != nil {
@@ -125,7 +124,7 @@ func (txn *MvccTxn) PutWrite(key []byte, write *Write, ts uint64) {
 	})
 }
 
-// GetLock returns a lock if key is currently locked. It will return (nil, nil) if there is no lock on key, and (nil, err)
+// GetLock returns a lock if key is locked. It will return (nil, nil) if there is no lock on key, and (nil, err)
 // if an error occurs during lookup.
 func (txn *MvccTxn) GetLock(key []byte) (*Lock, error) {
 	bytes, err := txn.Reader.GetCF(engine_util.CfLock, key)
@@ -167,6 +166,11 @@ func (txn *MvccTxn) DeleteLock(key []byte) {
 	})
 }
 
+// GetValue gets the value at precisely the given key and ts, without searching.
+func (txn *MvccTxn) GetValue(key []byte, ts uint64) ([]byte, error) {
+	return txn.Reader.GetCF(engine_util.CfDefault, EncodeKey(key, ts))
+}
+
 // PutValue adds a key/value write to this transaction.
 func (txn *MvccTxn) PutValue(key []byte, value []byte) {
 	txn.Writes = append(txn.Writes, inner_server.Modify{
@@ -200,8 +204,8 @@ func EncodeKey(key []byte, ts uint64) []byte {
 	return newKey
 }
 
-// DecodeUserKey takes a key + timestamp and returns the key part.
-func DecodeUserKey(key []byte) []byte {
+// decodeUserKey takes a key + timestamp and returns the key part.
+func decodeUserKey(key []byte) []byte {
 	_, userKey, err := codec.DecodeBytes(key)
 	if err != nil {
 		panic(err)
@@ -209,8 +213,8 @@ func DecodeUserKey(key []byte) []byte {
 	return userKey
 }
 
-// DecodeTimestamp takes a key + timestamp and returns the timestamp part.
-func DecodeTimestamp(key []byte) uint64 {
+// decodeTimestamp takes a key + timestamp and returns the timestamp part.
+func decodeTimestamp(key []byte) uint64 {
 	left, _, err := codec.DecodeBytes(key)
 	if err != nil {
 		panic(err)
