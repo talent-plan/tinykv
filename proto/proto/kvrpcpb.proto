@@ -16,7 +16,6 @@ message LockInfo {
     uint64 lock_version = 2;
     bytes key = 3;
     uint64 lock_ttl = 4;
-    Op lock_type = 5;
 }
 
 message AlreadyExist {

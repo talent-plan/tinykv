@@ -21,7 +21,6 @@ func (lock *Lock) Info(key []byte) *kvrpcpb.LockInfo {
 	info.Key = key
 	info.LockVersion = lock.TS
 	info.PrimaryLock = lock.Primary
-	info.LockType = lock.Kind.ToProto()
 	return &info
 }
 

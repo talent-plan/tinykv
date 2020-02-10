@@ -92,12 +92,6 @@ func convertToKeyError(err error) *kvrpcpb.KeyError {
 		return &kvrpcpb.KeyError{
 			Retryable: x.Error(),
 		}
-	case *ErrKeyAlreadyExists:
-		return &kvrpcpb.KeyError{
-			AlreadyExist: &kvrpcpb.AlreadyExist{
-				Key: x.Key,
-			},
-		}
 	case *ErrConflict:
 		return &kvrpcpb.KeyError{
 			Conflict: &kvrpcpb.WriteConflict{
