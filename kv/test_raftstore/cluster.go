@@ -5,12 +5,12 @@ import (
 	"context"
 	"encoding/hex"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
@@ -39,9 +39,8 @@ type Simulator interface {
 
 type Cluster struct {
 	pdClient  pd.Client
-	context   context.Context
 	count     int
-	engines   []*engine_util.Engines
+	engines   map[uint64]*engine_util.Engines
 	dirs      []string
 	simulator Simulator
 }
@@ -50,6 +49,7 @@ func NewCluster(count int, pdClient pd.Client, simulator Simulator) Cluster {
 	return Cluster{
 		count:     count,
 		pdClient:  pdClient,
+		engines:   make(map[uint64]*engine_util.Engines),
 		simulator: simulator,
 	}
 }
@@ -57,6 +57,7 @@ func NewCluster(count int, pdClient pd.Client, simulator Simulator) Cluster {
 func (c *Cluster) Start() error {
 	ctx := context.TODO()
 	clusterID := c.pdClient.GetClusterID(ctx)
+
 	for nodeID := uint64(1); nodeID <= uint64(c.count); nodeID++ {
 		dbPath, err := ioutil.TempDir("", "test-raftstore")
 		kvPath := filepath.Join(dbPath, "kv")
@@ -66,15 +67,15 @@ func (c *Cluster) Start() error {
 
 		err = os.MkdirAll(kvPath, os.ModePerm)
 		if err != nil {
-			log.Panic(err)
+			log.Fatal(err)
 		}
 		err = os.MkdirAll(raftPath, os.ModePerm)
 		if err != nil {
-			log.Panic(err)
+			log.Fatal(err)
 		}
 		err = os.MkdirAll(snapPath, os.ModePerm)
 		if err != nil {
-			log.Panic(err)
+			log.Fatal(err)
 		}
 
 		conf := config.DefaultConf
@@ -90,9 +91,9 @@ func (c *Cluster) Start() error {
 		if err != nil {
 			return err
 		}
-		c.engines = append(c.engines, engine)
+		c.engines[nodeID] = engine
 
-		err = c.simulator.RunNode(raftConf, engine, c.context)
+		err = c.simulator.RunNode(raftConf, engine, context.TODO())
 		if err != nil {
 			return err
 		}
@@ -124,7 +125,7 @@ func (c *Cluster) Request(key []byte, reqs []*raft_cmdpb.Request, readQuorum boo
 		}
 		return resp
 	}
-	log.Panic("request timeout")
+	log.Fatal("request timeout")
 	return nil
 }
 
@@ -137,12 +138,12 @@ func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeou
 	regionID := request.Header.RegionId
 	leader := c.LeaderOfRegion(regionID)
 	if leader == nil {
-		log.Panicf("can't get leader of region %d", regionID)
+		log.Fatalf("can't get leader of region %d", regionID)
 	}
 	request.Header.Peer = leader
 	resp := c.CallCommand(request, timeout)
 	if resp == nil {
-		log.Panicf("can't call command %s on leader of region %d", request.String(), regionID)
+		log.Fatalf("can't call command %s on leader of region %d", request.String(), regionID)
 	}
 	return resp
 }
@@ -164,7 +165,7 @@ func (c *Cluster) QueryLeader(storeID, regionID uint64, timeout time.Duration) *
 	findLeader := NewStatusRequest(regionID, &peer, NewRegionLeaderCmd())
 	resp := c.CallCommand(findLeader, timeout)
 	if resp == nil {
-		log.Panicf("fail to get leader of region %d on store %d", regionID, storeID)
+		log.Fatalf("fail to get leader of region %d on store %d", regionID, storeID)
 	}
 	regionLeader := resp.StatusResponse.RegionLeader
 	if c.ValidLeaderID(regionID, regionLeader.Leader.StoreId) {
@@ -185,7 +186,7 @@ func (c *Cluster) ValidLeaderID(regionID, leaderID uint64) bool {
 
 func (c *Cluster) GetRegion(key []byte) *metapb.Region {
 	for i := 0; i < 100; i++ {
-		region, _, _ := c.pdClient.GetRegion(c.context, key)
+		region, _, _ := c.pdClient.GetRegion(context.TODO(), key)
 		if region != nil {
 			return region
 		}
@@ -193,14 +194,14 @@ func (c *Cluster) GetRegion(key []byte) *metapb.Region {
 		// retry to get the region again.
 		SleepMS(20)
 	}
-	log.Panicf("find no region for %s", hex.EncodeToString(key))
+	log.Fatalf("find no region for %s", hex.EncodeToString(key))
 	return nil
 }
 
 func (c *Cluster) GetStoreIdsOfRegion(regionID uint64) []uint64 {
-	region, _, err := c.pdClient.GetRegionByID(c.context, regionID)
+	region, _, err := c.pdClient.GetRegionByID(context.TODO(), regionID)
 	if err != nil {
-		log.Panic(err)
+		log.Fatal(err)
 	}
 	peers := region.GetPeers()
 	storeIds := make([]uint64, len(peers))
@@ -218,31 +219,31 @@ func (c *Cluster) MustPutCF(cf string, key, value []byte) {
 	req := NewPutCfCmd(cf, key, value)
 	resp := c.Request(key, []*raft_cmdpb.Request{req}, false, 5*time.Second)
 	if resp.Header.Error != nil {
-		log.Panic(resp.Header.Error)
+		log.Fatal(resp.Header.Error)
 	}
 	if len(resp.Responses) != 1 {
-		log.Panic("len(resp.Responses) != 1")
+		log.Fatal("len(resp.Responses) != 1")
 	}
 	if resp.Responses[0].CmdType != raft_cmdpb.CmdType_Put {
-		log.Panic("resp.Responses[0].CmdType != raft_cmdpb.CmdType_Put")
+		log.Fatal("resp.Responses[0].CmdType != raft_cmdpb.CmdType_Put")
 	}
 }
 
 // MustGet value is optional
-func (c *Cluster) MustGet(engineID uint, cf string, key []byte, value []byte) {
-	engine := c.engines[engineID]
+func (c *Cluster) MustGet(nodeID uint64, cf string, key []byte, value []byte) {
+	engine := c.engines[nodeID]
 	if engine == nil {
-		log.Panicf("can not find engine with ID %d", engineID)
+		log.Fatalf("can not find engine with ID %d", nodeID)
 	}
 	val, err := engine_util.GetCF(engine.Kv, cf, key)
 	if err != nil {
-		log.Panic(err)
+		log.Fatal(err)
 	}
 	if value != nil && bytes.Compare(val, value) != 0 {
-		log.Panicf("can't get value %s for key %s", hex.EncodeToString(value), hex.EncodeToString(key))
+		log.Fatalf("can't get value %s for key %s", hex.EncodeToString(value), hex.EncodeToString(key))
 	}
 }
 
-func (c *Cluster) MustGetEqual(engineID uint, key []byte, value []byte) {
-	c.MustGet(engineID, engine_util.CfDefault, key, value)
+func (c *Cluster) MustGetEqual(nodeID uint64, key []byte, value []byte) {
+	c.MustGet(nodeID, engine_util.CfDefault, key, value)
 }
