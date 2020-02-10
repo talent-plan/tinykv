@@ -249,7 +249,7 @@ func (c *NodeSimulator) CallCommandOnNode(nodeID uint64, request *raft_cmdpb.Raf
 	cb := message.NewCallback()
 	err := router.SendRaftCommand(request, cb)
 	if err != nil {
-		log.Fatal(err)
+		log.Panic(err)
 	}
 
 	resp := cb.WaitRespWithTimeout(timeout)
@@ -261,7 +261,7 @@ func (c *NodeSimulator) CallCommandOnNode(nodeID uint64, request *raft_cmdpb.Raf
 	reqCount := len(request.Requests)
 
 	if resp.Header.Error != nil {
-		log.Fatal(&resp.Header.Error)
+		log.Panic(&resp.Header.Error)
 	}
 	if len(resp.Responses) != reqCount {
 		log.Panicf("responses count %d is not equal to requests count %d",

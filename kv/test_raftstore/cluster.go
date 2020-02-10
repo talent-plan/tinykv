@@ -66,15 +66,15 @@ func (c *Cluster) Start() error {
 
 		err = os.MkdirAll(kvPath, os.ModePerm)
 		if err != nil {
-			log.Fatal(err)
+			log.Panic(err)
 		}
 		err = os.MkdirAll(raftPath, os.ModePerm)
 		if err != nil {
-			log.Fatal(err)
+			log.Panic(err)
 		}
 		err = os.MkdirAll(snapPath, os.ModePerm)
 		if err != nil {
-			log.Fatal(err)
+			log.Panic(err)
 		}
 
 		conf := config.DefaultConf
@@ -124,7 +124,7 @@ func (c *Cluster) Request(key []byte, reqs []*raft_cmdpb.Request, readQuorum boo
 		}
 		return resp
 	}
-	log.Fatal("request timeout")
+	log.Panic("request timeout")
 	return nil
 }
 
@@ -200,7 +200,7 @@ func (c *Cluster) GetRegion(key []byte) *metapb.Region {
 func (c *Cluster) GetStoreIdsOfRegion(regionID uint64) []uint64 {
 	region, _, err := c.pdClient.GetRegionByID(c.context, regionID)
 	if err != nil {
-		log.Fatal(err)
+		log.Panic(err)
 	}
 	peers := region.GetPeers()
 	storeIds := make([]uint64, len(peers))
@@ -218,13 +218,13 @@ func (c *Cluster) MustPutCF(cf string, key, value []byte) {
 	req := NewPutCfCmd(cf, key, value)
 	resp := c.Request(key, []*raft_cmdpb.Request{req}, false, 5*time.Second)
 	if resp.Header.Error != nil {
-		log.Fatal(resp.Header.Error)
+		log.Panic(resp.Header.Error)
 	}
 	if len(resp.Responses) != 1 {
-		log.Fatal("len(resp.Responses) != 1")
+		log.Panic("len(resp.Responses) != 1")
 	}
 	if resp.Responses[0].CmdType != raft_cmdpb.CmdType_Put {
-		log.Fatal("resp.Responses[0].CmdType != raft_cmdpb.CmdType_Put")
+		log.Panic("resp.Responses[0].CmdType != raft_cmdpb.CmdType_Put")
 	}
 }
 
@@ -236,7 +236,7 @@ func (c *Cluster) MustGet(engineID uint, cf string, key []byte, value []byte) {
 	}
 	val, err := engine_util.GetCF(engine.Kv, cf, key)
 	if err != nil {
-		log.Fatal(err)
+		log.Panic(err)
 	}
 	if value != nil && bytes.Compare(val, value) != 0 {
 		log.Panicf("can't get value %s for key %s", hex.EncodeToString(value), hex.EncodeToString(key))

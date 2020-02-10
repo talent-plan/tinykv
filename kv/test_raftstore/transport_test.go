@@ -1,11 +1,14 @@
 package test_raftstore
 
-import "testing"
+import (
+	"log"
+	"testing"
+)
 
 func testPartitionWrite(cluster Cluster) {
 	err := cluster.Start()
 	if err != nil {
-		panic(err)
+		log.Panic(err)
 	}
 
 	key := []byte("k1")
