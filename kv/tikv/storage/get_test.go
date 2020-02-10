@@ -1,21 +1,35 @@
 package storage
 
 import (
+	"testing"
+
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
+	"github.com/pingcap-incubator/tinykv/kv/tikv"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/commands"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/exec"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
+
+func run(t *testing.T, sched tikv.Scheduler, cmds ...tikv.Command) []interface{} {
+	var result []interface{}
+	for _, c := range cmds {
+		ch := sched.Run(c)
+		r := <-ch
+		assert.Nil(t, r.Err)
+		result = append(result, r.Response)
+	}
+	sched.Stop()
+	return result
+}
 
 // TestGetValue getting a value works in the simple case.
 func TestGetValue(t *testing.T) {
 	mem := inner_server.NewMemInnerServer()
-	mem.Set(engine_util.CfDefault, kvstore.EncodeKey([]byte{99}, 50), []byte{42})
-	mem.Set(engine_util.CfWrite, kvstore.EncodeKey([]byte{99}, 54), []byte{1, 0, 0, 0, 0, 0, 0, 0, 50})
+	mem.Set(nil, engine_util.CfDefault, kvstore.EncodeKey([]byte{99}, 50), []byte{42})
+	mem.Set(nil, engine_util.CfWrite, kvstore.EncodeKey([]byte{99}, 54), []byte{1, 0, 0, 0, 0, 0, 0, 0, 50})
 	sched := exec.NewSeqScheduler(mem)
 
 	var req kvrpcpb.GetRequest
@@ -32,8 +46,8 @@ func TestGetValue(t *testing.T) {
 // TestGetValueTs getting a value works with different timestamps.
 func TestGetValueTs(t *testing.T) {
 	mem := inner_server.NewMemInnerServer()
-	mem.Set(engine_util.CfDefault, kvstore.EncodeKey([]byte{99}, 50), []byte{42})
-	mem.Set(engine_util.CfWrite, kvstore.EncodeKey([]byte{99}, 54), []byte{1, 0, 0, 0, 0, 0, 0, 0, 50})
+	mem.Set(nil, engine_util.CfDefault, kvstore.EncodeKey([]byte{99}, 50), []byte{42})
+	mem.Set(nil, engine_util.CfWrite, kvstore.EncodeKey([]byte{99}, 54), []byte{1, 0, 0, 0, 0, 0, 0, 0, 50})
 	sched := exec.NewSeqScheduler(mem)
 
 	var req0 kvrpcpb.GetRequest
@@ -82,10 +96,10 @@ func TestGetEmpty(t *testing.T) {
 // TestGetNone tests that getting a missing key works.
 func TestGetNone(t *testing.T) {
 	mem := inner_server.NewMemInnerServer()
-	mem.Set(engine_util.CfDefault, kvstore.EncodeKey([]byte{99}, 50), []byte{42})
-	mem.Set(engine_util.CfWrite, kvstore.EncodeKey([]byte{99}, 54), []byte{1, 0, 0, 0, 0, 0, 0, 0, 50})
-	mem.Set(engine_util.CfDefault, kvstore.EncodeKey([]byte{101}, 50), []byte{42})
-	mem.Set(engine_util.CfWrite, kvstore.EncodeKey([]byte{101}, 54), []byte{1, 0, 0, 0, 0, 0, 0, 0, 50})
+	mem.Set(nil, engine_util.CfDefault, kvstore.EncodeKey([]byte{99}, 50), []byte{42})
+	mem.Set(nil, engine_util.CfWrite, kvstore.EncodeKey([]byte{99}, 54), []byte{1, 0, 0, 0, 0, 0, 0, 0, 50})
+	mem.Set(nil, engine_util.CfDefault, kvstore.EncodeKey([]byte{101}, 50), []byte{42})
+	mem.Set(nil, engine_util.CfWrite, kvstore.EncodeKey([]byte{101}, 54), []byte{1, 0, 0, 0, 0, 0, 0, 0, 50})
 	sched := exec.NewSeqScheduler(mem)
 
 	var req kvrpcpb.GetRequest
@@ -102,12 +116,12 @@ func TestGetNone(t *testing.T) {
 // TestGetVersions tests we get the correct value when there are multiple versions.
 func TestGetVersions(t *testing.T) {
 	mem := inner_server.NewMemInnerServer()
-	mem.Set(engine_util.CfDefault, kvstore.EncodeKey([]byte{99}, 50), []byte{42})
-	mem.Set(engine_util.CfDefault, kvstore.EncodeKey([]byte{99}, 60), []byte{43})
-	mem.Set(engine_util.CfDefault, kvstore.EncodeKey([]byte{99}, 120), []byte{44})
-	mem.Set(engine_util.CfWrite, kvstore.EncodeKey([]byte{99}, 54), []byte{1, 0, 0, 0, 0, 0, 0, 0, 50})
-	mem.Set(engine_util.CfWrite, kvstore.EncodeKey([]byte{99}, 66), []byte{1, 0, 0, 0, 0, 0, 0, 0, 60})
-	mem.Set(engine_util.CfWrite, kvstore.EncodeKey([]byte{99}, 122), []byte{1, 0, 0, 0, 0, 0, 0, 0, 120})
+	mem.Set(nil, engine_util.CfDefault, kvstore.EncodeKey([]byte{99}, 50), []byte{42})
+	mem.Set(nil, engine_util.CfDefault, kvstore.EncodeKey([]byte{99}, 60), []byte{43})
+	mem.Set(nil, engine_util.CfDefault, kvstore.EncodeKey([]byte{99}, 120), []byte{44})
+	mem.Set(nil, engine_util.CfWrite, kvstore.EncodeKey([]byte{99}, 54), []byte{1, 0, 0, 0, 0, 0, 0, 0, 50})
+	mem.Set(nil, engine_util.CfWrite, kvstore.EncodeKey([]byte{99}, 66), []byte{1, 0, 0, 0, 0, 0, 0, 0, 60})
+	mem.Set(nil, engine_util.CfWrite, kvstore.EncodeKey([]byte{99}, 122), []byte{1, 0, 0, 0, 0, 0, 0, 0, 120})
 	sched := exec.NewSeqScheduler(mem)
 
 	var req0 kvrpcpb.GetRequest
@@ -166,12 +180,12 @@ func TestGetVersions(t *testing.T) {
 // TestGetDeleted tests we get the correct value when there are multiple versions, including a deletion.
 func TestGetDeleted(t *testing.T) {
 	mem := inner_server.NewMemInnerServer()
-	mem.Set(engine_util.CfDefault, kvstore.EncodeKey([]byte{99}, 50), []byte{42})
-	mem.Set(engine_util.CfDefault, kvstore.EncodeKey([]byte{99}, 60), nil)
-	mem.Set(engine_util.CfDefault, kvstore.EncodeKey([]byte{99}, 120), []byte{44})
-	mem.Set(engine_util.CfWrite, kvstore.EncodeKey([]byte{99}, 54), []byte{1, 0, 0, 0, 0, 0, 0, 0, 50})
-	mem.Set(engine_util.CfWrite, kvstore.EncodeKey([]byte{99}, 66), []byte{2, 0, 0, 0, 0, 0, 0, 0, 60})
-	mem.Set(engine_util.CfWrite, kvstore.EncodeKey([]byte{99}, 122), []byte{1, 0, 0, 0, 0, 0, 0, 0, 120})
+	mem.Set(nil, engine_util.CfDefault, kvstore.EncodeKey([]byte{99}, 50), []byte{42})
+	mem.Set(nil, engine_util.CfDefault, kvstore.EncodeKey([]byte{99}, 60), nil)
+	mem.Set(nil, engine_util.CfDefault, kvstore.EncodeKey([]byte{99}, 120), []byte{44})
+	mem.Set(nil, engine_util.CfWrite, kvstore.EncodeKey([]byte{99}, 54), []byte{1, 0, 0, 0, 0, 0, 0, 0, 50})
+	mem.Set(nil, engine_util.CfWrite, kvstore.EncodeKey([]byte{99}, 66), []byte{2, 0, 0, 0, 0, 0, 0, 0, 60})
+	mem.Set(nil, engine_util.CfWrite, kvstore.EncodeKey([]byte{99}, 122), []byte{1, 0, 0, 0, 0, 0, 0, 0, 120})
 	sched := exec.NewSeqScheduler(mem)
 
 	var req0 kvrpcpb.GetRequest
@@ -230,9 +244,9 @@ func TestGetDeleted(t *testing.T) {
 // TestGetLocked tests getting a value when it is locked by another transaction.
 func TestGetLocked(t *testing.T) {
 	mem := inner_server.NewMemInnerServer()
-	mem.Set(engine_util.CfDefault, kvstore.EncodeKey([]byte{99}, 50), []byte{42})
-	mem.Set(engine_util.CfWrite, kvstore.EncodeKey([]byte{99}, 54), []byte{1, 0, 0, 0, 0, 0, 0, 0, 50})
-	mem.Set(engine_util.CfLock, []byte{99}, []byte{99, 0, 0, 0, 0, 0, 0, 0, 200})
+	mem.Set(nil, engine_util.CfDefault, kvstore.EncodeKey([]byte{99}, 50), []byte{42})
+	mem.Set(nil, engine_util.CfWrite, kvstore.EncodeKey([]byte{99}, 54), []byte{1, 0, 0, 0, 0, 0, 0, 0, 50})
+	mem.Set(nil, engine_util.CfLock, []byte{99}, []byte{99, 0, 0, 0, 0, 0, 0, 0, 200})
 	sched := exec.NewSeqScheduler(mem)
 
 	var req0 kvrpcpb.GetRequest

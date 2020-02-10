@@ -52,17 +52,11 @@ func (is *StandAloneInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) err
 			var err error
 			switch op.Type {
 			case ModifyTypePut:
-				if put, ok := op.Data.(Put); ok {
-					err = txn.Set(engine_util.KeyWithCF(put.Cf, put.Key), put.Value)
-				} else {
-					return errors.New("Corrupted put request")
-				}
+				put := op.Data.(Put)
+				err = txn.Set(engine_util.KeyWithCF(put.Cf, put.Key), put.Value)
 			case ModifyTypeDelete:
-				if delete, ok := op.Data.(Delete); ok {
-					err = txn.Delete(engine_util.KeyWithCF(delete.Cf, delete.Key))
-				} else {
-					return errors.New("Corrupted delete request")
-				}
+				delete := op.Data.(Delete)
+				err = txn.Delete(engine_util.KeyWithCF(delete.Cf, delete.Key))
 			default:
 				err = errors.New("Unsupported modify type")
 			}
@@ -71,5 +65,26 @@ func (is *StandAloneInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) err
 			}
 		}
 		return nil
+	})
+}
+
+func (is *StandAloneInnerServer) Get(ctx *kvrpcpb.Context, cf string, key []byte) ([]byte, error) {
+	reader, err := is.Reader(nil)
+	if err != nil {
+		return nil, err
+	}
+	return reader.GetCF(cf, key)
+}
+
+func (is *StandAloneInnerServer) Set(ctx *kvrpcpb.Context, cf string, key []byte, value []byte) error {
+	return is.Write(ctx, []Modify{
+		{
+			Type: ModifyTypePut,
+			Data: Put{
+				Cf:    cf,
+				Key:   key,
+				Value: value,
+			},
+		},
 	})
 }

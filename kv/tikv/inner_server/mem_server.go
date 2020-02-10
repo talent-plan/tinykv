@@ -77,35 +77,25 @@ func (is *MemInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
 	return nil
 }
 
-func (is *MemInnerServer) Get(cf string, key []byte) []byte {
-	item := memItem{key, nil}
-	var result llrb.Item
-	switch cf {
-	case engine_util.CfDefault:
-		result = is.CfDefault.Get(item)
-	case engine_util.CfLock:
-		result = is.CfLock.Get(item)
-	case engine_util.CfWrite:
-		result = is.CfWrite.Get(item)
+func (is *MemInnerServer) Get(ctx *kvrpcpb.Context, cf string, key []byte) ([]byte, error) {
+	reader, err := is.Reader(nil)
+	if err != nil {
+		return nil, err
 	}
-
-	if result == nil {
-		return nil
-	}
-
-	return result.(memItem).value
+	return reader.GetCF(cf, key)
 }
 
-func (is *MemInnerServer) Set(cf string, key []byte, value []byte) {
-	item := memItem{key, value}
-	switch cf {
-	case engine_util.CfDefault:
-		is.CfDefault.ReplaceOrInsert(item)
-	case engine_util.CfLock:
-		is.CfLock.ReplaceOrInsert(item)
-	case engine_util.CfWrite:
-		is.CfWrite.ReplaceOrInsert(item)
-	}
+func (is *MemInnerServer) Set(ctx *kvrpcpb.Context, cf string, key []byte, value []byte) error {
+	return is.Write(ctx, []Modify{
+		{
+			Type: ModifyTypePut,
+			Data: Put{
+				Cf:    cf,
+				Key:   key,
+				Value: value,
+			},
+		},
+	})
 }
 
 func (is *MemInnerServer) Len(cf string) int {
@@ -203,6 +193,8 @@ func (it *memIter) Seek(key []byte) {
 		return false
 	})
 }
+
+func (it *memIter) Close() {}
 
 type memItem struct {
 	key   []byte

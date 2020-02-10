@@ -1,7 +1,6 @@
 package raftstore
 
 import (
-	"os"
 	"testing"
 
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
@@ -13,10 +12,7 @@ import (
 
 func TestBootstrapStore(t *testing.T) {
 	engines := util.NewTestEngines()
-	defer func() {
-		os.RemoveAll(engines.KvPath)
-		os.RemoveAll(engines.RaftPath)
-	}()
+	defer engines.Destroy()
 	require.Nil(t, BootstrapStore(engines, 1, 1))
 	require.NotNil(t, BootstrapStore(engines, 1, 1))
 	_, err := PrepareBootstrap(engines, 1, 1, 1)

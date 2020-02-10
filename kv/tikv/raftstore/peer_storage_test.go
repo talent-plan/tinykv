@@ -3,7 +3,6 @@ package raftstore
 import (
 	"bytes"
 	"math"
-	"os"
 	"testing"
 
 	"github.com/coocood/badger"
@@ -45,8 +44,9 @@ func newTestPeerStorageFromEnts(t *testing.T, ents []eraftpb.Entry) *PeerStorage
 }
 
 func cleanUpTestData(peerStore *PeerStorage) {
-	os.RemoveAll(peerStore.Engines.KvPath)
-	os.RemoveAll(peerStore.Engines.RaftPath)
+	if err := peerStore.Engines.Destroy(); err != nil {
+		panic(err)
+	}
 }
 
 func newTestEntry(index, term uint64) eraftpb.Entry {

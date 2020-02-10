@@ -37,8 +37,13 @@ func TestSinglePrewrite(t *testing.T) {
 	assert.Equal(t, mem.Len(engine_util.CfDefault), 1)
 	assert.Equal(t, mem.Len(engine_util.CfLock), 1)
 
-	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 100)))
-	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
+	got, err := mem.Get(nil, engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 100))
+	assert.Nil(t, err)
+	assert.Equal(t, []byte{42}, got)
+
+	got, err = mem.Get(nil, engine_util.CfLock, []byte{3})
+	assert.Nil(t, err)
+	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 100}, got)
 }
 
 // TestBadWritePrewrites tests that two prewrites to the same key causes a lock error.
@@ -58,8 +63,14 @@ func TestBadWritePrewrites(t *testing.T) {
 
 	assert.Equal(t, mem.Len(engine_util.CfDefault), 1)
 	assert.Equal(t, mem.Len(engine_util.CfLock), 1)
-	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 100)))
-	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
+
+	got, err := mem.Get(nil, engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 100))
+	assert.Nil(t, err)
+	assert.Equal(t, []byte{42}, got)
+
+	got, err = mem.Get(nil, engine_util.CfLock, []byte{3})
+	assert.Nil(t, err)
+	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 100}, got)
 }
 
 // TestMultiplePrewrites tests that multiple prewrites to different keys succeeds.
@@ -79,10 +90,22 @@ func TestMultiplePrewrites(t *testing.T) {
 
 	assert.Equal(t, mem.Len(engine_util.CfDefault), 2)
 	assert.Equal(t, mem.Len(engine_util.CfLock), 2)
-	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 100)))
-	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
-	assert.Equal(t, []byte{53}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{4}, 101)))
-	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 101}, mem.Get(engine_util.CfLock, []byte{4}))
+
+	got, err := mem.Get(nil, engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 100))
+	assert.Nil(t, err)
+	assert.Equal(t, []byte{42}, got)
+
+	got, err = mem.Get(nil, engine_util.CfLock, []byte{3})
+	assert.Nil(t, err)
+	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 100}, got)
+
+	got, err = mem.Get(nil, engine_util.CfDefault, kvstore.EncodeKey([]byte{4}, 101))
+	assert.Nil(t, err)
+	assert.Equal(t, []byte{53}, got)
+
+	got, err = mem.Get(nil, engine_util.CfLock, []byte{4})
+	assert.Nil(t, err)
+	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 101}, got)
 }
 
 // TestPrewriteOverwrite tests that two writes in the same prewrite succeed and we see the second write.
@@ -98,8 +121,13 @@ func TestPrewriteOverwrite(t *testing.T) {
 	assert.Equal(t, mem.Len(engine_util.CfDefault), 1)
 	assert.Equal(t, mem.Len(engine_util.CfLock), 1)
 
-	assert.Equal(t, []byte{45}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 100)))
-	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
+	got, err := mem.Get(nil, engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 100))
+	assert.Nil(t, err)
+	assert.Equal(t, []byte{45}, got)
+
+	got, err = mem.Get(nil, engine_util.CfLock, []byte{3})
+	assert.Nil(t, err)
+	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 100}, got)
 }
 
 // TestPrewriteMultiple tests that a prewrite with multiple mutations succeeds.
@@ -122,7 +150,9 @@ func TestPrewriteMultiple(t *testing.T) {
 	assert.Equal(t, mem.Len(engine_util.CfDefault), 4)
 	assert.Equal(t, mem.Len(engine_util.CfLock), 4)
 
-	assert.Equal(t, []byte{1, 3, 5}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{4}, 100)))
+	got, err := mem.Get(nil, engine_util.CfDefault, kvstore.EncodeKey([]byte{4}, 100))
+	assert.Nil(t, err)
+	assert.Equal(t, []byte{1, 3, 5}, got)
 }
 
 type requestBuilder struct {
