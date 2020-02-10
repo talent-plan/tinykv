@@ -247,3 +247,31 @@ func (c *Cluster) MustGet(nodeID uint64, cf string, key []byte, value []byte) {
 func (c *Cluster) MustGetEqual(nodeID uint64, key []byte, value []byte) {
 	c.MustGet(nodeID, engine_util.CfDefault, key, value)
 }
+
+func (c *Cluster) TransferLeader(regionID uint64, leader *metapb.Peer) {
+	region, _, err := c.pdClient.GetRegionByID(context.TODO(), regionID)
+	if err != nil {
+		log.Fatal(err)
+	}
+	epoch := region.RegionEpoch
+	transferLeader := NewAdminRequest(regionID, epoch, NewTransferLeaderCmd(leader))
+	resp := c.CallCommandOnLeader(transferLeader, 5*time.Second)
+	if resp.AdminResponse.CmdType != raft_cmdpb.AdminCmdType_TransferLeader {
+		log.Fatal("resp.AdminResponse.CmdType != raft_cmdpb.AdminCmdType_TransferLeader", resp)
+	}
+}
+
+func (c *Cluster) MustTransferLeader(regionID uint64, leader *metapb.Peer) {
+	timer := time.Now()
+	for {
+		currentLeader := c.LeaderOfRegion(regionID)
+		if currentLeader.Id == leader.Id &&
+			currentLeader.StoreId == leader.StoreId {
+			return
+		}
+		if time.Now().Sub(timer) > 5*time.Second {
+			log.Fatalf("failed to transfer leader to [%d] %s", regionID, leader.String())
+		}
+		c.TransferLeader(regionID, leader)
+	}
+}

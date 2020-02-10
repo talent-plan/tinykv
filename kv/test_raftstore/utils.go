@@ -30,10 +30,25 @@ func NewRequest(regionID uint64, epoch *metapb.RegionEpoch, requests []*raft_cmd
 	return req
 }
 
+func NewAdminRequest(regionID uint64, epoch *metapb.RegionEpoch, request *raft_cmdpb.AdminRequest) *raft_cmdpb.RaftCmdRequest {
+	req := NewBaseRequest(regionID, epoch, false)
+	req.AdminRequest = request
+	return &req
+}
+
 func NewPutCfCmd(cf string, key, value []byte) *raft_cmdpb.Request {
 	cmd := &raft_cmdpb.Request{}
 	cmd.CmdType = raft_cmdpb.CmdType_Put
 	cmd.Put = &raft_cmdpb.PutRequest{Key: key, Value: value, Cf: cf}
+	return cmd
+}
+
+func NewTransferLeaderCmd(peer *metapb.Peer) *raft_cmdpb.AdminRequest {
+	transferLeader := raft_cmdpb.TransferLeaderRequest{Peer: peer}
+	cmd := &raft_cmdpb.AdminRequest{
+		CmdType:        raft_cmdpb.AdminCmdType_TransferLeader,
+		TransferLeader: &transferLeader,
+	}
 	return cmd
 }
 

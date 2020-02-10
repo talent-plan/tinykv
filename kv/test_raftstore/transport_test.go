@@ -16,6 +16,13 @@ func testPartitionWrite(cluster Cluster) {
 	value := []byte("v1")
 	cluster.MustPut(key, value)
 	cluster.MustGetEqual(1, key, value)
+
+	regionID := cluster.GetRegion(key).GetId()
+
+	// transfer leader to (1, 1)
+	peer := NewPeer(1, 1)
+	cluster.MustTransferLeader(regionID, &peer)
+
 	cluster.Shutdown()
 }
 

@@ -260,7 +260,7 @@ func (c *NodeSimulator) CallCommandOnNode(nodeID uint64, request *raft_cmdpb.Raf
 
 	reqCount := len(request.Requests)
 
-	if resp.Header.Error != nil {
+	if resp.Header != nil && resp.Header.Error != nil {
 		log.Fatal(&resp.Header.Error)
 	}
 	if len(resp.Responses) != reqCount {
