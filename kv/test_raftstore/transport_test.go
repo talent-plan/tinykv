@@ -2,20 +2,18 @@ package test_raftstore
 
 import (
 	"testing"
-
-	"github.com/ngaut/log"
 )
 
 func testPartitionWrite(cluster Cluster) {
 	err := cluster.Start()
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
 	key := []byte("k1")
 	value := []byte("v1")
 	cluster.MustPut(key, value)
-	cluster.MustGetEqual(2, key, value)
+	// cluster.MustGetEqual(2, key, value)
 
 	// regionID := cluster.GetRegion(key).GetId()
 

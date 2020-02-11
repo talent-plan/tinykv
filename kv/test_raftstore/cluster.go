@@ -5,12 +5,12 @@ import (
 	"context"
 	"encoding/hex"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
@@ -70,15 +70,15 @@ func (c *Cluster) Start() error {
 
 		err = os.MkdirAll(kvPath, os.ModePerm)
 		if err != nil {
-			log.Fatal(err)
+			panic(err)
 		}
 		err = os.MkdirAll(raftPath, os.ModePerm)
 		if err != nil {
-			log.Fatal(err)
+			panic(err)
 		}
 		err = os.MkdirAll(snapPath, os.ModePerm)
 		if err != nil {
-			log.Fatal(err)
+			panic(err)
 		}
 
 		conf := config.DefaultConf
@@ -120,21 +120,22 @@ func (c *Cluster) Start() error {
 	}
 	resp, err := c.pdClient.Bootstrap(context.TODO(), store, firstRegion)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 	if resp.Header != nil && resp.Header.Error != nil {
-		log.Fatal(resp.Header.Error)
+		panic(resp.Header.Error)
 	}
 
-	for nodeID := range c.engines {
+	for nodeID, engine := range c.engines {
 		store := &metapb.Store{
 			Id:      nodeID,
 			Address: "",
 		}
 		err := c.pdClient.PutStore(context.TODO(), store)
 		if err != nil {
-			log.Fatal(err)
+			panic(err)
 		}
+		raftstore.ClearPrepareBootstrapState(engine)
 	}
 
 	for nodeID, engine := range c.engines {
@@ -172,7 +173,7 @@ func (c *Cluster) Request(key []byte, reqs []*raft_cmdpb.Request, readQuorum boo
 		}
 		return resp
 	}
-	log.Fatal("request timeout")
+	panic("request timeout")
 	return nil
 }
 
@@ -190,12 +191,12 @@ func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeou
 		regionID := request.Header.RegionId
 		leader := c.LeaderOfRegion(regionID)
 		if leader == nil {
-			log.Fatalf("can't get leader of region %d", regionID)
+			log.Panicf("can't get leader of region %d", regionID)
 		}
 		request.Header.Peer = leader
 		resp := c.CallCommand(request, timeout)
 		if resp == nil {
-			log.Fatalf("can't call command %s on leader of region %d", request.String(), regionID)
+			log.Panicf("can't call command %s on leader of region %d", request.String(), regionID)
 		}
 		return resp
 	}
@@ -221,7 +222,7 @@ func (c *Cluster) QueryLeader(storeID, regionID uint64, timeout time.Duration) *
 	findLeader := NewStatusRequest(regionID, &peer, NewRegionLeaderCmd())
 	resp := c.CallCommand(findLeader, timeout)
 	if resp == nil {
-		log.Fatalf("fail to get leader of region %d on store %d", regionID, storeID)
+		log.Panicf("fail to get leader of region %d on store %d", regionID, storeID)
 	}
 	regionLeader := resp.StatusResponse.RegionLeader
 	if regionLeader != nil && c.ValidLeaderID(regionID, regionLeader.Leader.StoreId) {
@@ -250,14 +251,14 @@ func (c *Cluster) GetRegion(key []byte) *metapb.Region {
 		// retry to get the region again.
 		SleepMS(20)
 	}
-	log.Fatalf("find no region for %s", hex.EncodeToString(key))
+	log.Panicf("find no region for %s", hex.EncodeToString(key))
 	return nil
 }
 
 func (c *Cluster) GetStoreIdsOfRegion(regionID uint64) []uint64 {
 	region, _, err := c.pdClient.GetRegionByID(context.TODO(), regionID)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 	peers := region.GetPeers()
 	storeIds := make([]uint64, len(peers))
@@ -275,13 +276,13 @@ func (c *Cluster) MustPutCF(cf string, key, value []byte) {
 	req := NewPutCfCmd(cf, key, value)
 	resp := c.Request(key, []*raft_cmdpb.Request{req}, false, 5*time.Second)
 	if resp.Header.Error != nil {
-		log.Fatal(resp.Header.Error)
+		panic(resp.Header.Error)
 	}
 	if len(resp.Responses) != 1 {
-		log.Fatal("len(resp.Responses) != 1")
+		panic("len(resp.Responses) != 1")
 	}
 	if resp.Responses[0].CmdType != raft_cmdpb.CmdType_Put {
-		log.Fatal("resp.Responses[0].CmdType != raft_cmdpb.CmdType_Put")
+		panic("resp.Responses[0].CmdType != raft_cmdpb.CmdType_Put")
 	}
 }
 
@@ -289,14 +290,14 @@ func (c *Cluster) MustPutCF(cf string, key, value []byte) {
 func (c *Cluster) MustGet(nodeID uint64, cf string, key []byte, value []byte) {
 	engine := c.engines[nodeID]
 	if engine == nil {
-		log.Fatalf("can not find engine with ID %d", nodeID)
+		log.Panicf("can not find engine with ID %d", nodeID)
 	}
 	val, err := engine_util.GetCF(engine.Kv, cf, key)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 	if value != nil && bytes.Compare(val, value) != 0 {
-		log.Fatalf("can't get value %s for key %s", hex.EncodeToString(value), hex.EncodeToString(key))
+		log.Panicf("can't get value %s for key %s", hex.EncodeToString(value), hex.EncodeToString(key))
 	}
 }
 
@@ -307,13 +308,13 @@ func (c *Cluster) MustGetEqual(nodeID uint64, key []byte, value []byte) {
 func (c *Cluster) TransferLeader(regionID uint64, leader *metapb.Peer) {
 	region, _, err := c.pdClient.GetRegionByID(context.TODO(), regionID)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 	epoch := region.RegionEpoch
 	transferLeader := NewAdminRequest(regionID, epoch, NewTransferLeaderCmd(leader))
 	resp := c.CallCommandOnLeader(transferLeader, 5*time.Second)
 	if resp.AdminResponse.CmdType != raft_cmdpb.AdminCmdType_TransferLeader {
-		log.Fatal("resp.AdminResponse.CmdType != raft_cmdpb.AdminCmdType_TransferLeader", resp)
+		panic("resp.AdminResponse.CmdType != raft_cmdpb.AdminCmdType_TransferLeader")
 	}
 }
 
@@ -326,7 +327,7 @@ func (c *Cluster) MustTransferLeader(regionID uint64, leader *metapb.Peer) {
 			return
 		}
 		if time.Now().Sub(timer) > 5*time.Second {
-			log.Fatalf("failed to transfer leader to [%d] %s", regionID, leader.String())
+			log.Panicf("failed to transfer leader to [%d] %s", regionID, leader.String())
 		}
 		c.TransferLeader(regionID, leader)
 	}

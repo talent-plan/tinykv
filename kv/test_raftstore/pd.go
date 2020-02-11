@@ -131,8 +131,8 @@ func (m *MockPDClient) Bootstrap(ctx context.Context, store *metapb.Store, regio
 	if m.bootstrapped == true || len(m.regionsKey) != 0 {
 		m.bootstrapped = true
 		resp.Header.Error = &pdpb.Error{
-			Type:    pdpb.ErrorType_NOT_BOOTSTRAPPED,
-			Message: "cluster is not bootstrapped",
+			Type:    pdpb.ErrorType_ALREADY_BOOTSTRAPPED,
+			Message: "cluster is already bootstrapped",
 		}
 		return resp, nil
 	}

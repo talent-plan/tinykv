@@ -3,10 +3,10 @@ package test_raftstore
 import (
 	"context"
 	"io"
+	"log"
 	"sync"
 	"time"
 
-	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	tikvConf "github.com/pingcap-incubator/tinykv/kv/tikv/config"
@@ -208,7 +208,7 @@ func (c *NodeSimulator) RunNode(raftConf *tikvConf.Config, engine *engine_util.E
 func (c *NodeSimulator) StopNode(nodeID uint64) {
 	node := c.nodes[nodeID]
 	if node == nil {
-		log.Fatalf("Can not find node %d", nodeID)
+		log.Panicf("Can not find node %d", nodeID)
 	}
 	node.Stop()
 }
@@ -243,13 +243,13 @@ func (c *NodeSimulator) CallCommandOnNode(nodeID uint64, request *raft_cmdpb.Raf
 
 	router := c.trans.routers[nodeID]
 	if router == nil {
-		log.Fatalf("Can not find node %d", nodeID)
+		log.Panicf("Can not find node %d", nodeID)
 	}
 
 	cb := message.NewCallback()
 	err := router.SendRaftCommand(request, cb)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
 	resp := cb.WaitRespWithTimeout(timeout)
@@ -261,10 +261,10 @@ func (c *NodeSimulator) CallCommandOnNode(nodeID uint64, request *raft_cmdpb.Raf
 	reqCount := len(request.Requests)
 
 	if resp.Header != nil && resp.Header.Error != nil {
-		log.Fatal(&resp.Header.Error)
+		panic(&resp.Header.Error)
 	}
 	if len(resp.Responses) != reqCount {
-		log.Fatalf("responses count %d is not equal to requests count %d",
+		log.Panicf("responses count %d is not equal to requests count %d",
 			len(resp.Responses), reqCount)
 	}
 
