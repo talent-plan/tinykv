@@ -822,21 +822,21 @@ func (s *testOperatorControllerSuite) TestOperatorCount(c *C) {
 	c.Assert(tc.addLeaderRegion(1, 1), IsNil)
 	c.Assert(tc.addLeaderRegion(2, 2), IsNil)
 	op1 := newTestOperator(1, tc.GetRegion(1).GetRegionEpoch(), operator.OpLeader)
-	oc.AddWaitingOperator(op1)
+	oc.AddOperator(op1)
 	c.Assert(oc.OperatorCount(operator.OpLeader), Equals, uint64(1)) // 1:leader
 	op2 := newTestOperator(2, tc.GetRegion(2).GetRegionEpoch(), operator.OpLeader)
-	oc.AddWaitingOperator(op2)
+	oc.AddOperator(op2)
 	c.Assert(oc.OperatorCount(operator.OpLeader), Equals, uint64(2)) // 1:leader, 2:leader
 	c.Assert(oc.RemoveOperator(op1), IsTrue)
 	c.Assert(oc.OperatorCount(operator.OpLeader), Equals, uint64(1)) // 2:leader
 
 	op1 = newTestOperator(1, tc.GetRegion(1).GetRegionEpoch(), operator.OpRegion)
-	oc.AddWaitingOperator(op1)
+	oc.AddOperator(op1)
 	c.Assert(oc.OperatorCount(operator.OpRegion), Equals, uint64(1)) // 1:region 2:leader
 	c.Assert(oc.OperatorCount(operator.OpLeader), Equals, uint64(1))
 	op2 = newTestOperator(2, tc.GetRegion(2).GetRegionEpoch(), operator.OpRegion)
 	op2.SetPriorityLevel(core.HighPriority)
-	oc.AddWaitingOperator(op2)
+	oc.AddOperator(op2)
 	c.Assert(oc.OperatorCount(operator.OpRegion), Equals, uint64(2)) // 1:region 2:region
 	c.Assert(oc.OperatorCount(operator.OpLeader), Equals, uint64(0))
 }
@@ -982,11 +982,11 @@ func (s *testScheduleControllerSuite) TestController(c *C) {
 	// count = 0
 	c.Assert(sc.AllowSchedule(), IsTrue)
 	op1 := newTestOperator(1, tc.GetRegion(1).GetRegionEpoch(), operator.OpLeader)
-	c.Assert(oc.AddWaitingOperator(op1), IsTrue)
+	c.Assert(oc.AddOperator(op1), IsTrue)
 	// count = 1
 	c.Assert(sc.AllowSchedule(), IsTrue)
 	op2 := newTestOperator(2, tc.GetRegion(2).GetRegionEpoch(), operator.OpLeader)
-	c.Assert(oc.AddWaitingOperator(op2), IsTrue)
+	c.Assert(oc.AddOperator(op2), IsTrue)
 	// count = 2
 	c.Assert(sc.AllowSchedule(), IsFalse)
 	c.Assert(oc.RemoveOperator(op1), IsTrue)
@@ -996,24 +996,24 @@ func (s *testScheduleControllerSuite) TestController(c *C) {
 	// add a PriorityKind operator will remove old operator
 	op3 := newTestOperator(2, tc.GetRegion(2).GetRegionEpoch(), operator.OpBalance)
 	op3.SetPriorityLevel(core.HighPriority)
-	c.Assert(oc.AddWaitingOperator(op1), IsTrue)
+	c.Assert(oc.AddOperator(op1), IsTrue)
 	c.Assert(sc.AllowSchedule(), IsFalse)
-	c.Assert(oc.AddWaitingOperator(op3), IsTrue)
+	c.Assert(oc.AddOperator(op3), IsTrue)
 	c.Assert(sc.AllowSchedule(), IsTrue)
 	c.Assert(oc.RemoveOperator(op3), IsTrue)
 
 	// add a admin operator will remove old operator
-	c.Assert(oc.AddWaitingOperator(op2), IsTrue)
+	c.Assert(oc.AddOperator(op2), IsTrue)
 	c.Assert(sc.AllowSchedule(), IsFalse)
 	op4 := newTestOperator(2, tc.GetRegion(2).GetRegionEpoch(), operator.OpAdmin)
 	op4.SetPriorityLevel(core.HighPriority)
-	c.Assert(oc.AddWaitingOperator(op4), IsTrue)
+	c.Assert(oc.AddOperator(op4), IsTrue)
 	c.Assert(sc.AllowSchedule(), IsTrue)
 	c.Assert(oc.RemoveOperator(op4), IsTrue)
 
 	// test wrong region id.
 	op5 := newTestOperator(3, &metapb.RegionEpoch{}, operator.OpBalance)
-	c.Assert(oc.AddWaitingOperator(op5), IsFalse)
+	c.Assert(oc.AddOperator(op5), IsFalse)
 
 	// test wrong region epoch.
 	c.Assert(oc.RemoveOperator(op1), IsTrue)
@@ -1022,10 +1022,10 @@ func (s *testScheduleControllerSuite) TestController(c *C) {
 		ConfVer: tc.GetRegion(1).GetRegionEpoch().GetConfVer(),
 	}
 	op6 := newTestOperator(1, epoch, operator.OpLeader)
-	c.Assert(oc.AddWaitingOperator(op6), IsFalse)
+	c.Assert(oc.AddOperator(op6), IsFalse)
 	epoch.Version--
 	op6 = newTestOperator(1, epoch, operator.OpLeader)
-	c.Assert(oc.AddWaitingOperator(op6), IsTrue)
+	c.Assert(oc.AddOperator(op6), IsTrue)
 	c.Assert(oc.RemoveOperator(op6), IsTrue)
 }
 

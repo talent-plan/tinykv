@@ -67,8 +67,6 @@ type OperatorController struct {
 	opRecords *OperatorRecords
 	// TODO: Need to clean up the unused store ID.
 	storesLimit     map[uint64]*ratelimit.Bucket
-	wop             WaitingOperator
-	wopStatus       *WaitingOperatorStatus
 	opNotifierQueue operatorQueue
 }
 
@@ -83,8 +81,6 @@ func NewOperatorController(ctx context.Context, cluster opt.Cluster, hbStreams H
 		counts:          make(map[operator.OpKind]uint64),
 		opRecords:       NewOperatorRecords(ctx),
 		storesLimit:     make(map[uint64]*ratelimit.Bucket),
-		wop:             NewRandBuckets(),
-		wopStatus:       NewWaitingOperatorStatus(),
 		opNotifierQueue: make(operatorQueue, 0),
 	}
 }
@@ -115,7 +111,6 @@ func (oc *OperatorController) Dispatch(region *core.RegionInfo, source string) {
 					log.Info("stale operator", zap.Uint64("region-id", region.GetID()), zap.Duration("takes", op.RunningTime()),
 						zap.Reflect("operator", op), zap.Uint64("diff", changes))
 					oc.opRecords.Put(op, pdpb.OperatorStatus_CANCEL)
-					oc.PromoteWaitingOperator()
 				}
 
 				return
@@ -128,11 +123,9 @@ func (oc *OperatorController) Dispatch(region *core.RegionInfo, source string) {
 			log.Info("operator finish", zap.Uint64("region-id", region.GetID()), zap.Duration("takes", op.RunningTime()), zap.Reflect("operator", op))
 			oc.pushHistory(op)
 			oc.opRecords.Put(op, pdpb.OperatorStatus_SUCCESS)
-			oc.PromoteWaitingOperator()
 		} else if timeout && oc.RemoveOperator(op) {
 			log.Info("operator timeout", zap.Uint64("region-id", region.GetID()), zap.Duration("takes", op.RunningTime()), zap.Reflect("operator", op))
 			oc.opRecords.Put(op, pdpb.OperatorStatus_TIMEOUT)
-			oc.PromoteWaitingOperator()
 		}
 	}
 }
@@ -201,35 +194,6 @@ func (oc *OperatorController) PushOperators() {
 	}
 }
 
-// AddWaitingOperator adds operators to waiting operators.
-func (oc *OperatorController) AddWaitingOperator(ops ...*operator.Operator) bool {
-	oc.Lock()
-
-	if !oc.checkAddOperator(ops...) {
-		for _, op := range ops {
-			oc.opRecords.Put(op, pdpb.OperatorStatus_CANCEL)
-		}
-		oc.Unlock()
-		return false
-	}
-
-	op := ops[0]
-	desc := op.Desc()
-	if oc.wopStatus.ops[desc] >= oc.cluster.GetSchedulerMaxWaitingOperator() {
-		oc.Unlock()
-		return false
-	}
-	oc.wop.PutOperator(op)
-	// This step is especially for the merge operation.
-	if len(ops) > 1 {
-		oc.wop.PutOperator(ops[1])
-	}
-	oc.wopStatus.ops[desc]++
-	oc.Unlock()
-	oc.PromoteWaitingOperator()
-	return true
-}
-
 // AddOperator adds operators to the running operators.
 func (oc *OperatorController) AddOperator(ops ...*operator.Operator) bool {
 	oc.Lock()
@@ -245,29 +209,6 @@ func (oc *OperatorController) AddOperator(ops ...*operator.Operator) bool {
 		oc.addOperatorLocked(op)
 	}
 	return true
-}
-
-// PromoteWaitingOperator promotes operators from waiting operators.
-func (oc *OperatorController) PromoteWaitingOperator() {
-	oc.Lock()
-	defer oc.Unlock()
-	var op *operator.Operator
-	for {
-		op = oc.wop.GetOperator()
-		if op == nil {
-			return
-		}
-
-		if oc.exceedStoreLimit(op) || !oc.checkAddOperator(op) {
-			oc.opRecords.Put(op, pdpb.OperatorStatus_CANCEL)
-			oc.wopStatus.ops[op.Desc()]--
-			continue
-		}
-		oc.wopStatus.ops[op.Desc()]--
-		break
-	}
-
-	oc.addOperatorLocked(op)
 }
 
 // checkAddOperator checks if the operator can be added.
@@ -382,13 +323,6 @@ func (oc *OperatorController) GetOperators() []*operator.Operator {
 	}
 
 	return operators
-}
-
-// GetWaitingOperators gets operators from the waiting operators.
-func (oc *OperatorController) GetWaitingOperators() []*operator.Operator {
-	oc.RLock()
-	defer oc.RUnlock()
-	return oc.wop.ListOperator()
 }
 
 // SendScheduleCommand sends a command to the region.
