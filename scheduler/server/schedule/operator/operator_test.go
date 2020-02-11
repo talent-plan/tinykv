@@ -222,38 +222,6 @@ func (s *testOperatorSuite) TestInfluence(c *C) {
 		RegionCount: 1,
 		StepCost:    1000,
 	})
-
-	MergeRegion{IsPassive: false}.Influence(opInfluence, region)
-	c.Assert(*storeOpInfluence[1], DeepEquals, StoreInfluence{
-		LeaderSize:  -50,
-		LeaderCount: -1,
-		RegionSize:  -50,
-		RegionCount: -1,
-		StepCost:    0,
-	})
-	c.Assert(*storeOpInfluence[2], DeepEquals, StoreInfluence{
-		LeaderSize:  50,
-		LeaderCount: 1,
-		RegionSize:  50,
-		RegionCount: 1,
-		StepCost:    1000,
-	})
-
-	MergeRegion{IsPassive: true}.Influence(opInfluence, region)
-	c.Assert(*storeOpInfluence[1], DeepEquals, StoreInfluence{
-		LeaderSize:  -50,
-		LeaderCount: -2,
-		RegionSize:  -50,
-		RegionCount: -2,
-		StepCost:    0,
-	})
-	c.Assert(*storeOpInfluence[2], DeepEquals, StoreInfluence{
-		LeaderSize:  50,
-		LeaderCount: 1,
-		RegionSize:  50,
-		RegionCount: 0,
-		StepCost:    1000,
-	})
 }
 
 func (s *testOperatorSuite) TestOperatorKind(c *C) {
