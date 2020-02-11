@@ -38,7 +38,7 @@ func TestSinglePrewrite(t *testing.T) {
 	assert.Equal(t, mem.Len(engine_util.CfDefault), 1)
 	assert.Equal(t, mem.Len(engine_util.CfLock), 1)
 
-	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{3}, 100)))
+	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 100)))
 	assert.Equal(t, []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
 }
 
@@ -59,15 +59,15 @@ func TestPrewriteLocked(t *testing.T) {
 
 	assert.Equal(t, mem.Len(engine_util.CfDefault), 1)
 	assert.Equal(t, mem.Len(engine_util.CfLock), 1)
-	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{3}, 100)))
+	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 100)))
 	assert.Equal(t, []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
 }
 
 // TestPrewriteWritten tests an attempted prewrite with a write conflict.
 func TestPrewriteWritten(t *testing.T) {
 	mem := inner_server.NewMemInnerServer()
-	mem.Set(engine_util.CfDefault, codec.EncodeKey([]byte{3}, 80), []byte{5})
-	mem.Set(engine_util.CfWrite, codec.EncodeKey([]byte{3}, 101), []byte{1, 0, 0, 0, 0, 0, 0, 0, 80})
+	mem.Set(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 80), []byte{5})
+	mem.Set(engine_util.CfWrite, kvstore.EncodeKey([]byte{3}, 101), []byte{1, 0, 0, 0, 0, 0, 0, 0, 80})
 	sched := exec.NewSeqScheduler(mem)
 
 	builder := newReqBuilder()
@@ -80,14 +80,14 @@ func TestPrewriteWritten(t *testing.T) {
 	assert.Equal(t, mem.Len(engine_util.CfLock), 0)
 	assert.Equal(t, mem.Len(engine_util.CfWrite), 1)
 
-	assert.Equal(t, []byte{5}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{3}, 80)))
+	assert.Equal(t, []byte{5}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 80)))
 }
 
 // TestPrewriteWrittenNoConflict tests an attempted prewrite with a write already present, but no conflict.
 func TestPrewriteWrittenNoConflict(t *testing.T) {
 	mem := inner_server.NewMemInnerServer()
-	mem.Set(engine_util.CfDefault, codec.EncodeKey([]byte{3}, 80), []byte{5})
-	mem.Set(engine_util.CfWrite, codec.EncodeKey([]byte{3}, 90), []byte{1, 0, 0, 0, 0, 0, 0, 0, 80})
+	mem.Set(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 80), []byte{5})
+	mem.Set(engine_util.CfWrite, kvstore.EncodeKey([]byte{3}, 90), []byte{1, 0, 0, 0, 0, 0, 0, 0, 80})
 	sched := exec.NewSeqScheduler(mem)
 
 	builder := newReqBuilder()
@@ -99,8 +99,8 @@ func TestPrewriteWrittenNoConflict(t *testing.T) {
 	assert.Equal(t, mem.Len(engine_util.CfLock), 1)
 	assert.Equal(t, mem.Len(engine_util.CfWrite), 1)
 
-	assert.Equal(t, []byte{5}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{3}, 80)))
-	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{3}, 100)))
+	assert.Equal(t, []byte{5}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 80)))
+	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 100)))
 	assert.Equal(t, []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
 }
 
@@ -121,9 +121,9 @@ func TestMultiplePrewrites(t *testing.T) {
 
 	assert.Equal(t, mem.Len(engine_util.CfDefault), 2)
 	assert.Equal(t, mem.Len(engine_util.CfLock), 2)
-	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{3}, 100)))
+	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 100)))
 	assert.Equal(t, []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
-	assert.Equal(t, []byte{53}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{4}, 101)))
+	assert.Equal(t, []byte{53}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{4}, 101)))
 	assert.Equal(t, []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 101}, mem.Get(engine_util.CfLock, []byte{4}))
 }
 
@@ -140,7 +140,7 @@ func TestPrewriteOverwrite(t *testing.T) {
 	assert.Equal(t, mem.Len(engine_util.CfDefault), 1)
 	assert.Equal(t, mem.Len(engine_util.CfLock), 1)
 
-	assert.Equal(t, []byte{45}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{3}, 100)))
+	assert.Equal(t, []byte{45}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 100)))
 	assert.Equal(t, []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
 }
 
@@ -164,7 +164,7 @@ func TestPrewriteMultiple(t *testing.T) {
 	assert.Equal(t, mem.Len(engine_util.CfDefault), 4)
 	assert.Equal(t, mem.Len(engine_util.CfLock), 4)
 
-	assert.Equal(t, []byte{1, 3, 5}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{4}, 100)))
+	assert.Equal(t, []byte{1, 3, 5}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{4}, 100)))
 }
 
 type requestBuilder struct {
