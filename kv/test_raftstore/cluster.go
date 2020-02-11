@@ -41,6 +41,7 @@ type Cluster struct {
 	pdClient  pd.Client
 	count     int
 	engines   map[uint64]*engine_util.Engines
+	snapPaths map[uint64]string
 	dirs      []string
 	simulator Simulator
 }
@@ -50,6 +51,7 @@ func NewCluster(count int, pdClient pd.Client, simulator Simulator) Cluster {
 		count:     count,
 		pdClient:  pdClient,
 		engines:   make(map[uint64]*engine_util.Engines),
+		snapPaths: make(map[uint64]string),
 		simulator: simulator,
 	}
 }
@@ -63,7 +65,8 @@ func (c *Cluster) Start() error {
 		kvPath := filepath.Join(dbPath, "kv")
 		raftPath := filepath.Join(dbPath, "raft")
 		snapPath := filepath.Join(dbPath, "snap")
-		c.dirs = []string{kvPath, raftPath, snapPath}
+		c.snapPaths[nodeID] = snapPath
+		c.dirs = append(c.dirs, []string{kvPath, raftPath, snapPath}...)
 
 		err = os.MkdirAll(kvPath, os.ModePerm)
 		if err != nil {
@@ -82,18 +85,62 @@ func (c *Cluster) Start() error {
 		conf.Engine.DBPath = dbPath
 
 		raftDB := engine_util.CreateDB("raft", &conf.Engine)
-		raftConf := tikvConf.NewDefaultConfig()
-		raftConf.SnapPath = snapPath
-
 		kvDB := engine_util.CreateDB("kv", &conf.Engine)
 		engine := engine_util.NewEngines(kvDB, raftDB, kvPath, raftPath)
-		err = raftstore.BootstrapStore(engine, clusterID, nodeID)
+		c.engines[nodeID] = engine
+	}
+
+	regionEpoch := &metapb.RegionEpoch{
+		Version: raftstore.InitEpochVer,
+		ConfVer: raftstore.InitEpochConfVer,
+	}
+	firstRegion := &metapb.Region{
+		Id:          1,
+		StartKey:    []byte{},
+		EndKey:      []byte{},
+		RegionEpoch: regionEpoch,
+	}
+
+	for nodeID, engine := range c.engines {
+		peer := NewPeer(nodeID, nodeID)
+		firstRegion.Peers = append(firstRegion.Peers, &peer)
+		err := raftstore.BootstrapStore(engine, clusterID, nodeID)
 		if err != nil {
 			return err
 		}
-		c.engines[nodeID] = engine
+	}
 
-		err = c.simulator.RunNode(raftConf, engine, context.TODO())
+	for _, engine := range c.engines {
+		raftstore.PrepareBootstrapCluster(engine, firstRegion)
+	}
+
+	store := &metapb.Store{
+		Id:      1,
+		Address: "",
+	}
+	resp, err := c.pdClient.Bootstrap(context.TODO(), store, firstRegion)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if resp.Header != nil && resp.Header.Error != nil {
+		log.Fatal(resp.Header.Error)
+	}
+
+	for nodeID := range c.engines {
+		store := &metapb.Store{
+			Id:      nodeID,
+			Address: "",
+		}
+		err := c.pdClient.PutStore(context.TODO(), store)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	for nodeID, engine := range c.engines {
+		raftConf := tikvConf.NewDefaultConfig()
+		raftConf.SnapPath = c.snapPaths[nodeID]
+		err := c.simulator.RunNode(raftConf, engine, context.TODO())
 		if err != nil {
 			return err
 		}
@@ -135,26 +182,35 @@ func (c *Cluster) CallCommand(request *raft_cmdpb.RaftCmdRequest, timeout time.D
 }
 
 func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeout time.Duration) *raft_cmdpb.RaftCmdResponse {
-	regionID := request.Header.RegionId
-	leader := c.LeaderOfRegion(regionID)
-	if leader == nil {
-		log.Fatalf("can't get leader of region %d", regionID)
+	startTime := time.Now()
+	for {
+		if time.Now().Sub(startTime) > timeout {
+			return nil
+		}
+		regionID := request.Header.RegionId
+		leader := c.LeaderOfRegion(regionID)
+		if leader == nil {
+			log.Fatalf("can't get leader of region %d", regionID)
+		}
+		request.Header.Peer = leader
+		resp := c.CallCommand(request, timeout)
+		if resp == nil {
+			log.Fatalf("can't call command %s on leader of region %d", request.String(), regionID)
+		}
+		return resp
 	}
-	request.Header.Peer = leader
-	resp := c.CallCommand(request, timeout)
-	if resp == nil {
-		log.Fatalf("can't call command %s on leader of region %d", request.String(), regionID)
-	}
-	return resp
 }
 
 func (c *Cluster) LeaderOfRegion(regionID uint64) *metapb.Peer {
 	storeIds := c.GetStoreIdsOfRegion(regionID)
-	for _, storeID := range storeIds {
-		leader := c.QueryLeader(storeID, regionID, 1*time.Second)
-		if leader != nil {
-			return leader
+	for i := 0; i < 500; i++ {
+		for _, storeID := range storeIds {
+			leader := c.QueryLeader(storeID, regionID, 1*time.Second)
+			if leader != nil {
+				return leader
+			}
 		}
+		SleepMS(10)
 	}
 	return nil
 }
@@ -168,7 +224,7 @@ func (c *Cluster) QueryLeader(storeID, regionID uint64, timeout time.Duration) *
 		log.Fatalf("fail to get leader of region %d on store %d", regionID, storeID)
 	}
 	regionLeader := resp.StatusResponse.RegionLeader
-	if c.ValidLeaderID(regionID, regionLeader.Leader.StoreId) {
+	if regionLeader != nil && c.ValidLeaderID(regionID, regionLeader.Leader.StoreId) {
 		return regionLeader.Leader
 	}
 	return nil

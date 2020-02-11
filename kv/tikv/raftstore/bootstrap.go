@@ -79,14 +79,14 @@ func PrepareBootstrap(engins *engine_util.Engines, storeID, regionID, peerID uin
 			},
 		},
 	}
-	err := writePrepareBootstrap(engins, region)
+	err := PrepareBootstrapCluster(engins, region)
 	if err != nil {
 		return nil, err
 	}
 	return region, nil
 }
 
-func writePrepareBootstrap(engines *engine_util.Engines, region *metapb.Region) error {
+func PrepareBootstrapCluster(engines *engine_util.Engines, region *metapb.Region) error {
 	state := new(rspb.RegionLocalState)
 	state.Region = region
 	kvWB := new(engine_util.WriteBatch)
