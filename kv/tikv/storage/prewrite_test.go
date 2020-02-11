@@ -18,7 +18,7 @@ func TestEmptyPrewrite(t *testing.T) {
 	sched := exec.NewSeqScheduler(mem)
 
 	builder := newReqBuilder()
-	cmd := commands.NewPrewrite(builder.request())
+	cmd := commands.NewPrewrite(builder.prewriteRequest())
 	resp := run(t, sched, &cmd)[0].(*kvrpcpb.PrewriteResponse)
 	assert.Empty(t, resp.Errors)
 	assert.Nil(t, resp.RegionError)
@@ -31,7 +31,7 @@ func TestSinglePrewrite(t *testing.T) {
 	sched := exec.NewSeqScheduler(mem)
 
 	builder := newReqBuilder()
-	cmd := commands.NewPrewrite(builder.request(mutation(3, []byte{42}, kvrpcpb.Op_Put)))
+	cmd := commands.NewPrewrite(builder.prewriteRequest(mutation(3, []byte{42}, kvrpcpb.Op_Put)))
 	resp := run(t, sched, &cmd)[0].(*kvrpcpb.PrewriteResponse)
 	assert.Empty(t, resp.Errors)
 	assert.Nil(t, resp.RegionError)
@@ -39,17 +39,17 @@ func TestSinglePrewrite(t *testing.T) {
 	assert.Equal(t, mem.Len(engine_util.CfLock), 1)
 
 	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{3}, 100)))
-	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
+	assert.Equal(t, []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
 }
 
-// TestBadWritePrewrites tests that two prewrites to the same key causes a lock error.
-func TestBadWritePrewrites(t *testing.T) {
+// TestPrewriteLocked tests that two prewrites to the same key causes a lock error.
+func TestPrewriteLocked(t *testing.T) {
 	mem := inner_server.NewMemInnerServer()
 	sched := exec.NewSeqScheduler(mem)
 
 	builder := newReqBuilder()
-	cmd := commands.NewPrewrite(builder.request(mutation(3, []byte{42}, kvrpcpb.Op_Put)))
-	cmd2 := commands.NewPrewrite(builder.request(mutation(3, []byte{53}, kvrpcpb.Op_Put)))
+	cmd := commands.NewPrewrite(builder.prewriteRequest(mutation(3, []byte{42}, kvrpcpb.Op_Put)))
+	cmd2 := commands.NewPrewrite(builder.prewriteRequest(mutation(3, []byte{53}, kvrpcpb.Op_Put)))
 	resps := run(t, sched, &cmd, &cmd2)
 
 	assert.Empty(t, resps[0].(*kvrpcpb.PrewriteResponse).Errors)
@@ -60,7 +60,48 @@ func TestBadWritePrewrites(t *testing.T) {
 	assert.Equal(t, mem.Len(engine_util.CfDefault), 1)
 	assert.Equal(t, mem.Len(engine_util.CfLock), 1)
 	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{3}, 100)))
-	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
+	assert.Equal(t, []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
+}
+
+// TestPrewriteWritten tests an attempted prewrite with a write conflict.
+func TestPrewriteWritten(t *testing.T) {
+	mem := inner_server.NewMemInnerServer()
+	mem.Set(engine_util.CfDefault, codec.EncodeKey([]byte{3}, 80), []byte{5})
+	mem.Set(engine_util.CfWrite, codec.EncodeKey([]byte{3}, 101), []byte{1, 0, 0, 0, 0, 0, 0, 0, 80})
+	sched := exec.NewSeqScheduler(mem)
+
+	builder := newReqBuilder()
+	cmd := commands.NewPrewrite(builder.prewriteRequest(mutation(3, []byte{42}, kvrpcpb.Op_Put)))
+	resp := run(t, sched, &cmd)[0].(*kvrpcpb.PrewriteResponse)
+	assert.Equal(t, 1, len(resp.Errors))
+	assert.NotNil(t, resp.Errors[0].Conflict)
+	assert.Nil(t, resp.RegionError)
+	assert.Equal(t, mem.Len(engine_util.CfDefault), 1)
+	assert.Equal(t, mem.Len(engine_util.CfLock), 0)
+	assert.Equal(t, mem.Len(engine_util.CfWrite), 1)
+
+	assert.Equal(t, []byte{5}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{3}, 80)))
+}
+
+// TestPrewriteWrittenNoConflict tests an attempted prewrite with a write already present, but no conflict.
+func TestPrewriteWrittenNoConflict(t *testing.T) {
+	mem := inner_server.NewMemInnerServer()
+	mem.Set(engine_util.CfDefault, codec.EncodeKey([]byte{3}, 80), []byte{5})
+	mem.Set(engine_util.CfWrite, codec.EncodeKey([]byte{3}, 90), []byte{1, 0, 0, 0, 0, 0, 0, 0, 80})
+	sched := exec.NewSeqScheduler(mem)
+
+	builder := newReqBuilder()
+	cmd := commands.NewPrewrite(builder.prewriteRequest(mutation(3, []byte{42}, kvrpcpb.Op_Put)))
+	resp := run(t, sched, &cmd)[0].(*kvrpcpb.PrewriteResponse)
+	assert.Empty(t, resp.Errors)
+	assert.Nil(t, resp.RegionError)
+	assert.Equal(t, mem.Len(engine_util.CfDefault), 2)
+	assert.Equal(t, mem.Len(engine_util.CfLock), 1)
+	assert.Equal(t, mem.Len(engine_util.CfWrite), 1)
+
+	assert.Equal(t, []byte{5}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{3}, 80)))
+	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{3}, 100)))
+	assert.Equal(t, []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
 }
 
 // TestMultiplePrewrites tests that multiple prewrites to different keys succeeds.
@@ -69,8 +110,8 @@ func TestMultiplePrewrites(t *testing.T) {
 	sched := exec.NewSeqScheduler(mem)
 
 	builder := newReqBuilder()
-	cmd := commands.NewPrewrite(builder.request(mutation(3, []byte{42}, kvrpcpb.Op_Put)))
-	cmd2 := commands.NewPrewrite(builder.request(mutation(4, []byte{53}, kvrpcpb.Op_Put)))
+	cmd := commands.NewPrewrite(builder.prewriteRequest(mutation(3, []byte{42}, kvrpcpb.Op_Put)))
+	cmd2 := commands.NewPrewrite(builder.prewriteRequest(mutation(4, []byte{53}, kvrpcpb.Op_Put)))
 	resps := run(t, sched, &cmd, &cmd2)
 
 	assert.Empty(t, resps[0].(*kvrpcpb.PrewriteResponse).Errors)
@@ -81,9 +122,9 @@ func TestMultiplePrewrites(t *testing.T) {
 	assert.Equal(t, mem.Len(engine_util.CfDefault), 2)
 	assert.Equal(t, mem.Len(engine_util.CfLock), 2)
 	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{3}, 100)))
-	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
+	assert.Equal(t, []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
 	assert.Equal(t, []byte{53}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{4}, 101)))
-	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 101}, mem.Get(engine_util.CfLock, []byte{4}))
+	assert.Equal(t, []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 101}, mem.Get(engine_util.CfLock, []byte{4}))
 }
 
 // TestPrewriteOverwrite tests that two writes in the same prewrite succeed and we see the second write.
@@ -92,7 +133,7 @@ func TestPrewriteOverwrite(t *testing.T) {
 	sched := exec.NewSeqScheduler(mem)
 
 	builder := newReqBuilder()
-	cmd := commands.NewPrewrite(builder.request(mutation(3, []byte{42}, kvrpcpb.Op_Put), mutation(3, []byte{45}, kvrpcpb.Op_Put)))
+	cmd := commands.NewPrewrite(builder.prewriteRequest(mutation(3, []byte{42}, kvrpcpb.Op_Put), mutation(3, []byte{45}, kvrpcpb.Op_Put)))
 	resp := run(t, sched, &cmd)[0].(*kvrpcpb.PrewriteResponse)
 	assert.Empty(t, resp.Errors)
 	assert.Nil(t, resp.RegionError)
@@ -100,7 +141,7 @@ func TestPrewriteOverwrite(t *testing.T) {
 	assert.Equal(t, mem.Len(engine_util.CfLock), 1)
 
 	assert.Equal(t, []byte{45}, mem.Get(engine_util.CfDefault, codec.EncodeKey([]byte{3}, 100)))
-	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
+	assert.Equal(t, []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfLock, []byte{3}))
 }
 
 // TestPrewriteMultiple tests that a prewrite with multiple mutations succeeds.
@@ -109,7 +150,7 @@ func TestPrewriteMultiple(t *testing.T) {
 	sched := exec.NewSeqScheduler(mem)
 
 	builder := newReqBuilder()
-	cmd := commands.NewPrewrite(builder.request(
+	cmd := commands.NewPrewrite(builder.prewriteRequest(
 		mutation(3, []byte{42}, kvrpcpb.Op_Put),
 		mutation(4, []byte{43}, kvrpcpb.Op_Put),
 		mutation(5, []byte{44}, kvrpcpb.Op_Put),
@@ -136,7 +177,7 @@ func newReqBuilder() requestBuilder {
 	}
 }
 
-func (builder *requestBuilder) request(muts ...*kvrpcpb.Mutation) *kvrpcpb.PrewriteRequest {
+func (builder *requestBuilder) prewriteRequest(muts ...*kvrpcpb.Mutation) *kvrpcpb.PrewriteRequest {
 	var req kvrpcpb.PrewriteRequest
 	req.PrimaryLock = []byte{1}
 	req.StartVersion = builder.nextTS

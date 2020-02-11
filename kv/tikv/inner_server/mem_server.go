@@ -3,6 +3,7 @@ package inner_server
 import (
 	"bytes"
 	"fmt"
+
 	"github.com/coocood/badger/y"
 	"github.com/petar/GoLLRB/llrb"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
