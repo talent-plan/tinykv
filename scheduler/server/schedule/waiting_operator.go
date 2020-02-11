@@ -26,7 +26,7 @@ var PriorityWeight = []float64{1.0, 4.0, 9.0}
 // WaitingOperator is an interface of waiting operators.
 type WaitingOperator interface {
 	PutOperator(op *operator.Operator)
-	GetOperator() []*operator.Operator
+	GetOperator() *operator.Operator
 	ListOperator() []*operator.Operator
 }
 
@@ -76,7 +76,7 @@ func (b *RandBuckets) ListOperator() []*operator.Operator {
 }
 
 // GetOperator gets an operator from the random buckets.
-func (b *RandBuckets) GetOperator() []*operator.Operator {
+func (b *RandBuckets) GetOperator() *operator.Operator {
 	if b.totalWeight == 0 {
 		return nil
 	}
@@ -89,15 +89,10 @@ func (b *RandBuckets) GetOperator() []*operator.Operator {
 		}
 		proportion := bucket.weight / b.totalWeight
 		if r >= sum && r < sum+proportion {
-			var res []*operator.Operator
-			res = append(res, bucket.ops[0])
-			// Merge operation has two operators, and thus it should be handled specifically.
-			if bucket.ops[0].Kind()&operator.OpMerge != 0 {
-				res = append(res, bucket.ops[1])
-				bucket.ops = bucket.ops[2:]
-			} else {
-				bucket.ops = bucket.ops[1:]
-			}
+			var res *operator.Operator
+			res = bucket.ops[0]
+			bucket.ops = bucket.ops[1:]
+
 			if len(bucket.ops) == 0 {
 				b.totalWeight -= bucket.weight
 			}

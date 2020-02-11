@@ -251,27 +251,23 @@ func (oc *OperatorController) AddOperator(ops ...*operator.Operator) bool {
 func (oc *OperatorController) PromoteWaitingOperator() {
 	oc.Lock()
 	defer oc.Unlock()
-	var ops []*operator.Operator
+	var op *operator.Operator
 	for {
-		ops = oc.wop.GetOperator()
-		if ops == nil {
+		op = oc.wop.GetOperator()
+		if op == nil {
 			return
 		}
 
-		if oc.exceedStoreLimit(ops...) || !oc.checkAddOperator(ops...) {
-			for _, op := range ops {
-				oc.opRecords.Put(op, pdpb.OperatorStatus_CANCEL)
-			}
-			oc.wopStatus.ops[ops[0].Desc()]--
+		if oc.exceedStoreLimit(op) || !oc.checkAddOperator(op) {
+			oc.opRecords.Put(op, pdpb.OperatorStatus_CANCEL)
+			oc.wopStatus.ops[op.Desc()]--
 			continue
 		}
-		oc.wopStatus.ops[ops[0].Desc()]--
+		oc.wopStatus.ops[op.Desc()]--
 		break
 	}
 
-	for _, op := range ops {
-		oc.addOperatorLocked(op)
-	}
+	oc.addOperatorLocked(op)
 }
 
 // checkAddOperator checks if the operator can be added.
