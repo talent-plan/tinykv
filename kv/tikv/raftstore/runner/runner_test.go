@@ -120,8 +120,6 @@ func TestApplies(t *testing.T) {
 		require.Nil(t, db.Update(func(txn *badger.Txn) error {
 			require.Nil(t, txn.Set([]byte{k}, []byte{k}))
 			require.Nil(t, txn.Set([]byte{k + 1}, []byte{k + 1}))
-			// t  odo, there might be flush method needed.
-			// todo, test also test level 0 files, we add later when badger export level 0 files api.
 			return nil
 		}))
 	}
