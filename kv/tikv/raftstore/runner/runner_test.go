@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"encoding/binary"
 	"io"
 	"io/ioutil"
 	"os"
@@ -344,6 +345,13 @@ func (r *TaskResRouter) ReportUnreachable(regionID, toPeerID uint64) error {
 	return nil
 }
 
+func encodeKey(key []byte, ts uint64) []byte {
+	encodedKey := codec.EncodeBytes(key)
+	newKey := append(encodedKey, make([]byte, 8)...)
+	binary.BigEndian.PutUint64(newKey[len(newKey)-8:], ^ts)
+	return newKey
+}
+
 func TestSplitCheck(t *testing.T) {
 	engines := util.NewTestEngines()
 	defer cleanUpTestEngineData(engines)
@@ -358,11 +366,11 @@ func TestSplitCheck(t *testing.T) {
 
 	kvWb := new(engine_util.WriteBatch)
 	// the length of each kv pair is 21
-	kvWb.SetCF(engine_util.CfDefault, codec.EncodeKey([]byte("k1"), 1), []byte("entry"))
-	kvWb.SetCF(engine_util.CfDefault, codec.EncodeKey([]byte("k1"), 2), []byte("entry"))
-	kvWb.SetCF(engine_util.CfDefault, codec.EncodeKey([]byte("k2"), 1), []byte("entry"))
-	kvWb.SetCF(engine_util.CfDefault, codec.EncodeKey([]byte("k2"), 2), []byte("entry"))
-	kvWb.SetCF(engine_util.CfDefault, codec.EncodeKey([]byte("k3"), 3), []byte("entry"))
+	kvWb.SetCF(engine_util.CfDefault, encodeKey([]byte("k1"), 1), []byte("entry"))
+	kvWb.SetCF(engine_util.CfDefault, encodeKey([]byte("k1"), 2), []byte("entry"))
+	kvWb.SetCF(engine_util.CfDefault, encodeKey([]byte("k2"), 1), []byte("entry"))
+	kvWb.SetCF(engine_util.CfDefault, encodeKey([]byte("k2"), 2), []byte("entry"))
+	kvWb.SetCF(engine_util.CfDefault, encodeKey([]byte("k3"), 3), []byte("entry"))
 	kvWb.MustWriteToDB(db)
 
 	task := worker.Task{
