@@ -1,7 +1,6 @@
 package test_raftstore
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"io/ioutil"
@@ -174,7 +173,6 @@ func (c *Cluster) Request(key []byte, reqs []*raft_cmdpb.Request, readQuorum boo
 		return resp
 	}
 	panic("request timeout")
-	return nil
 }
 
 func (c *Cluster) CallCommand(request *raft_cmdpb.RaftCmdRequest, timeout time.Duration) *raft_cmdpb.RaftCmdResponse {
@@ -286,24 +284,24 @@ func (c *Cluster) MustPutCF(cf string, key, value []byte) {
 	}
 }
 
-// MustGet value is optional
-func (c *Cluster) MustGet(nodeID uint64, cf string, key []byte, value []byte) {
-	engine := c.engines[nodeID]
-	if engine == nil {
-		log.Panicf("can not find engine with ID %d", nodeID)
-	}
-	val, err := engine_util.GetCF(engine.Kv, cf, key)
-	if err != nil {
-		panic(err)
-	}
-	if value != nil && bytes.Compare(val, value) != 0 {
-		log.Panicf("can't get value %s for key %s", hex.EncodeToString(value), hex.EncodeToString(key))
-	}
-}
+// func (c *Cluster) MustGet(nodeID uint64, cf string, key []byte, value []byte) {
+// 	engine := c.engines[nodeID]
+// 	if engine == nil {
+// 		log.Panicf("can not find engine with ID %d", nodeID)
+// 	}
+// 	for i := 0; i < 300; i++ {
+// 		val, err := engine_util.GetCF(engine.Kv, cf, key)
+// 		if err == nil && (value == nil || bytes.Compare(val, value) == 0) {
+// 			return
+// 		}
+// 		SleepMS(20)
+// 	}
+// 	log.Panicf("can't get value %s for key %s", hex.EncodeToString(value), hex.EncodeToString(key))
+// }
 
-func (c *Cluster) MustGetEqual(nodeID uint64, key []byte, value []byte) {
-	c.MustGet(nodeID, engine_util.CfDefault, key, value)
-}
+// func (c *Cluster) MustGetEqual(nodeID uint64, key []byte, value []byte) {
+// 	c.MustGet(nodeID, engine_util.CfDefault, key, value)
+// }
 
 func (c *Cluster) TransferLeader(regionID uint64, leader *metapb.Peer) {
 	region, _, err := c.pdClient.GetRegionByID(context.TODO(), regionID)

@@ -238,9 +238,6 @@ func (c *NodeSimulator) GetNodeIds() []uint64 {
 }
 
 func (c *NodeSimulator) CallCommandOnNode(nodeID uint64, request *raft_cmdpb.RaftCmdRequest, timeout time.Duration) *raft_cmdpb.RaftCmdResponse {
-	c.trans.Lock()
-	defer c.trans.Unlock()
-
 	router := c.trans.routers[nodeID]
 	if router == nil {
 		log.Panicf("Can not find node %d", nodeID)
