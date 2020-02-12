@@ -21,6 +21,10 @@ func testPartitionWrite(cluster Cluster) {
 	peer := NewPeer(1, 1)
 	cluster.MustTransferLeader(regionID, &peer)
 
+	// leader in majority, partition doesn't affect write/read
+	cluster.Partition([]uint64{1, 2, 3}, []uint64{4, 5})
+	cluster.MustGet(key, value)
+
 	cluster.Shutdown()
 }
 

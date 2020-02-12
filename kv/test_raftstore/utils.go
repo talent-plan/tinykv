@@ -69,6 +69,18 @@ func NewRegionLeaderCmd() *raft_cmdpb.StatusRequest {
 	return &cmd
 }
 
+func NewGetCfCmd(cf string, key []byte) *raft_cmdpb.Request {
+	get := &raft_cmdpb.GetRequest{
+		Cf:  cf,
+		Key: key,
+	}
+	cmd := &raft_cmdpb.Request{
+		CmdType: raft_cmdpb.CmdType_Get,
+		Get:     get,
+	}
+	return cmd
+}
+
 // MustGet value is optional
 func MustGet(engine *engine_util.Engines, cf string, key []byte, value []byte) {
 	for i := 0; i < 300; i++ {

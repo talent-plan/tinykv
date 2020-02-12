@@ -17,21 +17,13 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 )
-
-type Filter interface {
-	Before(msgs *raft_serverpb.RaftMessage) bool
-	After()
-}
 
 type Simulator interface {
 	RunNode(raftConf *tikvConf.Config, engine *engine_util.Engines, ctx context.Context) error
 	StopNode(nodeID uint64)
-	AddSendFilter(nodeID uint64, filter Filter)
-	AddReceiveFilter(nodeID uint64, filter Filter)
-	ClearSendFilters(nodeID uint64)
-	ClearReceiveFilters(nodeID uint64)
+	AddFilter(filter Filter)
+	ClearFilters()
 	GetNodeIds() []uint64
 	CallCommandOnNode(nodeID uint64, request *raft_cmdpb.RaftCmdRequest, timeout time.Duration) *raft_cmdpb.RaftCmdResponse
 }
@@ -284,24 +276,24 @@ func (c *Cluster) MustPutCF(cf string, key, value []byte) {
 	}
 }
 
-// func (c *Cluster) MustGet(nodeID uint64, cf string, key []byte, value []byte) {
-// 	engine := c.engines[nodeID]
-// 	if engine == nil {
-// 		log.Panicf("can not find engine with ID %d", nodeID)
-// 	}
-// 	for i := 0; i < 300; i++ {
-// 		val, err := engine_util.GetCF(engine.Kv, cf, key)
-// 		if err == nil && (value == nil || bytes.Compare(val, value) == 0) {
-// 			return
-// 		}
-// 		SleepMS(20)
-// 	}
-// 	log.Panicf("can't get value %s for key %s", hex.EncodeToString(value), hex.EncodeToString(key))
-// }
+func (c *Cluster) MustGet(key []byte, value []byte) {
+	c.getImpl(engine_util.CfDefault, key, true)
+}
 
-// func (c *Cluster) MustGetEqual(nodeID uint64, key []byte, value []byte) {
-// 	c.MustGet(nodeID, engine_util.CfDefault, key, value)
-// }
+func (c *Cluster) getImpl(cf string, key []byte, readQuorum bool) []byte {
+	req := NewGetCfCmd(cf, key)
+	resp := c.Request(key, []*raft_cmdpb.Request{req}, readQuorum, 5*time.Second)
+	if resp.Header.Error != nil {
+		panic(resp.Header.Error)
+	}
+	if len(resp.Responses) != 1 {
+		panic("len(resp.Responses) != 1")
+	}
+	if resp.Responses[0].CmdType != raft_cmdpb.CmdType_Get {
+		panic("resp.Responses[0].CmdType != raft_cmdpb.CmdType_Get")
+	}
+	return resp.Responses[0].Get.Value
+}
 
 func (c *Cluster) TransferLeader(regionID uint64, leader *metapb.Peer) {
 	region, _, err := c.pdClient.GetRegionByID(context.TODO(), regionID)
@@ -329,4 +321,12 @@ func (c *Cluster) MustTransferLeader(regionID uint64, leader *metapb.Peer) {
 		}
 		c.TransferLeader(regionID, leader)
 	}
+}
+
+func (c *Cluster) Partition(s1 []uint64, s2 []uint64) {
+	filter := &PartitionFilter{
+		s1: s1,
+		s2: s2,
+	}
+	c.simulator.AddFilter(filter)
 }

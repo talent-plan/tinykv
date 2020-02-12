@@ -24,18 +24,15 @@ import (
 type MockTransport struct {
 	sync.Mutex
 
-	sendFilters map[uint64][]Filter
-	recvFilters map[uint64][]Filter
-	routers     map[uint64]message.RaftRouter
-	snapMgrs    map[uint64]*snap.SnapManager
+	filters  []Filter
+	routers  map[uint64]message.RaftRouter
+	snapMgrs map[uint64]*snap.SnapManager
 }
 
 func NewMockTransport() MockTransport {
 	return MockTransport{
-		sendFilters: make(map[uint64][]Filter),
-		recvFilters: make(map[uint64][]Filter),
-		routers:     make(map[uint64]message.RaftRouter),
-		snapMgrs:    make(map[uint64]*snap.SnapManager),
+		routers:  make(map[uint64]message.RaftRouter),
+		snapMgrs: make(map[uint64]*snap.SnapManager),
 	}
 }
 
@@ -47,74 +44,32 @@ func (t *MockTransport) AddNode(nodeID uint64, raftRouter message.RaftRouter, sn
 	t.snapMgrs[nodeID] = snapMgr
 }
 
-func (t *MockTransport) getSendFilters(nodeID uint64) []Filter {
-	filters := t.sendFilters[nodeID]
-	if filters == nil {
-		filters = make([]Filter, 0)
-	}
-	return filters
-}
-
-func (t *MockTransport) getRecvFilters(nodeID uint64) []Filter {
-	filters := t.recvFilters[nodeID]
-	if filters == nil {
-		filters = make([]Filter, 0)
-	}
-	return filters
-}
-
-func (t *MockTransport) AddSendFilter(nodeID uint64, filter Filter) {
+func (t *MockTransport) AddFilter(filter Filter) {
 	t.Lock()
 	defer t.Unlock()
 
-	filters := t.getSendFilters(nodeID)
-	filters = append(filters, filter)
-	t.sendFilters[nodeID] = filters
+	t.filters = append(t.filters, filter)
 }
 
-func (t *MockTransport) AddReceiveFilter(nodeID uint64, filter Filter) {
+func (t *MockTransport) ClearFilters() {
 	t.Lock()
 	defer t.Unlock()
 
-	filters := t.getRecvFilters(nodeID)
-	filters = append(filters, filter)
-	t.recvFilters[nodeID] = filters
-}
-
-func (t *MockTransport) ClearSendFilters(nodeID uint64) {
-	t.Lock()
-	defer t.Unlock()
-
-	t.sendFilters[nodeID] = nil
-}
-
-func (t *MockTransport) ClearReceiveFilters(nodeID uint64) {
-	t.Lock()
-	defer t.Unlock()
-
-	t.recvFilters[nodeID] = nil
+	t.filters = nil
 }
 
 func (t *MockTransport) Send(msg *raft_serverpb.RaftMessage) error {
 	t.Lock()
 	defer t.Unlock()
 
+	for _, filter := range t.filters {
+		if !filter.Before(msg) {
+			return nil
+		}
+	}
+
 	fromStore := msg.GetFromPeer().GetStoreId()
 	toStore := msg.GetToPeer().GetStoreId()
-
-	fromFilters := t.getSendFilters(fromStore)
-	toFilters := t.getRecvFilters(toStore)
-
-	for _, filter := range fromFilters {
-		if !filter.Before(msg) {
-			return nil
-		}
-	}
-	for _, filter := range toFilters {
-		if !filter.Before(msg) {
-			return nil
-		}
-	}
 
 	regionID := msg.GetRegionId()
 	toPeerID := msg.GetToPeer().GetId()
@@ -159,10 +114,7 @@ func (t *MockTransport) Send(msg *raft_serverpb.RaftMessage) error {
 		}
 	}
 
-	for _, filter := range fromFilters {
-		filter.After()
-	}
-	for _, filter := range toFilters {
+	for _, filter := range t.filters {
 		filter.After()
 	}
 
@@ -213,20 +165,12 @@ func (c *NodeSimulator) StopNode(nodeID uint64) {
 	node.Stop()
 }
 
-func (c *NodeSimulator) AddSendFilter(nodeID uint64, filter Filter) {
-	c.trans.AddSendFilter(nodeID, filter)
+func (c *NodeSimulator) AddFilter(filter Filter) {
+	c.trans.AddFilter(filter)
 }
 
-func (c *NodeSimulator) ClearSendFilters(nodeID uint64) {
-	c.trans.ClearSendFilters(nodeID)
-}
-
-func (c *NodeSimulator) AddReceiveFilter(nodeID uint64, filter Filter) {
-	c.trans.AddReceiveFilter(nodeID, filter)
-}
-
-func (c *NodeSimulator) ClearReceiveFilters(nodeID uint64) {
-	c.trans.ClearReceiveFilters(nodeID)
+func (c *NodeSimulator) ClearFilters() {
+	c.trans.ClearFilters()
 }
 
 func (c *NodeSimulator) GetNodeIds() []uint64 {
