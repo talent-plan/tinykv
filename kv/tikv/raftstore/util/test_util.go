@@ -4,7 +4,7 @@ import (
 	"io/ioutil"
 
 	"github.com/coocood/badger"
-	"github.com/pingcap-incubator/tinykv/kv/engine_util"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 )
 
 func NewTestEngines() *engine_util.Engines {

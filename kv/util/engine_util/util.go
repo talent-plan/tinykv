@@ -97,5 +97,8 @@ func PutValue(engine *badger.DB, key, val []byte) error {
 }
 
 func ExceedEndKey(current, endKey []byte) bool {
+	if len(endKey) == 0 {
+		return false
+	}
 	return bytes.Compare(current, endKey) >= 0
 }
