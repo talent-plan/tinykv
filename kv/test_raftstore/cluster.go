@@ -9,10 +9,10 @@ import (
 
 	"github.com/coocood/badger"
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	tikvConf "github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 )
 

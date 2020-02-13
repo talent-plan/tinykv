@@ -93,7 +93,9 @@ func (svr *Server) KvPrewrite(ctx context.Context, req *kvrpcpb.PrewriteRequest)
 }
 
 func (svr *Server) KvCommit(ctx context.Context, req *kvrpcpb.CommitRequest) (*kvrpcpb.CommitResponse, error) {
-	return nil, nil
+	cmd := commands.NewCommit(req)
+	resp := <-svr.scheduler.Run(&cmd)
+	return resp.commitResponse()
 }
 
 func (svr *Server) KvCheckTxnStatus(ctx context.Context, req *kvrpcpb.CheckTxnStatusRequest) (*kvrpcpb.CheckTxnStatusResponse, error) {

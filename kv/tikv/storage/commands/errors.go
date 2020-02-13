@@ -54,27 +54,24 @@ func (err *WriteConflict) keyErrors() []*kvrpcpb.KeyError {
 	return []*kvrpcpb.KeyError{&result}
 }
 
-// AlreadyExist occurs when a client tries to *insert* a value, but the key is already occupied.
-type AlreadyExist struct {
-	key []byte
-}
-
-func (err *AlreadyExist) Error() string {
-	return fmt.Sprintf("storage: value already exists at key %v", err.key)
-}
-
-func (err *AlreadyExist) keyErrors() []*kvrpcpb.KeyError {
-	var result kvrpcpb.KeyError
-	result.AlreadyExist = &kvrpcpb.AlreadyExist{
-		Key: err.key,
-	}
-	return []*kvrpcpb.KeyError{&result}
-}
-
 // TODO duplicated from errors.go to avoid import cycle
 func extractRegionError(err error) *errorpb.Error {
 	if regionError, ok := err.(*inner_server.RegionError); ok {
 		return regionError.RequestErr
 	}
 	return nil
+}
+
+type LockNotFound struct {
+	key []byte
+}
+
+func (err *LockNotFound) Error() string {
+	return fmt.Sprintf("storage: lock not found for %v", err.key)
+}
+
+func (err *LockNotFound) keyErrors() []*kvrpcpb.KeyError {
+	var result kvrpcpb.KeyError
+	result.Retryable = fmt.Sprintf("lock not found for key %v", err.key)
+	return []*kvrpcpb.KeyError{&result}
 }
