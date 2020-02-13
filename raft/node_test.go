@@ -159,38 +159,6 @@ func TestNodePropose(t *testing.T) {
 	}
 }
 
-// TestDisableProposalForwarding ensures that proposals are not forwarded to
-// the leader when DisableProposalForwarding is true.
-func TestDisableProposalForwarding(t *testing.T) {
-	r1 := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
-	r2 := newTestRaft(2, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
-	cfg3 := newTestConfig(3, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
-	cfg3.DisableProposalForwarding = true
-	r3 := newRaft(cfg3)
-	nt := newNetwork(r1, r2, r3)
-
-	// elect r1 as leader
-	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
-
-	var testEntries = []*pb.Entry{{Data: []byte("testdata")}}
-
-	// send proposal to r2(follower) where DisableProposalForwarding is false
-	r2.Step(pb.Message{From: 2, To: 2, MsgType: pb.MessageType_MsgPropose, Entries: testEntries})
-
-	// verify r2(follower) does forward the proposal when DisableProposalForwarding is false
-	if len(r2.msgs) != 1 {
-		t.Fatalf("len(r2.msgs) expected 1, got %d", len(r2.msgs))
-	}
-
-	// send proposal to r3(follower) where DisableProposalForwarding is true
-	r3.Step(pb.Message{From: 3, To: 3, MsgType: pb.MessageType_MsgPropose, Entries: testEntries})
-
-	// verify r3(follower) does not forward the proposal when DisableProposalForwarding is true
-	if len(r3.msgs) != 0 {
-		t.Fatalf("len(r3.msgs) expected 0, got %d", len(r3.msgs))
-	}
-}
-
 // TestNodeProposeConfig ensures that node.ProposeConfChange sends the given configuration proposal
 // to the underlying raft.
 func TestNodeProposeConfig(t *testing.T) {

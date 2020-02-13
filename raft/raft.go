@@ -134,16 +134,6 @@ type Config struct {
 	// Logger is the logger used for raft log. For multinode which can host
 	// multiple raft group, each raft group can have its own logger
 	Logger Logger
-
-	// DisableProposalForwarding set to true means that followers will drop
-	// proposals, rather than forwarding them to the leader. One use case for
-	// this feature would be in a situation where the Raft leader is used to
-	// compute the data of a proposal, for example, adding a timestamp from a
-	// hybrid logical clock to data in a monotonically increasing way. Forwarding
-	// should be disabled to prevent a follower with an inaccurate hybrid
-	// logical clock from assigning the timestamp and then forwarding the data
-	// to the leader.
-	DisableProposalForwarding bool
 }
 
 func (c *Config) validate() error {
@@ -238,7 +228,6 @@ type Raft struct {
 	// [electiontimeout, 2 * electiontimeout - 1]. It gets reset
 	// when raft changes its state to follower or candidate.
 	randomizedElectionTimeout int
-	disableProposalForwarding bool
 
 	tick func()
 	step stepFunc
@@ -266,15 +255,14 @@ func newRaft(c *Config) *Raft {
 		peers = cs.Nodes
 	}
 	r := &Raft{
-		id:                        c.ID,
-		Lead:                      None,
-		RaftLog:                   raftlog,
-		maxMsgSize:                c.MaxSizePerMsg,
-		Prs:                       make(map[uint64]*Progress),
-		electionTimeout:           c.ElectionTick,
-		heartbeatTimeout:          c.HeartbeatTick,
-		logger:                    c.Logger,
-		disableProposalForwarding: c.DisableProposalForwarding,
+		id:               c.ID,
+		Lead:             None,
+		RaftLog:          raftlog,
+		maxMsgSize:       c.MaxSizePerMsg,
+		Prs:              make(map[uint64]*Progress),
+		electionTimeout:  c.ElectionTick,
+		heartbeatTimeout: c.HeartbeatTick,
+		logger:           c.Logger,
 	}
 	for _, p := range peers {
 		r.Prs[p] = &Progress{Next: 1}
@@ -852,9 +840,6 @@ func stepFollower(r *Raft, m pb.Message) error {
 	case pb.MessageType_MsgPropose:
 		if r.Lead == None {
 			r.logger.Infof("%x no leader at term %d; dropping proposal", r.id, r.Term)
-			return ErrProposalDropped
-		} else if r.disableProposalForwarding {
-			r.logger.Infof("%x not forwarding to leader %x at term %d; dropping proposal", r.id, r.Lead, r.Term)
 			return ErrProposalDropped
 		}
 		m.To = r.Lead
