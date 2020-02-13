@@ -185,7 +185,7 @@ func (txn *MvccTxn) PutValue(key []byte, value []byte) {
 func EncodeKey(key []byte, ts uint64) []byte {
 	encodedKey := codec.EncodeBytes(key)
 	newKey := append(encodedKey, make([]byte, 8)...)
-	binary.BigEndian.PutUint64(newKey[len(newKey)-8:], ^ts)
+	binary.BigEndian.PutUint64(newKey[len(encodedKey):], ^ts)
 	return newKey
 }
 
