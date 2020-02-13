@@ -67,24 +67,3 @@ func (is *StandAloneInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) err
 		return nil
 	})
 }
-
-func (is *StandAloneInnerServer) Get(ctx *kvrpcpb.Context, cf string, key []byte) ([]byte, error) {
-	reader, err := is.Reader(nil)
-	if err != nil {
-		return nil, err
-	}
-	return reader.GetCF(cf, key)
-}
-
-func (is *StandAloneInnerServer) Set(ctx *kvrpcpb.Context, cf string, key []byte, value []byte) error {
-	return is.Write(ctx, []Modify{
-		{
-			Type: ModifyTypePut,
-			Data: Put{
-				Cf:    cf,
-				Key:   key,
-				Value: value,
-			},
-		},
-	})
-}

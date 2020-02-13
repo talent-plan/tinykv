@@ -36,12 +36,6 @@ type InnerServer interface {
 	Snapshot(stream tikvpb.Tikv_SnapshotServer) error
 }
 
-type ReadWriter interface {
-	InnerServer
-	Get(ctx *kvrpcpb.Context, cf string, key []byte) ([]byte, error)
-	Set(ctx *kvrpcpb.Context, cf string, key []byte, value []byte) error
-}
-
 func NewServer(innerServer InnerServer, scheduler Scheduler) *Server {
 	return &Server{
 		innerServer: innerServer,

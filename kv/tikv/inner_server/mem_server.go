@@ -78,16 +78,20 @@ func (is *MemInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
 	return nil
 }
 
-func (is *MemInnerServer) Get(ctx *kvrpcpb.Context, cf string, key []byte) ([]byte, error) {
+func (is *MemInnerServer) Get(cf string, key []byte) []byte {
 	reader, err := is.Reader(nil)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
-	return reader.GetCF(cf, key)
+	value, err := reader.GetCF(cf, key)
+	if err != nil {
+		panic(err)
+	}
+	return value
 }
 
-func (is *MemInnerServer) Set(ctx *kvrpcpb.Context, cf string, key []byte, value []byte) error {
-	return is.Write(ctx, []Modify{
+func (is *MemInnerServer) Set(cf string, key []byte, value []byte) error {
+	return is.Write(nil, []Modify{
 		{
 			Type: ModifyTypePut,
 			Data: Put{
@@ -97,14 +101,6 @@ func (is *MemInnerServer) Set(ctx *kvrpcpb.Context, cf string, key []byte, value
 			},
 		},
 	})
-}
-
-func (is *MemInnerServer) MustGet(ctx *kvrpcpb.Context, cf string, key []byte) []byte {
-	if value, err := is.Get(ctx, cf, key); err != nil {
-		panic(err)
-	} else {
-		return value
-	}
 }
 
 func (is *MemInnerServer) Len(cf string) int {

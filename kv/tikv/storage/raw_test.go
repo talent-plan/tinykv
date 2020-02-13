@@ -14,7 +14,7 @@ import (
 
 func TestGet(t *testing.T) {
 	mem := inner_server.NewMemInnerServer()
-	mem.Set(nil, engine_util.CfDefault, []byte{99}, []byte{42})
+	mem.Set(engine_util.CfDefault, []byte{99}, []byte{42})
 	sched := exec.NewSeqScheduler(mem)
 
 	var req kvrpcpb.RawGetRequest
@@ -38,15 +38,12 @@ func TestPut(t *testing.T) {
 
 	run(t, sched, &put)
 	assert.Equal(t, 1, mem.Len(engine_util.CfDefault))
-
-	got, err := mem.Get(nil, engine_util.CfDefault, []byte{99})
-	assert.Nil(t, err)
-	assert.Equal(t, []byte{42}, got)
+	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, []byte{99}))
 }
 
 func TestDelete(t *testing.T) {
 	mem := inner_server.NewMemInnerServer()
-	mem.Set(nil, engine_util.CfDefault, []byte{99}, []byte{42})
+	mem.Set(engine_util.CfDefault, []byte{99}, []byte{42})
 	sched := exec.NewSeqScheduler(mem)
 
 	var req kvrpcpb.RawDeleteRequest
@@ -60,11 +57,11 @@ func TestDelete(t *testing.T) {
 
 func TestScan(t *testing.T) {
 	mem := inner_server.NewMemInnerServer()
-	mem.Set(nil, engine_util.CfDefault, []byte{99}, []byte{42})
-	mem.Set(nil, engine_util.CfDefault, []byte{101}, []byte{42, 2})
-	mem.Set(nil, engine_util.CfDefault, []byte{102}, []byte{42, 3})
-	mem.Set(nil, engine_util.CfDefault, []byte{105}, []byte{42, 4})
-	mem.Set(nil, engine_util.CfDefault, []byte{255}, []byte{42, 5})
+	mem.Set(engine_util.CfDefault, []byte{99}, []byte{42})
+	mem.Set(engine_util.CfDefault, []byte{101}, []byte{42, 2})
+	mem.Set(engine_util.CfDefault, []byte{102}, []byte{42, 3})
+	mem.Set(engine_util.CfDefault, []byte{105}, []byte{42, 4})
+	mem.Set(engine_util.CfDefault, []byte{255}, []byte{42, 5})
 	sched := exec.NewSeqScheduler(mem)
 
 	var req kvrpcpb.RawScanRequest
