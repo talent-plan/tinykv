@@ -127,6 +127,7 @@ func (b *EntryBuilder) schedule(applyCh chan<- *applyBatch, peerID, regionID uin
 
 func TestHandleRaftCommittedEntries(t *testing.T) {
 	engines := util.NewTestEngines()
+	defer engines.Destroy()
 
 	cfg := config.NewDefaultConfig()
 	router, _ := CreateRaftBatchSystem(cfg)

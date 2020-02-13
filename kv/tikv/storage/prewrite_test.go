@@ -163,7 +163,6 @@ func TestPrewriteMultiple(t *testing.T) {
 	assert.Nil(t, resp.RegionError)
 	assert.Equal(t, mem.Len(engine_util.CfDefault), 4)
 	assert.Equal(t, mem.Len(engine_util.CfLock), 4)
-
 	assert.Equal(t, []byte{1, 3, 5}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{4}, 100)))
 }
 
