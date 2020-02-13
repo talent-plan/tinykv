@@ -137,8 +137,6 @@ type Config struct {
 	// errors. Note: 0 for no limit.
 	MaxUncommittedEntriesSize uint64
 
-	skipBcastCommit bool
-
 	// Logger is the logger used for raft log. For multinode which can host
 	// multiple raft group, each raft group can have its own logger
 	Logger Logger
@@ -249,8 +247,6 @@ type Raft struct {
 	// only leader keeps heartbeatElapsed.
 	heartbeatElapsed int
 
-	skipBcastCommit bool
-
 	heartbeatTimeout int
 	electionTimeout  int
 	// randomizedElectionTimeout is a random number between
@@ -294,7 +290,6 @@ func newRaft(c *Config) *Raft {
 		electionTimeout:           c.ElectionTick,
 		heartbeatTimeout:          c.HeartbeatTick,
 		logger:                    c.Logger,
-		skipBcastCommit:           c.skipBcastCommit,
 		disableProposalForwarding: c.DisableProposalForwarding,
 	}
 	for _, p := range peers {
@@ -321,10 +316,6 @@ func newRaft(c *Config) *Raft {
 
 func (r *Raft) GetSnap() *pb.Snapshot {
 	return r.RaftLog.unstable.snapshot
-}
-
-func (r *Raft) SkipBcastCommit(skip bool) {
-	r.skipBcastCommit = skip
 }
 
 func (r *Raft) hasLeader() bool { return r.Lead != None }
@@ -814,9 +805,7 @@ func stepLeader(r *Raft, m pb.Message) error {
 			if pr.maybeUpdate(m.Index) {
 
 				if r.maybeCommit() {
-					if r.ShouldBcastCommit() {
-						r.bcastAppend()
-					}
+					r.bcastAppend()
 				}
 				// Transfer leadership is in progress.
 				if m.From == r.leadTransferee && pr.Match == r.RaftLog.LastIndex() {
@@ -1008,10 +997,6 @@ func (r *Raft) restoreNode(nodes []uint64) {
 
 func (r *Raft) hasPendingConf() bool {
 	return r.PendingConfIndex > r.RaftLog.applied || r.pendingMembershipChange != nil
-}
-
-func (r *Raft) ShouldBcastCommit() bool {
-	return !r.skipBcastCommit || r.hasPendingConf()
 }
 
 // promotable indicates whether state machine can be promoted to Leader,
