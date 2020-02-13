@@ -1,137 +1,94 @@
 package storage
 
 import (
-	"os"
-	"path/filepath"
-	"testing"
-
-	"github.com/coocood/badger"
-	"github.com/pingcap-incubator/tinykv/kv/config"
+	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/commands"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/exec"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/stretchr/testify/assert"
+	"testing"
 )
-
-const (
-	testPath = "raw_test"
-)
-
-func NewTestTiKVServer(innerServer tikv.InnerServer) *tikv.Server {
-	sched := exec.NewSeqScheduler(innerServer)
-	server := tikv.NewServer(innerServer, sched)
-	return server
-}
-
-func newTestConfig() *config.Config {
-	conf := config.DefaultConf
-	conf.Engine.DBPath = filepath.Join(conf.Engine.DBPath, testPath)
-	return &conf
-}
-
-func cleanUpTestData(conf *config.Config) error {
-	if conf != nil {
-		return os.RemoveAll(conf.Engine.DBPath)
-	}
-	return nil
-}
 
 func TestGet(t *testing.T) {
-	conf := newTestConfig()
-	is := inner_server.NewStandAloneInnerServer(conf)
-	defer cleanUpTestData(conf)
+	mem := inner_server.NewMemInnerServer()
+	mem.Set(nil, engine_util.CfDefault, []byte{99}, []byte{42})
+	sched := exec.NewSeqScheduler(mem)
 
-	cf := "TestRawGet"
-	is.Set(nil, cf, []byte{99}, []byte{42})
+	var req kvrpcpb.RawGetRequest
+	req.Key = []byte{99}
+	req.Cf = engine_util.CfDefault
+	get := commands.NewRawGet(&req)
 
-	req := &kvrpcpb.RawGetRequest{
-		Key: []byte{99},
-		Cf:  cf,
-	}
-
-	server := NewTestTiKVServer(is)
-	defer server.Stop()
-
-	resp, err := server.RawGet(nil, req)
-	assert.Nil(t, err)
+	resp := run(t, sched, &get)[0].(*kvrpcpb.RawGetResponse)
 	assert.Equal(t, []byte{42}, resp.Value)
 }
 
 func TestPut(t *testing.T) {
-	conf := newTestConfig()
-	is := inner_server.NewStandAloneInnerServer(conf)
-	defer cleanUpTestData(conf)
+	mem := inner_server.NewMemInnerServer()
+	sched := exec.NewSeqScheduler(mem)
 
-	cf := "TestRawPut"
+	var req kvrpcpb.RawPutRequest
+	req.Key = []byte{99}
+	req.Value = []byte{42}
+	req.Cf = engine_util.CfDefault
+	put := commands.NewRawPut(&req)
 
-	req := &kvrpcpb.RawPutRequest{
-		Key:   []byte{99},
-		Value: []byte{42},
-		Cf:    cf,
-	}
+	run(t, sched, &put)
+	assert.Equal(t, 1, mem.Len(engine_util.CfDefault))
 
-	server := NewTestTiKVServer(is)
-	defer server.Stop()
-
-	_, err := server.RawPut(nil, req)
-
-	got, err := is.Get(nil, cf, []byte{99})
+	got, err := mem.Get(nil, engine_util.CfDefault, []byte{99})
 	assert.Nil(t, err)
 	assert.Equal(t, []byte{42}, got)
 }
 
 func TestDelete(t *testing.T) {
-	conf := newTestConfig()
-	is := inner_server.NewStandAloneInnerServer(conf)
-	defer cleanUpTestData(conf)
+	mem := inner_server.NewMemInnerServer()
+	mem.Set(nil, engine_util.CfDefault, []byte{99}, []byte{42})
+	sched := exec.NewSeqScheduler(mem)
 
-	cf := "TestRawDelete"
+	var req kvrpcpb.RawDeleteRequest
+	req.Key = []byte{99}
+	req.Cf = engine_util.CfDefault
+	del := commands.NewRawDelete(&req)
 
-	req := &kvrpcpb.RawDeleteRequest{
-		Key: []byte{99},
-		Cf:  cf,
-	}
-
-	server := NewTestTiKVServer(is)
-	defer server.Stop()
-
-	_, err := server.RawDelete(nil, req)
-	assert.Nil(t, err)
-
-	_, err = is.Get(nil, cf, []byte{99})
-	assert.Equal(t, err, badger.ErrKeyNotFound)
+	run(t, sched, &del)
+	assert.Equal(t, 0, mem.Len(engine_util.CfDefault))
 }
 
 func TestScan(t *testing.T) {
-	conf := newTestConfig()
-	is := inner_server.NewStandAloneInnerServer(conf)
-	defer cleanUpTestData(conf)
+	mem := inner_server.NewMemInnerServer()
+	mem.Set(nil, engine_util.CfDefault, []byte{99}, []byte{42})
+	mem.Set(nil, engine_util.CfDefault, []byte{101}, []byte{42, 2})
+	mem.Set(nil, engine_util.CfDefault, []byte{102}, []byte{42, 3})
+	mem.Set(nil, engine_util.CfDefault, []byte{105}, []byte{42, 4})
+	mem.Set(nil, engine_util.CfDefault, []byte{255}, []byte{42, 5})
+	sched := exec.NewSeqScheduler(mem)
 
-	cf := "TestRawScan"
+	var req kvrpcpb.RawScanRequest
+	req.StartKey = []byte{101}
+	req.Limit = 3
+	req.Cf = engine_util.CfDefault
+	get := commands.NewRawScan(&req)
 
-	is.Set(nil, cf, []byte{99}, []byte{42})
-	is.Set(nil, cf, []byte{101}, []byte{42, 2})
-	is.Set(nil, cf, []byte{102}, []byte{42, 3})
-	is.Set(nil, cf, []byte{105}, []byte{42, 4})
-	is.Set(nil, cf, []byte{255}, []byte{42, 5})
-
-	req := &kvrpcpb.RawScanRequest{
-		StartKey: []byte{101},
-		Limit:    3,
-		Cf:       cf,
-	}
-
-	server := NewTestTiKVServer(is)
-	defer server.Stop()
-
-	resp, err := server.RawScan(nil, req)
-	assert.Nil(t, err)
-
+	resp := run(t, sched, &get)[0].(*kvrpcpb.RawScanResponse)
 	assert.Equal(t, 3, len(resp.Kvs))
 	expectedKeys := [][]byte{{101}, {102}, {105}}
 	for i, kv := range resp.Kvs {
 		assert.Equal(t, expectedKeys[i], kv.Key)
 		assert.Equal(t, []byte{42, byte(i + 2)}, kv.Value)
 	}
+}
+
+func run(t *testing.T, sched tikv.Scheduler, cmds ...tikv.Command) []interface{} {
+	var result []interface{}
+	for _, c := range cmds {
+		ch := sched.Run(c)
+		r := <-ch
+		assert.Nil(t, r.Err)
+		result = append(result, r.Response)
+	}
+	sched.Stop()
+	return result
 }

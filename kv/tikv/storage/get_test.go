@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/pingcap-incubator/tinykv/kv/engine_util"
-	"github.com/pingcap-incubator/tinykv/kv/tikv"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/commands"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/exec"
@@ -12,18 +11,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/stretchr/testify/assert"
 )
-
-func run(t *testing.T, sched tikv.Scheduler, cmds ...tikv.Command) []interface{} {
-	var result []interface{}
-	for _, c := range cmds {
-		ch := sched.Run(c)
-		r := <-ch
-		assert.Nil(t, r.Err)
-		result = append(result, r.Response)
-	}
-	sched.Stop()
-	return result
-}
 
 // TestGetValue getting a value works in the simple case.
 func TestGetValue(t *testing.T) {
