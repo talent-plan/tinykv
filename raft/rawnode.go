@@ -195,7 +195,6 @@ func (rn *RawNode) Step(m pb.Message) error {
 func (rn *RawNode) Ready() Ready {
 	rd := rn.newReady()
 	rn.Raft.msgs = nil
-	rn.Raft.reduceUncommittedSize(rd.CommittedEntries)
 	return rd
 }
 

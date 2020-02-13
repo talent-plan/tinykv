@@ -36,7 +36,6 @@ const (
 	StateFollower StateType = iota
 	StateCandidate
 	StateLeader
-	numStates
 )
 
 // Possible values for CampaignType
@@ -131,11 +130,6 @@ type Config struct {
 	// MaxCommittedSizePerReady limits the size of the committed entries which
 	// can be applied.
 	MaxCommittedSizePerReady uint64
-	// MaxUncommittedEntriesSize limits the aggregate byte size of the
-	// uncommitted entries that may be appended to a leader's log. Once this
-	// limit is exceeded, proposals will begin to return ErrProposalDropped
-	// errors. Note: 0 for no limit.
-	MaxUncommittedEntriesSize uint64
 
 	// Logger is the logger used for raft log. For multinode which can host
 	// multiple raft group, each raft group can have its own logger
@@ -169,10 +163,6 @@ func (c *Config) validate() error {
 		return errors.New("storage cannot be nil")
 	}
 
-	if c.MaxUncommittedEntriesSize == 0 {
-		c.MaxUncommittedEntriesSize = noLimit
-	}
-
 	// default MaxCommittedSizePerReady to MaxSizePerMsg because they were
 	// previously the same parameter.
 	if c.MaxCommittedSizePerReady == 0 {
@@ -195,10 +185,9 @@ type Raft struct {
 	// the log
 	RaftLog *RaftLog
 
-	maxMsgSize         uint64
-	maxUncommittedSize uint64
-	Prs                map[uint64]*Progress
-	matchBuf           uint64Slice
+	maxMsgSize uint64
+	Prs        map[uint64]*Progress
+	matchBuf   uint64Slice
 
 	State StateType
 
@@ -232,10 +221,6 @@ type Raft struct {
 	//
 	// **Use `Raft::set_pending_membership_change()` to change this value.**
 	pendingMembershipChange *pb.ConfChange
-	// an estimate of the size of the uncommitted tail of the Raft log. Used to
-	// prevent unbounded log growth. Only maintained by the leader. Reset on
-	// term changes.
-	uncommittedSize uint64
 
 	// number of ticks since it reached last electionTimeout when it is leader
 	// or candidate.
@@ -285,7 +270,6 @@ func newRaft(c *Config) *Raft {
 		Lead:                      None,
 		RaftLog:                   raftlog,
 		maxMsgSize:                c.MaxSizePerMsg,
-		maxUncommittedSize:        c.MaxUncommittedEntriesSize,
 		Prs:                       make(map[uint64]*Progress),
 		electionTimeout:           c.ElectionTick,
 		heartbeatTimeout:          c.HeartbeatTick,
@@ -521,30 +505,19 @@ func (r *Raft) reset(term uint64) {
 	})
 
 	r.PendingConfIndex = 0
-	r.uncommittedSize = 0
 }
 
-func (r *Raft) appendEntry(es ...pb.Entry) (accepted bool) {
+func (r *Raft) appendEntry(es ...pb.Entry) {
 	li := r.RaftLog.LastIndex()
 	for i := range es {
 		es[i].Term = r.Term
 		es[i].Index = li + 1 + uint64(i)
-	}
-	// Track the size of this uncommitted proposal.
-	if !r.increaseUncommittedSize(es) {
-		r.logger.Debugf(
-			"%x appending new entries to log would exceed uncommitted entry size limit; dropping proposal",
-			r.id,
-		)
-		// Drop the proposal.
-		return false
 	}
 	// use latest "last" index after truncate/append
 	li = r.RaftLog.append(es...)
 	r.getProgress(r.id).maybeUpdate(li)
 	// Regardless of maybeCommit's return, our caller will call bcastAppend.
 	r.maybeCommit()
-	return true
 }
 
 // tickElection is run by followers and candidates after r.electionTimeout.
@@ -621,15 +594,7 @@ func (r *Raft) becomeLeader() {
 	r.PendingConfIndex = r.RaftLog.LastIndex()
 
 	emptyEnt := pb.Entry{Data: nil}
-	if !r.appendEntry(emptyEnt) {
-		// This won't happen because we just called reset() above.
-		r.logger.Panic("empty entry was dropped")
-	}
-	// As a special case, don't count the initial empty entry towards the
-	// uncommitted log quota. This is because we want to preserve the
-	// behavior of allowing one entry larger than quota if the current
-	// usage is zero.
-	r.reduceUncommittedSize([]pb.Entry{emptyEnt})
+	r.appendEntry(emptyEnt)
 	r.logger.Infof("%x became leader at term %d", r.id, r.Term)
 }
 
@@ -780,9 +745,8 @@ func stepLeader(r *Raft, m pb.Message) error {
 		for _, e := range m.Entries {
 			es = append(es, *e)
 		}
-		if !r.appendEntry(es...) {
-			return ErrProposalDropped
-		}
+
+		r.appendEntry(es...)
 		r.bcastAppend()
 		return nil
 	}
@@ -1068,49 +1032,6 @@ func (r *Raft) sendTimeoutNow(to uint64) {
 
 func (r *Raft) abortLeaderTransfer() {
 	r.leadTransferee = None
-}
-
-// increaseUncommittedSize computes the size of the proposed entries and
-// determines whether they would push leader over its maxUncommittedSize limit.
-// If the new entries would exceed the limit, the method returns false. If not,
-// the increase in uncommitted entry size is recorded and the method returns
-// true.
-func (r *Raft) increaseUncommittedSize(ents []pb.Entry) bool {
-	var s uint64
-	for _, e := range ents {
-		s += uint64(PayloadSize(&e))
-	}
-
-	if r.uncommittedSize > 0 && r.uncommittedSize+s > r.maxUncommittedSize {
-		// If the uncommitted tail of the Raft log is empty, allow any size
-		// proposal. Otherwise, limit the size of the uncommitted tail of the
-		// log and drop any proposal that would push the size over the limit.
-		return false
-	}
-	r.uncommittedSize += s
-	return true
-}
-
-// reduceUncommittedSize accounts for the newly committed entries by decreasing
-// the uncommitted entry size limit.
-func (r *Raft) reduceUncommittedSize(ents []pb.Entry) {
-	if r.uncommittedSize == 0 {
-		// Fast-path for followers, who do not track or enforce the limit.
-		return
-	}
-
-	var s uint64
-	for _, e := range ents {
-		s += uint64(PayloadSize(&e))
-	}
-	if s > r.uncommittedSize {
-		// uncommittedSize may underestimate the size of the uncommitted Raft
-		// log tail but will never overestimate it. Saturate at 0 instead of
-		// allowing overflow.
-		r.uncommittedSize = 0
-	} else {
-		r.uncommittedSize -= s
-	}
 }
 
 func numOfPendingConf(ents []pb.Entry) int {
