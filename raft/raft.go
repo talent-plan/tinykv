@@ -177,7 +177,6 @@ type Raft struct {
 
 	maxMsgSize uint64
 	Prs        map[uint64]*Progress
-	matchBuf   uint64Slice
 
 	State StateType
 
@@ -455,19 +454,14 @@ func (r *Raft) bcastHeartbeat() {
 // the commit index changed (in which case the caller should call
 // r.bcastAppend).
 func (r *Raft) maybeCommit() bool {
-	// Preserving matchBuf across calls is an optimization
-	// used to avoid allocating a new slice on each call.
-	if cap(r.matchBuf) < len(r.Prs) {
-		r.matchBuf = make(uint64Slice, len(r.Prs))
-	}
-	mis := r.matchBuf[:len(r.Prs)]
+	matchIndex := make(uint64Slice, len(r.Prs))
 	idx := 0
 	for _, p := range r.Prs {
-		mis[idx] = p.Match
+		matchIndex[idx] = p.Match
 		idx++
 	}
-	sort.Sort(mis)
-	mci := mis[len(mis)-r.quorum()]
+	sort.Sort(matchIndex)
+	mci := matchIndex[len(matchIndex)-r.quorum()]
 	return r.RaftLog.maybeCommit(mci, r.Term)
 }
 
