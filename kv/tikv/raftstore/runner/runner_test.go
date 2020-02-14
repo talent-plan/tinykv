@@ -127,7 +127,7 @@ func TestApplies(t *testing.T) {
 
 	engines := newEnginesWithKVDb(t, db)
 	engines.KvPath = kvPath
-	defer cleanUpTestEngineData(engines)
+	defer engines.Destroy()
 
 	snapPath, err := ioutil.TempDir("", "tinykv_snap")
 	defer os.RemoveAll(snapPath)
@@ -200,7 +200,7 @@ func TestApplies(t *testing.T) {
 
 func TestGcRaftLog(t *testing.T) {
 	engines := util.NewTestEngines()
-	defer cleanUpTestEngineData(engines)
+	defer engines.Destroy()
 	raftDb := engines.Raft
 	taskResCh := make(chan raftLogGcTaskRes, 1)
 	runner := raftLogGCTaskHandler{taskResCh: taskResCh}
@@ -316,8 +316,9 @@ func raftLogMustExist(t *testing.T, db *badger.DB, regionId, startIdx, endIdx ui
 }
 
 func cleanUpTestEngineData(engines *engine_util.Engines) {
-	os.RemoveAll(engines.KvPath)
-	os.RemoveAll(engines.RaftPath)
+	if err := engines.Destroy(); err != nil {
+		panic(err)
+	}
 }
 
 type TaskResRouter struct {

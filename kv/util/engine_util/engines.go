@@ -4,6 +4,7 @@ import (
 	"github.com/coocood/badger"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
+	"os"
 	"path/filepath"
 )
 
@@ -47,6 +48,29 @@ func (en *Engines) SyncRaftWAL() error {
 	return nil
 }
 
+func (en *Engines) Close() error {
+	if err := en.Kv.Close(); err != nil {
+		return err
+	}
+	if err := en.Raft.Close(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (en *Engines) Destroy() error {
+	if err := en.Close(); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(en.KvPath); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(en.RaftPath); err != nil {
+		return err
+	}
+	return nil
+}
+
 // CreateDB creates a new Badger DB on disk at subPath.
 func CreateDB(subPath string, conf *config.Engine) *badger.DB {
 	opts := badger.DefaultOptions
@@ -67,6 +91,9 @@ func CreateDB(subPath string, conf *config.Engine) *badger.DB {
 	opts.SyncWrites = conf.SyncWrite
 	opts.MaxCacheSize = conf.BlockCacheSize
 	opts.TableBuilderOptions.SuRFStartLevel = conf.SurfStartLevel
+	if err := os.MkdirAll(opts.Dir, os.ModePerm); err != nil {
+		log.Fatal(err)
+	}
 	db, err := badger.Open(opts)
 	if err != nil {
 		log.Fatal(err)

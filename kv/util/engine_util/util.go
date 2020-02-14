@@ -7,25 +7,29 @@ import (
 	"github.com/golang/protobuf/proto"
 )
 
+func KeyWithCF(cf string, key []byte) []byte {
+	return append([]byte(cf+"_"), key...)
+}
+
 func GetCF(db *badger.DB, cf string, key []byte) (val []byte, err error) {
 	err = db.View(func(txn *badger.Txn) error {
-		item, err := txn.Get(append([]byte(cf+"_"), key...))
+		item, err := txn.Get(KeyWithCF(cf, key))
 		if err != nil {
 			return err
 		}
-		val, err = item.Value()
+		val, err = item.ValueCopy(val)
 		return err
 	})
 	return
 }
 
-func GetCFFromTxn(txn *badger.Txn, cf string, key []byte) ([]byte, error) {
-	item, err := txn.Get(append([]byte(cf+"_"), key...))
+func GetCFFromTxn(txn *badger.Txn, cf string, key []byte) (val []byte, err error) {
+	item, err := txn.Get(KeyWithCF(cf, key))
 	if err != nil {
 		return nil, err
 	}
-	val, err := item.Value()
-	return val, err
+	val, err = item.ValueCopy(val)
+	return
 }
 
 func DeleteRange(db *badger.DB, startKey, endKey []byte) error {
