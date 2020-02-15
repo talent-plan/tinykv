@@ -3,6 +3,8 @@ package kvstore
 import (
 	"encoding/binary"
 	"fmt"
+
+	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
 
 // Write is a representation of a committed write to backing storage.
@@ -20,6 +22,9 @@ func (wr *Write) ToBytes() []byte {
 }
 
 func ParseWrite(value []byte) (*Write, error) {
+	if value == nil {
+		return nil, nil
+	}
 	if len(value) != 9 {
 		return nil, fmt.Errorf("kvstore/write/ParseWrite: value is incorrect length, expected 9, found %d", len(value))
 	}
@@ -34,6 +39,31 @@ type WriteKind int
 const (
 	WriteKindPut      WriteKind = 1
 	WriteKindDelete   WriteKind = 2
-	WriteKindLock     WriteKind = 3
-	WriteKindRollback WriteKind = 4
+	WriteKindRollback WriteKind = 3
 )
+
+func (wk WriteKind) ToProto() kvrpcpb.Op {
+	switch wk {
+	case WriteKindPut:
+		return kvrpcpb.Op_Put
+	case WriteKindDelete:
+		return kvrpcpb.Op_Del
+	case WriteKindRollback:
+		return kvrpcpb.Op_Rollback
+	}
+
+	return -1
+}
+
+func WriteKindFromProto(op kvrpcpb.Op) WriteKind {
+	switch op {
+	case kvrpcpb.Op_Put:
+		return WriteKindPut
+	case kvrpcpb.Op_Del:
+		return WriteKindDelete
+	case kvrpcpb.Op_Rollback:
+		return WriteKindRollback
+	}
+
+	return -1
+}

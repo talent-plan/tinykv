@@ -396,7 +396,6 @@ func (n *node) run(r *Raft) {
 			}
 
 			r.msgs = nil
-			r.reduceUncommittedSize(rd.CommittedEntries)
 			advancec = n.advancec
 		case <-advancec:
 			if applyingToI != 0 {

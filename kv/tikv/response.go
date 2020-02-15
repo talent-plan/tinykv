@@ -52,7 +52,7 @@ func (rr *RespResult) prewriteResponse() (*kvrpcpb.PrewriteResponse, error) {
 	}
 	return nil, errors.New("Unexpected type in response")
 }
-func (rr *RespResult) scan() (*kvrpcpb.ScanResponse, error) {
+func (rr *RespResult) scanResponse() (*kvrpcpb.ScanResponse, error) {
 	if rr.Err != nil {
 		return nil, rr.Err
 	}
@@ -65,7 +65,7 @@ func (rr *RespResult) scan() (*kvrpcpb.ScanResponse, error) {
 	}
 	return nil, errors.New("Unexpected type in response")
 }
-func (rr *RespResult) checkTxnStatus() (*kvrpcpb.CheckTxnStatusResponse, error) {
+func (rr *RespResult) checkTxnStatusResponse() (*kvrpcpb.CheckTxnStatusResponse, error) {
 	if rr.Err != nil {
 		return nil, rr.Err
 	}
@@ -78,7 +78,7 @@ func (rr *RespResult) checkTxnStatus() (*kvrpcpb.CheckTxnStatusResponse, error) 
 	}
 	return nil, errors.New("Unexpected type in response")
 }
-func (rr *RespResult) commit() (*kvrpcpb.CommitResponse, error) {
+func (rr *RespResult) commitResponse() (*kvrpcpb.CommitResponse, error) {
 	if rr.Err != nil {
 		return nil, rr.Err
 	}
@@ -91,7 +91,7 @@ func (rr *RespResult) commit() (*kvrpcpb.CommitResponse, error) {
 	}
 	return nil, errors.New("Unexpected type in response")
 }
-func (rr *RespResult) batchRollback() (*kvrpcpb.BatchRollbackResponse, error) {
+func (rr *RespResult) batchRollbackResponse() (*kvrpcpb.BatchRollbackResponse, error) {
 	if rr.Err != nil {
 		return nil, rr.Err
 	}
@@ -104,7 +104,7 @@ func (rr *RespResult) batchRollback() (*kvrpcpb.BatchRollbackResponse, error) {
 	}
 	return nil, errors.New("Unexpected type in response")
 }
-func (rr *RespResult) resolveLock() (*kvrpcpb.ResolveLockResponse, error) {
+func (rr *RespResult) resolveLockResponse() (*kvrpcpb.ResolveLockResponse, error) {
 	if rr.Err != nil {
 		return nil, rr.Err
 	}

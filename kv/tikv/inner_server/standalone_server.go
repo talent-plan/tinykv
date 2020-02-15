@@ -3,11 +3,12 @@ package inner_server
 import (
 	"github.com/coocood/badger"
 	kvConfig "github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
+	"github.com/pingcap/errors"
 )
 
 // StandAloneInnerServer is an InnerServer (see tikv/server.go) for a single-node TinyKV instance. It does not
@@ -40,9 +41,29 @@ func (is *StandAloneInnerServer) Stop() error {
 }
 
 func (is *StandAloneInnerServer) Reader(ctx *kvrpcpb.Context) (dbreader.DBReader, error) {
-	return nil, nil
+	txn := is.db.NewTransaction(false)
+	reader := dbreader.NewBadgerReader(txn)
+	return reader, nil
 }
 
 func (is *StandAloneInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
-	return nil
+	return is.db.Update(func(txn *badger.Txn) error {
+		for _, op := range batch {
+			var err error
+			switch op.Type {
+			case ModifyTypePut:
+				put := op.Data.(Put)
+				err = txn.Set(engine_util.KeyWithCF(put.Cf, put.Key), put.Value)
+			case ModifyTypeDelete:
+				delete := op.Data.(Delete)
+				err = txn.Delete(engine_util.KeyWithCF(delete.Cf, delete.Key))
+			default:
+				err = errors.New("Unsupported modify type")
+			}
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
