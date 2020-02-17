@@ -214,10 +214,10 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 
 		if partitions {
 			// Allow the clients to perform some operations without interruption
-			time.Sleep(1 * time.Second)
+			time.Sleep(300 * time.Millisecond)
 			go partitioner(t, cluster, ch_partitioner, &done_partitioner, unreliable)
 		}
-		time.Sleep(5 * time.Second)
+		time.Sleep(1 * time.Second)
 		atomic.StoreInt32(&done_clients, 1)     // tell clients to quit
 		atomic.StoreInt32(&done_partitioner, 1) // tell partitioner to quit
 		if partitions {
