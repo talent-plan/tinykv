@@ -321,7 +321,7 @@ func (c *coordinator) runScheduler(s *scheduleController) {
 				continue
 			}
 			if op := s.Schedule(); op != nil {
-				c.opController.AddOperator(op...)
+				c.opController.AddOperator(op)
 			}
 
 		case <-s.Ctx().Done():
@@ -364,7 +364,7 @@ func (s *scheduleController) Stop() {
 	s.cancel()
 }
 
-func (s *scheduleController) Schedule() []*operator.Operator {
+func (s *scheduleController) Schedule() *operator.Operator {
 	for i := 0; i < maxScheduleRetries; i++ {
 		// If we have schedule, reset interval to the minimal interval.
 		if op := s.Scheduler.Schedule(s.cluster); op != nil {

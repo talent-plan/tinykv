@@ -84,7 +84,7 @@ func (s *balanceRegionScheduler) IsScheduleAllowed(cluster opt.Cluster) bool {
 	return s.opController.OperatorCount(operator.OpRegion) < cluster.GetRegionScheduleLimit()
 }
 
-func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) []*operator.Operator {
+func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) *operator.Operator {
 	stores := cluster.GetStores()
 	stores = filter.SelectSourceStores(stores, s.filters, cluster)
 	sort.Slice(stores, func(i, j int) bool {
@@ -118,7 +118,7 @@ func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) []*operator.Opera
 
 			oldPeer := region.GetStorePeer(sourceID)
 			if op := s.transferPeer(cluster, region, oldPeer); op != nil {
-				return []*operator.Operator{op}
+				return op
 			}
 		}
 	}

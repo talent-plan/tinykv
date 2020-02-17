@@ -81,7 +81,7 @@ func (l *balanceLeaderScheduler) IsScheduleAllowed(cluster opt.Cluster) bool {
 	return l.opController.OperatorCount(operator.OpLeader) < cluster.GetLeaderScheduleLimit()
 }
 
-func (l *balanceLeaderScheduler) Schedule(cluster opt.Cluster) []*operator.Operator {
+func (l *balanceLeaderScheduler) Schedule(cluster opt.Cluster) *operator.Operator {
 	leaderScheduleStrategy := l.opController.GetLeaderScheduleStrategy()
 	stores := cluster.GetStores()
 	sources := filter.SelectSourceStores(stores, l.filters, cluster)
@@ -99,7 +99,7 @@ func (l *balanceLeaderScheduler) Schedule(cluster opt.Cluster) []*operator.Opera
 			sourceID := source.GetID()
 			log.Debug("store leader score", zap.String("scheduler", l.GetName()), zap.Uint64("source-store", sourceID))
 			for j := 0; j < balanceLeaderRetryLimit; j++ {
-				if op := l.transferLeaderOut(cluster, source); len(op) > 0 {
+				if op := l.transferLeaderOut(cluster, source); op != nil {
 					return op
 				}
 			}
@@ -111,7 +111,7 @@ func (l *balanceLeaderScheduler) Schedule(cluster opt.Cluster) []*operator.Opera
 			log.Debug("store leader score", zap.String("scheduler", l.GetName()), zap.Uint64("target-store", targetID))
 
 			for j := 0; j < balanceLeaderRetryLimit; j++ {
-				if op := l.transferLeaderIn(cluster, target); len(op) > 0 {
+				if op := l.transferLeaderIn(cluster, target); op != nil {
 					return op
 				}
 			}
@@ -124,7 +124,7 @@ func (l *balanceLeaderScheduler) Schedule(cluster opt.Cluster) []*operator.Opera
 // transferLeaderOut transfers leader from the source store.
 // It randomly selects a health region from the source store, then picks
 // the best follower peer and transfers the leader.
-func (l *balanceLeaderScheduler) transferLeaderOut(cluster opt.Cluster, source *core.StoreInfo) []*operator.Operator {
+func (l *balanceLeaderScheduler) transferLeaderOut(cluster opt.Cluster, source *core.StoreInfo) *operator.Operator {
 	sourceID := source.GetID()
 	region := cluster.RandLeaderRegion(sourceID, core.HealthRegion())
 	if region == nil {
@@ -138,7 +138,7 @@ func (l *balanceLeaderScheduler) transferLeaderOut(cluster opt.Cluster, source *
 		return targets[i].LeaderScore(leaderScheduleStrategy, 0) < targets[j].LeaderScore(leaderScheduleStrategy, 0)
 	})
 	for _, target := range targets {
-		if op := l.createOperator(cluster, region, source, target); len(op) > 0 {
+		if op := l.createOperator(cluster, region, source, target); op != nil {
 			return op
 		}
 	}
@@ -149,7 +149,7 @@ func (l *balanceLeaderScheduler) transferLeaderOut(cluster opt.Cluster, source *
 // transferLeaderIn transfers leader to the target store.
 // It randomly selects a health region from the target store, then picks
 // the worst follower peer and transfers the leader.
-func (l *balanceLeaderScheduler) transferLeaderIn(cluster opt.Cluster, target *core.StoreInfo) []*operator.Operator {
+func (l *balanceLeaderScheduler) transferLeaderIn(cluster opt.Cluster, target *core.StoreInfo) *operator.Operator {
 	targetID := target.GetID()
 	region := cluster.RandFollowerRegion(targetID, core.HealthRegion())
 	if region == nil {
@@ -173,7 +173,7 @@ func (l *balanceLeaderScheduler) transferLeaderIn(cluster opt.Cluster, target *c
 // If the difference between the two stores is tolerable, then
 // no new operator need to be created, otherwise create an operator that transfers
 // the leader from the source store to the target store for the region.
-func (l *balanceLeaderScheduler) createOperator(cluster opt.Cluster, region *core.RegionInfo, source, target *core.StoreInfo) []*operator.Operator {
+func (l *balanceLeaderScheduler) createOperator(cluster opt.Cluster, region *core.RegionInfo, source, target *core.StoreInfo) *operator.Operator {
 	targetID := target.GetID()
 
 	kind := core.NewScheduleKind(core.LeaderKind, cluster.GetLeaderScheduleStrategy())
@@ -182,5 +182,5 @@ func (l *balanceLeaderScheduler) createOperator(cluster opt.Cluster, region *cor
 	}
 
 	op := operator.CreateTransferLeaderOperator("balance-leader", region, region.GetLeader().GetStoreId(), targetID, operator.OpBalance)
-	return []*operator.Operator{op}
+	return op
 }
