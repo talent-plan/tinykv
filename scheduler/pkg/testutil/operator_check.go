@@ -47,15 +47,6 @@ func CheckTransferLeader(c *check.C, op *operator.Operator, kind operator.OpKind
 	c.Assert(op.Kind()&kind, check.Equals, kind)
 }
 
-// CheckTransferLeaderFrom checks if the operator is to transfer leader out of the specified store.
-func CheckTransferLeaderFrom(c *check.C, op *operator.Operator, kind operator.OpKind, sourceID uint64) {
-	c.Assert(op, check.NotNil)
-	c.Assert(op.Len(), check.Equals, 1)
-	c.Assert(op.Step(0).(operator.TransferLeader).FromStore, check.Equals, sourceID)
-	kind |= operator.OpLeader
-	c.Assert(op.Kind()&kind, check.Equals, kind)
-}
-
 // CheckTransferPeer checks if the operator is to transfer peer between the specified source and target stores.
 func CheckTransferPeer(c *check.C, op *operator.Operator, kind operator.OpKind, sourceID, targetID uint64) {
 	c.Assert(op, check.NotNil)
@@ -80,17 +71,4 @@ func CheckTransferPeerWithLeaderTransfer(c *check.C, op *operator.Operator, kind
 	c.Assert(op, check.NotNil)
 	c.Assert(op.Len(), check.Equals, 3)
 	CheckTransferPeer(c, op, kind, sourceID, targetID)
-}
-
-// CheckTransferPeerWithLeaderTransferFrom checks if the operator is to transfer
-// peer out of the specified store and it meanwhile transfers the leader out of
-// the store.
-func CheckTransferPeerWithLeaderTransferFrom(c *check.C, op *operator.Operator, kind operator.OpKind, sourceID uint64) {
-	c.Assert(op, check.NotNil)
-	c.Assert(op.Len(), check.Equals, 4)
-	c.Assert(op.Step(0), check.FitsTypeOf, operator.AddPeer{})
-	c.Assert(op.Step(1), check.FitsTypeOf, operator.TransferLeader{})
-	c.Assert(op.Step(2).(operator.RemovePeer).FromStore, check.Equals, sourceID)
-	kind |= (operator.OpRegion | operator.OpLeader)
-	c.Assert(op.Kind()&kind, check.Equals, kind)
 }

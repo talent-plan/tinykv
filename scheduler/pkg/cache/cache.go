@@ -112,8 +112,3 @@ func NewCache(size int, cacheType Type) Cache {
 		panic("Unknown cache type")
 	}
 }
-
-// NewDefaultCache create Cache instance by default cache type
-func NewDefaultCache(size int) Cache {
-	return NewCache(size, DefaultCacheType)
-}

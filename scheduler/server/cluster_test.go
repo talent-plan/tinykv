@@ -26,7 +26,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
 	. "github.com/pingcap/check"
-	"github.com/pkg/errors"
 )
 
 const (
@@ -43,14 +42,6 @@ type baseCluster struct {
 
 type testClusterSuite struct {
 	baseCluster
-}
-
-type testErrorKV struct {
-	kv.Base
-}
-
-func (kv *testErrorKV) Save(key, value string) error {
-	return errors.New("save failed")
 }
 
 func (s *baseCluster) allocID(c *C) uint64 {

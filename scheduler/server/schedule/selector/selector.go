@@ -154,11 +154,6 @@ type RandomSelector struct {
 	filters []filter.Filter
 }
 
-// NewRandomSelector creates a RandomSelector instance.
-func NewRandomSelector(filters []filter.Filter) *RandomSelector {
-	return &RandomSelector{filters: filters}
-}
-
 func (s *RandomSelector) randStore(stores []*core.StoreInfo) *core.StoreInfo {
 	if len(stores) == 0 {
 		return nil

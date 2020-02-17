@@ -69,13 +69,6 @@ func newBalanceRegionScheduler(opController *schedule.OperatorController, opts .
 // BalanceRegionCreateOption is used to create a scheduler with an option.
 type BalanceRegionCreateOption func(s *balanceRegionScheduler)
 
-// WithBalanceRegionName sets the name for the scheduler.
-func WithBalanceRegionName(name string) BalanceRegionCreateOption {
-	return func(s *balanceRegionScheduler) {
-		s.name = name
-	}
-}
-
 func (s *balanceRegionScheduler) GetName() string {
 	if s.name != "" {
 		return s.name

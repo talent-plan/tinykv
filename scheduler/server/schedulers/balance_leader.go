@@ -66,13 +66,6 @@ func newBalanceLeaderScheduler(opController *schedule.OperatorController, opts .
 // BalanceLeaderCreateOption is used to create a scheduler with an option.
 type BalanceLeaderCreateOption func(s *balanceLeaderScheduler)
 
-// WithBalanceLeaderName sets the name for the scheduler.
-func WithBalanceLeaderName(name string) BalanceLeaderCreateOption {
-	return func(s *balanceLeaderScheduler) {
-		s.name = name
-	}
-}
-
 func (l *balanceLeaderScheduler) GetName() string {
 	if l.name != "" {
 		return l.name

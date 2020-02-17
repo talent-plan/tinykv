@@ -52,13 +52,6 @@ func WithPendingPeers(pengdingPeers []*metapb.Peer) RegionCreateOption {
 	}
 }
 
-// WithLearners sets the learners for the region.
-func WithLearners(learners []*metapb.Peer) RegionCreateOption {
-	return func(region *RegionInfo) {
-		region.learners = learners
-	}
-}
-
 // WithLeader sets the leader for the region.
 func WithLeader(leader *metapb.Peer) RegionCreateOption {
 	return func(region *RegionInfo) {
@@ -84,18 +77,6 @@ func WithEndKey(key []byte) RegionCreateOption {
 func WithNewRegionID(id uint64) RegionCreateOption {
 	return func(region *RegionInfo) {
 		region.meta.Id = id
-	}
-}
-
-// WithNewPeerIds sets new ids for peers.
-func WithNewPeerIds(peerIds ...uint64) RegionCreateOption {
-	return func(region *RegionInfo) {
-		if len(peerIds) != len(region.meta.GetPeers()) {
-			return
-		}
-		for i, p := range region.meta.GetPeers() {
-			p.Id = peerIds[i]
-		}
 	}
 }
 
@@ -129,16 +110,6 @@ func WithIncConfVer() RegionCreateOption {
 	}
 }
 
-// WithDecConfVer decreases the config version of the region.
-func WithDecConfVer() RegionCreateOption {
-	return func(region *RegionInfo) {
-		e := region.meta.GetRegionEpoch()
-		if e != nil {
-			e.ConfVer--
-		}
-	}
-}
-
 // WithRemoveStorePeer removes the specified peer for the region.
 func WithRemoveStorePeer(storeID uint64) RegionCreateOption {
 	return func(region *RegionInfo) {
@@ -163,35 +134,6 @@ func SetApproximateSize(v int64) RegionCreateOption {
 func SetApproximateKeys(v int64) RegionCreateOption {
 	return func(region *RegionInfo) {
 		region.approximateKeys = v
-	}
-}
-
-// SetReportInterval sets the report interval for the region.
-func SetReportInterval(v uint64) RegionCreateOption {
-	return func(region *RegionInfo) {
-		region.interval = &pdpb.TimeInterval{StartTimestamp: 0, EndTimestamp: v}
-	}
-}
-
-// SetRegionConfVer sets the config version for the reigon.
-func SetRegionConfVer(confVer uint64) RegionCreateOption {
-	return func(region *RegionInfo) {
-		if region.meta.RegionEpoch == nil {
-			region.meta.RegionEpoch = &metapb.RegionEpoch{ConfVer: confVer, Version: 1}
-		} else {
-			region.meta.RegionEpoch.ConfVer = confVer
-		}
-	}
-}
-
-// SetRegionVersion sets the version for the reigon.
-func SetRegionVersion(version uint64) RegionCreateOption {
-	return func(region *RegionInfo) {
-		if region.meta.RegionEpoch == nil {
-			region.meta.RegionEpoch = &metapb.RegionEpoch{ConfVer: 1, Version: version}
-		} else {
-			region.meta.RegionEpoch.Version = version
-		}
 	}
 }
 

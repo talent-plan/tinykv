@@ -175,21 +175,3 @@ func DecodeBytes(b []byte) ([]byte, []byte, error) {
 	}
 	return b, data, nil
 }
-
-// GenerateTableKey generates a table split key.
-func GenerateTableKey(tableID int64) []byte {
-	buf := make([]byte, 0, len(tablePrefix)+8)
-	buf = append(buf, tablePrefix...)
-	buf = EncodeInt(buf, tableID)
-	return buf
-}
-
-// GenerateRowKey generates a row key.
-func GenerateRowKey(tableID, rowID int64) []byte {
-	buf := make([]byte, 0, len(tablePrefix)+len(recordPrefix)+8*2)
-	buf = append(buf, tablePrefix...)
-	buf = EncodeInt(buf, tableID)
-	buf = append(buf, recordPrefix...)
-	buf = EncodeInt(buf, rowID)
-	return buf
-}
