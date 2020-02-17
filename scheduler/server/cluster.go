@@ -894,7 +894,6 @@ func (c *RaftCluster) RemoveTombStoneRecords() error {
 					zap.Error(err))
 				return err
 			}
-			c.coordinator.opController.RemoveStoreLimit(store.GetID())
 			log.Info("delete store successed",
 				zap.Stringer("store", store.GetMeta()))
 		}

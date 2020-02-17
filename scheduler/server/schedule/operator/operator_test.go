@@ -175,55 +175,6 @@ func (s *testOperatorSuite) TestOperator(c *C) {
 	c.Assert(op.IsTimeout(), IsTrue)
 }
 
-func (s *testOperatorSuite) TestInfluence(c *C) {
-	region := s.newTestRegion(1, 1, [2]uint64{1, 1}, [2]uint64{2, 2})
-	opInfluence := OpInfluence{StoresInfluence: make(map[uint64]*StoreInfluence)}
-	storeOpInfluence := opInfluence.StoresInfluence
-	storeOpInfluence[1] = &StoreInfluence{}
-	storeOpInfluence[2] = &StoreInfluence{}
-
-	AddPeer{ToStore: 2, PeerID: 2}.Influence(opInfluence, region)
-	c.Assert(*storeOpInfluence[2], DeepEquals, StoreInfluence{
-		LeaderSize:  0,
-		LeaderCount: 0,
-		RegionSize:  50,
-		RegionCount: 1,
-		StepCost:    1000,
-	})
-
-	TransferLeader{FromStore: 1, ToStore: 2}.Influence(opInfluence, region)
-	c.Assert(*storeOpInfluence[1], DeepEquals, StoreInfluence{
-		LeaderSize:  -50,
-		LeaderCount: -1,
-		RegionSize:  0,
-		RegionCount: 0,
-		StepCost:    0,
-	})
-	c.Assert(*storeOpInfluence[2], DeepEquals, StoreInfluence{
-		LeaderSize:  50,
-		LeaderCount: 1,
-		RegionSize:  50,
-		RegionCount: 1,
-		StepCost:    1000,
-	})
-
-	RemovePeer{FromStore: 1}.Influence(opInfluence, region)
-	c.Assert(*storeOpInfluence[1], DeepEquals, StoreInfluence{
-		LeaderSize:  -50,
-		LeaderCount: -1,
-		RegionSize:  -50,
-		RegionCount: -1,
-		StepCost:    0,
-	})
-	c.Assert(*storeOpInfluence[2], DeepEquals, StoreInfluence{
-		LeaderSize:  50,
-		LeaderCount: 1,
-		RegionSize:  50,
-		RegionCount: 1,
-		StepCost:    1000,
-	})
-}
-
 func (s *testOperatorSuite) TestOperatorKind(c *C) {
 	c.Assert((OpLeader | OpReplica).String(), Equals, "leader,replica")
 	c.Assert(OpKind(0).String(), Equals, "unknown")

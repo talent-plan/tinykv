@@ -162,9 +162,8 @@ func (s *balanceRegionScheduler) transferPeer(cluster opt.Cluster, region *core.
 		targetID := target.GetID()
 		log.Debug("", zap.Uint64("region-id", regionID), zap.Uint64("source-store", sourceID), zap.Uint64("target-store", targetID))
 
-		opInfluence := s.opController.GetOpInfluence(cluster)
 		kind := core.NewScheduleKind(core.RegionKind, core.BySize)
-		if !shouldBalance(cluster, source, target, region, kind, opInfluence, s.GetName()) {
+		if !shouldBalance(cluster, source, target, region, kind, s.GetName()) {
 			continue
 		}
 

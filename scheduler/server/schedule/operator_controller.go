@@ -21,7 +21,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/juju/ratelimit"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
@@ -65,8 +64,6 @@ type OperatorController struct {
 	histories *list.List
 	counts    map[operator.OpKind]uint64
 	opRecords *OperatorRecords
-	// TODO: Need to clean up the unused store ID.
-	storesLimit     map[uint64]*ratelimit.Bucket
 	opNotifierQueue operatorQueue
 }
 
@@ -80,7 +77,6 @@ func NewOperatorController(ctx context.Context, cluster opt.Cluster, hbStreams H
 		histories:       list.New(),
 		counts:          make(map[operator.OpKind]uint64),
 		opRecords:       NewOperatorRecords(ctx),
-		storesLimit:     make(map[uint64]*ratelimit.Bucket),
 		opNotifierQueue: make(operatorQueue, 0),
 	}
 }
@@ -199,7 +195,7 @@ func (oc *OperatorController) AddOperator(ops ...*operator.Operator) bool {
 	oc.Lock()
 	defer oc.Unlock()
 
-	if oc.exceedStoreLimit(ops...) || !oc.checkAddOperator(ops...) {
+	if !oc.checkAddOperator(ops...) {
 		for _, op := range ops {
 			oc.opRecords.Put(op, pdpb.OperatorStatus_CANCEL)
 		}
@@ -254,14 +250,6 @@ func (oc *OperatorController) addOperatorLocked(op *operator.Operator) bool {
 
 	oc.operators[regionID] = op
 	op.SetStartTime(time.Now())
-	opInfluence := NewTotalOpInfluence([]*operator.Operator{op}, oc.cluster)
-	for storeID := range opInfluence.StoresInfluence {
-		stepCost := opInfluence.GetStoreInfluence(storeID).StepCost
-		if stepCost == 0 {
-			continue
-		}
-		oc.storesLimit[storeID].Take(stepCost)
-	}
 	oc.updateCounts(oc.operators)
 
 	var step operator.OpStep
@@ -422,57 +410,6 @@ func (oc *OperatorController) OperatorCount(mask operator.OpKind) uint64 {
 	return total
 }
 
-// GetOpInfluence gets OpInfluence.
-func (oc *OperatorController) GetOpInfluence(cluster opt.Cluster) operator.OpInfluence {
-	oc.RLock()
-	defer oc.RUnlock()
-
-	var res []*operator.Operator
-	for _, op := range oc.operators {
-		if !op.IsTimeout() && !op.IsFinish() {
-			region := cluster.GetRegion(op.RegionID())
-			if region != nil {
-				res = append(res, op)
-			}
-		}
-	}
-	return NewUnfinishedOpInfluence(res, cluster)
-}
-
-// NewTotalOpInfluence creates a OpInfluence.
-func NewTotalOpInfluence(operators []*operator.Operator, cluster opt.Cluster) operator.OpInfluence {
-	influence := operator.OpInfluence{
-		StoresInfluence: make(map[uint64]*operator.StoreInfluence),
-	}
-
-	for _, op := range operators {
-		region := cluster.GetRegion(op.RegionID())
-		if region != nil {
-			op.TotalInfluence(influence, region)
-		}
-	}
-
-	return influence
-}
-
-// NewUnfinishedOpInfluence creates a OpInfluence.
-func NewUnfinishedOpInfluence(operators []*operator.Operator, cluster opt.Cluster) operator.OpInfluence {
-	influence := operator.OpInfluence{
-		StoresInfluence: make(map[uint64]*operator.StoreInfluence),
-	}
-
-	for _, op := range operators {
-		if !op.IsTimeout() && !op.IsFinish() {
-			region := cluster.GetRegion(op.RegionID())
-			if region != nil {
-				op.UnfinishedInfluence(influence, region)
-			}
-		}
-	}
-
-	return influence
-}
-
 // SetOperator is only used for test.
 func (oc *OperatorController) SetOperator(op *operator.Operator) {
 	oc.Lock()
@@ -524,89 +461,10 @@ func (o *OperatorRecords) Put(op *operator.Operator, status pdpb.OperatorStatus)
 	o.ttl.Put(id, record)
 }
 
-// exceedStoreLimit returns true if the store exceeds the cost limit after adding the operator. Otherwise, returns false.
-func (oc *OperatorController) exceedStoreLimit(ops ...*operator.Operator) bool {
-	opInfluence := NewTotalOpInfluence(ops, oc.cluster)
-	for storeID := range opInfluence.StoresInfluence {
-		stepCost := opInfluence.GetStoreInfluence(storeID).StepCost
-		if stepCost == 0 {
-			continue
-		}
-
-		available := oc.getOrCreateStoreLimit(storeID).Available()
-		if available < stepCost {
-			return true
-		}
-	}
-	return false
-}
-
-// SetAllStoresLimit is used to set limit of all stores.
-func (oc *OperatorController) SetAllStoresLimit(rate float64) {
-	oc.Lock()
-	defer oc.Unlock()
-	stores := oc.cluster.GetStores()
-	for _, s := range stores {
-		oc.newStoreLimit(s.GetID(), rate)
-	}
-}
-
-// SetStoreLimit is used to set the limit of a store.
-func (oc *OperatorController) SetStoreLimit(storeID uint64, rate float64) {
-	oc.Lock()
-	defer oc.Unlock()
-	oc.newStoreLimit(storeID, rate)
-}
-
-// newStoreLimit is used to create the limit of a store.
-func (oc *OperatorController) newStoreLimit(storeID uint64, rate float64) {
-	capacity := operator.RegionInfluence
-	if rate > 1 {
-		capacity = int64(rate * float64(operator.RegionInfluence))
-	}
-	rate *= float64(operator.RegionInfluence)
-	oc.storesLimit[storeID] = ratelimit.NewBucketWithRate(rate, capacity)
-}
-
-// getOrCreateStoreLimit is used to get or create the limit of a store.
-func (oc *OperatorController) getOrCreateStoreLimit(storeID uint64) *ratelimit.Bucket {
-	if oc.storesLimit[storeID] == nil {
-		rate := oc.cluster.GetStoreBalanceRate() / StoreBalanceBaseTime
-		oc.newStoreLimit(storeID, rate)
-		oc.cluster.AttachAvailableFunc(storeID, func() bool {
-			oc.RLock()
-			defer oc.RUnlock()
-			return oc.storesLimit[storeID].Available() >= operator.RegionInfluence
-		})
-	}
-	return oc.storesLimit[storeID]
-}
-
-// GetAllStoresLimit is used to get limit of all stores.
-func (oc *OperatorController) GetAllStoresLimit() map[uint64]float64 {
-	oc.RLock()
-	defer oc.RUnlock()
-	ret := make(map[uint64]float64)
-	for storeID, limit := range oc.storesLimit {
-		store := oc.cluster.GetStore(storeID)
-		if !store.IsTombstone() {
-			ret[storeID] = limit.Rate() / float64(operator.RegionInfluence)
-		}
-	}
-	return ret
-}
-
 // GetLeaderScheduleStrategy is to get leader schedule strategy
 func (oc *OperatorController) GetLeaderScheduleStrategy() core.ScheduleStrategy {
 	if oc.cluster == nil {
 		return core.ByCount
 	}
 	return oc.cluster.GetLeaderScheduleStrategy()
-}
-
-// RemoveStoreLimit removes the store limit for a given store ID.
-func (oc *OperatorController) RemoveStoreLimit(storeID uint64) {
-	oc.Lock()
-	defer oc.Unlock()
-	delete(oc.storesLimit, storeID)
 }
