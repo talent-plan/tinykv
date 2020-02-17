@@ -604,31 +604,6 @@ func (s *testClusterSuite) TestSetScheduleOpt(c *C) {
 	c.Assert(s.svr.DeleteLabelProperty(typ, labelKey, labelValue), IsNil)
 
 	c.Assert(len(s.svr.scheduleOpt.LoadLabelPropertyConfig()[typ]), Equals, 0)
-
-	//PUT GET failed
-	oldStorage := s.svr.storage
-	s.svr.storage = core.NewStorage(&testErrorKV{})
-	replicateCfg.MaxReplicas = 7
-	scheduleCfg.MaxSnapshotCount = 20
-
-	c.Assert(s.svr.SetScheduleConfig(*scheduleCfg), NotNil)
-	c.Assert(s.svr.SetReplicationConfig(*replicateCfg), NotNil)
-	c.Assert(s.svr.SetPDServerConfig(*pdServerCfg), NotNil)
-	c.Assert(s.svr.SetLabelProperty(typ, labelKey, labelValue), NotNil)
-
-	c.Assert(s.svr.GetReplicationConfig().MaxReplicas, Equals, uint64(5))
-	c.Assert(s.svr.scheduleOpt.GetMaxSnapshotCount(), Equals, uint64(10))
-	c.Assert(len(s.svr.scheduleOpt.LoadLabelPropertyConfig()[typ]), Equals, 0)
-
-	//DELETE failed
-	s.svr.storage = oldStorage
-	c.Assert(s.svr.SetReplicationConfig(*replicateCfg), IsNil)
-
-	s.svr.storage = core.NewStorage(&testErrorKV{})
-	c.Assert(s.svr.DeleteLabelProperty(typ, labelKey, labelValue), NotNil)
-
-	c.Assert(s.svr.scheduleOpt.LoadLabelPropertyConfig()[typ][0].Key, Equals, "testKey")
-	c.Assert(s.svr.scheduleOpt.LoadLabelPropertyConfig()[typ][0].Value, Equals, "testValue")
 }
 
 var _ = Suite(&testStoresInfoSuite{})
@@ -1140,34 +1115,6 @@ func (s *testClusterInfoSuite) TestRegionHeartbeat(c *C) {
 		c.Assert(ok, IsTrue)
 		c.Assert(err, IsNil)
 		c.Assert(region, DeepEquals, overlapRegion.GetMeta())
-	}
-}
-
-func heartbeatRegions(c *C, cluster *RaftCluster, regions []*core.RegionInfo) {
-	// Heartbeat and check region one by one.
-	for _, r := range regions {
-		c.Assert(cluster.processRegionHeartbeat(r), IsNil)
-
-		checkRegion(c, cluster.GetRegion(r.GetID()), r)
-		checkRegion(c, cluster.GetRegionInfoByKey(r.GetStartKey()), r)
-
-		if len(r.GetEndKey()) > 0 {
-			end := r.GetEndKey()[0]
-			checkRegion(c, cluster.GetRegionInfoByKey([]byte{end - 1}), r)
-		}
-	}
-
-	// Check all regions after handling all heartbeats.
-	for _, r := range regions {
-		checkRegion(c, cluster.GetRegion(r.GetID()), r)
-		checkRegion(c, cluster.GetRegionInfoByKey(r.GetStartKey()), r)
-
-		if len(r.GetEndKey()) > 0 {
-			end := r.GetEndKey()[0]
-			checkRegion(c, cluster.GetRegionInfoByKey([]byte{end - 1}), r)
-			result := cluster.GetRegionInfoByKey([]byte{end + 1})
-			c.Assert(result.GetID(), Not(Equals), r.GetID())
-		}
 	}
 }
 

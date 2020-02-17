@@ -50,20 +50,6 @@ type Cluster interface {
 	AllocPeer(storeID uint64) (*metapb.Peer, error)
 }
 
-type u64Slice []uint64
-
-func (s u64Slice) Len() int {
-	return len(s)
-}
-
-func (s u64Slice) Swap(i, j int) {
-	s[i], s[j] = s[j], s[i]
-}
-
-func (s u64Slice) Less(i, j int) bool {
-	return s[i] < s[j]
-}
-
 // OpStep describes the basic scheduling steps that can not be subdivided.
 type OpStep interface {
 	fmt.Stringer

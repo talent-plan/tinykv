@@ -679,14 +679,12 @@ func (s *testCoordinatorSuite) TestRemoveScheduler(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(sches, HasLen, 0)
 	c.Assert(co.schedulers, HasLen, 0)
-	c.Assert(co.cluster.opt.Persist(co.cluster.storage), IsNil)
+	newOpt := co.cluster.opt
 	co.stop()
 	co.wg.Wait()
 
 	// suppose restart PD again
-	_, newOpt, err := newTestScheduleConfig()
 	c.Assert(err, IsNil)
-	c.Assert(newOpt.Reload(tc.storage), IsNil)
 	tc.RaftCluster.opt = newOpt
 	co = newCoordinator(s.ctx, tc.RaftCluster, hbStreams)
 	co.run()

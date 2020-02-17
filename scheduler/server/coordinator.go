@@ -231,9 +231,6 @@ func (c *coordinator) run() {
 	// Removes the invalid scheduler config and persist.
 	scheduleCfg.Schedulers = scheduleCfg.Schedulers[:k]
 	c.cluster.opt.Store(scheduleCfg)
-	if err := c.cluster.opt.Persist(c.cluster.storage); err != nil {
-		log.Error("cannot persist schedule config", zap.Error(err))
-	}
 
 	c.wg.Add(2)
 	// Starts to patrol regions.
@@ -299,8 +296,6 @@ func (c *coordinator) removeScheduler(name string) error {
 	opt := c.cluster.opt
 	if err = opt.RemoveSchedulerCfg(s.Ctx(), name); err != nil {
 		log.Error("can not remove scheduler", zap.String("scheduler-name", name), zap.Error(err))
-	} else if err = opt.Persist(c.cluster.storage); err != nil {
-		log.Error("the option can not persist scheduler config", zap.Error(err))
 	} else {
 		err = c.cluster.storage.RemoveScheduleConfig(name)
 		if err != nil {

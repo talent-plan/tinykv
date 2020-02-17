@@ -979,10 +979,6 @@ func (c *RaftCluster) OnStoreVersionChange() {
 		if !c.opt.CASClusterVersion(clusterVersion, minVersion) {
 			log.Error("cluster version changed by API at the same time")
 		}
-		err := c.opt.Persist(c.storage)
-		if err != nil {
-			log.Error("persist cluster version meet error", zap.Error(err))
-		}
 		log.Info("cluster version changed",
 			zap.Stringer("old-cluster-version", clusterVersion),
 			zap.Stringer("new-cluster-version", minVersion))

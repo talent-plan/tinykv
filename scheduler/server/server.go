@@ -514,14 +514,6 @@ func (s *Server) SetScheduleConfig(cfg config.ScheduleConfig) error {
 	}
 	old := s.scheduleOpt.Load()
 	s.scheduleOpt.Store(&cfg)
-	if err := s.scheduleOpt.Persist(s.storage); err != nil {
-		s.scheduleOpt.Store(old)
-		log.Error("failed to update schedule config",
-			zap.Reflect("new", cfg),
-			zap.Reflect("old", old),
-			zap.Error(err))
-		return err
-	}
 	log.Info("schedule config is updated", zap.Reflect("new", cfg), zap.Reflect("old", old))
 	return nil
 }
@@ -540,14 +532,6 @@ func (s *Server) SetReplicationConfig(cfg config.ReplicationConfig) error {
 	}
 	old := s.scheduleOpt.GetReplication().Load()
 	s.scheduleOpt.GetReplication().Store(&cfg)
-	if err := s.scheduleOpt.Persist(s.storage); err != nil {
-		s.scheduleOpt.GetReplication().Store(old)
-		log.Error("failed to update replication config",
-			zap.Reflect("new", cfg),
-			zap.Reflect("old", old),
-			zap.Error(err))
-		return err
-	}
 	log.Info("replication config is updated", zap.Reflect("new", cfg), zap.Reflect("old", old))
 	return nil
 }
@@ -556,14 +540,6 @@ func (s *Server) SetReplicationConfig(cfg config.ReplicationConfig) error {
 func (s *Server) SetPDServerConfig(cfg config.PDServerConfig) error {
 	old := s.scheduleOpt.LoadPDServerConfig()
 	s.scheduleOpt.SetPDServerConfig(&cfg)
-	if err := s.scheduleOpt.Persist(s.storage); err != nil {
-		s.scheduleOpt.SetPDServerConfig(old)
-		log.Error("failed to update PDServer config",
-			zap.Reflect("new", cfg),
-			zap.Reflect("old", old),
-			zap.Error(err))
-		return err
-	}
 	log.Info("PD server config is updated", zap.Reflect("new", cfg), zap.Reflect("old", old))
 	return nil
 }
@@ -571,17 +547,6 @@ func (s *Server) SetPDServerConfig(cfg config.PDServerConfig) error {
 // SetLabelProperty inserts a label property config.
 func (s *Server) SetLabelProperty(typ, labelKey, labelValue string) error {
 	s.scheduleOpt.SetLabelProperty(typ, labelKey, labelValue)
-	err := s.scheduleOpt.Persist(s.storage)
-	if err != nil {
-		s.scheduleOpt.DeleteLabelProperty(typ, labelKey, labelValue)
-		log.Error("failed to update label property config",
-			zap.String("typ", typ),
-			zap.String("labelKey", labelKey),
-			zap.String("labelValue", labelValue),
-			zap.Reflect("config", s.scheduleOpt.LoadLabelPropertyConfig()),
-			zap.Error(err))
-		return err
-	}
 	log.Info("label property config is updated", zap.Reflect("config", s.scheduleOpt.LoadLabelPropertyConfig()))
 	return nil
 }
@@ -589,17 +554,6 @@ func (s *Server) SetLabelProperty(typ, labelKey, labelValue string) error {
 // DeleteLabelProperty deletes a label property config.
 func (s *Server) DeleteLabelProperty(typ, labelKey, labelValue string) error {
 	s.scheduleOpt.DeleteLabelProperty(typ, labelKey, labelValue)
-	err := s.scheduleOpt.Persist(s.storage)
-	if err != nil {
-		s.scheduleOpt.SetLabelProperty(typ, labelKey, labelValue)
-		log.Error("failed to delete label property config",
-			zap.String("typ", typ),
-			zap.String("labelKey", labelKey),
-			zap.String("labelValue", labelValue),
-			zap.Reflect("config", s.scheduleOpt.LoadLabelPropertyConfig()),
-			zap.Error(err))
-		return err
-	}
 	log.Info("label property config is deleted", zap.Reflect("config", s.scheduleOpt.LoadLabelPropertyConfig()))
 	return nil
 }
@@ -615,17 +569,7 @@ func (s *Server) SetClusterVersion(v string) error {
 	if err != nil {
 		return err
 	}
-	old := s.scheduleOpt.LoadClusterVersion()
 	s.scheduleOpt.SetClusterVersion(version)
-	err = s.scheduleOpt.Persist(s.storage)
-	if err != nil {
-		s.scheduleOpt.SetClusterVersion(old)
-		log.Error("failed to update cluster version",
-			zap.String("old-version", old.String()),
-			zap.String("new-version", v),
-			zap.Error(err))
-		return err
-	}
 	log.Info("cluster version is updated", zap.String("new-version", v))
 	return nil
 }
@@ -719,11 +663,6 @@ func (s *Server) leaderLoop() {
 			continue
 		}
 		if leader != nil {
-			err := s.reloadConfigFromKV()
-			if err != nil {
-				log.Error("reload config failed", zap.Error(err))
-				continue
-			}
 			log.Info("start watch leader", zap.Stringer("leader", leader))
 			s.member.WatchLeader(s.serverLoopCtx, leader, rev)
 			log.Info("leader changed, try to campaign leader")
@@ -768,13 +707,8 @@ func (s *Server) campaignLeader() {
 	}
 	defer s.tso.ResetTimestamp()
 
-	err := s.reloadConfigFromKV()
-	if err != nil {
-		log.Error("failed to reload configuration", zap.Error(err))
-		return
-	}
 	// Try to create raft cluster.
-	err = s.createRaftCluster()
+	err := s.createRaftCluster()
 	if err != nil {
 		log.Error("failed to create raft cluster", zap.Error(err))
 		return
@@ -832,12 +766,4 @@ func (s *Server) etcdLeaderLoop() {
 			return
 		}
 	}
-}
-
-func (s *Server) reloadConfigFromKV() error {
-	err := s.scheduleOpt.Reload(s.storage)
-	if err != nil {
-		return err
-	}
-	return nil
 }
