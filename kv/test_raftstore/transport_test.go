@@ -4,11 +4,9 @@ import (
 	"testing"
 )
 
-func testPartitionWrite(cluster Cluster) {
-	err := cluster.Start()
-	if err != nil {
-		panic(err)
-	}
+func testPartitionWrite(cluster *Cluster) {
+	cluster.Start()
+	defer cluster.Shutdown()
 
 	key := []byte("k1")
 	value := []byte("v1")
@@ -22,15 +20,16 @@ func testPartitionWrite(cluster Cluster) {
 	cluster.MustTransferLeader(regionID, &peer)
 
 	// leader in majority, partition doesn't affect write/read
-	cluster.Partition([]uint64{1, 2, 3}, []uint64{4, 5})
+	cluster.AddFilter(&PartitionFilter{
+		s1: []uint64{1, 2, 3},
+		s2: []uint64{4, 5},
+	})
 	cluster.MustGet(key, value)
-
-	cluster.Shutdown()
 }
 
 func TestNodePartitionWrite(t *testing.T) {
 	pdClient := NewMockPDClient(0)
-	simulator := NewNodeSimulator(&pdClient)
-	cluster := NewCluster(5, &pdClient, &simulator)
+	simulator := NewNodeSimulator(pdClient)
+	cluster := NewCluster(5, pdClient, simulator)
 	testPartitionWrite(cluster)
 }

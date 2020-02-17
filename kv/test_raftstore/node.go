@@ -2,11 +2,14 @@ package test_raftstore
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
-	"log"
 	"sync"
 	"time"
 
+	"github.com/coocood/badger"
+	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	tikvConf "github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
@@ -29,19 +32,27 @@ type MockTransport struct {
 	snapMgrs map[uint64]*snap.SnapManager
 }
 
-func NewMockTransport() MockTransport {
-	return MockTransport{
+func NewMockTransport() *MockTransport {
+	return &MockTransport{
 		routers:  make(map[uint64]message.RaftRouter),
 		snapMgrs: make(map[uint64]*snap.SnapManager),
 	}
 }
 
-func (t *MockTransport) AddNode(nodeID uint64, raftRouter message.RaftRouter, snapMgr *snap.SnapManager) {
+func (t *MockTransport) AddStore(storeID uint64, raftRouter message.RaftRouter, snapMgr *snap.SnapManager) {
 	t.Lock()
 	defer t.Unlock()
 
-	t.routers[nodeID] = raftRouter
-	t.snapMgrs[nodeID] = snapMgr
+	t.routers[storeID] = raftRouter
+	t.snapMgrs[storeID] = snapMgr
+}
+
+func (t *MockTransport) RemoveStore(storeID uint64) {
+	t.Lock()
+	defer t.Unlock()
+
+	delete(t.routers, storeID)
+	delete(t.snapMgrs, storeID)
 }
 
 func (t *MockTransport) AddFilter(filter Filter) {
@@ -64,7 +75,7 @@ func (t *MockTransport) Send(msg *raft_serverpb.RaftMessage) error {
 
 	for _, filter := range t.filters {
 		if !filter.Before(msg) {
-			return nil
+			return errors.New(fmt.Sprintf("message %+v is dropped", msg))
 		}
 	}
 
@@ -78,10 +89,13 @@ func (t *MockTransport) Send(msg *raft_serverpb.RaftMessage) error {
 	if isSnapshot {
 		snapshot := msg.Message.Snapshot
 		key, err := snap.SnapKeyFromSnap(snapshot)
-
-		fromSnapMgr := t.snapMgrs[fromStore]
 		if err != nil {
 			return err
+		}
+
+		fromSnapMgr, found := t.snapMgrs[fromStore]
+		if !found {
+			return errors.New(fmt.Sprintf("store %d is closed", fromStore))
 		}
 		fromSnapMgr.Register(key, snap.SnapEntrySending)
 		fromSnap, err := fromSnapMgr.GetSnapshotForSending(key)
@@ -89,9 +103,9 @@ func (t *MockTransport) Send(msg *raft_serverpb.RaftMessage) error {
 			return err
 		}
 
-		toSnapMgr := t.snapMgrs[toStore]
-		if err != nil {
-			return err
+		toSnapMgr, found := t.snapMgrs[toStore]
+		if !found {
+			return errors.New(fmt.Sprintf("store %d is closed", toStore))
 		}
 		toSnapMgr.Register(key, snap.SnapEntryReceiving)
 		toSnap, err := toSnapMgr.GetSnapshotForReceiving(key, snapshot.GetData())
@@ -105,7 +119,10 @@ func (t *MockTransport) Send(msg *raft_serverpb.RaftMessage) error {
 		fromSnapMgr.Deregister(key, snap.SnapEntrySending)
 	}
 
-	router, _ := t.routers[toStore]
+	router, found := t.routers[toStore]
+	if !found {
+		return errors.New(fmt.Sprintf("store %d is closed", toStore))
+	}
 	router.SendRaftMessage(msg)
 	if isSnapshot {
 		err := router.ReportSnapshotStatus(regionID, toPeerID, raft.SnapshotFinish)
@@ -122,26 +139,31 @@ func (t *MockTransport) Send(msg *raft_serverpb.RaftMessage) error {
 }
 
 type NodeSimulator struct {
+	sync.RWMutex
+
 	trans    *MockTransport
 	pdClient pd.Client
 	nodes    map[uint64]*raftstore.Node
 }
 
-func NewNodeSimulator(pdClient pd.Client) NodeSimulator {
+func NewNodeSimulator(pdClient pd.Client) *NodeSimulator {
 	trans := NewMockTransport()
-	return NodeSimulator{
-		trans:    &trans,
+	return &NodeSimulator{
+		trans:    trans,
 		pdClient: pdClient,
 		nodes:    make(map[uint64]*raftstore.Node),
 	}
 }
 
-func (c *NodeSimulator) RunNode(raftConf *tikvConf.Config, engine *engine_util.Engines, ctx context.Context) error {
+func (c *NodeSimulator) RunStore(raftConf *tikvConf.Config, engine *engine_util.Engines, ctx context.Context) error {
+	c.Lock()
+	defer c.Unlock()
+
 	var wg sync.WaitGroup
 	pdWorker := worker.NewWorker("pd-worker", &wg)
 
 	router, batchSystem := raftstore.CreateRaftBatchSystem(raftConf)
-	raftRouter := raftstore.NewRaftstoreRouter(router) // TODO: init with local reader
+	raftRouter := raftstore.NewRaftstoreRouter(router)
 	snapManager := snap.NewSnapManager(raftConf.SnapPath)
 	node := raftstore.NewNode(batchSystem, &metapb.Store{}, raftConf, c.pdClient)
 
@@ -152,40 +174,53 @@ func (c *NodeSimulator) RunNode(raftConf *tikvConf.Config, engine *engine_util.E
 
 	storeID := node.GetStoreID()
 	c.nodes[storeID] = node
-	c.trans.AddNode(storeID, raftRouter, snapManager)
+	c.trans.AddStore(storeID, raftRouter, snapManager)
 
 	return nil
 }
 
-func (c *NodeSimulator) StopNode(nodeID uint64) {
-	node := c.nodes[nodeID]
+func (c *NodeSimulator) StopStore(storeID uint64) {
+	c.Lock()
+	defer c.Unlock()
+
+	node := c.nodes[storeID]
 	if node == nil {
-		log.Panicf("Can not find node %d", nodeID)
+		panic(fmt.Sprintf("Can not find store %d", storeID))
 	}
 	node.Stop()
+	delete(c.nodes, storeID)
+	c.trans.RemoveStore(storeID)
 }
 
 func (c *NodeSimulator) AddFilter(filter Filter) {
+	c.Lock()
+	defer c.Unlock()
 	c.trans.AddFilter(filter)
 }
 
 func (c *NodeSimulator) ClearFilters() {
+	c.Lock()
+	defer c.Unlock()
 	c.trans.ClearFilters()
 }
 
-func (c *NodeSimulator) GetNodeIds() []uint64 {
-	nodeIDs := make([]uint64, 0, len(c.nodes))
-	for nodeID := range c.nodes {
-		nodeIDs = append(nodeIDs, nodeID)
+func (c *NodeSimulator) GetStoreIds() []uint64 {
+	c.RLock()
+	defer c.RUnlock()
+	storeIDs := make([]uint64, 0, len(c.nodes))
+	for storeID := range c.nodes {
+		storeIDs = append(storeIDs, storeID)
 	}
-	return nodeIDs
+	return storeIDs
 }
 
-func (c *NodeSimulator) CallCommandOnNode(nodeID uint64, request *raft_cmdpb.RaftCmdRequest, timeout time.Duration) *raft_cmdpb.RaftCmdResponse {
-	router := c.trans.routers[nodeID]
+func (c *NodeSimulator) CallCommandOnStore(storeID uint64, request *raft_cmdpb.RaftCmdRequest, timeout time.Duration) (*raft_cmdpb.RaftCmdResponse, *badger.Txn) {
+	c.RLock()
+	router := c.trans.routers[storeID]
 	if router == nil {
-		log.Panicf("Can not find node %d", nodeID)
+		log.Fatalf("Can not find node %d", storeID)
 	}
+	c.RUnlock()
 
 	cb := message.NewCallback()
 	err := router.SendRaftCommand(request, cb)
@@ -194,20 +229,18 @@ func (c *NodeSimulator) CallCommandOnNode(nodeID uint64, request *raft_cmdpb.Raf
 	}
 
 	resp := cb.WaitRespWithTimeout(timeout)
-
 	if resp == nil {
-		return nil
+		return nil, nil
 	}
 
 	reqCount := len(request.Requests)
-
 	if resp.Header != nil && resp.Header.Error != nil {
-		panic(&resp.Header.Error)
+		return resp, cb.Txn
 	}
 	if len(resp.Responses) != reqCount {
-		log.Panicf("responses count %d is not equal to requests count %d",
+		log.Fatalf("responses count %d is not equal to requests count %d",
 			len(resp.Responses), reqCount)
 	}
 
-	return resp
+	return resp, cb.Txn
 }

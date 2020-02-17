@@ -142,9 +142,10 @@ func (c *applyCallback) invokeAll() {
 	}
 }
 
-func (c *applyCallback) push(cb *message.Callback, resp *raft_cmdpb.RaftCmdResponse) {
+func (c *applyCallback) push(cb *message.Callback, resp *raft_cmdpb.RaftCmdResponse, txn *badger.Txn) {
 	if cb != nil {
 		cb.Resp = resp
+		cb.Txn = txn
 	}
 	c.cbs = append(c.cbs, cb)
 }
@@ -402,6 +403,7 @@ func (a *applier) handleRaftCommittedEntries(aCtx *applyContext, committedEntrie
 		case applyResultTypeExecResult:
 			results = append(results, res.data)
 		}
+		aCtx.commit(a)
 	}
 	aCtx.finishFor(a, results)
 }
@@ -432,9 +434,7 @@ func (a *applier) handleRaftEntryNormal(aCtx *applyContext, entry *eraftpb.Entry
 			break
 		}
 		// apparently, all the callbacks whose term is less than entry's term are stale.
-		cb := &aCtx.cbs[len(aCtx.cbs)-1]
-		cmd.cb.Resp = ErrRespStaleCommand(term)
-		cb.cbs = append(cb.cbs, cmd.cb)
+		aCtx.cbs[len(aCtx.cbs)-1].push(cmd.cb, ErrRespStaleCommand(term), nil)
 	}
 	return applyResult{}
 }
@@ -505,14 +505,7 @@ func (a *applier) processRaftCmd(aCtx *applyContext, index, term uint64, cmd *ra
 	// store will call it after handing exec result.
 	BindRespTerm(resp, term)
 	cmdCB := a.findCallback(index, term, isConfChange)
-	if txn != nil {
-		cmdCB.RegionSnap = &message.RegionSnapshot{
-			Region: *a.region,
-			Txn:    txn,
-		}
-	}
-
-	aCtx.cbs[len(aCtx.cbs)-1].push(cmdCB, resp)
+	aCtx.cbs[len(aCtx.cbs)-1].push(cmdCB, resp, txn)
 	return result
 }
 
@@ -648,7 +641,10 @@ func (a *applier) execNormalCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdReque
 			resps = append(resps, r)
 			hasRead = true
 		case raft_cmdpb.CmdType_Snap:
-			resps = append(resps, new(raft_cmdpb.Response))
+			resps = append(resps, &raft_cmdpb.Response{
+				CmdType: raft_cmdpb.CmdType_Snap,
+				Snap:    &raft_cmdpb.SnapResponse{Region: a.region},
+			})
 			txn = aCtx.engines.Kv.NewTransaction(false)
 			hasRead = true
 		default:
@@ -656,7 +652,7 @@ func (a *applier) execNormalCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdReque
 		}
 	}
 	if hasWrite && hasRead {
-		panic("mixed write and read in one batch")
+		panic("mixed write and read in one request")
 	}
 	resp = newCmdRespForReq(req)
 	resp.Responses = resps
@@ -707,6 +703,11 @@ func (a *applier) handleGet(aCtx *applyContext, req *raft_cmdpb.GetRequest) (*ra
 	} else {
 		val, err = engine_util.GetCF(aCtx.engines.Kv, engine_util.CfDefault, key)
 	}
+	if err == badger.ErrKeyNotFound {
+		err = nil
+		val = nil
+	}
+
 	return &raft_cmdpb.Response{
 		CmdType: raft_cmdpb.CmdType_Get,
 		Get:     &raft_cmdpb.GetResponse{Value: val},

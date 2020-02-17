@@ -86,7 +86,6 @@ func setupRaftStoreConf(raftConf *config.Config, conf *kvConfig.Config) {
 
 	// raftstore block
 	raftConf.PdHeartbeatTickInterval = kvConfig.ParseDuration(conf.RaftStore.PdHeartbeatTickInterval)
-	raftConf.RaftStoreMaxLeaderLease = kvConfig.ParseDuration(conf.RaftStore.RaftStoreMaxLeaderLease)
 	raftConf.RaftBaseTickInterval = kvConfig.ParseDuration(conf.RaftStore.RaftBaseTickInterval)
 	raftConf.RaftHeartbeatTicks = conf.RaftStore.RaftHeartbeatTicks
 	raftConf.RaftElectionTimeoutTicks = conf.RaftStore.RaftElectionTimeoutTicks
@@ -153,16 +152,20 @@ func (ris *RaftInnerServer) Reader(ctx *kvrpcpb.Context) (dbreader.DBReader, err
 		return nil, err
 	}
 
-	if err := ris.checkResponse(cb.WaitResp(), 1); err != nil {
-		if cb.RegionSnap.Txn != nil {
-			cb.RegionSnap.Txn.Discard()
+	resp := cb.WaitResp()
+	if err := ris.checkResponse(resp, 1); err != nil {
+		if cb.Txn != nil {
+			cb.Txn.Discard()
 		}
 		return nil, err
 	}
-	if cb.RegionSnap == nil {
+	if cb.Txn == nil {
 		panic("can not found region snap")
 	}
-	return dbreader.NewRegionReader(cb.RegionSnap.Txn, cb.RegionSnap.Region), nil
+	if len(resp.Responses) != 1 {
+		panic("wrong response count for snap cmd")
+	}
+	return dbreader.NewRegionReader(cb.Txn, *resp.Responses[0].GetSnap().Region), nil
 }
 
 func (ris *RaftInnerServer) Raft(stream tikvpb.Tikv_RaftServer) error {

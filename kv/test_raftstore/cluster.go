@@ -1,18 +1,21 @@
 package test_raftstore
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
+	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
+	"github.com/coocood/badger"
+	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	tikvConf "github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -20,12 +23,12 @@ import (
 )
 
 type Simulator interface {
-	RunNode(raftConf *tikvConf.Config, engine *engine_util.Engines, ctx context.Context) error
-	StopNode(nodeID uint64)
+	RunStore(raftConf *tikvConf.Config, engine *engine_util.Engines, ctx context.Context) error
+	StopStore(storeID uint64)
 	AddFilter(filter Filter)
 	ClearFilters()
-	GetNodeIds() []uint64
-	CallCommandOnNode(nodeID uint64, request *raft_cmdpb.RaftCmdRequest, timeout time.Duration) *raft_cmdpb.RaftCmdResponse
+	GetStoreIds() []uint64
+	CallCommandOnStore(storeID uint64, request *raft_cmdpb.RaftCmdRequest, timeout time.Duration) (*raft_cmdpb.RaftCmdResponse, *badger.Txn)
 }
 
 type Cluster struct {
@@ -37,8 +40,8 @@ type Cluster struct {
 	simulator Simulator
 }
 
-func NewCluster(count int, pdClient pd.Client, simulator Simulator) Cluster {
-	return Cluster{
+func NewCluster(count int, pdClient pd.Client, simulator Simulator) *Cluster {
+	return &Cluster{
 		count:     count,
 		pdClient:  pdClient,
 		engines:   make(map[uint64]*engine_util.Engines),
@@ -47,16 +50,16 @@ func NewCluster(count int, pdClient pd.Client, simulator Simulator) Cluster {
 	}
 }
 
-func (c *Cluster) Start() error {
+func (c *Cluster) Start() {
 	ctx := context.TODO()
 	clusterID := c.pdClient.GetClusterID(ctx)
 
-	for nodeID := uint64(1); nodeID <= uint64(c.count); nodeID++ {
+	for storeID := uint64(1); storeID <= uint64(c.count); storeID++ {
 		dbPath, err := ioutil.TempDir("", "test-raftstore")
 		kvPath := filepath.Join(dbPath, "kv")
 		raftPath := filepath.Join(dbPath, "raft")
 		snapPath := filepath.Join(dbPath, "snap")
-		c.snapPaths[nodeID] = snapPath
+		c.snapPaths[storeID] = snapPath
 		c.dirs = append(c.dirs, []string{kvPath, raftPath, snapPath}...)
 
 		err = os.MkdirAll(kvPath, os.ModePerm)
@@ -78,7 +81,7 @@ func (c *Cluster) Start() error {
 		raftDB := engine_util.CreateDB("raft", &conf.Engine)
 		kvDB := engine_util.CreateDB("kv", &conf.Engine)
 		engine := engine_util.NewEngines(kvDB, raftDB, kvPath, raftPath)
-		c.engines[nodeID] = engine
+		c.engines[storeID] = engine
 	}
 
 	regionEpoch := &metapb.RegionEpoch{
@@ -92,12 +95,12 @@ func (c *Cluster) Start() error {
 		RegionEpoch: regionEpoch,
 	}
 
-	for nodeID, engine := range c.engines {
-		peer := NewPeer(nodeID, nodeID)
+	for storeID, engine := range c.engines {
+		peer := NewPeer(storeID, storeID)
 		firstRegion.Peers = append(firstRegion.Peers, &peer)
-		err := raftstore.BootstrapStore(engine, clusterID, nodeID)
+		err := raftstore.BootstrapStore(engine, clusterID, storeID)
 		if err != nil {
-			return err
+			panic(err)
 		}
 	}
 
@@ -117,9 +120,9 @@ func (c *Cluster) Start() error {
 		panic(resp.Header.Error)
 	}
 
-	for nodeID, engine := range c.engines {
+	for storeID, engine := range c.engines {
 		store := &metapb.Store{
-			Id:      nodeID,
+			Id:      storeID,
 			Address: "",
 		}
 		err := c.pdClient.PutStore(context.TODO(), store)
@@ -129,66 +132,67 @@ func (c *Cluster) Start() error {
 		raftstore.ClearPrepareBootstrapState(engine)
 	}
 
-	for nodeID, engine := range c.engines {
-		raftConf := tikvConf.NewDefaultConfig()
-		raftConf.SnapPath = c.snapPaths[nodeID]
-		err := c.simulator.RunNode(raftConf, engine, context.TODO())
-		if err != nil {
-			return err
-		}
+	for storeID := range c.engines {
+		c.StartServer(storeID)
 	}
-
-	return nil
 }
 
 func (c *Cluster) Shutdown() {
-	for _, nodeID := range c.simulator.GetNodeIds() {
-		c.simulator.StopNode(nodeID)
+	for _, storeID := range c.simulator.GetStoreIds() {
+		c.simulator.StopStore(storeID)
 	}
 	for _, dir := range c.dirs {
 		os.RemoveAll(dir)
 	}
 }
 
-func (c *Cluster) Request(key []byte, reqs []*raft_cmdpb.Request, readQuorum bool, timeout time.Duration) *raft_cmdpb.RaftCmdResponse {
-	region := c.GetRegion(key)
-	regionID := region.GetId()
-	req := NewRequest(regionID, region.RegionEpoch, reqs, readQuorum)
-	for i := 0; i < 10; i++ {
-		resp := c.CallCommandOnLeader(&req, timeout)
-		if resp == nil || resp.Header != nil &&
-			resp.Header.Error != nil &&
-			(resp.Header.Error.GetEpochNotMatch() != nil || strings.Contains(resp.Header.Error.Message, "merging mode")) {
+func (c *Cluster) Request(key []byte, reqs []*raft_cmdpb.Request, timeout time.Duration) (*raft_cmdpb.RaftCmdResponse, *badger.Txn) {
+	startTime := time.Now()
+	for i := 0; i < 10 || time.Now().Sub(startTime) < timeout; i++ {
+		region := c.GetRegion(key)
+		regionID := region.GetId()
+		req := NewRequest(regionID, region.RegionEpoch, reqs)
+		resp, txn := c.CallCommandOnLeader(&req, timeout)
+		if resp == nil {
+			// it should be timeouted innerly
 			SleepMS(100)
 			continue
 		}
-		return resp
+		if resp.Header.Error != nil && resp.Header.Error.GetEpochNotMatch() != nil {
+			SleepMS(100)
+			continue
+		}
+		return resp, txn
 	}
 	panic("request timeout")
 }
 
-func (c *Cluster) CallCommand(request *raft_cmdpb.RaftCmdRequest, timeout time.Duration) *raft_cmdpb.RaftCmdResponse {
-	nodeID := request.Header.Peer.StoreId
-	return c.simulator.CallCommandOnNode(nodeID, request, timeout)
+func (c *Cluster) CallCommand(request *raft_cmdpb.RaftCmdRequest, timeout time.Duration) (*raft_cmdpb.RaftCmdResponse, *badger.Txn) {
+	storeID := request.Header.Peer.StoreId
+	return c.simulator.CallCommandOnStore(storeID, request, timeout)
 }
 
-func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeout time.Duration) *raft_cmdpb.RaftCmdResponse {
+func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeout time.Duration) (*raft_cmdpb.RaftCmdResponse, *badger.Txn) {
 	startTime := time.Now()
 	for {
-		if time.Now().Sub(startTime) > timeout {
-			return nil
-		}
 		regionID := request.Header.RegionId
 		leader := c.LeaderOfRegion(regionID)
 		if leader == nil {
-			log.Panicf("can't get leader of region %d", regionID)
+			log.Fatalf("can't get leader of region %d", regionID)
 		}
 		request.Header.Peer = leader
-		resp := c.CallCommand(request, timeout)
+		resp, txn := c.CallCommand(request, timeout)
 		if resp == nil {
-			log.Panicf("can't call command %s on leader of region %d", request.String(), regionID)
+			log.Fatalf("can't call command %s on leader %d of region %d", request.String(), leader.GetId(), regionID)
 		}
-		return resp
+		if resp.Header.Error != nil {
+			err := resp.Header.Error
+			if (err.GetStaleCommand() != nil || err.GetEpochNotMatch() != nil || err.GetNotLeader() != nil) && time.Now().Sub(startTime) < timeout {
+				log.Warnf("encouter retryable err %+v", resp)
+				continue
+			}
+		}
+		return resp, txn
 	}
 }
 
@@ -196,7 +200,7 @@ func (c *Cluster) LeaderOfRegion(regionID uint64) *metapb.Peer {
 	storeIds := c.GetStoreIdsOfRegion(regionID)
 	for i := 0; i < 500; i++ {
 		for _, storeID := range storeIds {
-			leader := c.QueryLeader(storeID, regionID, 1*time.Second)
+			leader := c.QueryLeader(storeID, regionID, 5*time.Second)
 			if leader != nil {
 				return leader
 			}
@@ -210,9 +214,9 @@ func (c *Cluster) QueryLeader(storeID, regionID uint64, timeout time.Duration) *
 	// To get region leader, we don't care real peer id, so use 0 instead.
 	peer := NewPeer(storeID, 0)
 	findLeader := NewStatusRequest(regionID, &peer, NewRegionLeaderCmd())
-	resp := c.CallCommand(findLeader, timeout)
+	resp, _ := c.CallCommand(findLeader, timeout)
 	if resp == nil {
-		log.Panicf("fail to get leader of region %d on store %d", regionID, storeID)
+		log.Fatalf("fail to get leader of region %d on store %d", regionID, storeID)
 	}
 	regionLeader := resp.StatusResponse.RegionLeader
 	if regionLeader != nil && c.ValidLeaderID(regionID, regionLeader.Leader.StoreId) {
@@ -241,7 +245,7 @@ func (c *Cluster) GetRegion(key []byte) *metapb.Region {
 		// retry to get the region again.
 		SleepMS(20)
 	}
-	log.Panicf("find no region for %s", hex.EncodeToString(key))
+	log.Fatalf("find no region for %s", hex.EncodeToString(key))
 	return nil
 }
 
@@ -264,7 +268,7 @@ func (c *Cluster) MustPut(key, value []byte) {
 
 func (c *Cluster) MustPutCF(cf string, key, value []byte) {
 	req := NewPutCfCmd(cf, key, value)
-	resp := c.Request(key, []*raft_cmdpb.Request{req}, false, 5*time.Second)
+	resp, _ := c.Request(key, []*raft_cmdpb.Request{req}, 5*time.Second)
 	if resp.Header.Error != nil {
 		panic(resp.Header.Error)
 	}
@@ -277,12 +281,19 @@ func (c *Cluster) MustPutCF(cf string, key, value []byte) {
 }
 
 func (c *Cluster) MustGet(key []byte, value []byte) {
-	c.getImpl(engine_util.CfDefault, key, true)
+	v := c.Get(key)
+	if !bytes.Equal(v, value) {
+		panic(fmt.Sprintf("expected value %s, but got %s", value, v))
+	}
 }
 
-func (c *Cluster) getImpl(cf string, key []byte, readQuorum bool) []byte {
+func (c *Cluster) Get(key []byte) []byte {
+	return c.GetCF(engine_util.CfDefault, key)
+}
+
+func (c *Cluster) GetCF(cf string, key []byte) []byte {
 	req := NewGetCfCmd(cf, key)
-	resp := c.Request(key, []*raft_cmdpb.Request{req}, readQuorum, 5*time.Second)
+	resp, _ := c.Request(key, []*raft_cmdpb.Request{req}, 5*time.Second)
 	if resp.Header.Error != nil {
 		panic(resp.Header.Error)
 	}
@@ -295,6 +306,61 @@ func (c *Cluster) getImpl(cf string, key []byte, readQuorum bool) []byte {
 	return resp.Responses[0].Get.Value
 }
 
+func (c *Cluster) MustDelete(key []byte) {
+	c.MustDeleteCF(engine_util.CfDefault, key)
+}
+
+func (c *Cluster) MustDeleteCF(cf string, key []byte) {
+	req := NewDeleteCfCmd(cf, key)
+	resp, _ := c.Request(key, []*raft_cmdpb.Request{req}, 5*time.Second)
+	if resp.Header.Error != nil {
+		panic(resp.Header.Error)
+	}
+	if len(resp.Responses) != 1 {
+		panic("len(resp.Responses) != 1")
+	}
+	if resp.Responses[0].CmdType != raft_cmdpb.CmdType_Delete {
+		panic("resp.Responses[0].CmdType != raft_cmdpb.CmdType_Delete")
+	}
+}
+
+func (c *Cluster) Scan(start, end []byte) [][]byte {
+	req := NewSnapCmd()
+	values := make([][]byte, 0)
+	key := start
+	for (len(end) != 0 && bytes.Compare(key, end) < 0) || (len(key) == 0 && len(end) == 0) {
+		resp, txn := c.Request(key, []*raft_cmdpb.Request{req}, 5*time.Second)
+		if resp.Header.Error != nil {
+			panic(resp.Header.Error)
+		}
+		if len(resp.Responses) != 1 {
+			panic("len(resp.Responses) != 1")
+		}
+		if resp.Responses[0].CmdType != raft_cmdpb.CmdType_Snap {
+			panic("resp.Responses[0].CmdType != raft_cmdpb.CmdType_Snap")
+		}
+		region := resp.Responses[0].GetSnap().Region
+		iter := dbreader.NewRegionReader(txn, *region).IterCF(engine_util.CfDefault)
+		for iter.Seek(key); iter.Valid(); iter.Next() {
+			if engine_util.ExceedEndKey(iter.Item().Key(), end) {
+				break
+			}
+			value, err := iter.Item().ValueCopy(nil)
+			if err != nil {
+				panic(err)
+			}
+			values = append(values, value)
+		}
+
+		key = region.EndKey
+		if len(key) == 0 {
+			break
+		}
+	}
+
+	return values
+}
+
 func (c *Cluster) TransferLeader(regionID uint64, leader *metapb.Peer) {
 	region, _, err := c.pdClient.GetRegionByID(context.TODO(), regionID)
 	if err != nil {
@@ -302,7 +368,7 @@ func (c *Cluster) TransferLeader(regionID uint64, leader *metapb.Peer) {
 	}
 	epoch := region.RegionEpoch
 	transferLeader := NewAdminRequest(regionID, epoch, NewTransferLeaderCmd(leader))
-	resp := c.CallCommandOnLeader(transferLeader, 5*time.Second)
+	resp, _ := c.CallCommandOnLeader(transferLeader, 5*time.Second)
 	if resp.AdminResponse.CmdType != raft_cmdpb.AdminCmdType_TransferLeader {
 		panic("resp.AdminResponse.CmdType != raft_cmdpb.AdminCmdType_TransferLeader")
 	}
@@ -317,16 +383,30 @@ func (c *Cluster) MustTransferLeader(regionID uint64, leader *metapb.Peer) {
 			return
 		}
 		if time.Now().Sub(timer) > 5*time.Second {
-			log.Panicf("failed to transfer leader to [%d] %s", regionID, leader.String())
+			log.Fatalf("failed to transfer leader to [%d] %s", regionID, leader.String())
 		}
 		c.TransferLeader(regionID, leader)
 	}
 }
 
-func (c *Cluster) Partition(s1 []uint64, s2 []uint64) {
-	filter := &PartitionFilter{
-		s1: s1,
-		s2: s2,
-	}
+func (c *Cluster) AddFilter(filter Filter) {
 	c.simulator.AddFilter(filter)
+}
+
+func (c *Cluster) ClearFilters() {
+	c.simulator.ClearFilters()
+}
+
+func (c *Cluster) StopServer(storeID uint64) {
+	c.simulator.StopStore(storeID)
+}
+
+func (c *Cluster) StartServer(storeID uint64) {
+	engine := c.engines[storeID]
+	raftConf := tikvConf.NewDefaultConfig()
+	raftConf.SnapPath = c.snapPaths[storeID]
+	err := c.simulator.RunStore(raftConf, engine, context.TODO())
+	if err != nil {
+		panic(err)
+	}
 }

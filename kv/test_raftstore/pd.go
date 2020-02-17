@@ -89,8 +89,8 @@ type MockPDClient struct {
 	bootstrapped bool
 }
 
-func NewMockPDClient(clusterID uint64) MockPDClient {
-	pdClient := MockPDClient{
+func NewMockPDClient(clusterID uint64) *MockPDClient {
+	return &MockPDClient{
 		clusterID: clusterID,
 		meta: metapb.Cluster{
 			Id: clusterID,
@@ -102,7 +102,6 @@ func NewMockPDClient(clusterID uint64) MockPDClient {
 		leaders:      make(map[uint64]*metapb.Peer),
 		pendingPeers: make(map[uint64]*metapb.Peer),
 	}
-	return pdClient
 }
 
 // Implement PDClient interface

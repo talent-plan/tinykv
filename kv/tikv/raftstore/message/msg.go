@@ -64,14 +64,9 @@ type MsgSplitRegion struct {
 }
 
 type Callback struct {
-	Resp       *raft_cmdpb.RaftCmdResponse
-	RegionSnap *RegionSnapshot // used for GetSnap
-	done       chan struct{}
-}
-
-type RegionSnapshot struct {
-	Region metapb.Region
-	Txn    *badger.Txn
+	Resp *raft_cmdpb.RaftCmdResponse
+	Txn  *badger.Txn // used for GetSnap
+	done chan struct{}
 }
 
 func (cb *Callback) Done(resp *raft_cmdpb.RaftCmdResponse) {
