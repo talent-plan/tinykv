@@ -46,7 +46,6 @@ const (
 // Cluster provides an overview of a cluster's regions distribution.
 type Cluster interface {
 	GetStore(id uint64) *core.StoreInfo
-	CheckLabelProperty(typ string, labels []*metapb.StoreLabel) bool
 	AllocPeer(storeID uint64) (*metapb.Peer, error)
 }
 
@@ -459,14 +458,12 @@ func transferLeaderStep(cluster Cluster, region *core.RegionInfo, storeID uint64
 	return
 }
 
-// findNoLabelProperty finds the first store without given label property.
-func findNoLabelProperty(cluster Cluster, prop string, storeIDs []uint64) (int, uint64) {
+// findAvailableStore finds the first available store.
+func findAvailableStore(cluster Cluster, prop string, storeIDs []uint64) (int, uint64) {
 	for i, id := range storeIDs {
 		store := cluster.GetStore(id)
 		if store != nil {
-			if !cluster.CheckLabelProperty(prop, store.GetLabels()) {
-				return i, id
-			}
+			return i, id
 		} else {
 			log.Debug("nil store", zap.Uint64("store-id", id))
 		}
@@ -477,7 +474,7 @@ func findNoLabelProperty(cluster Cluster, prop string, storeIDs []uint64) (int, 
 // transferLeaderToSuitableSteps returns the first suitable store to become region leader.
 // Returns an error if there is no suitable store.
 func transferLeaderToSuitableSteps(cluster Cluster, leaderID uint64, storeIDs []uint64) (OpKind, []OpStep, error) {
-	_, id := findNoLabelProperty(cluster, opt.RejectLeader, storeIDs)
+	_, id := findAvailableStore(cluster, opt.RejectLeader, storeIDs)
 	if id != 0 {
 		return OpLeader, []OpStep{TransferLeader{FromStore: leaderID, ToStore: id}}, nil
 	}

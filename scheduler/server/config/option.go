@@ -21,7 +21,6 @@ import (
 	"unsafe"
 
 	"github.com/coreos/go-semver/semver"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/typeutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
@@ -32,7 +31,6 @@ import (
 type ScheduleOption struct {
 	schedule       atomic.Value
 	replication    *Replication
-	labelProperty  atomic.Value
 	clusterVersion unsafe.Pointer
 	pdServerConfig atomic.Value
 }
@@ -43,7 +41,6 @@ func NewScheduleOption(cfg *Config) *ScheduleOption {
 	o.Store(&cfg.Schedule)
 	o.replication = newReplication(&cfg.Replication)
 	o.pdServerConfig.Store(&cfg.PDServerCfg)
-	o.labelProperty.Store(cfg.LabelProperty)
 	o.SetClusterVersion(&cfg.ClusterVersion)
 	return o
 }
@@ -271,40 +268,6 @@ func (o *ScheduleOption) RemoveSchedulerCfg(ctx context.Context, name string) er
 	return nil
 }
 
-// SetLabelProperty sets the label property.
-func (o *ScheduleOption) SetLabelProperty(typ, labelKey, labelValue string) {
-	cfg := o.LoadLabelPropertyConfig().Clone()
-	for _, l := range cfg[typ] {
-		if l.Key == labelKey && l.Value == labelValue {
-			return
-		}
-	}
-	cfg[typ] = append(cfg[typ], StoreLabel{Key: labelKey, Value: labelValue})
-	o.labelProperty.Store(cfg)
-}
-
-// DeleteLabelProperty deletes the label property.
-func (o *ScheduleOption) DeleteLabelProperty(typ, labelKey, labelValue string) {
-	cfg := o.LoadLabelPropertyConfig().Clone()
-	oldLabels := cfg[typ]
-	cfg[typ] = []StoreLabel{}
-	for _, l := range oldLabels {
-		if l.Key == labelKey && l.Value == labelValue {
-			continue
-		}
-		cfg[typ] = append(cfg[typ], l)
-	}
-	if len(cfg[typ]) == 0 {
-		delete(cfg, typ)
-	}
-	o.labelProperty.Store(cfg)
-}
-
-// LoadLabelPropertyConfig returns the label property.
-func (o *ScheduleOption) LoadLabelPropertyConfig() LabelPropertyConfig {
-	return o.labelProperty.Load().(LabelPropertyConfig)
-}
-
 // SetClusterVersion sets the cluster version.
 func (o *ScheduleOption) SetClusterVersion(v *semver.Version) {
 	atomic.StorePointer(&o.clusterVersion, unsafe.Pointer(v))
@@ -323,19 +286,6 @@ func (o *ScheduleOption) LoadClusterVersion() *semver.Version {
 // LoadPDServerConfig returns PD server configurations.
 func (o *ScheduleOption) LoadPDServerConfig() *PDServerConfig {
 	return o.pdServerConfig.Load().(*PDServerConfig)
-}
-
-// CheckLabelProperty checks the label property.
-func (o *ScheduleOption) CheckLabelProperty(typ string, labels []*metapb.StoreLabel) bool {
-	pc := o.labelProperty.Load().(LabelPropertyConfig)
-	for _, cfg := range pc[typ] {
-		for _, l := range labels {
-			if l.Key == cfg.Key && l.Value == cfg.Value {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // Replication provides some help to do replication.

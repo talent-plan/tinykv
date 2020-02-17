@@ -478,7 +478,6 @@ func (s *Server) GetConfig() *config.Config {
 	cfg := s.cfg.Clone()
 	cfg.Schedule = *s.scheduleOpt.Load()
 	cfg.Replication = *s.scheduleOpt.GetReplication().Load()
-	cfg.LabelProperty = s.scheduleOpt.LoadLabelPropertyConfig().Clone()
 	cfg.ClusterVersion = *s.scheduleOpt.LoadClusterVersion()
 	cfg.PDServerCfg = *s.scheduleOpt.LoadPDServerConfig()
 	storage := s.GetStorage()
@@ -542,25 +541,6 @@ func (s *Server) SetPDServerConfig(cfg config.PDServerConfig) error {
 	s.scheduleOpt.SetPDServerConfig(&cfg)
 	log.Info("PD server config is updated", zap.Reflect("new", cfg), zap.Reflect("old", old))
 	return nil
-}
-
-// SetLabelProperty inserts a label property config.
-func (s *Server) SetLabelProperty(typ, labelKey, labelValue string) error {
-	s.scheduleOpt.SetLabelProperty(typ, labelKey, labelValue)
-	log.Info("label property config is updated", zap.Reflect("config", s.scheduleOpt.LoadLabelPropertyConfig()))
-	return nil
-}
-
-// DeleteLabelProperty deletes a label property config.
-func (s *Server) DeleteLabelProperty(typ, labelKey, labelValue string) error {
-	s.scheduleOpt.DeleteLabelProperty(typ, labelKey, labelValue)
-	log.Info("label property config is deleted", zap.Reflect("config", s.scheduleOpt.LoadLabelPropertyConfig()))
-	return nil
-}
-
-// GetLabelProperty returns the whole label property config.
-func (s *Server) GetLabelProperty() config.LabelPropertyConfig {
-	return s.scheduleOpt.LoadLabelPropertyConfig().Clone()
 }
 
 // SetClusterVersion sets the version of cluster.

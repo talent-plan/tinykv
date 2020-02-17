@@ -56,8 +56,6 @@ type Options interface {
 	IsLocationReplacementEnabled() bool
 	GetLeaderScheduleStrategy() core.ScheduleStrategy
 	GetKeyType() core.KeyType
-
-	CheckLabelProperty(typ string, labels []*metapb.StoreLabel) bool
 }
 
 const (

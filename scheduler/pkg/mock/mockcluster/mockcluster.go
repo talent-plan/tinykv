@@ -351,18 +351,6 @@ func (mc *Cluster) GetMaxReplicas() int {
 	return mc.ScheduleOptions.GetMaxReplicas()
 }
 
-// CheckLabelProperty checks label property.
-func (mc *Cluster) CheckLabelProperty(typ string, labels []*metapb.StoreLabel) bool {
-	for _, cfg := range mc.LabelProperties[typ] {
-		for _, l := range labels {
-			if l.Key == cfg.Key && l.Value == cfg.Value {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // PutRegionStores mocks method.
 func (mc *Cluster) PutRegionStores(id uint64, stores ...uint64) {
 	meta := &metapb.Region{Id: id}

@@ -1165,11 +1165,6 @@ func (c *RaftCluster) IsLocationReplacementEnabled() bool {
 	return c.opt.IsLocationReplacementEnabled()
 }
 
-// CheckLabelProperty is used to check label property.
-func (c *RaftCluster) CheckLabelProperty(typ string, labels []*metapb.StoreLabel) bool {
-	return c.opt.CheckLabelProperty(typ, labels)
-}
-
 // isPrepared if the cluster information is collected
 func (c *RaftCluster) isPrepared() bool {
 	c.RLock()

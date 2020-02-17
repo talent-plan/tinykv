@@ -589,21 +589,13 @@ func (s *testClusterSuite) TestSetScheduleOpt(c *C) {
 	//PUT GET DELETE succeed
 	replicateCfg.MaxReplicas = 5
 	scheduleCfg.MaxSnapshotCount = 10
-	typ, labelKey, labelValue := "testTyp", "testKey", "testValue"
 
 	c.Assert(s.svr.SetScheduleConfig(*scheduleCfg), IsNil)
 	c.Assert(s.svr.SetPDServerConfig(*pdServerCfg), IsNil)
-	c.Assert(s.svr.SetLabelProperty(typ, labelKey, labelValue), IsNil)
 	c.Assert(s.svr.SetReplicationConfig(*replicateCfg), IsNil)
 
 	c.Assert(s.svr.GetReplicationConfig().MaxReplicas, Equals, uint64(5))
 	c.Assert(s.svr.scheduleOpt.GetMaxSnapshotCount(), Equals, uint64(10))
-	c.Assert(s.svr.scheduleOpt.LoadLabelPropertyConfig()[typ][0].Key, Equals, "testKey")
-	c.Assert(s.svr.scheduleOpt.LoadLabelPropertyConfig()[typ][0].Value, Equals, "testValue")
-
-	c.Assert(s.svr.DeleteLabelProperty(typ, labelKey, labelValue), IsNil)
-
-	c.Assert(len(s.svr.scheduleOpt.LoadLabelPropertyConfig()[typ]), Equals, 0)
 }
 
 var _ = Suite(&testStoresInfoSuite{})

@@ -16,7 +16,6 @@ package mockoption
 import (
 	"time"
 
-	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 )
 
@@ -79,7 +78,6 @@ type ScheduleOptions struct {
 	DisableRemoveExtraReplica    bool
 	DisableLocationReplacement   bool
 	LeaderScheduleStrategy       string
-	LabelProperties              map[string][]*metapb.StoreLabel
 }
 
 // NewScheduleOptions creates a mock schedule option.

@@ -337,8 +337,7 @@ func (f StoreStateFilter) Target(opts opt.Options, store *core.StoreInfo) bool {
 	if f.TransferLeader &&
 		(store.IsDisconnected() ||
 			store.IsBlocked() ||
-			store.IsBusy() ||
-			opts.CheckLabelProperty(opt.RejectLeader, store.GetLabels())) {
+			store.IsBusy()) {
 		return true
 	}
 

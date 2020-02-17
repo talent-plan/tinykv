@@ -41,9 +41,6 @@ func (s *testOperatorSuite) SetUpTest(c *C) {
 	cfg := mockoption.NewScheduleOptions()
 	cfg.MaxMergeRegionSize = 2
 	cfg.MaxMergeRegionKeys = 2
-	cfg.LabelProperties = map[string][]*metapb.StoreLabel{
-		opt.RejectLeader: {{Key: "reject", Value: "leader"}},
-	}
 	s.cluster = mockcluster.NewCluster(cfg)
 	stores := map[uint64][]string{
 		1: {}, 2: {}, 3: {}, 4: {}, 5: {}, 6: {},
@@ -95,17 +92,14 @@ func (s *testOperatorSuite) TestInterleaveStepGroups(c *C) {
 	c.Assert(res, DeepEquals, ans[0])
 }
 
-func (s *testOperatorSuite) TestFindNoLabelProperty(c *C) {
+func (s *testOperatorSuite) TestFindAvailableStore(c *C) {
 	stores := []uint64{8, 7, 3, 4, 7, 3, 1, 5, 6}
-	i, id := findNoLabelProperty(s.cluster, opt.RejectLeader, stores)
-	c.Assert(i, Equals, 2)
-	c.Assert(id, Equals, uint64(3))
-	i, id = findNoLabelProperty(s.cluster, opt.RejectLeader, stores[2:])
+	i, id := findAvailableStore(s.cluster, opt.RejectLeader, stores)
+	c.Assert(i, Equals, 0)
+	c.Assert(id, Equals, uint64(8))
+	i, id = findAvailableStore(s.cluster, opt.RejectLeader, stores[2:])
 	c.Assert(i, Equals, 0)
 	c.Assert(id, Equals, uint64(3))
-	i, id = findNoLabelProperty(s.cluster, opt.RejectLeader, stores[:2])
-	c.Assert(i, Less, 0)
-	c.Assert(id, Equals, uint64(0))
 }
 
 func (s *testOperatorSuite) TestOperatorStep(c *C) {
