@@ -808,9 +808,7 @@ func (c *RaftCluster) checkStores() {
 		}
 
 		if store.IsUp() {
-			if !store.IsLowSpace(c.GetLowSpaceRatio()) {
-				upStoreCount++
-			}
+			upStoreCount++
 			continue
 		}
 
@@ -1008,16 +1006,6 @@ func (c *RaftCluster) GetStoreBalanceRate() float64 {
 // GetTolerantSizeRatio gets the tolerant size ratio.
 func (c *RaftCluster) GetTolerantSizeRatio() float64 {
 	return c.opt.GetTolerantSizeRatio()
-}
-
-// GetLowSpaceRatio returns the low space ratio.
-func (c *RaftCluster) GetLowSpaceRatio() float64 {
-	return c.opt.GetLowSpaceRatio()
-}
-
-// GetHighSpaceRatio returns the high space ratio.
-func (c *RaftCluster) GetHighSpaceRatio() float64 {
-	return c.opt.GetHighSpaceRatio()
 }
 
 // GetSchedulerMaxWaitingOperator returns the number of the max waiting operators.

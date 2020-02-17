@@ -453,18 +453,6 @@ type ScheduleConfig struct {
 	StoreBalanceRate float64 `toml:"store-balance-rate,omitempty" json:"store-balance-rate"`
 	// TolerantSizeRatio is the ratio of buffer size for balance scheduler.
 	TolerantSizeRatio float64 `toml:"tolerant-size-ratio,omitempty" json:"tolerant-size-ratio"`
-	//
-	//      high space stage         transition stage           low space stage
-	//   |--------------------|-----------------------------|-------------------------|
-	//   ^                    ^                             ^                         ^
-	//   0       HighSpaceRatio * capacity       LowSpaceRatio * capacity          capacity
-	//
-	// LowSpaceRatio is the lowest usage ratio of store which regraded as low space.
-	// When in low space, store region score increases to very large and varies inversely with available size.
-	LowSpaceRatio float64 `toml:"low-space-ratio,omitempty" json:"low-space-ratio"`
-	// HighSpaceRatio is the highest usage ratio of store which regraded as high space.
-	// High space means there is a lot of spare capacity, and store region score varies directly with used size.
-	HighSpaceRatio float64 `toml:"high-space-ratio,omitempty" json:"high-space-ratio"`
 	// SchedulerMaxWaitingOperator is the max coexist operators for each scheduler.
 	SchedulerMaxWaitingOperator uint64 `toml:"scheduler-max-waiting-operator,omitempty" json:"scheduler-max-waiting-operator"`
 	// WARN: DisableLearner is deprecated.
@@ -527,8 +515,6 @@ func (c *ScheduleConfig) Clone() *ScheduleConfig {
 		EnableCrossTableMerge:        c.EnableCrossTableMerge,
 		StoreBalanceRate:             c.StoreBalanceRate,
 		TolerantSizeRatio:            c.TolerantSizeRatio,
-		LowSpaceRatio:                c.LowSpaceRatio,
-		HighSpaceRatio:               c.HighSpaceRatio,
 		SchedulerMaxWaitingOperator:  c.SchedulerMaxWaitingOperator,
 		DisableLearner:               c.DisableLearner,
 		DisableRemoveDownReplica:     c.DisableRemoveDownReplica,
@@ -558,8 +544,6 @@ const (
 	defaultMergeScheduleLimit          = 8
 	defaultStoreBalanceRate            = 15
 	defaultTolerantSizeRatio           = 0
-	defaultLowSpaceRatio               = 0.8
-	defaultHighSpaceRatio              = 0.6
 	defaultSchedulerMaxWaitingOperator = 3
 	defaultLeaderScheduleStrategy      = "count"
 )
@@ -596,8 +580,6 @@ func (c *ScheduleConfig) adjust(meta *configMetaData) error {
 		adjustString(&c.LeaderScheduleStrategy, defaultLeaderScheduleStrategy)
 	}
 	adjustFloat64(&c.StoreBalanceRate, defaultStoreBalanceRate)
-	adjustFloat64(&c.LowSpaceRatio, defaultLowSpaceRatio)
-	adjustFloat64(&c.HighSpaceRatio, defaultHighSpaceRatio)
 	adjustSchedulers(&c.Schedulers, defaultSchedulers)
 
 	for k, b := range c.migrateConfigurationMap() {
@@ -656,15 +638,6 @@ func (c *ScheduleConfig) MigrateDeprecatedFlags() {
 func (c *ScheduleConfig) Validate() error {
 	if c.TolerantSizeRatio < 0 {
 		return errors.New("tolerant-size-ratio should be nonnegative")
-	}
-	if c.LowSpaceRatio < 0 || c.LowSpaceRatio > 1 {
-		return errors.New("low-space-ratio should between 0 and 1")
-	}
-	if c.HighSpaceRatio < 0 || c.HighSpaceRatio > 1 {
-		return errors.New("high-space-ratio should between 0 and 1")
-	}
-	if c.LowSpaceRatio <= c.HighSpaceRatio {
-		return errors.New("low-space-ratio should be larger than high-space-ratio")
 	}
 	for _, scheduleConfig := range c.Schedulers {
 		if !schedule.IsSchedulerRegistered(scheduleConfig.Type) {

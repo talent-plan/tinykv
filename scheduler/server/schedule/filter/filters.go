@@ -161,30 +161,6 @@ func (f *healthFilter) Target(opt opt.Options, store *core.StoreInfo) bool {
 	return f.filter(opt, store)
 }
 
-type storageThresholdFilter struct{ scope string }
-
-// NewStorageThresholdFilter creates a Filter that filters all stores that are
-// almost full.
-func NewStorageThresholdFilter(scope string) Filter {
-	return &storageThresholdFilter{scope: scope}
-}
-
-func (f *storageThresholdFilter) Scope() string {
-	return f.scope
-}
-
-func (f *storageThresholdFilter) Type() string {
-	return "storage-threshold-filter"
-}
-
-func (f *storageThresholdFilter) Source(opt opt.Options, store *core.StoreInfo) bool {
-	return false
-}
-
-func (f *storageThresholdFilter) Target(opt opt.Options, store *core.StoreInfo) bool {
-	return store.IsLowSpace(opt.GetLowSpaceRatio())
-}
-
 // StoreStateFilter is used to determine whether a store can be selected as the
 // source or target of the schedule based on the store's state.
 type StoreStateFilter struct {

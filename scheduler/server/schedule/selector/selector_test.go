@@ -43,9 +43,9 @@ func (s *testSelectorSuite) TestCompareStoreScore(c *C) {
 	store2 := core.NewStoreInfoWithIdAndCount(2, 1)
 	store3 := core.NewStoreInfoWithIdAndCount(3, 3)
 
-	c.Assert(compareStoreScore(s.tc, store1, store2), Equals, 0)
+	c.Assert(compareStoreScore(store1, store2), Equals, 0)
 
-	c.Assert(compareStoreScore(s.tc, store1, store3), Equals, 1)
+	c.Assert(compareStoreScore(store1, store3), Equals, 1)
 }
 
 func (s *testSelectorSuite) TestScheduleConfig(c *C) {

@@ -88,7 +88,7 @@ func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) *operator.Operato
 	stores := cluster.GetStores()
 	stores = filter.SelectSourceStores(stores, s.filters, cluster)
 	sort.Slice(stores, func(i, j int) bool {
-		return stores[i].RegionScore(cluster.GetHighSpaceRatio(), cluster.GetLowSpaceRatio(), 0) > stores[j].RegionScore(cluster.GetHighSpaceRatio(), cluster.GetLowSpaceRatio(), 0)
+		return stores[i].RegionScore() > stores[j].RegionScore()
 	})
 	for _, source := range stores {
 		sourceID := source.GetID()

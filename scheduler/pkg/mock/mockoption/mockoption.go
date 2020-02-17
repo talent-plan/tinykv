@@ -33,8 +33,6 @@ const (
 	defaultMergeScheduleLimit          = 8
 	defaultStoreBalanceRate            = 60
 	defaultTolerantSizeRatio           = 2.5
-	defaultLowSpaceRatio               = 0.8
-	defaultHighSpaceRatio              = 0.6
 	defaultSchedulerMaxWaitingOperator = 3
 	defaultLeaderScheduleStrategy      = "count"
 	defaultKeyType                     = "table"
@@ -60,8 +58,6 @@ type ScheduleOptions struct {
 	MaxStoreDownTime             time.Duration
 	MaxReplicas                  int
 	TolerantSizeRatio            float64
-	LowSpaceRatio                float64
-	HighSpaceRatio               float64
 	EnableRemoveDownReplica      bool
 	EnableReplaceOfflineReplica  bool
 	EnableMakeUpReplica          bool
@@ -90,8 +86,6 @@ func NewScheduleOptions() *ScheduleOptions {
 	mso.MaxReplicas = defaultMaxReplicas
 	mso.MaxPendingPeerCount = defaultMaxPendingPeerCount
 	mso.TolerantSizeRatio = defaultTolerantSizeRatio
-	mso.LowSpaceRatio = defaultLowSpaceRatio
-	mso.HighSpaceRatio = defaultHighSpaceRatio
 	mso.EnableRemoveDownReplica = true
 	mso.EnableReplaceOfflineReplica = true
 	mso.EnableMakeUpReplica = true
@@ -164,16 +158,6 @@ func (mso *ScheduleOptions) GetMaxReplicas() int {
 // GetTolerantSizeRatio mocks method
 func (mso *ScheduleOptions) GetTolerantSizeRatio() float64 {
 	return mso.TolerantSizeRatio
-}
-
-// GetLowSpaceRatio mocks method
-func (mso *ScheduleOptions) GetLowSpaceRatio() float64 {
-	return mso.LowSpaceRatio
-}
-
-// GetHighSpaceRatio mocks method
-func (mso *ScheduleOptions) GetHighSpaceRatio() float64 {
-	return mso.HighSpaceRatio
 }
 
 // GetSchedulerMaxWaitingOperator mocks method.

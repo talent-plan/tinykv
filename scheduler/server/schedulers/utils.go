@@ -66,8 +66,8 @@ func shouldBalance(cluster opt.Cluster, source, target *core.StoreInfo, region *
 	sourceID := source.GetID()
 	targetID := target.GetID()
 	tolerantResource := getTolerantResource(cluster, region, kind)
-	sourceScore := source.ResourceScore(kind, cluster.GetHighSpaceRatio(), cluster.GetLowSpaceRatio(), -tolerantResource)
-	targetScore := target.ResourceScore(kind, cluster.GetHighSpaceRatio(), cluster.GetLowSpaceRatio(), tolerantResource)
+	sourceScore := source.ResourceScore(kind, -tolerantResource)
+	targetScore := target.ResourceScore(kind, tolerantResource)
 
 	// Make sure after move, source score is still greater than target score.
 	shouldBalance := sourceScore > targetScore

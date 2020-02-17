@@ -47,8 +47,8 @@ func (s *BalanceSelector) SelectSource(opt opt.Options, stores []*core.StoreInfo
 			continue
 		}
 		if result == nil ||
-			result.ResourceScore(s.kind, opt.GetHighSpaceRatio(), opt.GetLowSpaceRatio(), 0) <
-				store.ResourceScore(s.kind, opt.GetHighSpaceRatio(), opt.GetLowSpaceRatio(), 0) {
+			result.ResourceScore(s.kind, 0) <
+				store.ResourceScore(s.kind, 0) {
 			result = store
 		}
 	}
@@ -66,8 +66,8 @@ func (s *BalanceSelector) SelectTarget(opt opt.Options, stores []*core.StoreInfo
 			continue
 		}
 		if result == nil ||
-			result.ResourceScore(s.kind, opt.GetHighSpaceRatio(), opt.GetLowSpaceRatio(), 0) >
-				store.ResourceScore(s.kind, opt.GetHighSpaceRatio(), opt.GetLowSpaceRatio(), 0) {
+			result.ResourceScore(s.kind, 0) >
+				store.ResourceScore(s.kind, 0) {
 			result = store
 		}
 	}
@@ -102,7 +102,7 @@ func (s *ReplicaSelector) SelectSource(opt opt.Options, stores []*core.StoreInfo
 		best      *core.StoreInfo
 	)
 	for _, store := range stores {
-		if best == nil || compareStoreScore(opt, store, best) < 0 {
+		if best == nil || compareStoreScore(store, best) < 0 {
 			best = store
 		}
 	}
@@ -122,7 +122,7 @@ func (s *ReplicaSelector) SelectTarget(opt opt.Options, stores []*core.StoreInfo
 		if filter.Target(opt, store, filters) {
 			continue
 		}
-		if best == nil || compareStoreScore(opt, store, best) > 0 {
+		if best == nil || compareStoreScore(store, best) > 0 {
 			best = store
 		}
 	}
@@ -136,14 +136,14 @@ func (s *ReplicaSelector) SelectTarget(opt opt.Options, stores []*core.StoreInfo
 // Returns 0 if store A is as good as store B.
 // Returns 1 if store A is better than store B.
 // Returns -1 if store B is better than store A.
-func compareStoreScore(opt opt.Options, storeA *core.StoreInfo, storeB *core.StoreInfo) int {
+func compareStoreScore(storeA *core.StoreInfo, storeB *core.StoreInfo) int {
 	// The store with lower region score is better.
-	if storeA.RegionScore(opt.GetHighSpaceRatio(), opt.GetLowSpaceRatio(), 0) <
-		storeB.RegionScore(opt.GetHighSpaceRatio(), opt.GetLowSpaceRatio(), 0) {
+	if storeA.RegionScore() <
+		storeB.RegionScore() {
 		return 1
 	}
-	if storeA.RegionScore(opt.GetHighSpaceRatio(), opt.GetLowSpaceRatio(), 0) >
-		storeB.RegionScore(opt.GetHighSpaceRatio(), opt.GetLowSpaceRatio(), 0) {
+	if storeA.RegionScore() >
+		storeB.RegionScore() {
 		return -1
 	}
 	return 0

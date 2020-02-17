@@ -74,7 +74,7 @@ func (r *ReplicaChecker) Check(region *core.RegionInfo) *operator.Operator {
 
 	if len(region.GetPeers()) < r.cluster.GetMaxReplicas() && r.cluster.IsMakeUpReplicaEnabled() {
 		log.Debug("region has fewer than max replicas", zap.Uint64("region-id", region.GetID()), zap.Int("peers", len(region.GetPeers())))
-		newPeer := r.selectBestPeerToAddReplica(region, filter.NewStorageThresholdFilter(r.name))
+		newPeer := r.selectBestPeerToAddReplica(region)
 		if newPeer == nil {
 			return nil
 		}
@@ -216,7 +216,7 @@ func (r *ReplicaChecker) fixPeer(region *core.RegionInfo, peer *metapb.Peer, sta
 		return op
 	}
 
-	storeID := r.SelectBestReplacementStore(region, peer, filter.NewStorageThresholdFilter(r.name))
+	storeID := r.SelectBestReplacementStore(region, peer)
 	if storeID == 0 {
 		log.Debug("no best store to add replica", zap.Uint64("region-id", region.GetID()))
 		return nil

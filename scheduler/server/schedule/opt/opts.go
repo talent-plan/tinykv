@@ -40,8 +40,6 @@ type Options interface {
 	GetMaxReplicas() int
 
 	GetTolerantSizeRatio() float64
-	GetLowSpaceRatio() float64
-	GetHighSpaceRatio() float64
 	GetSchedulerMaxWaitingOperator() uint64
 
 	IsRemoveDownReplicaEnabled() bool

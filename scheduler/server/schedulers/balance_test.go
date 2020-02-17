@@ -53,35 +53,35 @@ func (s *testBalanceSpeedSuite) TestShouldBalance(c *C) {
 
 		// target size is zero
 		{2, 0, 1, true, core.BySize},
-		{2, 0, 10, false, core.BySize},
+		{2, 0, 10, true, core.BySize},
 		// all in high space stage
 		{10, 5, 1, true, core.BySize},
-		{10, 5, 20, false, core.BySize},
+		{10, 5, 20, true, core.BySize},
 		{10, 10, 1, false, core.BySize},
 		{10, 10, 20, false, core.BySize},
 		// all in transition stage
 		{70, 50, 1, true, core.BySize},
-		{70, 50, 50, false, core.BySize},
+		{70, 50, 50, true, core.BySize},
 		{70, 70, 1, false, core.BySize},
 		// all in low space stage
 		{90, 80, 1, true, core.BySize},
-		{90, 80, 50, false, core.BySize},
+		{90, 80, 50, true, core.BySize},
 		{90, 90, 1, false, core.BySize},
 		// one in high space stage, other in transition stage
 		{65, 55, 5, true, core.BySize},
-		{65, 50, 50, false, core.BySize},
+		{65, 50, 50, true, core.BySize},
 		// one in transition space stage, other in low space stage
 		{80, 70, 5, true, core.BySize},
-		{80, 70, 50, false, core.BySize},
+		{80, 70, 50, true, core.BySize},
 
 		// default leader tolerant ratio is 5, when schedule by count
 		// target size is zero
-		{2, 0, 1, false, core.ByCount},
-		{2, 0, 10, false, core.ByCount},
+		{2, 0, 1, true, core.ByCount},
+		{2, 0, 10, true, core.ByCount},
 		// all in high space stage
 		{10, 5, 1, true, core.ByCount},
 		{10, 5, 20, true, core.ByCount},
-		{10, 6, 20, false, core.ByCount},
+		{10, 6, 20, true, core.ByCount},
 		{10, 10, 1, false, core.ByCount},
 		{10, 10, 20, false, core.ByCount},
 		// all in transition stage
@@ -104,18 +104,6 @@ func (s *testBalanceSpeedSuite) TestShouldBalance(c *C) {
 	tc := mockcluster.NewCluster(opt)
 	// create a region to control average region size.
 	tc.AddLeaderRegion(1, 1, 2)
-
-	for _, t := range tests {
-		tc.AddLeaderStore(1, int(t.sourceCount))
-		tc.AddLeaderStore(2, int(t.targetCount))
-		source := tc.GetStore(1)
-		target := tc.GetStore(2)
-		region := tc.GetRegion(1).Clone(core.SetApproximateSize(t.regionSize))
-		tc.PutRegion(region)
-		tc.LeaderScheduleStrategy = t.kind.String()
-		kind := core.NewScheduleKind(core.LeaderKind, t.kind)
-		c.Assert(shouldBalance(tc, source, target, region, kind, ""), Equals, t.expectedResult)
-	}
 
 	for _, t := range tests {
 		if t.kind.String() == core.BySize.String() {
@@ -548,20 +536,6 @@ func (s *testBalanceRegionSchedulerSuite) TestBalance1(c *C) {
 	c.Assert(sb.Schedule(tc), NotNil)
 	// if the space of store 5 is normal, we can balance region to store 5
 	testutil.CheckTransferPeer(c, sb.Schedule(tc), operator.OpBalance, 1, 5)
-
-	// the used size of  store 5 reach (highSpace, lowSpace)
-	origin := tc.GetStore(5)
-	stats := origin.GetStoreStats()
-	stats.Capacity = 50
-	stats.Available = 28
-	stats.UsedSize = 20
-	store5 := origin.Clone(core.SetStoreStats(stats))
-	tc.PutStore(store5)
-
-	// the scheduler first picks store 1 as source store,
-	// and store 5 as target store, but cannot pass `shouldBalance`.
-	// Then it will try store4.
-	testutil.CheckTransferPeer(c, sb.Schedule(tc), operator.OpBalance, 1, 4)
 }
 
 func (s *testBalanceRegionSchedulerSuite) TestStoreWeight(c *C) {
@@ -756,37 +730,6 @@ func (s *testReplicaCheckerSuite) TestOffline(c *C) {
 	// Store 5 has smaller region score than store 4, we will choose store 5.
 	tc.AddRegionStore(5, 3)
 	testutil.CheckTransferPeer(c, rc.Check(region), operator.OpReplica, 3, 5)
-}
-
-func (s *testReplicaCheckerSuite) TestStorageThreshold(c *C) {
-	opt := mockoption.NewScheduleOptions()
-	tc := mockcluster.NewCluster(opt)
-	rc := checker.NewReplicaChecker(tc)
-
-	tc.AddRegionStore(1, 1)
-	tc.UpdateStorageRatio(1, 0.5, 0.5)
-	tc.UpdateStoreRegionSize(1, 500*1024*1024)
-	tc.AddRegionStore(2, 1)
-	tc.UpdateStorageRatio(2, 0.1, 0.9)
-	tc.UpdateStoreRegionSize(2, 100*1024*1024)
-	tc.AddRegionStore(3, 1)
-	tc.AddRegionStore(4, 0)
-
-	tc.AddLeaderRegion(1, 1, 2, 3)
-	region := tc.GetRegion(1)
-
-	// If store4 is almost full, do not add peer on it.
-	tc.UpdateStorageRatio(4, 0.9, 0.1)
-	c.Assert(rc.Check(region), IsNil)
-
-	tc.AddLeaderRegion(2, 1, 3)
-	region = tc.GetRegion(2)
-	// Add peer on store4.
-	tc.UpdateStorageRatio(4, 0, 1)
-	testutil.CheckAddPeer(c, rc.Check(region), operator.OpReplica, 4)
-	// If store4 is almost full, do not add peer on it.
-	tc.UpdateStorageRatio(4, 0.8, 0)
-	testutil.CheckAddPeer(c, rc.Check(region), operator.OpReplica, 2)
 }
 
 func (s *testReplicaCheckerSuite) TestOpts(c *C) {

@@ -145,16 +145,6 @@ func (o *ScheduleOption) GetTolerantSizeRatio() float64 {
 	return o.Load().TolerantSizeRatio
 }
 
-// GetLowSpaceRatio returns the low space ratio.
-func (o *ScheduleOption) GetLowSpaceRatio() float64 {
-	return o.Load().LowSpaceRatio
-}
-
-// GetHighSpaceRatio returns the high space ratio.
-func (o *ScheduleOption) GetHighSpaceRatio() float64 {
-	return o.Load().HighSpaceRatio
-}
-
 // GetSchedulerMaxWaitingOperator returns the number of the max waiting operators.
 func (o *ScheduleOption) GetSchedulerMaxWaitingOperator() uint64 {
 	return o.Load().SchedulerMaxWaitingOperator
