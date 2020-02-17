@@ -14,10 +14,8 @@
 package operator
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -52,51 +50,6 @@ type Cluster interface {
 	AllocPeer(storeID uint64) (*metapb.Peer, error)
 }
 
-// OpInfluence records the influence of the cluster.
-type OpInfluence struct {
-	StoresInfluence map[uint64]*StoreInfluence
-}
-
-// GetStoreInfluence get storeInfluence of specific store.
-func (m OpInfluence) GetStoreInfluence(id uint64) *StoreInfluence {
-	storeInfluence, ok := m.StoresInfluence[id]
-	if !ok {
-		storeInfluence = &StoreInfluence{}
-		m.StoresInfluence[id] = storeInfluence
-	}
-	return storeInfluence
-}
-
-// StoreInfluence records influences that pending operators will make.
-type StoreInfluence struct {
-	RegionSize  int64
-	RegionCount int64
-	LeaderSize  int64
-	LeaderCount int64
-	StepCost    int64
-}
-
-// ResourceProperty returns delta size of leader/region by influence.
-func (s StoreInfluence) ResourceProperty(kind core.ScheduleKind) int64 {
-	switch kind.Resource {
-	case core.LeaderKind:
-		switch kind.Strategy {
-		case core.ByCount:
-			return s.LeaderCount
-		case core.BySize:
-			return s.LeaderSize
-		default:
-			return 0
-		}
-	case core.RegionKind:
-		return s.RegionSize
-	default:
-		return 0
-	}
-}
-
-type u64Set map[uint64]struct{}
-
 type u64Slice []uint64
 
 func (s u64Slice) Len() int {
@@ -111,21 +64,11 @@ func (s u64Slice) Less(i, j int) bool {
 	return s[i] < s[j]
 }
 
-func (s u64Set) String() string {
-	v := make([]uint64, 0, len(s))
-	for x := range s {
-		v = append(v, x)
-	}
-	sort.Sort(u64Slice(v))
-	return fmt.Sprintf("%v", v)
-}
-
 // OpStep describes the basic scheduling steps that can not be subdivided.
 type OpStep interface {
 	fmt.Stringer
 	ConfVerChanged(region *core.RegionInfo) bool
 	IsFinish(region *core.RegionInfo) bool
-	Influence(opInfluence OpInfluence, region *core.RegionInfo)
 }
 
 // TransferLeader is an OpStep that transfers a region's leader.
@@ -145,17 +88,6 @@ func (tl TransferLeader) String() string {
 // IsFinish checks if current step is finished.
 func (tl TransferLeader) IsFinish(region *core.RegionInfo) bool {
 	return region.GetLeader().GetStoreId() == tl.ToStore
-}
-
-// Influence calculates the store difference that current step makes.
-func (tl TransferLeader) Influence(opInfluence OpInfluence, region *core.RegionInfo) {
-	from := opInfluence.GetStoreInfluence(tl.FromStore)
-	to := opInfluence.GetStoreInfluence(tl.ToStore)
-
-	from.LeaderSize -= region.GetApproximateSize()
-	from.LeaderCount--
-	to.LeaderSize += region.GetApproximateSize()
-	to.LeaderCount++
 }
 
 // AddPeer is an OpStep that adds a region peer.
@@ -186,20 +118,6 @@ func (ap AddPeer) IsFinish(region *core.RegionInfo) bool {
 	return false
 }
 
-// Influence calculates the store difference that current step makes.
-func (ap AddPeer) Influence(opInfluence OpInfluence, region *core.RegionInfo) {
-	to := opInfluence.GetStoreInfluence(ap.ToStore)
-
-	regionSize := region.GetApproximateSize()
-	to.RegionSize += regionSize
-	to.RegionCount++
-	if regionSize > smallRegionThreshold {
-		to.StepCost += RegionInfluence
-	} else if regionSize <= smallRegionThreshold && regionSize > core.EmptyRegionApproximateSize {
-		to.StepCost += smallRegionInfluence
-	}
-}
-
 // RemovePeer is an OpStep that removes a region peer.
 type RemovePeer struct {
 	FromStore uint64
@@ -217,131 +135,6 @@ func (rp RemovePeer) String() string {
 // IsFinish checks if current step is finished.
 func (rp RemovePeer) IsFinish(region *core.RegionInfo) bool {
 	return region.GetStorePeer(rp.FromStore) == nil
-}
-
-// Influence calculates the store difference that current step makes.
-func (rp RemovePeer) Influence(opInfluence OpInfluence, region *core.RegionInfo) {
-	from := opInfluence.GetStoreInfluence(rp.FromStore)
-
-	from.RegionSize -= region.GetApproximateSize()
-	from.RegionCount--
-}
-
-// MergeRegion is an OpStep that merge two regions.
-type MergeRegion struct {
-	FromRegion *metapb.Region
-	ToRegion   *metapb.Region
-	// there are two regions involved in merge process,
-	// so to keep them from other scheduler,
-	// both of them should add MerRegion operatorStep.
-	// But actually, TiKV just needs the region want to be merged to get the merge request,
-	// thus use a IsPassive mark to indicate that
-	// this region doesn't need to send merge request to TiKV.
-	IsPassive bool
-}
-
-// ConfVerChanged returns true if the conf version has been changed by this step
-func (mr MergeRegion) ConfVerChanged(region *core.RegionInfo) bool {
-	return false
-}
-
-func (mr MergeRegion) String() string {
-	return fmt.Sprintf("merge region %v into region %v", mr.FromRegion.GetId(), mr.ToRegion.GetId())
-}
-
-// IsFinish checks if current step is finished.
-func (mr MergeRegion) IsFinish(region *core.RegionInfo) bool {
-	if mr.IsPassive {
-		return !bytes.Equal(region.GetStartKey(), mr.ToRegion.StartKey) || !bytes.Equal(region.GetEndKey(), mr.ToRegion.EndKey)
-	}
-	return false
-}
-
-// Influence calculates the store difference that current step makes.
-func (mr MergeRegion) Influence(opInfluence OpInfluence, region *core.RegionInfo) {
-	if mr.IsPassive {
-		for _, p := range region.GetPeers() {
-			o := opInfluence.GetStoreInfluence(p.GetStoreId())
-			o.RegionCount--
-			if region.GetLeader().GetId() == p.GetId() {
-				o.LeaderCount--
-			}
-		}
-	}
-}
-
-// AddLightPeer is an OpStep that adds a region peer without considering the influence.
-type AddLightPeer struct {
-	ToStore, PeerID uint64
-}
-
-// ConfVerChanged returns true if the conf version has been changed by this step
-func (ap AddLightPeer) ConfVerChanged(region *core.RegionInfo) bool {
-	if p := region.GetStoreVoter(ap.ToStore); p != nil {
-		return p.GetId() == ap.PeerID
-	}
-	return false
-}
-
-func (ap AddLightPeer) String() string {
-	return fmt.Sprintf("add peer %v on store %v", ap.PeerID, ap.ToStore)
-}
-
-// IsFinish checks if current step is finished.
-func (ap AddLightPeer) IsFinish(region *core.RegionInfo) bool {
-	if p := region.GetStoreVoter(ap.ToStore); p != nil {
-		if p.GetId() != ap.PeerID {
-			log.Warn("obtain unexpected peer", zap.String("expect", ap.String()), zap.Uint64("obtain-voter", p.GetId()))
-			return false
-		}
-		return region.GetPendingVoter(p.GetId()) == nil
-	}
-	return false
-}
-
-// Influence calculates the store difference that current step makes.
-func (ap AddLightPeer) Influence(opInfluence OpInfluence, region *core.RegionInfo) {
-	to := opInfluence.GetStoreInfluence(ap.ToStore)
-
-	to.RegionSize += region.GetApproximateSize()
-	to.RegionCount++
-}
-
-// AddLightLearner is an OpStep that adds a region learner peer without considering the influence.
-type AddLightLearner struct {
-	ToStore, PeerID uint64
-}
-
-// ConfVerChanged returns true if the conf version has been changed by this step
-func (al AddLightLearner) ConfVerChanged(region *core.RegionInfo) bool {
-	if p := region.GetStoreLearner(al.ToStore); p != nil {
-		return p.GetId() == al.PeerID
-	}
-	return false
-}
-
-func (al AddLightLearner) String() string {
-	return fmt.Sprintf("add learner peer %v on store %v", al.PeerID, al.ToStore)
-}
-
-// IsFinish checks if current step is finished.
-func (al AddLightLearner) IsFinish(region *core.RegionInfo) bool {
-	if p := region.GetStoreLearner(al.ToStore); p != nil {
-		if p.GetId() != al.PeerID {
-			log.Warn("obtain unexpected peer", zap.String("expect", al.String()), zap.Uint64("obtain-learner", p.GetId()))
-			return false
-		}
-		return region.GetPendingLearner(p.GetId()) == nil
-	}
-	return false
-}
-
-// Influence calculates the store difference that current step makes.
-func (al AddLightLearner) Influence(opInfluence OpInfluence, region *core.RegionInfo) {
-	to := opInfluence.GetStoreInfluence(al.ToStore)
-
-	to.RegionSize += region.GetApproximateSize()
-	to.RegionCount++
 }
 
 // Operator contains execution steps generated by scheduler.
@@ -527,22 +320,6 @@ func (o *Operator) IsTimeout() bool {
 	return false
 }
 
-// UnfinishedInfluence calculates the store difference which unfinished operator steps make.
-func (o *Operator) UnfinishedInfluence(opInfluence OpInfluence, region *core.RegionInfo) {
-	for step := atomic.LoadInt32(&o.currentStep); int(step) < len(o.steps); step++ {
-		if !o.steps[int(step)].IsFinish(region) {
-			o.steps[int(step)].Influence(opInfluence, region)
-		}
-	}
-}
-
-// TotalInfluence calculates the store difference which whole operator steps make.
-func (o *Operator) TotalInfluence(opInfluence OpInfluence, region *core.RegionInfo) {
-	for step := 0; step < len(o.steps); step++ {
-		o.steps[int(step)].Influence(opInfluence, region)
-	}
-}
-
 // OpHistory is used to log and visualize completed operators.
 type OpHistory struct {
 	FinishTime time.Time
@@ -565,10 +342,6 @@ func (o *Operator) History() []OpHistory {
 				Kind:       core.LeaderKind,
 			})
 		case AddPeer:
-			addPeerStores = append(addPeerStores, s.ToStore)
-		case AddLightPeer:
-			addPeerStores = append(addPeerStores, s.ToStore)
-		case AddLightLearner:
 			addPeerStores = append(addPeerStores, s.ToStore)
 		case RemovePeer:
 			removePeerStores = append(removePeerStores, s.FromStore)
@@ -619,108 +392,6 @@ func CreateTransferLeaderOperator(desc string, region *core.RegionInfo, sourceSt
 	return NewOperator(desc, brief, region.GetID(), region.GetRegionEpoch(), kind|OpLeader, step)
 }
 
-// CreateMoveRegionOperator creates an operator that moves a region to specified stores.
-func CreateMoveRegionOperator(desc string, cluster Cluster, region *core.RegionInfo, kind OpKind, storeIDs map[uint64]struct{}) (*Operator, error) {
-	mvkind, steps, err := moveRegionSteps(cluster, region, storeIDs)
-	if err != nil {
-		return nil, err
-	}
-	kind |= mvkind
-	brief := fmt.Sprintf("mv region: stores %v to %v", u64Set(region.GetStoreIds()), u64Set(storeIDs))
-	return NewOperator(desc, brief, region.GetID(), region.GetRegionEpoch(), kind, steps...), nil
-}
-
-// moveRegionSteps returns steps to move a region to specific stores.
-//
-// The first store in the slice will not have RejectLeader label.
-// If all of the stores have RejectLeader label, it returns an error.
-func moveRegionSteps(cluster Cluster, region *core.RegionInfo, stores map[uint64]struct{}) (OpKind, []OpStep, error) {
-	storeIDs := make([]uint64, 0, len(stores))
-	for id := range stores {
-		storeIDs = append(storeIDs, id)
-	}
-
-	i, _ := findNoLabelProperty(cluster, opt.RejectLeader, storeIDs)
-	if i < 0 {
-		return 0, nil, errors.New("all of the stores have RejectLeader label")
-	}
-
-	storeIDs[0], storeIDs[i] = storeIDs[i], storeIDs[0]
-	return orderedMoveRegionSteps(cluster, region, storeIDs)
-}
-
-// orderedMoveRegionSteps returns steps to move peers of a region to specific stores in order.
-//
-// If the current leader is not in storeIDs, it will be transferred to a follower which
-// do not need to move if there is one, otherwise the first suitable new added follower.
-// New peers will be added in the same order in storeIDs.
-// NOTE: orderedMoveRegionSteps does NOT check duplicate stores.
-func orderedMoveRegionSteps(cluster Cluster, region *core.RegionInfo, storeIDs []uint64) (OpKind, []OpStep, error) {
-	var kind OpKind
-
-	oldStores := make([]uint64, 0, len(storeIDs))
-	newStores := make([]uint64, 0, len(storeIDs))
-
-	sourceStores := region.GetStoreIds()
-	targetStores := make(map[uint64]struct{}, len(storeIDs))
-
-	// Add missing peers.
-	var addPeerSteps [][]OpStep
-	for _, id := range storeIDs {
-		targetStores[id] = struct{}{}
-		if _, ok := sourceStores[id]; ok {
-			oldStores = append(oldStores, id)
-			continue
-		}
-		newStores = append(newStores, id)
-		peer, err := cluster.AllocPeer(id)
-		if err != nil {
-			log.Debug("peer alloc failed", zap.Error(err))
-			return kind, nil, err
-		}
-		addPeerSteps = append(addPeerSteps, CreateAddPeerSteps(id, peer.Id))
-		kind |= OpRegion
-	}
-
-	// Transferring leader to a new added follower may be refused by TiKV.
-	// Ref: https://github.com/tikv/tikv/issues/3819
-	// So, the new leader should be a follower that do not need to move if there is one,
-	// otherwise the first suitable new added follower.
-	orderedStoreIDs := append(oldStores, newStores...)
-
-	// Remove redundant peers.
-	var rmPeerSteps [][]OpStep
-	// Transfer leader as late as possible to prevent transferring to a new added follower.
-	var mvLeaderSteps []OpStep
-	for _, peer := range region.GetPeers() {
-		id := peer.GetStoreId()
-		if _, ok := targetStores[id]; ok {
-			continue
-		}
-		if region.GetLeader().GetStoreId() == id {
-			tlkind, tlsteps, err := transferLeaderToSuitableSteps(cluster, id, orderedStoreIDs)
-			if err != nil {
-				log.Debug("move region to stores failed", zap.Uint64("region-id", region.GetID()), zap.Uint64s("store-ids", orderedStoreIDs), zap.Error(err))
-				return kind, nil, err
-			}
-			mvLeaderSteps = append(tlsteps, RemovePeer{FromStore: id})
-			kind |= tlkind
-		} else {
-			rmPeerSteps = append(rmPeerSteps, []OpStep{RemovePeer{FromStore: id}})
-		}
-		kind |= OpRegion
-	}
-
-	// Interleaving makes the operator add and remove peers one by one, so that there won't have
-	// too many additional peers if the operator fails in the half.
-	hint := len(addPeerSteps)*2 + len(rmPeerSteps) + len(mvLeaderSteps)
-	steps := interleaveStepGroups(addPeerSteps, rmPeerSteps, hint)
-
-	steps = append(steps, mvLeaderSteps...)
-
-	return kind, steps, nil
-}
-
 // interleaveStepGroups interleaves two slice of step groups. For example:
 //
 //  a = [[opA1, opA2], [opA3], [opA4, opA5, opA6]]
@@ -769,19 +440,6 @@ func CreateOfflinePeerOperator(desc string, cluster Cluster, region *core.Region
 	steps = append(steps, RemovePeer{FromStore: oldStore})
 	brief := fmt.Sprintf("mv peer: store %v to %v", oldStore, newStore)
 	return NewOperator(desc, brief, region.GetID(), region.GetRegionEpoch(), kind|OpRegion, steps...), nil
-}
-
-// CreateMoveLeaderOperator creates an operator that replaces an old leader with a new leader.
-func CreateMoveLeaderOperator(desc string, cluster Cluster, region *core.RegionInfo, kind OpKind, oldStore, newStore uint64, peerID uint64) (*Operator, error) {
-	removeKind, steps, err := removePeerSteps(cluster, region, oldStore, []uint64{newStore})
-	if err != nil {
-		return nil, err
-	}
-	st := CreateAddPeerSteps(newStore, peerID)
-	st = append(st, TransferLeader{ToStore: newStore, FromStore: oldStore})
-	steps = append(st, steps...)
-	brief := fmt.Sprintf("mv leader: store %v to %v", oldStore, newStore)
-	return NewOperator(desc, brief, region.GetID(), region.GetRegionEpoch(), removeKind|kind|OpLeader|OpRegion, steps...), nil
 }
 
 func getRegionFollowerIDs(region *core.RegionInfo) []uint64 {
@@ -838,80 +496,4 @@ func transferLeaderToSuitableSteps(cluster Cluster, leaderID uint64, storeIDs []
 		return OpLeader, []OpStep{TransferLeader{FromStore: leaderID, ToStore: id}}, nil
 	}
 	return 0, nil, errors.New("no suitable store to become region leader")
-}
-
-// CreateMergeRegionOperator creates an operator that merge two region into one.
-func CreateMergeRegionOperator(desc string, cluster Cluster, source *core.RegionInfo, target *core.RegionInfo, kind OpKind) ([]*Operator, error) {
-	kinds, steps, err := matchPeerSteps(cluster, source, target)
-	if err != nil {
-		return nil, err
-	}
-
-	steps = append(steps, MergeRegion{
-		FromRegion: source.GetMeta(),
-		ToRegion:   target.GetMeta(),
-		IsPassive:  false,
-	})
-
-	brief := fmt.Sprintf("merge: region %v to %v", source.GetID(), target.GetID())
-	op1 := NewOperator(desc, brief, source.GetID(), source.GetRegionEpoch(), kinds|kind|OpMerge, steps...)
-	op2 := NewOperator(desc, brief, target.GetID(), target.GetRegionEpoch(), kinds|kind|OpMerge, MergeRegion{
-		FromRegion: source.GetMeta(),
-		ToRegion:   target.GetMeta(),
-		IsPassive:  true,
-	})
-
-	return []*Operator{op1, op2}, nil
-}
-
-// matchPeerSteps returns the steps to match the location of peer stores of source region with target's.
-func matchPeerSteps(cluster Cluster, source *core.RegionInfo, target *core.RegionInfo) (OpKind, []OpStep, error) {
-	var kind OpKind
-
-	sourcePeers := source.GetPeers()
-	targetPeers := target.GetPeers()
-
-	// make sure the peer count is same
-	if len(sourcePeers) != len(targetPeers) {
-		return kind, nil, errors.New("mismatch count of peer")
-	}
-
-	targetLeader := target.GetLeader().GetStoreId()
-	if targetLeader == 0 {
-		return kind, nil, errors.New("target does not have a leader")
-	}
-
-	// The target leader store must not have RejectLeader.
-	targetStores := make([]uint64, 1, len(targetPeers))
-	targetStores[0] = targetLeader
-
-	for _, peer := range targetPeers {
-		id := peer.GetStoreId()
-		if id != targetLeader {
-			targetStores = append(targetStores, id)
-		}
-	}
-
-	return orderedMoveRegionSteps(cluster, source, targetStores)
-}
-
-// CheckOperatorValid checks if the operator is valid.
-func CheckOperatorValid(op *Operator) bool {
-	removeStores := []uint64{}
-	for _, step := range op.steps {
-		if tr, ok := step.(TransferLeader); ok {
-			for _, store := range removeStores {
-				if store == tr.FromStore {
-					return false
-				}
-				if store == tr.ToStore {
-					return false
-				}
-			}
-		}
-		if rp, ok := step.(RemovePeer); ok {
-			removeStores = append(removeStores, rp.FromStore)
-		}
-	}
-	return true
 }

@@ -115,7 +115,7 @@ func (s *testBalanceSpeedSuite) TestShouldBalance(c *C) {
 		tc.PutRegion(region)
 		tc.LeaderScheduleStrategy = t.kind.String()
 		kind := core.NewScheduleKind(core.LeaderKind, t.kind)
-		c.Assert(shouldBalance(tc, source, target, region, kind, schedule.NewUnfinishedOpInfluence(nil, tc), ""), Equals, t.expectedResult)
+		c.Assert(shouldBalance(tc, source, target, region, kind, ""), Equals, t.expectedResult)
 	}
 
 	for _, t := range tests {
@@ -127,7 +127,7 @@ func (s *testBalanceSpeedSuite) TestShouldBalance(c *C) {
 			region := tc.GetRegion(1).Clone(core.SetApproximateSize(t.regionSize))
 			tc.PutRegion(region)
 			kind := core.NewScheduleKind(core.RegionKind, t.kind)
-			c.Assert(shouldBalance(tc, source, target, region, kind, schedule.NewUnfinishedOpInfluence(nil, tc), ""), Equals, t.expectedResult)
+			c.Assert(shouldBalance(tc, source, target, region, kind, ""), Equals, t.expectedResult)
 		}
 	}
 }
@@ -264,37 +264,6 @@ func (s *testBalanceLeaderSchedulerSuite) TestBalanceLeaderTolerantRatio(c *C) {
 	c.Assert(s.tc.GetStore(1).GetLeaderCount(), Equals, 15)
 	c.Check(s.schedule(), NotNil)
 	s.tc.TolerantSizeRatio = 6 // (15-10)<6
-	c.Check(s.schedule(), IsNil)
-}
-
-func (s *testBalanceLeaderSchedulerSuite) TestScheduleWithOpInfluence(c *C) {
-	// Stores:     1    2    3    4
-	// Leaders:    7    8    9   14
-	// Region1:    F    F    F    L
-	s.tc.AddLeaderStore(1, 7)
-	s.tc.AddLeaderStore(2, 8)
-	s.tc.AddLeaderStore(3, 9)
-	s.tc.AddLeaderStore(4, 14)
-	s.tc.AddLeaderRegion(1, 4, 1, 2, 3)
-	op := s.schedule()[0]
-	c.Check(op, NotNil)
-	s.oc.SetOperator(op)
-	// After considering the scheduled operator, leaders of store1 and store4 are 8
-	// and 13 respectively. As the `TolerantSizeRatio` is 2.5, `shouldBalance`
-	// returns false when leader difference is not greater than 5.
-	c.Assert(s.tc.LeaderScheduleStrategy, Equals, core.ByCount.String()) // default by count
-	c.Check(s.schedule(), NotNil)
-	s.tc.LeaderScheduleStrategy = core.BySize.String()
-	c.Check(s.schedule(), IsNil)
-
-	// Stores:     1    2    3    4
-	// Leaders:    8    8    9   13
-	// Region1:    F    F    F    L
-	s.tc.UpdateLeaderCount(1, 8)
-	s.tc.UpdateLeaderCount(2, 8)
-	s.tc.UpdateLeaderCount(3, 9)
-	s.tc.UpdateLeaderCount(4, 13)
-	s.tc.AddLeaderRegion(1, 4, 1, 2, 3)
 	c.Check(s.schedule(), IsNil)
 }
 

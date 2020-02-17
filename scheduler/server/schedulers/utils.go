@@ -20,7 +20,6 @@ import (
 	"github.com/montanaflynn/stats"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/cache"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
-	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/operator"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/opt"
 	"github.com/pingcap/log"
 	"github.com/pkg/errors"
@@ -62,17 +61,15 @@ func isRegionUnhealthy(region *core.RegionInfo) bool {
 	return len(region.GetDownPeers()) != 0 || len(region.GetLearners()) != 0
 }
 
-func shouldBalance(cluster opt.Cluster, source, target *core.StoreInfo, region *core.RegionInfo, kind core.ScheduleKind, opInfluence operator.OpInfluence, scheduleName string) bool {
+func shouldBalance(cluster opt.Cluster, source, target *core.StoreInfo, region *core.RegionInfo, kind core.ScheduleKind, scheduleName string) bool {
 	// The reason we use max(regionSize, averageRegionSize) to check is:
 	// 1. prevent moving small regions between stores with close scores, leading to unnecessary balance.
 	// 2. prevent moving huge regions, leading to over balance.
 	sourceID := source.GetID()
 	targetID := target.GetID()
 	tolerantResource := getTolerantResource(cluster, region, kind)
-	sourceInfluence := opInfluence.GetStoreInfluence(sourceID).ResourceProperty(kind)
-	targetInfluence := opInfluence.GetStoreInfluence(targetID).ResourceProperty(kind)
-	sourceScore := source.ResourceScore(kind, cluster.GetHighSpaceRatio(), cluster.GetLowSpaceRatio(), sourceInfluence-tolerantResource)
-	targetScore := target.ResourceScore(kind, cluster.GetHighSpaceRatio(), cluster.GetLowSpaceRatio(), targetInfluence+tolerantResource)
+	sourceScore := source.ResourceScore(kind, cluster.GetHighSpaceRatio(), cluster.GetLowSpaceRatio(), -tolerantResource)
+	targetScore := target.ResourceScore(kind, cluster.GetHighSpaceRatio(), cluster.GetLowSpaceRatio(), tolerantResource)
 
 	// Make sure after move, source score is still greater than target score.
 	shouldBalance := sourceScore > targetScore
@@ -81,9 +78,7 @@ func shouldBalance(cluster opt.Cluster, source, target *core.StoreInfo, region *
 		log.Debug("skip balance "+kind.Resource.String(),
 			zap.String("scheduler", scheduleName), zap.Uint64("region-id", region.GetID()), zap.Uint64("source-store", sourceID), zap.Uint64("target-store", targetID),
 			zap.Int64("source-size", source.GetRegionSize()), zap.Float64("source-score", sourceScore),
-			zap.Int64("source-influence", sourceInfluence),
 			zap.Int64("target-size", target.GetRegionSize()), zap.Float64("target-score", targetScore),
-			zap.Int64("target-influence", targetInfluence),
 			zap.Int64("average-region-size", cluster.GetAverageRegionSize()),
 			zap.Int64("tolerant-resource", tolerantResource))
 	}
