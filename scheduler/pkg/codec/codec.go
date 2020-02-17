@@ -109,15 +109,6 @@ func EncodeBytes(data []byte) Key {
 	return result
 }
 
-// EncodeInt appends the encoded value to slice b and returns the appended slice.
-// EncodeInt guarantees that the encoded value is in ascending order for comparison.
-func EncodeInt(b []byte, v int64) []byte {
-	var data [8]byte
-	u := encodeIntToCmpUint(v)
-	binary.BigEndian.PutUint64(data[:], u)
-	return append(b, data[:]...)
-}
-
 // DecodeInt decodes value encoded by EncodeInt before.
 // It returns the leftover un-decoded slice, decoded value if no error.
 func DecodeInt(b []byte) ([]byte, int64, error) {
@@ -129,10 +120,6 @@ func DecodeInt(b []byte) ([]byte, int64, error) {
 	v := decodeCmpUintToInt(u)
 	b = b[8:]
 	return b, v, nil
-}
-
-func encodeIntToCmpUint(v int64) uint64 {
-	return uint64(v) ^ signMask
 }
 
 func decodeCmpUintToInt(u uint64) int64 {

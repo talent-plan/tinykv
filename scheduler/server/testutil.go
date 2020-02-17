@@ -98,7 +98,7 @@ func NewTestSingleConfig(c *check.C) *config.Config {
 func NewTestMultiConfig(c *check.C, count int) []*config.Config {
 	cfgs := make([]*config.Config, count)
 
-	clusters := []string{}
+	var clusters []string
 	for i := 1; i <= count; i++ {
 		cfg := NewTestSingleConfig(c)
 		cfg.Name = fmt.Sprintf("pd%d", i)
