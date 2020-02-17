@@ -34,16 +34,3 @@ type Cache interface {
 	// Len returns current cache size
 	Len() int
 }
-
-// Type is cache's type such as LRUCache and etc.
-type Type int
-
-const (
-	// LRUCache is for LRU cache
-	LRUCache Type = 1
-)
-
-var (
-	// DefaultCacheType set default cache type for NewDefaultCache function
-	DefaultCacheType = LRUCache
-)
