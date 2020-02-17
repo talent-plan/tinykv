@@ -1652,7 +1652,7 @@ func TestStepIgnoreConfig(t *testing.T) {
 	pendingConfIndex := r.PendingConfIndex
 	r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{EntryType: pb.EntryType_EntryConfChange}}})
 	wents := []pb.Entry{{EntryType: pb.EntryType_EntryNormal, Term: 1, Index: 3, Data: nil}}
-	ents, err := r.RaftLog.Entries(index+1, noLimit)
+	ents, err := r.RaftLog.Entries(index + 1)
 	if err != nil {
 		t.Fatalf("unexpected error %v", err)
 	}
@@ -2405,7 +2405,7 @@ func newTestConfig(id uint64, peers []uint64, election, heartbeat int, storage S
 		ElectionTick:  election,
 		HeartbeatTick: heartbeat,
 		Storage:       storage,
-		MaxSizePerMsg: noLimit,
+		MaxEntsSize:   noLimit,
 	}
 }
 

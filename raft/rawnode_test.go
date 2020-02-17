@@ -428,10 +428,10 @@ func TestRawNodeCommitPaginationAfterRestart(t *testing.T) {
 	}
 
 	cfg := newTestConfig(1, []uint64{1}, 10, 1, s)
-	// Set a MaxSizePerMsg that would suggest to Raft that the last committed entry should
+	// Set a MaxEntsSize that would suggest to Raft that the last committed entry should
 	// not be included in the initial rd.CommittedEntries. However, our storage will ignore
 	// this and *will* return it (which is how the Commit index ended up being 10 initially).
-	cfg.MaxSizePerMsg = size - uint64(s.ents[len(s.ents)-1].Size()) - 1
+	cfg.MaxEntsSize = size - uint64(s.ents[len(s.ents)-1].Size()) - 1
 
 	s.ents = append(s.ents, pb.Entry{
 		Term:      1,

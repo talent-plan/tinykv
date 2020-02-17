@@ -467,7 +467,7 @@ func TestNodeStart(t *testing.T) {
 		ElectionTick:  10,
 		HeartbeatTick: 1,
 		Storage:       storage,
-		MaxSizePerMsg: noLimit,
+		MaxEntsSize:   noLimit,
 	}
 	n := StartNode(c, []Peer{{ID: 1}})
 	defer n.Stop()
@@ -521,7 +521,7 @@ func TestNodeRestart(t *testing.T) {
 		ElectionTick:  10,
 		HeartbeatTick: 1,
 		Storage:       storage,
-		MaxSizePerMsg: noLimit,
+		MaxEntsSize:   noLimit,
 	}
 	n := RestartNode(c)
 	defer n.Stop()
@@ -566,7 +566,7 @@ func TestNodeRestartFromSnapshot(t *testing.T) {
 		ElectionTick:  10,
 		HeartbeatTick: 1,
 		Storage:       s,
-		MaxSizePerMsg: noLimit,
+		MaxEntsSize:   noLimit,
 	}
 	n := RestartNode(c)
 	defer n.Stop()
@@ -593,7 +593,7 @@ func TestNodeAdvance(t *testing.T) {
 		ElectionTick:  10,
 		HeartbeatTick: 1,
 		Storage:       storage,
-		MaxSizePerMsg: noLimit,
+		MaxEntsSize:   noLimit,
 	}
 	n := StartNode(c, []Peer{{ID: 1}})
 	defer n.Stop()
@@ -654,9 +654,9 @@ func TestIsHardStateEqual(t *testing.T) {
 }
 
 func TestAppendPagination(t *testing.T) {
-	const maxSizePerMsg = 2048
+	const maxEntsSize = 2048
 	n := newNetworkWithConfig(func(c *Config) {
-		c.MaxSizePerMsg = maxSizePerMsg
+		c.MaxEntsSize = maxEntsSize
 	}, nil, nil, nil)
 
 	seenFullMessage := false
@@ -668,10 +668,10 @@ func TestAppendPagination(t *testing.T) {
 			for _, e := range m.Entries {
 				size += len(e.Data)
 			}
-			if size > maxSizePerMsg {
+			if size > maxEntsSize {
 				t.Errorf("sent MessageType_MsgAppend that is too large: %d bytes", size)
 			}
-			if size > maxSizePerMsg/2 {
+			if size > maxEntsSize/2 {
 				seenFullMessage = true
 			}
 		}
@@ -700,7 +700,7 @@ func TestAppendPagination(t *testing.T) {
 func TestCommitPagination(t *testing.T) {
 	s := NewMemoryStorage()
 	cfg := newTestConfig(1, []uint64{1}, 10, 1, s)
-	cfg.MaxCommittedSizePerReady = 2048
+	cfg.MaxEntsSize = 2048
 	r := newRaft(cfg)
 	n := newNode()
 	go n.run(r)
@@ -785,10 +785,10 @@ func TestNodeCommitPaginationAfterRestart(t *testing.T) {
 	}
 
 	cfg := newTestConfig(1, []uint64{1}, 10, 1, s)
-	// Set a MaxSizePerMsg that would suggest to Raft that the last committed entry should
+	// Set a MaxEntsSize that would suggest to Raft that the last committed entry should
 	// not be included in the initial rd.CommittedEntries. However, our storage will ignore
 	// this and *will* return it (which is how the Commit index ended up being 10 initially).
-	cfg.MaxSizePerMsg = size - uint64(s.ents[len(s.ents)-1].Size()) - 1
+	cfg.MaxEntsSize = size - uint64(s.ents[len(s.ents)-1].Size()) - 1
 
 	r := newRaft(cfg)
 	n := newNode()

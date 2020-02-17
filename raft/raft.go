@@ -121,15 +121,9 @@ type Config struct {
 	// applied entries. This is a very application dependent configuration.
 	Applied uint64
 
-	// MaxSizePerMsg limits the max byte size of each append message. Smaller
-	// value lowers the raft recovery cost(initial probing and message lost
-	// during normal operation). On the other side, it might affect the
-	// throughput during normal replication. Note: math.MaxUint64 for unlimited,
-	// 0 for at most one entry per message.
-	MaxSizePerMsg uint64
-	// MaxCommittedSizePerReady limits the size of the committed entries which
-	// can be applied.
-	MaxCommittedSizePerReady uint64
+	// MaxEntsSize limits the maximum number aggregate byte size of the entries
+	// returned from RaftLog.
+	MaxEntsSize uint64
 
 	// Logger is the logger used for raft log. For multinode which can host
 	// multiple raft group, each raft group can have its own logger
@@ -153,10 +147,8 @@ func (c *Config) validate() error {
 		return errors.New("storage cannot be nil")
 	}
 
-	// default MaxCommittedSizePerReady to MaxSizePerMsg because they were
-	// previously the same parameter.
-	if c.MaxCommittedSizePerReady == 0 {
-		c.MaxCommittedSizePerReady = c.MaxSizePerMsg
+	if c.MaxEntsSize == 0 {
+		c.MaxEntsSize = noLimit
 	}
 
 	if c.Logger == nil {
@@ -175,8 +167,7 @@ type Raft struct {
 	// the log
 	RaftLog *RaftLog
 
-	maxMsgSize uint64
-	Prs        map[uint64]*Progress
+	Prs map[uint64]*Progress
 
 	State StateType
 
@@ -238,7 +229,7 @@ func newRaft(c *Config) *Raft {
 	if err := c.validate(); err != nil {
 		panic(err.Error())
 	}
-	raftlog := newLogWithSize(c.Storage, c.Logger, c.MaxCommittedSizePerReady)
+	raftlog := newLogWithSize(c.Storage, c.Logger, c.MaxEntsSize)
 	hs, cs, err := c.Storage.InitialState()
 	if err != nil {
 		panic(err) // TODO(bdarnell)
@@ -257,7 +248,6 @@ func newRaft(c *Config) *Raft {
 		id:               c.ID,
 		Lead:             None,
 		RaftLog:          raftlog,
-		maxMsgSize:       c.MaxSizePerMsg,
 		Prs:              make(map[uint64]*Progress),
 		electionTimeout:  c.ElectionTick,
 		heartbeatTimeout: c.HeartbeatTick,
@@ -361,7 +351,7 @@ func (r *Raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 	m.To = to
 
 	term, errt := r.RaftLog.Term(pr.Next - 1)
-	ents, erre := r.RaftLog.Entries(pr.Next, r.maxMsgSize)
+	ents, erre := r.RaftLog.Entries(pr.Next)
 	if len(ents) == 0 && !sendIfEmpty {
 		return false
 	}
