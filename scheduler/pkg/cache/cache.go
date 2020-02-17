@@ -13,6 +13,12 @@
 
 package cache
 
+// Item is the cache entry.
+type Item struct {
+	Key   uint64
+	Value interface{}
+}
+
 // Cache is an interface for cache system
 type Cache interface {
 	// Put puts an item into cache.
