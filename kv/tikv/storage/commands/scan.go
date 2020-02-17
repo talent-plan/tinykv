@@ -17,7 +17,7 @@ func NewScan(request *kvrpcpb.ScanRequest) Scan {
 func (s *Scan) BuildTxn(txn *kvstore.MvccTxn) error {
 	txn.StartTS = &s.request.Version
 
-	iter := kvstore.NewScanner(s.request.StartKey, txn)
+	scanner := kvstore.NewScanner(s.request.StartKey, txn)
 	limit := s.request.Limit
 	for {
 		if limit == 0 {
@@ -25,8 +25,20 @@ func (s *Scan) BuildTxn(txn *kvstore.MvccTxn) error {
 			return nil
 		}
 		limit -= 1
-		key, value, err := iter.Next()
+
+		key, value, err := scanner.Next()
 		if err != nil {
+			// Key error (e.g., key is locked) is saved as an error in the scan for the client to handle.
+			if e, ok := err.(KeyError); ok {
+				keyErrs := e.KeyErrors()
+				if len(keyErrs) == 0 {
+					pair := kvrpcpb.KvPair{}
+					pair.Error = keyErrs[0]
+					s.response.Pairs = append(s.response.Pairs, &pair)
+					continue
+				}
+			}
+			// Any other kind of error, we can't handle so quit the scan.
 			return err
 		}
 		if key == nil {

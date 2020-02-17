@@ -77,10 +77,11 @@ func TestRollbackMissingPrewrite(t *testing.T) {
 	assert.Nil(t, resp.Error)
 	assert.Nil(t, resp.RegionError)
 	assert.Equal(t, 0, mem.Len(engine_util.CfDefault))
-	assert.Equal(t, 0, mem.Len(engine_util.CfWrite))
+	assert.Equal(t, 1, mem.Len(engine_util.CfWrite))
+	assert.Equal(t, []byte{3, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfWrite, kvstore.EncodeKey([]byte{3}, 100)))
 }
 
-// TestRollbackCommitted tests trying to roll back a transaction which is already committed.
+// TestRollbackCommitted tests trying to roll back a transaction which is already committed (should be an error).
 func TestRollbackCommitted(t *testing.T) {
 	mem := inner_server.NewMemInnerServer()
 	mem.Set(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 100), []byte{42})
@@ -90,14 +91,8 @@ func TestRollbackCommitted(t *testing.T) {
 	builder := newReqBuilder()
 	cmd := commands.NewRollback(builder.rollbackRequest([]byte{3}))
 	resp := run(t, sched, &cmd)[0].(*kvrpcpb.BatchRollbackResponse)
-	assert.Nil(t, resp.Error)
+	assert.NotNil(t, resp.Error.Abort)
 	assert.Nil(t, resp.RegionError)
-	// Should be no change.
-	assert.Equal(t, 1, mem.Len(engine_util.CfDefault))
-	assert.Equal(t, 0, mem.Len(engine_util.CfLock))
-	assert.Equal(t, 1, mem.Len(engine_util.CfWrite))
-	assert.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfWrite, kvstore.EncodeKey([]byte{3}, 110)))
-	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 100)))
 }
 
 // TestRollbackDuplicate tests trying to roll back a transaction which has already been rolled back.
@@ -131,10 +126,11 @@ func TestRollbackOtherTxn(t *testing.T) {
 	assert.Nil(t, resp.Error)
 	assert.Nil(t, resp.RegionError)
 	assert.Equal(t, 1, mem.Len(engine_util.CfDefault))
-	assert.Equal(t, 0, mem.Len(engine_util.CfWrite))
+	assert.Equal(t, 1, mem.Len(engine_util.CfWrite))
 	assert.Equal(t, 1, mem.Len(engine_util.CfLock))
 	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{3}, 80)))
 	assert.Equal(t, []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 80}, mem.Get(engine_util.CfLock, []byte{3}))
+	assert.Equal(t, []byte{3, 0, 0, 0, 0, 0, 0, 0, 100}, mem.Get(engine_util.CfWrite, kvstore.EncodeKey([]byte{3}, 100)))
 }
 
 func (builder *requestBuilder) rollbackRequest(keys ...[]byte) *kvrpcpb.BatchRollbackRequest {

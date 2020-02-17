@@ -2,6 +2,7 @@ package kvstore
 
 import (
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
 
 // Scanner is used for reading multiple sequential key/value pairs from the storage layer. It is aware of the implementation
@@ -41,9 +42,14 @@ func (scan *Scanner) Next() ([]byte, []byte, error) {
 			continue
 		}
 
-		// Note: we might check if userKey is locked (since we should not read an uncommitted transaction). However,
-		// because we are iterating over writes, we are guaranteed never to get a locked key at our timestamp (i.e., if
-		// the key were locked, then we would use the older value, which is what we will get via the write in any case).
+		lock, err := scan.txn.GetLock(userKey)
+		if err != nil {
+			return nil, nil, err
+		}
+		if lock != nil && lock.TS < *scan.txn.StartTS {
+			// The key is currently locked.
+			return nil, nil, &LockedError{Info: []kvrpcpb.LockInfo{*lock.Info(userKey)}}
+		}
 
 		writeValue, err := item.Value()
 		if err != nil {

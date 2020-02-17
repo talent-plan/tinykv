@@ -26,7 +26,9 @@ func NewTxn(reader dbreader.DBReader) MvccTxn {
 	}
 }
 
-// SeekWrite returns the Write from the DB and the write's commit timestamp, or an error.
+// SeekWrite finds the write with the given key and the most recent timestamp before or equal to ts. If ts is TsMax, then
+// it will find the most recent write for key. It returns a Write from the DB and that write's commit timestamp, or an error.
+// Postcondition: the returned ts is <= the ts arg.
 func (txn *MvccTxn) SeekWrite(key []byte, ts uint64) (*Write, uint64, error) {
 	iter := txn.Reader.IterCF(engine_util.CfWrite)
 	iter.Seek(EncodeKey(key, ts))
@@ -48,6 +50,27 @@ func (txn *MvccTxn) SeekWrite(key []byte, ts uint64) (*Write, uint64, error) {
 	}
 
 	return write, commitTs, nil
+}
+
+// FindWrite searches for a write at exactly startTs.
+func (txn *MvccTxn) FindWrite(key []byte, startTs uint64) (*Write, uint64, error) {
+	seekTs := TsMax
+	for {
+		write, commitTs, err := txn.SeekWrite(key, seekTs)
+		if err != nil {
+			return nil, 0, err
+		}
+		if write == nil {
+			return nil, 0, nil
+		}
+		if write.StartTS == startTs {
+			return write, commitTs, nil
+		}
+		if commitTs <= startTs {
+			return nil, 0, nil
+		}
+		seekTs = commitTs - 1
+	}
 }
 
 // FindWrittenValue searches for a put write at key and with a timestamp at ts or later, if it finds one, it uses the
@@ -81,26 +104,6 @@ func (txn *MvccTxn) FindWrittenValue(key []byte, ts uint64) ([]byte, error) {
 
 	// Iterated to the end of the DB
 	return nil, nil
-}
-
-func (txn *MvccTxn) FindWrite(key []byte, startTs uint64) (*Write, error) {
-	seekTs := TsMax
-	for {
-		write, commitTs, err := txn.SeekWrite(key, seekTs)
-		if err != nil {
-			return nil, err
-		}
-		if write == nil {
-			return nil, nil
-		}
-		if write.StartTS == startTs {
-			return write, nil
-		}
-		if commitTs <= startTs {
-			return nil, nil
-		}
-		seekTs = commitTs - 1
-	}
 }
 
 // GetWrite gets the write at precisely the given key and ts, without searching.
