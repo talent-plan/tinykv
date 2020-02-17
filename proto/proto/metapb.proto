@@ -23,18 +23,11 @@ enum StoreState {
     Tombstone = 2;
 }
 
-// Case insensitive key/value for replica constraints.
-message StoreLabel {
-    string key = 1;
-    string value = 2;
-}
-
 message Store {
     uint64 id = 1;
     // Address to handle client requests (kv, cop, etc.)
     string address = 2;
     StoreState state = 3;
-    repeated StoreLabel labels = 4;
     string version = 5;
     // Address to handle peer requests (raft messages from other store).
     // Empty means same as address.

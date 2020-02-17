@@ -36,9 +36,7 @@ const (
 	defaultLowSpaceRatio               = 0.8
 	defaultHighSpaceRatio              = 0.6
 	defaultSchedulerMaxWaitingOperator = 3
-	defaultStrictlyMatchLabel          = true
 	defaultLeaderScheduleStrategy      = "count"
-	defaultEnablePlacementRules        = false
 	defaultKeyType                     = "table"
 )
 
@@ -61,8 +59,6 @@ type ScheduleOptions struct {
 	KeyType                      string
 	MaxStoreDownTime             time.Duration
 	MaxReplicas                  int
-	LocationLabels               []string
-	StrictlyMatchLabel           bool
 	TolerantSizeRatio            float64
 	LowSpaceRatio                float64
 	HighSpaceRatio               float64
@@ -70,13 +66,10 @@ type ScheduleOptions struct {
 	EnableReplaceOfflineReplica  bool
 	EnableMakeUpReplica          bool
 	EnableRemoveExtraReplica     bool
-	EnableLocationReplacement    bool
-	EnablePlacementRules         bool
 	DisableRemoveDownReplica     bool
 	DisableReplaceOfflineReplica bool
 	DisableMakeUpReplica         bool
 	DisableRemoveExtraReplica    bool
-	DisableLocationReplacement   bool
 	LeaderScheduleStrategy       string
 }
 
@@ -95,8 +88,6 @@ func NewScheduleOptions() *ScheduleOptions {
 	mso.SplitMergeInterval = defaultSplitMergeInterval
 	mso.MaxStoreDownTime = defaultMaxStoreDownTime
 	mso.MaxReplicas = defaultMaxReplicas
-	mso.StrictlyMatchLabel = defaultStrictlyMatchLabel
-	mso.EnablePlacementRules = defaultEnablePlacementRules
 	mso.MaxPendingPeerCount = defaultMaxPendingPeerCount
 	mso.TolerantSizeRatio = defaultTolerantSizeRatio
 	mso.LowSpaceRatio = defaultLowSpaceRatio
@@ -105,7 +96,6 @@ func NewScheduleOptions() *ScheduleOptions {
 	mso.EnableReplaceOfflineReplica = true
 	mso.EnableMakeUpReplica = true
 	mso.EnableRemoveExtraReplica = true
-	mso.EnableLocationReplacement = true
 	mso.LeaderScheduleStrategy = defaultLeaderScheduleStrategy
 	mso.KeyType = defaultKeyType
 	return mso
@@ -181,21 +171,6 @@ func (mso *ScheduleOptions) GetMaxReplicas() int {
 	return mso.MaxReplicas
 }
 
-// GetLocationLabels mocks method
-func (mso *ScheduleOptions) GetLocationLabels() []string {
-	return mso.LocationLabels
-}
-
-// GetStrictlyMatchLabel mocks method
-func (mso *ScheduleOptions) GetStrictlyMatchLabel() bool {
-	return mso.StrictlyMatchLabel
-}
-
-// IsPlacementRulesEnabled mocks method
-func (mso *ScheduleOptions) IsPlacementRulesEnabled() bool {
-	return mso.EnablePlacementRules
-}
-
 // GetTolerantSizeRatio mocks method
 func (mso *ScheduleOptions) GetTolerantSizeRatio() float64 {
 	return mso.TolerantSizeRatio
@@ -239,11 +214,6 @@ func (mso *ScheduleOptions) IsMakeUpReplicaEnabled() bool {
 // IsRemoveExtraReplicaEnabled mocks method.
 func (mso *ScheduleOptions) IsRemoveExtraReplicaEnabled() bool {
 	return mso.EnableRemoveExtraReplica
-}
-
-// IsLocationReplacementEnabled mocks method.
-func (mso *ScheduleOptions) IsLocationReplacementEnabled() bool {
-	return mso.EnableLocationReplacement
 }
 
 // GetLeaderScheduleStrategy is to get leader schedule strategy.

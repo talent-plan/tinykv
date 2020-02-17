@@ -75,16 +75,6 @@ func (o *ScheduleOption) SetMaxReplicas(replicas int) {
 	o.replication.SetMaxReplicas(replicas)
 }
 
-// GetLocationLabels returns the location labels for each region.
-func (o *ScheduleOption) GetLocationLabels() []string {
-	return o.replication.GetLocationLabels()
-}
-
-// IsPlacementRulesEnabled returns if the placement rules is enabled.
-func (o *ScheduleOption) IsPlacementRulesEnabled() bool {
-	return o.replication.IsPlacementRulesEnabled()
-}
-
 // GetMaxSnapshotCount returns the number of the max snapshot which is allowed to send.
 func (o *ScheduleOption) GetMaxSnapshotCount() uint64 {
 	return o.Load().MaxSnapshotCount
@@ -210,11 +200,6 @@ func (o *ScheduleOption) IsRemoveExtraReplicaEnabled() bool {
 	return o.Load().EnableRemoveExtraReplica
 }
 
-// IsLocationReplacementEnabled returns if location replace is enabled.
-func (o *ScheduleOption) IsLocationReplacementEnabled() bool {
-	return o.Load().EnableLocationReplacement
-}
-
 // GetSchedulers gets the scheduler configurations.
 func (o *ScheduleOption) GetSchedulers() SchedulerConfigs {
 	return o.Load().Schedulers
@@ -320,19 +305,4 @@ func (r *Replication) SetMaxReplicas(replicas int) {
 	v := c.clone()
 	v.MaxReplicas = uint64(replicas)
 	r.Store(v)
-}
-
-// GetLocationLabels returns the location labels for each region.
-func (r *Replication) GetLocationLabels() []string {
-	return r.Load().LocationLabels
-}
-
-// GetStrictlyMatchLabel returns whether check label strict.
-func (r *Replication) GetStrictlyMatchLabel() bool {
-	return r.Load().StrictlyMatchLabel
-}
-
-// IsPlacementRulesEnabled returns whether the feature is enabled.
-func (r *Replication) IsPlacementRulesEnabled() bool {
-	return r.Load().EnablePlacementRules
 }

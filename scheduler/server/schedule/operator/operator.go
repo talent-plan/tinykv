@@ -22,7 +22,6 @@ import (
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
-	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/opt"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
 )
@@ -459,7 +458,7 @@ func transferLeaderStep(cluster Cluster, region *core.RegionInfo, storeID uint64
 }
 
 // findAvailableStore finds the first available store.
-func findAvailableStore(cluster Cluster, prop string, storeIDs []uint64) (int, uint64) {
+func findAvailableStore(cluster Cluster, storeIDs []uint64) (int, uint64) {
 	for i, id := range storeIDs {
 		store := cluster.GetStore(id)
 		if store != nil {
@@ -474,7 +473,7 @@ func findAvailableStore(cluster Cluster, prop string, storeIDs []uint64) (int, u
 // transferLeaderToSuitableSteps returns the first suitable store to become region leader.
 // Returns an error if there is no suitable store.
 func transferLeaderToSuitableSteps(cluster Cluster, leaderID uint64, storeIDs []uint64) (OpKind, []OpStep, error) {
-	_, id := findAvailableStore(cluster, opt.RejectLeader, storeIDs)
+	_, id := findAvailableStore(cluster, storeIDs)
 	if id != 0 {
 		return OpLeader, []OpStep{TransferLeader{FromStore: leaderID, ToStore: id}}, nil
 	}

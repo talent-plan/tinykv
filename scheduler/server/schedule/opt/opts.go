@@ -40,9 +40,6 @@ type Options interface {
 	IsCrossTableMergeEnabled() bool
 
 	GetMaxReplicas() int
-	GetLocationLabels() []string
-	GetStrictlyMatchLabel() bool
-	IsPlacementRulesEnabled() bool
 
 	GetTolerantSizeRatio() float64
 	GetLowSpaceRatio() float64
@@ -53,16 +50,9 @@ type Options interface {
 	IsReplaceOfflineReplicaEnabled() bool
 	IsMakeUpReplicaEnabled() bool
 	IsRemoveExtraReplicaEnabled() bool
-	IsLocationReplacementEnabled() bool
 	GetLeaderScheduleStrategy() core.ScheduleStrategy
 	GetKeyType() core.KeyType
 }
-
-const (
-	// RejectLeader is the label property type that suggests a store should not
-	// have any region leaders.
-	RejectLeader = "reject-leader"
-)
 
 // Cluster provides an overview of a cluster's regions distribution.
 // TODO: This interface should be moved to a better place.

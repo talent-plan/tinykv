@@ -526,9 +526,6 @@ func (s *Server) GetReplicationConfig() *config.ReplicationConfig {
 
 // SetReplicationConfig sets the replication config.
 func (s *Server) SetReplicationConfig(cfg config.ReplicationConfig) error {
-	if err := cfg.Validate(); err != nil {
-		return err
-	}
 	old := s.scheduleOpt.GetReplication().Load()
 	s.scheduleOpt.GetReplication().Store(&cfg)
 	log.Info("replication config is updated", zap.Reflect("new", cfg), zap.Reflect("old", old))

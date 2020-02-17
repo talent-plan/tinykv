@@ -35,15 +35,6 @@ func SetStoreAddress(address, statusAddress, peerAddress string) StoreCreateOpti
 	}
 }
 
-// SetStoreLabels sets the labels for the store.
-func SetStoreLabels(labels []*metapb.StoreLabel) StoreCreateOption {
-	return func(store *StoreInfo) {
-		meta := proto.Clone(store.meta).(*metapb.Store)
-		meta.Labels = labels
-		store.meta = meta
-	}
-}
-
 // SetStoreVersion sets the version for the store.
 func SetStoreVersion(githash, version string) StoreCreateOption {
 	return func(store *StoreInfo) {

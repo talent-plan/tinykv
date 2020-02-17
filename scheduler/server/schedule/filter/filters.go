@@ -246,49 +246,6 @@ func (f *storageThresholdFilter) Target(opt opt.Options, store *core.StoreInfo) 
 	return store.IsLowSpace(opt.GetLowSpaceRatio())
 }
 
-// distinctScoreFilter ensures that distinct score will not decrease.
-type distinctScoreFilter struct {
-	scope     string
-	labels    []string
-	stores    []*core.StoreInfo
-	safeScore float64
-}
-
-// NewDistinctScoreFilter creates a filter that filters all stores that have
-// lower distinct score than specified store.
-func NewDistinctScoreFilter(scope string, labels []string, stores []*core.StoreInfo, source *core.StoreInfo) Filter {
-	newStores := make([]*core.StoreInfo, 0, len(stores)-1)
-	for _, s := range stores {
-		if s.GetID() == source.GetID() {
-			continue
-		}
-		newStores = append(newStores, s)
-	}
-
-	return &distinctScoreFilter{
-		scope:     scope,
-		labels:    labels,
-		stores:    newStores,
-		safeScore: core.DistinctScore(labels, newStores, source),
-	}
-}
-
-func (f *distinctScoreFilter) Scope() string {
-	return f.scope
-}
-
-func (f *distinctScoreFilter) Type() string {
-	return "distinct-filter"
-}
-
-func (f *distinctScoreFilter) Source(opt opt.Options, store *core.StoreInfo) bool {
-	return false
-}
-
-func (f *distinctScoreFilter) Target(opt opt.Options, store *core.StoreInfo) bool {
-	return core.DistinctScore(f.labels, f.stores, store) < f.safeScore
-}
-
 // StoreStateFilter is used to determine whether a store can be selected as the
 // source or target of the schedule based on the store's state.
 type StoreStateFilter struct {

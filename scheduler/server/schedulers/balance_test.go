@@ -30,9 +30,8 @@ import (
 	. "github.com/pingcap/check"
 )
 
-func newTestReplication(mso *mockoption.ScheduleOptions, maxReplicas int, locationLabels ...string) {
+func newTestReplication(mso *mockoption.ScheduleOptions, maxReplicas int) {
 	mso.MaxReplicas = maxReplicas
-	mso.LocationLabels = locationLabels
 }
 
 var _ = Suite(&testBalanceSpeedSuite{})
@@ -433,53 +432,43 @@ func (s *testBalanceRegionSchedulerSuite) TestReplicas3(c *C) {
 	tc := mockcluster.NewCluster(opt)
 	oc := schedule.NewOperatorController(s.ctx, nil, nil)
 
-	newTestReplication(opt, 3, "zone", "rack", "host")
+	newTestReplication(opt, 3)
 
 	sb, err := schedule.CreateScheduler("balance-region", oc, core.NewStorage(kv.NewMemoryKV()), nil)
 	c.Assert(err, IsNil)
 
 	// Store 1 has the largest region score, so the balancer try to replace peer in store 1.
-	tc.AddLabelsStore(1, 16, map[string]string{"zone": "z1", "rack": "r1", "host": "h1"})
-	tc.AddLabelsStore(2, 15, map[string]string{"zone": "z1", "rack": "r2", "host": "h1"})
-	tc.AddLabelsStore(3, 14, map[string]string{"zone": "z1", "rack": "r2", "host": "h2"})
+	tc.AddRegionStore(1, 16)
+	tc.AddRegionStore(2, 15)
+	tc.AddRegionStore(3, 14)
 
 	tc.AddLeaderRegion(1, 1, 2, 3)
 	// This schedule try to replace peer in store 1, but we have no other stores.
 	c.Assert(sb.Schedule(tc), IsNil)
 
-	// Store 4 has smaller region score than store 2.
-	tc.AddLabelsStore(4, 2, map[string]string{"zone": "z1", "rack": "r2", "host": "h1"})
-	testutil.CheckTransferPeer(c, sb.Schedule(tc)[0], operator.OpBalance, 2, 4)
+	// Store 4 has smaller region score than store 1.
+	tc.AddRegionStore(4, 2)
+	testutil.CheckTransferPeer(c, sb.Schedule(tc)[0], operator.OpBalance, 1, 4)
 
-	// Store 5 has smaller region score than store 1.
-	tc.AddLabelsStore(5, 2, map[string]string{"zone": "z1", "rack": "r1", "host": "h1"})
+	// Store 5 has smaller region score than store 4.
+	tc.AddRegionStore(5, 1)
 	testutil.CheckTransferPeer(c, sb.Schedule(tc)[0], operator.OpBalance, 1, 5)
 
-	// Store 6 has smaller region score than store 5.
-	tc.AddLabelsStore(6, 1, map[string]string{"zone": "z1", "rack": "r1", "host": "h1"})
+	// Store 6 has smaller region score with store 6.
+	tc.AddRegionStore(6, 0)
 	testutil.CheckTransferPeer(c, sb.Schedule(tc)[0], operator.OpBalance, 1, 6)
 
-	// Store 7 has smaller region score with store 6.
-	tc.AddLabelsStore(7, 0, map[string]string{"zone": "z1", "rack": "r1", "host": "h2"})
-	testutil.CheckTransferPeer(c, sb.Schedule(tc)[0], operator.OpBalance, 1, 7)
+	// If store 6 is not available, will choose store 6.
+	tc.SetStoreDown(6)
+	testutil.CheckTransferPeer(c, sb.Schedule(tc)[0], operator.OpBalance, 1, 5)
 
-	// If store 7 is not available, will choose store 6.
-	tc.SetStoreDown(7)
-	testutil.CheckTransferPeer(c, sb.Schedule(tc)[0], operator.OpBalance, 1, 6)
-
-	// Store 8 has smaller region score than store 7, but the distinct score decrease.
-	tc.AddLabelsStore(8, 1, map[string]string{"zone": "z1", "rack": "r2", "host": "h3"})
-	testutil.CheckTransferPeer(c, sb.Schedule(tc)[0], operator.OpBalance, 1, 6)
-
-	// Take down 4,5,6,7
+	// Take down 4,5,6
 	tc.SetStoreDown(4)
 	tc.SetStoreDown(5)
 	tc.SetStoreDown(6)
-	tc.SetStoreDown(7)
-	tc.SetStoreDown(8)
 
-	// Store 9 has different zone with other stores but larger region score than store 1.
-	tc.AddLabelsStore(9, 20, map[string]string{"zone": "z2", "rack": "r1", "host": "h1"})
+	// Store 7 has different zone with other stores but larger region score than store 1.
+	tc.AddRegionStore(7, 20)
 	c.Assert(sb.Schedule(tc), IsNil)
 }
 
@@ -488,25 +477,25 @@ func (s *testBalanceRegionSchedulerSuite) TestReplicas5(c *C) {
 	tc := mockcluster.NewCluster(opt)
 	oc := schedule.NewOperatorController(s.ctx, nil, nil)
 
-	newTestReplication(opt, 5, "zone", "rack", "host")
+	newTestReplication(opt, 5)
 
 	sb, err := schedule.CreateScheduler("balance-region", oc, core.NewStorage(kv.NewMemoryKV()), nil)
 	c.Assert(err, IsNil)
 
-	tc.AddLabelsStore(1, 4, map[string]string{"zone": "z1", "rack": "r1", "host": "h1"})
-	tc.AddLabelsStore(2, 5, map[string]string{"zone": "z2", "rack": "r1", "host": "h1"})
-	tc.AddLabelsStore(3, 6, map[string]string{"zone": "z3", "rack": "r1", "host": "h1"})
-	tc.AddLabelsStore(4, 7, map[string]string{"zone": "z4", "rack": "r1", "host": "h1"})
-	tc.AddLabelsStore(5, 28, map[string]string{"zone": "z5", "rack": "r1", "host": "h1"})
+	tc.AddRegionStore(1, 4)
+	tc.AddRegionStore(2, 5)
+	tc.AddRegionStore(3, 6)
+	tc.AddRegionStore(4, 7)
+	tc.AddRegionStore(5, 28)
 
 	tc.AddLeaderRegion(1, 1, 2, 3, 4, 5)
 
 	// Store 6 has smaller region score.
-	tc.AddLabelsStore(6, 1, map[string]string{"zone": "z5", "rack": "r2", "host": "h1"})
+	tc.AddRegionStore(6, 1)
 	testutil.CheckTransferPeer(c, sb.Schedule(tc)[0], operator.OpBalance, 5, 6)
 
 	// Store 7 has larger region score and same distinct score with store 6.
-	tc.AddLabelsStore(7, 5, map[string]string{"zone": "z6", "rack": "r1", "host": "h1"})
+	tc.AddRegionStore(7, 5)
 	testutil.CheckTransferPeer(c, sb.Schedule(tc)[0], operator.OpBalance, 5, 6)
 
 	// Store 1 has smaller region score and higher distinct score.
@@ -514,9 +503,9 @@ func (s *testBalanceRegionSchedulerSuite) TestReplicas5(c *C) {
 	testutil.CheckTransferPeer(c, sb.Schedule(tc)[0], operator.OpBalance, 5, 1)
 
 	// Store 6 has smaller region score and higher distinct score.
-	tc.AddLabelsStore(11, 29, map[string]string{"zone": "z1", "rack": "r2", "host": "h1"})
-	tc.AddLabelsStore(12, 8, map[string]string{"zone": "z2", "rack": "r2", "host": "h1"})
-	tc.AddLabelsStore(13, 7, map[string]string{"zone": "z3", "rack": "r2", "host": "h1"})
+	tc.AddRegionStore(11, 29)
+	tc.AddRegionStore(12, 8)
+	tc.AddRegionStore(13, 7)
 	tc.AddLeaderRegion(1, 2, 3, 11, 12, 13)
 	testutil.CheckTransferPeer(c, sb.Schedule(tc)[0], operator.OpBalance, 11, 6)
 }
@@ -605,17 +594,17 @@ func (s *testBalanceRegionSchedulerSuite) TestReplacePendingRegion(c *C) {
 	tc := mockcluster.NewCluster(opt)
 	oc := schedule.NewOperatorController(s.ctx, nil, nil)
 
-	newTestReplication(opt, 3, "zone", "rack", "host")
+	newTestReplication(opt, 3)
 
 	sb, err := schedule.CreateScheduler("balance-region", oc, core.NewStorage(kv.NewMemoryKV()), nil)
 	c.Assert(err, IsNil)
 
 	// Store 1 has the largest region score, so the balancer try to replace peer in store 1.
-	tc.AddLabelsStore(1, 16, map[string]string{"zone": "z1", "rack": "r1", "host": "h1"})
-	tc.AddLabelsStore(2, 7, map[string]string{"zone": "z1", "rack": "r2", "host": "h1"})
-	tc.AddLabelsStore(3, 15, map[string]string{"zone": "z1", "rack": "r2", "host": "h2"})
+	tc.AddRegionStore(1, 16)
+	tc.AddRegionStore(2, 7)
+	tc.AddRegionStore(3, 15)
 	// Store 4 has smaller region score than store 1 and more better place than store 2.
-	tc.AddLabelsStore(4, 10, map[string]string{"zone": "z1", "rack": "r1", "host": "h1"})
+	tc.AddRegionStore(4, 10)
 
 	// set pending peer
 	tc.AddLeaderRegion(1, 1, 2, 3)
@@ -729,14 +718,14 @@ func (s *testReplicaCheckerSuite) TestOffline(c *C) {
 	opt := mockoption.NewScheduleOptions()
 	tc := mockcluster.NewCluster(opt)
 
-	newTestReplication(opt, 3, "zone", "rack", "host")
+	newTestReplication(opt, 3)
 
 	rc := checker.NewReplicaChecker(tc)
 
-	tc.AddLabelsStore(1, 1, map[string]string{"zone": "z1", "rack": "r1", "host": "h1"})
-	tc.AddLabelsStore(2, 2, map[string]string{"zone": "z2", "rack": "r1", "host": "h1"})
-	tc.AddLabelsStore(3, 3, map[string]string{"zone": "z3", "rack": "r1", "host": "h1"})
-	tc.AddLabelsStore(4, 4, map[string]string{"zone": "z3", "rack": "r2", "host": "h1"})
+	tc.AddRegionStore(1, 1)
+	tc.AddRegionStore(2, 2)
+	tc.AddRegionStore(3, 3)
+	tc.AddRegionStore(4, 4)
 
 	tc.AddLeaderRegion(1, 1)
 	region := tc.GetRegion(1)
@@ -772,8 +761,8 @@ func (s *testReplicaCheckerSuite) TestOffline(c *C) {
 	// Transfer peer to store 4.
 	testutil.CheckTransferPeer(c, rc.Check(region), operator.OpReplica, 3, 4)
 
-	// Store 5 has a same label score with store 4,but the region score smaller than store 4, we will choose store 5.
-	tc.AddLabelsStore(5, 3, map[string]string{"zone": "z4", "rack": "r1", "host": "h1"})
+	// Store 5 has smaller region score than store 4, we will choose store 5.
+	tc.AddRegionStore(5, 3)
 	testutil.CheckTransferPeer(c, rc.Check(region), operator.OpReplica, 3, 5)
 	// Store 5 has too many snapshots, choose store 4
 	tc.UpdateSnapshotCount(5, 10)
@@ -782,134 +771,23 @@ func (s *testReplicaCheckerSuite) TestOffline(c *C) {
 	c.Assert(rc.Check(region), IsNil)
 }
 
-func (s *testReplicaCheckerSuite) TestDistinctScore(c *C) {
-	opt := mockoption.NewScheduleOptions()
-	tc := mockcluster.NewCluster(opt)
-
-	newTestReplication(opt, 3, "zone", "rack", "host")
-
-	rc := checker.NewReplicaChecker(tc)
-
-	tc.AddLabelsStore(1, 9, map[string]string{"zone": "z1", "rack": "r1", "host": "h1"})
-	tc.AddLabelsStore(2, 8, map[string]string{"zone": "z1", "rack": "r1", "host": "h1"})
-
-	// We need 3 replicas.
-	tc.AddLeaderRegion(1, 1)
-	region := tc.GetRegion(1)
-	testutil.CheckAddPeer(c, rc.Check(region), operator.OpReplica, 2)
-	peer2, _ := tc.AllocPeer(2)
-	region = region.Clone(core.WithAddPeer(peer2))
-
-	// Store 1,2,3 have the same zone, rack, and host.
-	tc.AddLabelsStore(3, 5, map[string]string{"zone": "z1", "rack": "r1", "host": "h1"})
-	testutil.CheckAddPeer(c, rc.Check(region), operator.OpReplica, 3)
-
-	// Store 4 has smaller region score.
-	tc.AddLabelsStore(4, 4, map[string]string{"zone": "z1", "rack": "r1", "host": "h1"})
-	testutil.CheckAddPeer(c, rc.Check(region), operator.OpReplica, 4)
-
-	// Store 5 has a different host.
-	tc.AddLabelsStore(5, 5, map[string]string{"zone": "z1", "rack": "r1", "host": "h2"})
-	testutil.CheckAddPeer(c, rc.Check(region), operator.OpReplica, 5)
-
-	// Store 6 has a different rack.
-	tc.AddLabelsStore(6, 6, map[string]string{"zone": "z1", "rack": "r2", "host": "h1"})
-	testutil.CheckAddPeer(c, rc.Check(region), operator.OpReplica, 6)
-
-	// Store 7 has a different zone.
-	tc.AddLabelsStore(7, 7, map[string]string{"zone": "z2", "rack": "r1", "host": "h1"})
-	testutil.CheckAddPeer(c, rc.Check(region), operator.OpReplica, 7)
-
-	// Test stateFilter.
-	tc.SetStoreOffline(7)
-	testutil.CheckAddPeer(c, rc.Check(region), operator.OpReplica, 6)
-	tc.SetStoreUp(7)
-	testutil.CheckAddPeer(c, rc.Check(region), operator.OpReplica, 7)
-
-	// Add peer to store 7.
-	peer7, _ := tc.AllocPeer(7)
-	region = region.Clone(core.WithAddPeer(peer7))
-
-	// Replace peer in store 1 with store 6 because it has a different rack.
-	testutil.CheckTransferPeer(c, rc.Check(region), operator.OpReplica, 1, 6)
-	// Disable locationReplacement feature.
-	opt.EnableLocationReplacement = false
-	c.Assert(rc.Check(region), IsNil)
-	opt.EnableLocationReplacement = true
-	peer6, _ := tc.AllocPeer(6)
-	region = region.Clone(core.WithAddPeer(peer6))
-	testutil.CheckRemovePeer(c, rc.Check(region), 1)
-	region = region.Clone(core.WithRemoveStorePeer(1))
-	c.Assert(rc.Check(region), IsNil)
-
-	// Store 8 has the same zone and different rack with store 7.
-	// Store 1 has the same zone and different rack with store 6.
-	// So store 8 and store 1 are equivalent.
-	tc.AddLabelsStore(8, 1, map[string]string{"zone": "z2", "rack": "r2", "host": "h1"})
-	c.Assert(rc.Check(region), IsNil)
-
-	// Store 10 has a different zone.
-	// Store 2 and 6 have the same distinct score, but store 2 has larger region score.
-	// So replace peer in store 2 with store 10.
-	tc.AddLabelsStore(10, 1, map[string]string{"zone": "z3", "rack": "r1", "host": "h1"})
-	testutil.CheckTransferPeer(c, rc.Check(region), operator.OpReplica, 2, 10)
-	peer10, _ := tc.AllocPeer(10)
-	region = region.Clone(core.WithAddPeer(peer10))
-	testutil.CheckRemovePeer(c, rc.Check(region), 2)
-	region = region.Clone(core.WithRemoveStorePeer(2))
-	c.Assert(rc.Check(region), IsNil)
-}
-
-func (s *testReplicaCheckerSuite) TestDistinctScore2(c *C) {
-	opt := mockoption.NewScheduleOptions()
-	tc := mockcluster.NewCluster(opt)
-
-	newTestReplication(opt, 5, "zone", "host")
-
-	rc := checker.NewReplicaChecker(tc)
-
-	tc.AddLabelsStore(1, 1, map[string]string{"zone": "z1", "host": "h1"})
-	tc.AddLabelsStore(2, 1, map[string]string{"zone": "z1", "host": "h2"})
-	tc.AddLabelsStore(3, 1, map[string]string{"zone": "z1", "host": "h3"})
-	tc.AddLabelsStore(4, 1, map[string]string{"zone": "z2", "host": "h1"})
-	tc.AddLabelsStore(5, 1, map[string]string{"zone": "z2", "host": "h2"})
-	tc.AddLabelsStore(6, 1, map[string]string{"zone": "z3", "host": "h1"})
-
-	tc.AddLeaderRegion(1, 1, 2, 4)
-	region := tc.GetRegion(1)
-
-	testutil.CheckAddPeer(c, rc.Check(region), operator.OpReplica, 6)
-	peer6, _ := tc.AllocPeer(6)
-	region = region.Clone(core.WithAddPeer(peer6))
-
-	testutil.CheckAddPeer(c, rc.Check(region), operator.OpReplica, 5)
-	peer5, _ := tc.AllocPeer(5)
-	region = region.Clone(core.WithAddPeer(peer5))
-
-	c.Assert(rc.Check(region), IsNil)
-}
-
 func (s *testReplicaCheckerSuite) TestStorageThreshold(c *C) {
 	opt := mockoption.NewScheduleOptions()
-	opt.LocationLabels = []string{"zone"}
 	tc := mockcluster.NewCluster(opt)
 	rc := checker.NewReplicaChecker(tc)
 
-	tc.AddLabelsStore(1, 1, map[string]string{"zone": "z1"})
+	tc.AddRegionStore(1, 1)
 	tc.UpdateStorageRatio(1, 0.5, 0.5)
 	tc.UpdateStoreRegionSize(1, 500*1024*1024)
-	tc.AddLabelsStore(2, 1, map[string]string{"zone": "z1"})
+	tc.AddRegionStore(2, 1)
 	tc.UpdateStorageRatio(2, 0.1, 0.9)
 	tc.UpdateStoreRegionSize(2, 100*1024*1024)
-	tc.AddLabelsStore(3, 1, map[string]string{"zone": "z2"})
-	tc.AddLabelsStore(4, 0, map[string]string{"zone": "z3"})
+	tc.AddRegionStore(3, 1)
+	tc.AddRegionStore(4, 0)
 
 	tc.AddLeaderRegion(1, 1, 2, 3)
 	region := tc.GetRegion(1)
 
-	// Move peer to better location.
-	tc.UpdateStorageRatio(4, 0, 1)
-	testutil.CheckTransferPeer(c, rc.Check(region), operator.OpReplica, 1, 4)
 	// If store4 is almost full, do not add peer on it.
 	tc.UpdateStorageRatio(4, 0.9, 0.1)
 	c.Assert(rc.Check(region), IsNil)

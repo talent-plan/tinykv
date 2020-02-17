@@ -631,19 +631,6 @@ func (c *RaftCluster) GetAdjacentRegions(region *core.RegionInfo) (*core.RegionI
 	return c.core.GetAdjacentRegions(region)
 }
 
-// UpdateStoreLabels updates a store's location labels.
-func (c *RaftCluster) UpdateStoreLabels(storeID uint64, labels []*metapb.StoreLabel) error {
-	store := c.GetStore(storeID)
-	if store == nil {
-		return errors.Errorf("invalid store ID %d, not found", storeID)
-	}
-	newStore := proto.Clone(store.GetMeta()).(*metapb.Store)
-	newStore.Labels = labels
-	// putStore will perform label merge.
-	err := c.putStore(newStore)
-	return err
-}
-
 func (c *RaftCluster) putStore(store *metapb.Store) error {
 	c.Lock()
 	defer c.Unlock()
@@ -678,37 +665,10 @@ func (c *RaftCluster) putStore(store *metapb.Store) error {
 		s = core.NewStoreInfo(store)
 	} else {
 		// Update an existed store.
-		labels := s.MergeLabels(store.GetLabels())
-
 		s = s.Clone(
 			core.SetStoreAddress(store.Address, store.StatusAddress, store.PeerAddress),
 			core.SetStoreVersion(store.GitHash, store.Version),
-			core.SetStoreLabels(labels),
 		)
-	}
-	// Check location labels.
-	keysSet := make(map[string]struct{})
-	for _, k := range c.GetLocationLabels() {
-		keysSet[k] = struct{}{}
-		if v := s.GetLabelValue(k); len(v) == 0 {
-			log.Warn("label configuration is incorrect",
-				zap.Stringer("store", s.GetMeta()),
-				zap.String("label-key", k))
-			if c.GetStrictlyMatchLabel() {
-				return errors.Errorf("label configuration is incorrect, need to specify the key: %s ", k)
-			}
-		}
-	}
-	for _, label := range s.GetLabels() {
-		key := label.GetKey()
-		if _, ok := keysSet[key]; !ok {
-			log.Warn("not found the key match with the store label",
-				zap.Stringer("store", s.GetMeta()),
-				zap.String("label-key", key))
-			if c.GetStrictlyMatchLabel() {
-				return errors.Errorf("key matching the label was not found in the PD, store label key: %s ", key)
-			}
-		}
 	}
 	return c.putStoreLocked(s)
 }
@@ -1115,21 +1075,6 @@ func (c *RaftCluster) GetMaxReplicas() int {
 	return c.opt.GetMaxReplicas()
 }
 
-// GetLocationLabels returns the location labels for each region
-func (c *RaftCluster) GetLocationLabels() []string {
-	return c.opt.GetLocationLabels()
-}
-
-// GetStrictlyMatchLabel returns if the strictly label check is enabled.
-func (c *RaftCluster) GetStrictlyMatchLabel() bool {
-	return c.opt.GetReplication().GetStrictlyMatchLabel()
-}
-
-// IsPlacementRulesEnabled returns if the placement rules feature is enabled.
-func (c *RaftCluster) IsPlacementRulesEnabled() bool {
-	return c.opt.IsPlacementRulesEnabled()
-}
-
 // IsRemoveDownReplicaEnabled returns if remove down replica is enabled.
 func (c *RaftCluster) IsRemoveDownReplicaEnabled() bool {
 	return c.opt.IsRemoveDownReplicaEnabled()
@@ -1158,11 +1103,6 @@ func (c *RaftCluster) IsMakeUpReplicaEnabled() bool {
 // IsRemoveExtraReplicaEnabled returns if remove extra replica is enabled.
 func (c *RaftCluster) IsRemoveExtraReplicaEnabled() bool {
 	return c.opt.IsRemoveExtraReplicaEnabled()
-}
-
-// IsLocationReplacementEnabled returns if location replace is enabled.
-func (c *RaftCluster) IsLocationReplacementEnabled() bool {
-	return c.opt.IsLocationReplacementEnabled()
 }
 
 // isPrepared if the cluster information is collected

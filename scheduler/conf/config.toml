@@ -82,16 +82,3 @@ merge-schedule-limit = 8
 [replication]
 ## The number of replicas for each region.
 max-replicas = 3
-## The label keys specified the location of a store.
-## The placement priorities is implied by the order of label keys.
-## For example, ["zone", "rack"] means that we should place replicas to
-## different zones first, then to different racks if we don't have enough zones.
-location-labels = []
-## Strictly checks if the label of TiKV is matched with location labels.
-# strictly-match-label = false
-
-[label-property]
-## Do not assign region leaders to stores that have these tags.
-# [[label-property.reject-leader]]
-# key = "zone"
-# value = "cn1

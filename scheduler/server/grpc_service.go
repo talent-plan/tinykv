@@ -17,7 +17,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -355,12 +354,10 @@ func (s *Server) RegionHeartbeat(stream pdpb.PD_RegionHeartbeatServer) error {
 		}
 
 		storeID := request.GetLeader().GetStoreId()
-		storeLabel := strconv.FormatUint(storeID, 10)
 		store := cluster.GetStore(storeID)
 		if store == nil {
 			return errors.Errorf("invalid store ID %d, not found", storeID)
 		}
-		storeAddress := store.GetAddress()
 
 		hbStreams := cluster.GetHeartbeatStreams()
 
@@ -376,14 +373,14 @@ func (s *Server) RegionHeartbeat(stream pdpb.PD_RegionHeartbeatServer) error {
 		}
 		if region.GetID() == 0 {
 			msg := fmt.Sprintf("invalid request region, %v", request)
-			hbStreams.sendErr(pdpb.ErrorType_UNKNOWN, msg, request.GetLeader(), storeAddress, storeLabel)
+			hbStreams.sendErr(pdpb.ErrorType_UNKNOWN, msg, request.GetLeader())
 			continue
 		}
 
 		err = cluster.HandleRegionHeartbeat(region)
 		if err != nil {
 			msg := err.Error()
-			hbStreams.sendErr(pdpb.ErrorType_UNKNOWN, msg, request.GetLeader(), storeAddress, storeLabel)
+			hbStreams.sendErr(pdpb.ErrorType_UNKNOWN, msg, request.GetLeader())
 		}
 	}
 }

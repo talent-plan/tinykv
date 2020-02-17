@@ -134,19 +134,16 @@ func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) []*operator.Opera
 
 // transferPeer selects the best store to create a new peer to replace the old peer.
 func (s *balanceRegionScheduler) transferPeer(cluster opt.Cluster, region *core.RegionInfo, oldPeer *metapb.Peer) *operator.Operator {
-	// scoreGuard guarantees that the distinct score will not decrease.
-	stores := cluster.GetRegionStores(region)
 	sourceStoreID := oldPeer.GetStoreId()
 	source := cluster.GetStore(sourceStoreID)
 	if source == nil {
 		log.Error("failed to get the source store", zap.Uint64("store-id", sourceStoreID))
 	}
-	scoreGuard := filter.NewDistinctScoreFilter(s.GetName(), cluster.GetLocationLabels(), stores, source)
 	checker := checker.NewReplicaChecker(cluster, s.GetName())
 	exclude := make(map[uint64]struct{})
 	excludeFilter := filter.NewExcludedFilter(s.name, nil, exclude)
 	for {
-		storeID, _ := checker.SelectBestReplacementStore(region, oldPeer, scoreGuard, excludeFilter)
+		storeID := checker.SelectBestReplacementStore(region, oldPeer, excludeFilter)
 		if storeID == 0 {
 			return nil
 		}

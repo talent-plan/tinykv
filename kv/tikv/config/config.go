@@ -97,7 +97,6 @@ type Config struct {
 
 	Addr          string
 	AdvertiseAddr string
-	Labels        []StoreLabel
 
 	SplitCheck *SplitCheckConfig
 }
@@ -108,10 +107,6 @@ type SplitCheckConfig struct {
 	// [b,c), [c,d) will be regionSplitSize (maybe a little larger).
 	RegionMaxSize   uint64
 	RegionSplitSize uint64
-}
-
-type StoreLabel struct {
-	LabelKey, LabelValue string
 }
 
 func NewDefaultConfig() *Config {

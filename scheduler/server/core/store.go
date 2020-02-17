@@ -16,7 +16,6 @@ package core
 import (
 	"fmt"
 	"math"
-	"strings"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
@@ -133,11 +132,6 @@ func (s *StoreInfo) GetAddress() string {
 // GetVersion returns the version of the store.
 func (s *StoreInfo) GetVersion() string {
 	return s.meta.GetVersion()
-}
-
-// GetLabels returns the labels of the store.
-func (s *StoreInfo) GetLabels() []*metapb.StoreLabel {
-	return s.meta.GetLabels()
 }
 
 // GetID returns the ID of the store.
@@ -397,64 +391,6 @@ func (s *StoreInfo) IsDisconnected() bool {
 // IsUnhealth checks if a store is unhealth.
 func (s *StoreInfo) IsUnhealth() bool {
 	return s.DownTime() > storeUnhealthDuration
-}
-
-// GetLabelValue returns a label's value (if exists).
-func (s *StoreInfo) GetLabelValue(key string) string {
-	for _, label := range s.GetLabels() {
-		if strings.EqualFold(label.GetKey(), key) {
-			return label.GetValue()
-		}
-	}
-	return ""
-}
-
-// CompareLocation compares 2 stores' labels and returns at which level their
-// locations are different. It returns -1 if they are at the same location.
-func (s *StoreInfo) CompareLocation(other *StoreInfo, labels []string) int {
-	for i, key := range labels {
-		v1, v2 := s.GetLabelValue(key), other.GetLabelValue(key)
-		// If label is not set, the store is considered at the same location
-		// with any other store.
-		if v1 != "" && v2 != "" && !strings.EqualFold(v1, v2) {
-			return i
-		}
-	}
-	return -1
-}
-
-const replicaBaseScore = 100
-
-// DistinctScore returns the score that the other is distinct from the stores.
-// A higher score means the other store is more different from the existed stores.
-func DistinctScore(labels []string, stores []*StoreInfo, other *StoreInfo) float64 {
-	var score float64
-	for _, s := range stores {
-		if s.GetID() == other.GetID() {
-			continue
-		}
-		if index := s.CompareLocation(other, labels); index != -1 {
-			score += math.Pow(replicaBaseScore, float64(len(labels)-index-1))
-		}
-	}
-	return score
-}
-
-// MergeLabels merges the passed in labels with origins, overriding duplicated
-// ones.
-func (s *StoreInfo) MergeLabels(labels []*metapb.StoreLabel) []*metapb.StoreLabel {
-	storeLabels := s.GetLabels()
-L:
-	for _, newLabel := range labels {
-		for _, label := range storeLabels {
-			if strings.EqualFold(label.Key, newLabel.Key) {
-				label.Value = newLabel.Value
-				continue L
-			}
-		}
-		storeLabels = append(storeLabels, newLabel)
-	}
-	return storeLabels
 }
 
 type storeNotFoundErr struct {
