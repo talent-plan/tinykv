@@ -395,10 +395,6 @@ func (r *Raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 		}
 		m.Entries = entries
 		m.Commit = r.RaftLog.committed
-		if n := len(m.Entries); n != 0 {
-			last := m.Entries[n-1].Index
-			pr.optimisticUpdate(last)
-		}
 	}
 	r.send(m)
 	return true
