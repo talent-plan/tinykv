@@ -1025,16 +1025,6 @@ func (c *RaftCluster) GetSchedulerMaxWaitingOperator() uint64 {
 	return c.opt.GetSchedulerMaxWaitingOperator()
 }
 
-// GetMaxSnapshotCount returns the number of the max snapshot which is allowed to send.
-func (c *RaftCluster) GetMaxSnapshotCount() uint64 {
-	return c.opt.GetMaxSnapshotCount()
-}
-
-// GetMaxPendingPeerCount returns the number of the max pending peers.
-func (c *RaftCluster) GetMaxPendingPeerCount() uint64 {
-	return c.opt.GetMaxPendingPeerCount()
-}
-
 // GetMaxMergeRegionSize returns the max region size.
 func (c *RaftCluster) GetMaxMergeRegionSize() uint64 {
 	return c.opt.GetMaxMergeRegionSize()

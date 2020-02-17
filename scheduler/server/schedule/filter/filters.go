@@ -161,67 +161,6 @@ func (f *healthFilter) Target(opt opt.Options, store *core.StoreInfo) bool {
 	return f.filter(opt, store)
 }
 
-type pendingPeerCountFilter struct{ scope string }
-
-// NewPendingPeerCountFilter creates a Filter that filters all stores that are
-// currently handling too many pending peers.
-func NewPendingPeerCountFilter(scope string) Filter {
-	return &pendingPeerCountFilter{scope: scope}
-}
-
-func (p *pendingPeerCountFilter) Scope() string {
-	return p.scope
-}
-
-func (p *pendingPeerCountFilter) Type() string {
-	return "pending-peer-filter"
-}
-
-func (p *pendingPeerCountFilter) filter(opt opt.Options, store *core.StoreInfo) bool {
-	if opt.GetMaxPendingPeerCount() == 0 {
-		return false
-	}
-	return store.GetPendingPeerCount() > int(opt.GetMaxPendingPeerCount())
-}
-
-func (p *pendingPeerCountFilter) Source(opt opt.Options, store *core.StoreInfo) bool {
-	return p.filter(opt, store)
-}
-
-func (p *pendingPeerCountFilter) Target(opt opt.Options, store *core.StoreInfo) bool {
-	return p.filter(opt, store)
-}
-
-type snapshotCountFilter struct{ scope string }
-
-// NewSnapshotCountFilter creates a Filter that filters all stores that are
-// currently handling too many snapshots.
-func NewSnapshotCountFilter(scope string) Filter {
-	return &snapshotCountFilter{scope: scope}
-}
-
-func (f *snapshotCountFilter) Scope() string {
-	return f.scope
-}
-
-func (f *snapshotCountFilter) Type() string {
-	return "snapshot-filter"
-}
-
-func (f *snapshotCountFilter) filter(opt opt.Options, store *core.StoreInfo) bool {
-	return uint64(store.GetSendingSnapCount()) > opt.GetMaxSnapshotCount() ||
-		uint64(store.GetReceivingSnapCount()) > opt.GetMaxSnapshotCount() ||
-		uint64(store.GetApplyingSnapCount()) > opt.GetMaxSnapshotCount()
-}
-
-func (f *snapshotCountFilter) Source(opt opt.Options, store *core.StoreInfo) bool {
-	return f.filter(opt, store)
-}
-
-func (f *snapshotCountFilter) Target(opt opt.Options, store *core.StoreInfo) bool {
-	return f.filter(opt, store)
-}
-
 type storageThresholdFilter struct{ scope string }
 
 // NewStorageThresholdFilter creates a Filter that filters all stores that are
@@ -299,11 +238,6 @@ func (f StoreStateFilter) Target(opts opt.Options, store *core.StoreInfo) bool {
 	}
 
 	if f.MoveRegion {
-		// only target consider the pending peers because pending more means the disk is slower.
-		if opts.GetMaxPendingPeerCount() > 0 && store.GetPendingPeerCount() > int(opts.GetMaxPendingPeerCount()) {
-			return true
-		}
-
 		if f.filterMoveRegion(opts, store) {
 			return true
 		}
@@ -320,10 +254,5 @@ func (f StoreStateFilter) filterMoveRegion(opt opt.Options, store *core.StoreInf
 		return true
 	}
 
-	if uint64(store.GetSendingSnapCount()) > opt.GetMaxSnapshotCount() ||
-		uint64(store.GetReceivingSnapCount()) > opt.GetMaxSnapshotCount() ||
-		uint64(store.GetApplyingSnapCount()) > opt.GetMaxSnapshotCount() {
-		return true
-	}
 	return false
 }

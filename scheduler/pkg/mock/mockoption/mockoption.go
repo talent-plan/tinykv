@@ -126,16 +126,6 @@ func (mso *ScheduleOptions) GetStoreBalanceRate() float64 {
 	return mso.StoreBalanceRate
 }
 
-// GetMaxSnapshotCount mocks method
-func (mso *ScheduleOptions) GetMaxSnapshotCount() uint64 {
-	return mso.MaxSnapshotCount
-}
-
-// GetMaxPendingPeerCount mocks method
-func (mso *ScheduleOptions) GetMaxPendingPeerCount() uint64 {
-	return mso.MaxPendingPeerCount
-}
-
 // GetMaxMergeRegionSize mocks method
 func (mso *ScheduleOptions) GetMaxMergeRegionSize() uint64 {
 	return mso.MaxMergeRegionSize

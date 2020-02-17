@@ -30,8 +30,6 @@ type Options interface {
 	// store limit
 	GetStoreBalanceRate() float64
 
-	GetMaxSnapshotCount() uint64
-	GetMaxPendingPeerCount() uint64
 	GetMaxStoreDownTime() time.Duration
 	GetMaxMergeRegionSize() uint64
 	GetMaxMergeRegionKeys() uint64

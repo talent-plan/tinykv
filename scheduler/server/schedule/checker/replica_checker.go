@@ -52,8 +52,6 @@ func NewReplicaChecker(cluster opt.Cluster, n ...string) *ReplicaChecker {
 	}
 	filters := []filter.Filter{
 		filter.NewHealthFilter(name),
-		filter.NewSnapshotCountFilter(name),
-		filter.NewPendingPeerCountFilter(name),
 	}
 
 	return &ReplicaChecker{

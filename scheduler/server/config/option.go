@@ -75,16 +75,6 @@ func (o *ScheduleOption) SetMaxReplicas(replicas int) {
 	o.replication.SetMaxReplicas(replicas)
 }
 
-// GetMaxSnapshotCount returns the number of the max snapshot which is allowed to send.
-func (o *ScheduleOption) GetMaxSnapshotCount() uint64 {
-	return o.Load().MaxSnapshotCount
-}
-
-// GetMaxPendingPeerCount returns the number of the max pending peers.
-func (o *ScheduleOption) GetMaxPendingPeerCount() uint64 {
-	return o.Load().MaxPendingPeerCount
-}
-
 // GetMaxMergeRegionSize returns the max region size.
 func (o *ScheduleOption) GetMaxMergeRegionSize() uint64 {
 	return o.Load().MaxMergeRegionSize

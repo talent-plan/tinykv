@@ -654,14 +654,6 @@ func (s *testReplicaCheckerSuite) TestBasic(c *C) {
 	tc.SetStoreUp(4)
 	testutil.CheckAddPeer(c, rc.Check(region), operator.OpReplica, 4)
 
-	// Test snapshotCountFilter.
-	// If snapshotCount > MaxSnapshotCount, we add to store 3.
-	tc.UpdateSnapshotCount(4, 3)
-	testutil.CheckAddPeer(c, rc.Check(region), operator.OpReplica, 3)
-	// If snapshotCount < MaxSnapshotCount, we can add peer again.
-	tc.UpdateSnapshotCount(4, 1)
-	testutil.CheckAddPeer(c, rc.Check(region), operator.OpReplica, 4)
-
 	// Add peer in store 4, and we have enough replicas.
 	peer4, _ := tc.AllocPeer(4)
 	region = region.Clone(core.WithAddPeer(peer4))
@@ -764,11 +756,6 @@ func (s *testReplicaCheckerSuite) TestOffline(c *C) {
 	// Store 5 has smaller region score than store 4, we will choose store 5.
 	tc.AddRegionStore(5, 3)
 	testutil.CheckTransferPeer(c, rc.Check(region), operator.OpReplica, 3, 5)
-	// Store 5 has too many snapshots, choose store 4
-	tc.UpdateSnapshotCount(5, 10)
-	testutil.CheckTransferPeer(c, rc.Check(region), operator.OpReplica, 3, 4)
-	tc.UpdatePendingPeerCount(4, 30)
-	c.Assert(rc.Check(region), IsNil)
 }
 
 func (s *testReplicaCheckerSuite) TestStorageThreshold(c *C) {

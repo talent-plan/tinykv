@@ -422,10 +422,6 @@ func (c *Config) configFromFile(path string) (*toml.MetaData, error) {
 
 // ScheduleConfig is the schedule configuration.
 type ScheduleConfig struct {
-	// If the snapshot count of one store is greater than this value,
-	// it will never be used as a source or target store.
-	MaxSnapshotCount    uint64 `toml:"max-snapshot-count,omitempty" json:"max-snapshot-count"`
-	MaxPendingPeerCount uint64 `toml:"max-pending-peer-count,omitempty" json:"max-pending-peer-count"`
 	// If both the size of region is smaller than MaxMergeRegionSize
 	// and the number of rows in region is smaller than MaxMergeRegionKeys,
 	// it will try to merge with adjacent regions.
@@ -517,8 +513,6 @@ func (c *ScheduleConfig) Clone() *ScheduleConfig {
 	schedulers := make(SchedulerConfigs, len(c.Schedulers))
 	copy(schedulers, c.Schedulers)
 	return &ScheduleConfig{
-		MaxSnapshotCount:             c.MaxSnapshotCount,
-		MaxPendingPeerCount:          c.MaxPendingPeerCount,
 		MaxMergeRegionSize:           c.MaxMergeRegionSize,
 		MaxMergeRegionKeys:           c.MaxMergeRegionKeys,
 		SplitMergeInterval:           c.SplitMergeInterval,
@@ -553,8 +547,6 @@ func (c *ScheduleConfig) Clone() *ScheduleConfig {
 
 const (
 	defaultMaxReplicas                 = 3
-	defaultMaxSnapshotCount            = 3
-	defaultMaxPendingPeerCount         = 16
 	defaultMaxMergeRegionSize          = 20
 	defaultMaxMergeRegionKeys          = 200000
 	defaultSplitMergeInterval          = 1 * time.Hour
@@ -573,12 +565,6 @@ const (
 )
 
 func (c *ScheduleConfig) adjust(meta *configMetaData) error {
-	if !meta.IsDefined("max-snapshot-count") {
-		adjustUint64(&c.MaxSnapshotCount, defaultMaxSnapshotCount)
-	}
-	if !meta.IsDefined("max-pending-peer-count") {
-		adjustUint64(&c.MaxPendingPeerCount, defaultMaxPendingPeerCount)
-	}
 	if !meta.IsDefined("max-merge-region-size") {
 		adjustUint64(&c.MaxMergeRegionSize, defaultMaxMergeRegionSize)
 	}
