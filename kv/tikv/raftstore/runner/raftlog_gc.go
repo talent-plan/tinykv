@@ -3,9 +3,9 @@ package runner
 import (
 	"github.com/coocood/badger"
 	"github.com/ngaut/log"
-	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 )
 
 type RaftLogGCTask struct {

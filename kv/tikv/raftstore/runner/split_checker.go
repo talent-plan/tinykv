@@ -5,13 +5,13 @@ import (
 
 	"github.com/coocood/badger"
 	"github.com/ngaut/log"
-	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
+	"github.com/pingcap-incubator/tinykv/kv/util/codec"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap/tidb/util/codec"
 )
 
 type SplitCheckTask struct {
@@ -21,7 +21,6 @@ type SplitCheckTask struct {
 type splitCheckHandler struct {
 	engine  *badger.DB
 	router  message.RaftRouter
-	config  *config.SplitCheckConfig
 	checker *sizeSplitChecker
 }
 
@@ -29,8 +28,7 @@ func NewSplitCheckHandler(engine *badger.DB, router message.RaftRouter, config *
 	runner := &splitCheckHandler{
 		engine:  engine,
 		router:  router,
-		config:  config,
-		checker: newSizeSplitChecker(config.RegionMaxSize, config.RegionSplitSize, config.BatchSplitLimit),
+		checker: newSizeSplitChecker(config.RegionMaxSize, config.RegionSplitSize),
 	}
 	return runner
 }
@@ -40,33 +38,25 @@ func (r *splitCheckHandler) Handle(t worker.Task) {
 	spCheckTask := t.Data.(*SplitCheckTask)
 	region := spCheckTask.Region
 	regionId := region.Id
-	_, startKey, err := codec.DecodeBytes(region.StartKey, nil)
-	if err != nil {
-		log.Errorf("failed to decode region key %x, err:%v", region.StartKey, err)
-		return
-	}
-	_, endKey, err := codec.DecodeBytes(region.EndKey, nil)
-	if err != nil {
-		log.Errorf("failed to decode region key %x, err:%v", region.EndKey, err)
-		return
-	}
 	log.Debugf("executing split check worker.Task: [regionId: %d, startKey: %s, endKey: %s]", regionId,
-		hex.EncodeToString(startKey), hex.EncodeToString(endKey))
-	keys := r.splitCheck(startKey, endKey)
-	if len(keys) != 0 {
-		regionEpoch := region.GetRegionEpoch()
-		for i, k := range keys {
-			keys[i] = codec.EncodeBytes(nil, k)
+		hex.EncodeToString(region.StartKey), hex.EncodeToString(region.EndKey))
+	key := r.splitCheck(region.StartKey, region.EndKey)
+	if key != nil {
+		_, userKey, err := codec.DecodeBytes(key)
+		if err == nil {
+			// It's not a raw key.
+			// To make sure the keys of same user key locate in one Region, decode and then encode to truncate the timestamp
+			key = codec.EncodeBytes(userKey)
 		}
 		msg := message.Msg{
 			Type:     message.MsgTypeSplitRegion,
 			RegionID: regionId,
 			Data: &message.MsgSplitRegion{
-				RegionEpoch: regionEpoch,
-				SplitKeys:   keys,
+				RegionEpoch: region.GetRegionEpoch(),
+				SplitKeys:   [][]byte{key},
 			},
 		}
-		err := r.router.Send(regionId, msg)
+		err = r.router.Send(regionId, msg)
 		if err != nil {
 			log.Warnf("failed to send check result: [regionId: %d, err: %v]", regionId, err)
 		}
@@ -76,7 +66,7 @@ func (r *splitCheckHandler) Handle(t worker.Task) {
 }
 
 /// SplitCheck gets the split keys by scanning the range.
-func (r *splitCheckHandler) splitCheck(startKey, endKey []byte) [][]byte {
+func (r *splitCheckHandler) splitCheck(startKey, endKey []byte) []byte {
 	txn := r.engine.NewTransaction(false)
 	defer txn.Discard()
 
@@ -92,26 +82,20 @@ func (r *splitCheckHandler) splitCheck(startKey, endKey []byte) [][]byte {
 			break
 		}
 	}
-	keys := r.checker.getSplitKeys()
-	if len(keys) > 0 {
-		return keys
-	}
-	return nil
+	return r.checker.getSplitKey()
 }
 
 type sizeSplitChecker struct {
-	maxSize         uint64
-	splitSize       uint64
-	currentSize     uint64
-	splitKeys       [][]byte
-	batchSplitLimit uint64
+	maxSize     uint64
+	splitSize   uint64
+	currentSize uint64
+	splitKey    []byte
 }
 
-func newSizeSplitChecker(maxSize, splitSize, batchSplitLimit uint64) *sizeSplitChecker {
+func newSizeSplitChecker(maxSize, splitSize uint64) *sizeSplitChecker {
 	return &sizeSplitChecker{
-		maxSize:         maxSize,
-		splitSize:       splitSize,
-		batchSplitLimit: batchSplitLimit,
+		maxSize:   maxSize,
+		splitSize: splitSize,
 	}
 }
 
@@ -119,33 +103,18 @@ func (checker *sizeSplitChecker) onKv(key []byte, item engine_util.DBItem) bool 
 	valueSize := uint64(item.ValueSize())
 	size := uint64(len(key)) + valueSize
 	checker.currentSize += size
-	overLimit := uint64(len(checker.splitKeys)) >= checker.batchSplitLimit
-	if checker.currentSize > checker.splitSize && !overLimit {
-		checker.splitKeys = append(checker.splitKeys, util.SafeCopy(key))
-		// If for previous onKv(), checker.current_size == checker.split_size,
-		// the split key would be pushed this time, but the entry size for this time should not be ignored.
-		if checker.currentSize-size == checker.splitSize {
-			checker.currentSize = size
-		} else {
-			checker.currentSize = 0
-		}
-		overLimit = uint64(len(checker.splitKeys)) >= checker.batchSplitLimit
+	if checker.currentSize > checker.splitSize && checker.splitKey == nil {
+		checker.splitKey = util.SafeCopy(key)
 	}
-	// For a large region, scan over the range maybe cost too much time,
-	// so limit the number of produced splitKeys for one batch.
-	// Also need to scan over checker.maxSize for last part.
-	return overLimit && checker.currentSize+checker.splitSize >= checker.maxSize
+	return checker.currentSize > checker.maxSize
 }
 
-func (checker *sizeSplitChecker) getSplitKeys() [][]byte {
+func (checker *sizeSplitChecker) getSplitKey() []byte {
 	// Make sure not to split when less than maxSize for last part
-	if checker.currentSize+checker.splitSize < checker.maxSize {
-		splitKeyLen := len(checker.splitKeys)
-		if splitKeyLen != 0 {
-			checker.splitKeys = checker.splitKeys[:splitKeyLen-1]
-		}
+	if checker.currentSize < checker.maxSize {
+		checker.splitKey = nil
 	}
-	keys := checker.splitKeys
-	checker.splitKeys = nil
-	return keys
+	key := checker.splitKey
+	checker.splitKey = nil
+	return key
 }

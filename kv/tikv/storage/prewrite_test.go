@@ -1,14 +1,15 @@
 package storage
 
 import (
-	"github.com/pingcap-incubator/tinykv/kv/engine_util"
+	"testing"
+
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/commands"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/exec"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 // TestEmptyPrewrite tests that a Prewrite with no mutations succeeds and changes nothing.
@@ -162,7 +163,6 @@ func TestPrewriteMultiple(t *testing.T) {
 	assert.Nil(t, resp.RegionError)
 	assert.Equal(t, mem.Len(engine_util.CfDefault), 4)
 	assert.Equal(t, mem.Len(engine_util.CfLock), 4)
-
 	assert.Equal(t, []byte{1, 3, 5}, mem.Get(engine_util.CfDefault, kvstore.EncodeKey([]byte{4}, 100)))
 }
 

@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 
-	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
@@ -127,6 +127,7 @@ func (b *EntryBuilder) schedule(applyCh chan<- *applyBatch, peerID, regionID uin
 
 func TestHandleRaftCommittedEntries(t *testing.T) {
 	engines := util.NewTestEngines()
+	defer engines.Destroy()
 
 	cfg := config.NewDefaultConfig()
 	router, _ := CreateRaftBatchSystem(cfg)

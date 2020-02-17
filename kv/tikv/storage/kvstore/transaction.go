@@ -3,9 +3,11 @@ package kvstore
 import (
 	"bytes"
 	"encoding/binary"
-	"github.com/pingcap-incubator/tinykv/kv/engine_util"
+
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
+	"github.com/pingcap-incubator/tinykv/kv/util/codec"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 )
 
 // MvccTxn represents an mvcc transaction (see tikv/storage/doc.go for a definition). It permits reading from a snapshot
@@ -181,43 +183,26 @@ func (txn *MvccTxn) PutValue(key []byte, value []byte) {
 // timestamped keys are sorted first by key (ascending), then by timestamp (descending). The encoding is based on
 // https://github.com/facebook/mysql-5.6/wiki/MyRocks-record-format#memcomparable-format.
 func EncodeKey(key []byte, ts uint64) []byte {
-	newLen := (len(key)/8+1)*9 + 8
-	newKey := make([]byte, 0, newLen)
-
-	for i := 0; i <= len(key); i += 8 {
-		remaining := len(key) - i
-		var padCount byte
-		if remaining >= 8 {
-			padCount = 0
-			newKey = append(newKey, key[i:i+8]...)
-		} else {
-			padCount = 8 - byte(remaining)
-			newKey = append(newKey, key[i:]...)
-			newKey = append(newKey, make([]byte, padCount)...)
-		}
-
-		newKey = append(newKey, 0xff-padCount)
-	}
-
-	// Append the timestamp, Note we invert the timestamp so that when sorted, they are in descending order.
-	newKey = append(newKey, make([]byte, 8)...)
-	binary.BigEndian.PutUint64(newKey[newLen-8:], ^ts)
+	encodedKey := codec.EncodeBytes(key)
+	newKey := append(encodedKey, make([]byte, 8)...)
+	binary.BigEndian.PutUint64(newKey[len(encodedKey):], ^ts)
 	return newKey
 }
 
 // DecodeUserKey takes a key + timestamp and returns the key part.
 func DecodeUserKey(key []byte) []byte {
-	keyLen := len(key) - 8
-	result := make([]byte, 0, (keyLen/9)*8)
-	for i := 0; i < keyLen; i += 9 {
-		padCount := 0xff - key[i+8]
-		result = append(result, key[i:i+8-int(padCount)]...)
+	_, userKey, err := codec.DecodeBytes(key)
+	if err != nil {
+		panic(err)
 	}
-	return result
+	return userKey
 }
 
 // DecodeTimestamp takes a key + timestamp and returns the timestamp part.
 func DecodeTimestamp(key []byte) uint64 {
-	keyLen := len(key) - 8
-	return ^binary.BigEndian.Uint64(key[keyLen:])
+	left, _, err := codec.DecodeBytes(key)
+	if err != nil {
+		panic(err)
+	}
+	return ^binary.BigEndian.Uint64(left)
 }
