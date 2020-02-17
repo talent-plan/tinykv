@@ -160,10 +160,9 @@ func (c *testCluster) LoadRegion(regionID uint64, followerStoreIDs ...uint64) er
 
 func waitOperator(c *C, co *coordinator, regionID uint64) {
 	testutil.WaitUntil(c, func(c *C) bool {
-		 return co.opController.GetOperator(regionID) != nil
+		return co.opController.GetOperator(regionID) != nil
 	})
 }
-
 
 var _ = Suite(&testCoordinatorSuite{})
 
