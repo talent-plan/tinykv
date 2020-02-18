@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/interfaces"
 	"os"
 	"path/filepath"
 	"testing"
@@ -39,7 +40,7 @@ func Get(is *inner_server.StandAloneInnerServer, cf string, key []byte) ([]byte,
 	return reader.GetCF(cf, key)
 }
 
-func NewTestTiKVServer(innerServer tikv.InnerServer) *tikv.Server {
+func NewTestTiKVServer(innerServer interfaces.InnerServer) *tikv.Server {
 	sched := exec.NewSeqScheduler(innerServer)
 	server := tikv.NewServer(innerServer, sched)
 	return server
