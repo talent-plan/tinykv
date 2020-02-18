@@ -37,7 +37,7 @@ func (p *Prewrite) BuildTxn(txn *kvstore.MvccTxn) error {
 	}
 
 	// If any keys were locked, we'll return this to the client.
-	return &LockedError{locks}
+	return &kvstore.LockedError{Info: locks}
 }
 
 func (p *Prewrite) Context() *kvrpcpb.Context {
@@ -61,7 +61,7 @@ func (p *Prewrite) HandleError(err error) interface{} {
 
 	if e, ok := err.(KeyError); ok {
 		resp := kvrpcpb.PrewriteResponse{}
-		resp.Errors = e.keyErrors()
+		resp.Errors = e.KeyErrors()
 		return &resp
 	}
 

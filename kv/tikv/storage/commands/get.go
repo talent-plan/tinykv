@@ -28,7 +28,7 @@ func (g *Get) BuildTxn(txn *kvstore.MvccTxn) error {
 	}
 	if lock.IsLockedFor(key, *txn.StartTS) {
 		// Key is locked.
-		return &LockedError{[]kvrpcpb.LockInfo{*lock.Info(key)}}
+		return &kvstore.LockedError{Info: []kvrpcpb.LockInfo{*lock.Info(key)}}
 	}
 
 	// Search writes for a committed value.
@@ -61,7 +61,7 @@ func (g *Get) HandleError(err error) interface{} {
 	}
 
 	if e, ok := err.(KeyError); ok {
-		keyErrs := e.keyErrors()
+		keyErrs := e.KeyErrors()
 		if len(keyErrs) > 0 {
 			g.response.Error = keyErrs[0]
 			return &g.response
