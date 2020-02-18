@@ -260,7 +260,7 @@ func TestLogMaybeAppend(t *testing.T) {
 				t.Errorf("#%d: committed = %d, want %d", i, gcommit, tt.wcommit)
 			}
 			if gappend && len(tt.ents) != 0 {
-				gents, err := raftLog.slice(raftLog.LastIndex()-uint64(len(tt.ents))+1, raftLog.LastIndex()+1, noLimit)
+				gents, err := raftLog.slice(raftLog.LastIndex()-uint64(len(tt.ents))+1, raftLog.LastIndex()+1)
 				if err != nil {
 					t.Fatalf("unexpected error %v", err)
 				}
@@ -750,7 +750,6 @@ func TestSlice(t *testing.T) {
 	num := uint64(100)
 	last := offset + num
 	half := offset + num/2
-	halfe := pb.Entry{Index: half, Term: half}
 
 	storage := NewMemoryStorage()
 	storage.ApplySnapshot(pb.Snapshot{Metadata: &pb.SnapshotMetadata{Index: offset}})
@@ -777,15 +776,6 @@ func TestSlice(t *testing.T) {
 		{half, half + 1, noLimit, []pb.Entry{{Index: half, Term: half}}, false},
 		{last - 1, last, noLimit, []pb.Entry{{Index: last - 1, Term: last - 1}}, false},
 		{last, last + 1, noLimit, nil, true},
-
-		// test limit
-		{half - 1, half + 1, 0, []pb.Entry{{Index: half - 1, Term: half - 1}}, false},
-		{half - 1, half + 1, uint64(halfe.Size() + 1), []pb.Entry{{Index: half - 1, Term: half - 1}}, false},
-		{half - 2, half + 1, uint64(halfe.Size() + 1), []pb.Entry{{Index: half - 2, Term: half - 2}}, false},
-		{half - 1, half + 1, uint64(halfe.Size() * 2), []pb.Entry{{Index: half - 1, Term: half - 1}, {Index: half, Term: half}}, false},
-		{half - 1, half + 2, uint64(halfe.Size() * 3), []pb.Entry{{Index: half - 1, Term: half - 1}, {Index: half, Term: half}, {Index: half + 1, Term: half + 1}}, false},
-		{half, half + 2, uint64(halfe.Size()), []pb.Entry{{Index: half, Term: half}}, false},
-		{half, half + 2, uint64(halfe.Size() * 2), []pb.Entry{{Index: half, Term: half}, {Index: half + 1, Term: half + 1}}, false},
 	}
 
 	for j, tt := range tests {
@@ -797,7 +787,7 @@ func TestSlice(t *testing.T) {
 					}
 				}
 			}()
-			g, err := l.slice(tt.from, tt.to, tt.limit)
+			g, err := l.slice(tt.from, tt.to)
 			if tt.from <= offset && err != ErrCompacted {
 				t.Fatalf("#%d: err = %v, want %v", j, err, ErrCompacted)
 			}

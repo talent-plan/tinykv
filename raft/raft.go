@@ -121,10 +121,6 @@ type Config struct {
 	// applied entries. This is a very application dependent configuration.
 	Applied uint64
 
-	// MaxEntsSize limits the maximum number aggregate byte size of the entries
-	// returned from RaftLog.
-	MaxEntsSize uint64
-
 	// Logger is the logger used for raft log. For multinode which can host
 	// multiple raft group, each raft group can have its own logger
 	Logger Logger
@@ -145,10 +141,6 @@ func (c *Config) validate() error {
 
 	if c.Storage == nil {
 		return errors.New("storage cannot be nil")
-	}
-
-	if c.MaxEntsSize == 0 {
-		c.MaxEntsSize = noLimit
 	}
 
 	if c.Logger == nil {
@@ -229,7 +221,7 @@ func newRaft(c *Config) *Raft {
 	if err := c.validate(); err != nil {
 		panic(err.Error())
 	}
-	raftlog := newLogWithSize(c.Storage, c.Logger, c.MaxEntsSize)
+	raftlog := newLog(c.Storage, c.Logger)
 	hs, cs, err := c.Storage.InitialState()
 	if err != nil {
 		panic(err) // TODO(bdarnell)
@@ -630,7 +622,7 @@ func (r *Raft) Step(m pb.Message) error {
 	switch m.MsgType {
 	case pb.MessageType_MsgHup:
 		if r.State != StateLeader {
-			ents, err := r.RaftLog.slice(r.RaftLog.applied+1, r.RaftLog.committed+1, noLimit)
+			ents, err := r.RaftLog.slice(r.RaftLog.applied+1, r.RaftLog.committed+1)
 			if err != nil {
 				r.logger.Panicf("unexpected error getting unapplied entries (%v)", err)
 			}

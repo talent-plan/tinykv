@@ -17,7 +17,6 @@ package raft
 import (
 	"bytes"
 	"fmt"
-	"math"
 	"reflect"
 	"testing"
 
@@ -29,7 +28,7 @@ type ignoreSizeHintMemStorage struct {
 }
 
 func (s *ignoreSizeHintMemStorage) Entries(lo, hi uint64, maxSize uint64) ([]pb.Entry, error) {
-	return s.MemoryStorage.Entries(lo, hi, math.MaxUint64)
+	return s.MemoryStorage.Entries(lo, hi)
 }
 
 // TestRawNodeStep ensures that RawNode.Step ignore local message.
@@ -116,7 +115,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		}
 	}
 
-	entries, err := s.Entries(lastIndex-1, lastIndex+1, noLimit)
+	entries, err := s.Entries(lastIndex-1, lastIndex+1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +206,7 @@ func TestRawNodeProposeAddDuplicateNode(t *testing.T) {
 	}
 
 	// the last three entries should be: ConfChange cc1, cc1, cc2
-	entries, err := s.Entries(lastIndex-2, lastIndex+1, noLimit)
+	entries, err := s.Entries(lastIndex-2, lastIndex+1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -389,88 +388,6 @@ func TestRawNodeStatus(t *testing.T) {
 	status := rawNode.Status()
 	if status == nil {
 		t.Errorf("expected status struct, got nil")
-	}
-}
-
-// TestRawNodeCommitPaginationAfterRestart is the RawNode version of
-// TestNodeCommitPaginationAfterRestart. The anomaly here was even worse as the
-// Raft group would forget to apply entries:
-//
-// - node learns that index 11 is committed
-// - nextEnts returns index 1..10 in CommittedEntries (but index 10 already
-//   exceeds maxBytes), which isn't noticed internally by Raft
-// - Commit index gets bumped to 10
-// - the node persists the HardState, but crashes before applying the entries
-// - upon restart, the storage returns the same entries, but `slice` takes a
-//   different code path and removes the last entry.
-// - Raft does not emit a HardState, but when the app calls Advance(), it bumps
-//   its internal applied index cursor to 10 (when it should be 9)
-// - the next Ready asks the app to apply index 11 (omitting index 10), losing a
-//    write.
-func TestRawNodeCommitPaginationAfterRestart(t *testing.T) {
-	s := &ignoreSizeHintMemStorage{
-		MemoryStorage: NewMemoryStorage(),
-	}
-	persistedHardState := pb.HardState{
-		Term:   1,
-		Vote:   1,
-		Commit: 10,
-	}
-
-	s.hardState = persistedHardState
-	s.ents = make([]pb.Entry, 10)
-	var size uint64
-	for i := range s.ents {
-		ent := pb.Entry{
-			Term:      1,
-			Index:     uint64(i + 1),
-			EntryType: pb.EntryType_EntryNormal,
-			Data:      []byte("a"),
-		}
-
-		s.ents[i] = ent
-		size += uint64(ent.Size())
-	}
-
-	cfg := newTestConfig(1, []uint64{1}, 10, 1, s)
-	// Set a MaxEntsSize that would suggest to Raft that the last committed entry should
-	// not be included in the initial rd.CommittedEntries. However, our storage will ignore
-	// this and *will* return it (which is how the Commit index ended up being 10 initially).
-	cfg.MaxEntsSize = size - uint64(s.ents[len(s.ents)-1].Size()) - 1
-
-	s.ents = append(s.ents, pb.Entry{
-		Term:      1,
-		Index:     uint64(11),
-		EntryType: pb.EntryType_EntryNormal,
-		Data:      []byte("boom"),
-	})
-
-	rawNode, err := NewRawNode(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	for highestApplied := uint64(0); highestApplied != 11; {
-		rd := rawNode.Ready()
-		n := len(rd.CommittedEntries)
-		if n == 0 {
-			t.Fatalf("stopped applying entries at index %d", highestApplied)
-		}
-		if next := rd.CommittedEntries[0].Index; highestApplied != 0 && highestApplied+1 != next {
-			t.Fatalf("attempting to apply index %d after index %d, leaving a gap", next, highestApplied)
-		}
-		highestApplied = rd.CommittedEntries[n-1].Index
-		rawNode.Advance(rd)
-		if idx := rd.appliedCursor(); idx > 0 {
-			rawNode.AdvanceApply(idx)
-		}
-		rawNode.Step(pb.Message{
-			MsgType: pb.MessageType_MsgHeartbeat,
-			To:      1,
-			From:    1, // illegal, but we get away with it
-			Term:    1,
-			Commit:  11,
-		})
 	}
 }
 

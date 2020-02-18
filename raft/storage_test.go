@@ -74,20 +74,11 @@ func TestStorageEntries(t *testing.T) {
 		{4, 5, math.MaxUint64, nil, []pb.Entry{{Index: 4, Term: 4}}},
 		{4, 6, math.MaxUint64, nil, []pb.Entry{{Index: 4, Term: 4}, {Index: 5, Term: 5}}},
 		{4, 7, math.MaxUint64, nil, []pb.Entry{{Index: 4, Term: 4}, {Index: 5, Term: 5}, {Index: 6, Term: 6}}},
-		// even if maxsize is zero, the first entry should be returned
-		{4, 7, 0, nil, []pb.Entry{{Index: 4, Term: 4}}},
-		// limit to 2
-		{4, 7, uint64(ents[1].Size() + ents[2].Size()), nil, []pb.Entry{{Index: 4, Term: 4}, {Index: 5, Term: 5}}},
-		// limit to 2
-		{4, 7, uint64(ents[1].Size() + ents[2].Size() + ents[3].Size()/2), nil, []pb.Entry{{Index: 4, Term: 4}, {Index: 5, Term: 5}}},
-		{4, 7, uint64(ents[1].Size() + ents[2].Size() + ents[3].Size() - 1), nil, []pb.Entry{{Index: 4, Term: 4}, {Index: 5, Term: 5}}},
-		// all
-		{4, 7, uint64(ents[1].Size() + ents[2].Size() + ents[3].Size()), nil, []pb.Entry{{Index: 4, Term: 4}, {Index: 5, Term: 5}, {Index: 6, Term: 6}}},
 	}
 
 	for i, tt := range tests {
 		s := &MemoryStorage{ents: ents, snapshot: pb.Snapshot{Metadata: &pb.SnapshotMetadata{ConfState: &pb.ConfState{}}}}
-		entries, err := s.Entries(tt.lo, tt.hi, tt.maxsize)
+		entries, err := s.Entries(tt.lo, tt.hi)
 		if err != tt.werr {
 			t.Errorf("#%d: err = %v, want %v", i, err, tt.werr)
 		}

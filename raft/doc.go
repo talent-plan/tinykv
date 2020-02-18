@@ -38,7 +38,6 @@ To start a node from scratch:
     ElectionTick:    10,
     HeartbeatTick:   1,
     Storage:         storage,
-    MaxEntsSize:   4096,
     MaxInflightMsgs: 256,
   }
   n := raft.StartNode(c, []raft.Peer{{ID: 0x02}, {ID: 0x03}})
@@ -58,7 +57,6 @@ To restart a node from previous state:
     ElectionTick:    10,
     HeartbeatTick:   1,
     Storage:         storage,
-    MaxEntsSize:   4096,
     MaxInflightMsgs: 256,
   }
 

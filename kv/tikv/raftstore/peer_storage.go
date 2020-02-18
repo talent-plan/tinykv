@@ -26,9 +26,8 @@ import (
 )
 
 const (
-	MaxSnapRetryCnt    = 5
-	raftLogMultiGetCnt = 8
-	MaxCacheCapacity   = 1024 - 1
+	MaxSnapRetryCnt  = 5
+	MaxCacheCapacity = 1024 - 1
 )
 
 // CompactRaftLog discards all log entries prior to compact_index. We must guarantee
@@ -64,7 +63,7 @@ func (ec *EntryCache) length() int {
 	return len(ec.cache)
 }
 
-func (ec *EntryCache) fetchEntriesTo(begin, end, maxSize uint64, fetchSize *uint64, ents []eraftpb.Entry) []eraftpb.Entry {
+func (ec *EntryCache) fetchEntriesTo(begin, end uint64, fetchSize *uint64, ents []eraftpb.Entry) []eraftpb.Entry {
 	if begin >= end {
 		return nil
 	}
@@ -79,11 +78,7 @@ func (ec *EntryCache) fetchEntriesTo(begin, end, maxSize uint64, fetchSize *uint
 	for i := cacheStart; i < cacheEnd; i++ {
 		entry := ec.cache[i]
 		y.AssertTruef(entry.Index == cacheLow+uint64(i), "%d %d %d", entry.Index, cacheLow, i)
-		entrySize := uint64(entry.Size())
-		*fetchSize += uint64(entrySize)
-		if *fetchSize != entrySize && *fetchSize > maxSize {
-			break
-		}
+		*fetchSize += uint64(entry.Size())
 		ents = append(ents, entry)
 	}
 	return ents
@@ -269,7 +264,7 @@ func (ps *PeerStorage) IsApplyingSnapshot() bool {
 	return ps.snapState.StateType == snap.SnapState_Applying
 }
 
-func (ps *PeerStorage) Entries(low, high, maxSize uint64) ([]eraftpb.Entry, error) {
+func (ps *PeerStorage) Entries(low, high uint64) ([]eraftpb.Entry, error) {
 	err := ps.checkRange(low, high)
 	if err != nil {
 		return nil, err
@@ -286,7 +281,7 @@ func (ps *PeerStorage) Entries(low, high, maxSize uint64) ([]eraftpb.Entry, erro
 	if high <= cacheLow {
 		// not overlap
 		ps.stats.miss++
-		ents, _, err = fetchEntriesTo(ps.Engines.Raft, reginID, low, high, maxSize, ents)
+		ents, _, err = fetchEntriesTo(ps.Engines.Raft, reginID, low, high, ents)
 		if err != nil {
 			return ents, err
 		}
@@ -295,17 +290,13 @@ func (ps *PeerStorage) Entries(low, high, maxSize uint64) ([]eraftpb.Entry, erro
 	var fetchedSize, beginIdx uint64
 	if low < cacheLow {
 		ps.stats.miss++
-		ents, fetchedSize, err = fetchEntriesTo(ps.Engines.Raft, reginID, low, cacheLow, maxSize, ents)
-		if fetchedSize > maxSize {
-			// maxSize exceed.
-			return ents, nil
-		}
+		ents, fetchedSize, err = fetchEntriesTo(ps.Engines.Raft, reginID, low, cacheLow, ents)
 		beginIdx = cacheLow
 	} else {
 		beginIdx = low
 	}
 	ps.stats.hit++
-	return ps.cache.fetchEntriesTo(beginIdx, high, maxSize, &fetchedSize, ents), nil
+	return ps.cache.fetchEntriesTo(beginIdx, high, &fetchedSize, ents), nil
 }
 
 func (ps *PeerStorage) Term(idx uint64) (uint64, error) {
@@ -319,7 +310,7 @@ func (ps *PeerStorage) Term(idx uint64) (uint64, error) {
 	if ps.truncatedTerm() == ps.lastTerm || idx == ps.raftState.LastIndex {
 		return ps.lastTerm, nil
 	}
-	entries, err := ps.Entries(idx, idx+1, math.MaxUint64)
+	entries, err := ps.Entries(idx, idx+1)
 	if err != nil {
 		return 0, err
 	}
@@ -518,44 +509,11 @@ func (ps *PeerStorage) clearExtraData(newRegion *metapb.Region) {
 	}
 }
 
-func fetchEntriesTo(engine *badger.DB, regionID, low, high, maxSize uint64, buf []eraftpb.Entry) ([]eraftpb.Entry, uint64, error) {
+func fetchEntriesTo(engine *badger.DB, regionID, low, high uint64, buf []eraftpb.Entry) ([]eraftpb.Entry, uint64, error) {
 	var totalSize uint64
 	nextIndex := low
-	exceededMaxSize := false
 	txn := engine.NewTransaction(false)
 	defer txn.Discard()
-	if high-low <= raftLogMultiGetCnt {
-		// If election happens in inactive regions, they will just try
-		// to fetch one empty log.
-		for i := low; i < high; i++ {
-			key := meta.RaftLogKey(regionID, i)
-			item, err := txn.Get(key)
-			if err == badger.ErrKeyNotFound {
-				return nil, 0, raft.ErrUnavailable
-			} else if err != nil {
-				return nil, 0, err
-			}
-			val, err := item.Value()
-			if err != nil {
-				return nil, 0, err
-			}
-			var entry eraftpb.Entry
-			err = entry.Unmarshal(val)
-			if err != nil {
-				return nil, 0, err
-			}
-			y.Assert(entry.Index == i)
-			totalSize += uint64(len(val))
-
-			if len(buf) == 0 || totalSize <= maxSize {
-				buf = append(buf, entry)
-			}
-			if totalSize > maxSize {
-				break
-			}
-		}
-		return buf, totalSize, nil
-	}
 	startKey := meta.RaftLogKey(regionID, low)
 	endKey := meta.RaftLogKey(regionID, high)
 	iter := txn.NewIterator(badger.DefaultIteratorOptions)
@@ -580,17 +538,10 @@ func fetchEntriesTo(engine *badger.DB, regionID, low, high, maxSize uint64, buf 
 		}
 		nextIndex++
 		totalSize += uint64(len(val))
-		exceededMaxSize = totalSize > maxSize
-		if !exceededMaxSize || len(buf) == 0 {
-			buf = append(buf, entry)
-		}
-		if exceededMaxSize {
-			break
-		}
+		buf = append(buf, entry)
 	}
-	// If we get the correct number of entries, returns,
-	// or the total size almost exceeds max_size, returns.
-	if len(buf) == int(high-low) || exceededMaxSize {
+	// If we get the correct number of entries, returns.
+	if len(buf) == int(high-low) {
 		return buf, totalSize, nil
 	}
 	// Here means we don't fetch enough entries.

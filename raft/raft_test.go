@@ -2405,7 +2405,6 @@ func newTestConfig(id uint64, peers []uint64, election, heartbeat int, storage S
 		ElectionTick:  election,
 		HeartbeatTick: heartbeat,
 		Storage:       storage,
-		MaxEntsSize:   noLimit,
 	}
 }
 

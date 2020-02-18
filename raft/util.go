@@ -113,21 +113,6 @@ func DescribeEntries(ents []pb.Entry, f EntryFormatter) string {
 	return buf.String()
 }
 
-func limitSize(ents []pb.Entry, maxSize uint64) []pb.Entry {
-	if len(ents) == 0 {
-		return ents
-	}
-	size := ents[0].Size()
-	var limit int
-	for limit = 1; limit < len(ents); limit++ {
-		size += ents[limit].Size()
-		if uint64(size) > maxSize {
-			break
-		}
-	}
-	return ents[:limit]
-}
-
 func isHardStateEqual(a, b pb.HardState) bool {
 	return a.Term == b.Term && a.Vote == b.Vote && a.Commit == b.Commit
 }

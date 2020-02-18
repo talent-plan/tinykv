@@ -38,29 +38,18 @@ type RaftLog struct {
 	applied uint64
 
 	logger Logger
-
-	// maxEntsSize is the maximum number aggregate byte size of the entries
-	// returned from RaftLog.
-	maxEntsSize uint64
 }
 
 // newLog returns log using the given storage and default options. It
 // recovers the log to the state that it just commits and applies the
 // latest snapshot.
 func newLog(storage Storage, logger Logger) *RaftLog {
-	return newLogWithSize(storage, logger, noLimit)
-}
-
-// newLogWithSize returns a log using the given storage and max
-// message size.
-func newLogWithSize(storage Storage, logger Logger, maxEntsSize uint64) *RaftLog {
 	if storage == nil {
 		log.Panic("storage must not be nil")
 	}
 	log := &RaftLog{
-		storage:     storage,
-		logger:      logger,
-		maxEntsSize: maxEntsSize,
+		storage: storage,
+		logger:  logger,
 	}
 	firstIndex, err := storage.FirstIndex()
 	if err != nil {
@@ -155,7 +144,7 @@ func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 func (l *RaftLog) nextEntsSince(sinceIdx uint64) (ents []pb.Entry) {
 	off := max(sinceIdx+1, l.firstIndex())
 	if l.committed+1 > off {
-		ents, err := l.slice(off, l.committed+1, l.maxEntsSize)
+		ents, err := l.slice(off, l.committed+1)
 		if err != nil {
 			l.logger.Panicf("unexpected error when getting unapplied entries (%v)", err)
 		}
@@ -263,12 +252,12 @@ func (l *RaftLog) Entries(i uint64) ([]pb.Entry, error) {
 	if i > l.LastIndex() {
 		return nil, nil
 	}
-	return l.slice(i, l.LastIndex()+1, l.maxEntsSize)
+	return l.slice(i, l.LastIndex()+1)
 }
 
-// allEntries returns all entries in the log, ignoring the maxEntsSize restrict.
+// allEntries returns all entries in the log.
 func (l *RaftLog) allEntries() []pb.Entry {
-	ents, err := l.slice(l.firstIndex(), l.LastIndex()+1, noLimit)
+	ents, err := l.slice(l.firstIndex(), l.LastIndex()+1)
 	if err == nil {
 		return ents
 	}
@@ -312,7 +301,7 @@ func (l *RaftLog) restore(s pb.Snapshot) {
 }
 
 // slice returns a slice of log entries from lo through hi-1, inclusive.
-func (l *RaftLog) slice(lo, hi, maxSize uint64) ([]pb.Entry, error) {
+func (l *RaftLog) slice(lo, hi uint64) ([]pb.Entry, error) {
 	err := l.mustCheckOutOfBounds(lo, hi)
 	if err != nil {
 		return nil, err
@@ -322,7 +311,7 @@ func (l *RaftLog) slice(lo, hi, maxSize uint64) ([]pb.Entry, error) {
 	}
 	var ents []pb.Entry
 	if lo < l.unstable.offset {
-		storedEnts, err := l.storage.Entries(lo, min(hi, l.unstable.offset), maxSize)
+		storedEnts, err := l.storage.Entries(lo, min(hi, l.unstable.offset))
 		if err == ErrCompacted {
 			return nil, err
 		} else if err == ErrUnavailable {
@@ -347,7 +336,7 @@ func (l *RaftLog) slice(lo, hi, maxSize uint64) ([]pb.Entry, error) {
 			ents = unstable
 		}
 	}
-	return limitSize(ents, maxSize), nil
+	return ents, nil
 }
 
 // l.firstIndex <= lo <= hi <= l.firstIndex + len(l.entries)
