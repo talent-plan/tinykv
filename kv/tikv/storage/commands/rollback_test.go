@@ -27,7 +27,7 @@ func TestRollback(t *testing.T) {
 	builder.init([]kv{
 		// See TestSinglePrewrite.
 		{cf: engine_util.CfDefault, key: []byte{3}, value: []byte{42}},
-		{cf: engine_util.CfLock, key: []byte{3}, value: []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, builder.ts()}},
+		{cf: engine_util.CfLock, key: []byte{3}, value: []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, builder.ts(), 0, 0, 0, 0, 0, 0, 0, 0}},
 	})
 	resp := builder.runOneCmd(&cmd).(*kvrpcpb.BatchRollbackResponse)
 
@@ -46,9 +46,9 @@ func TestRollbackDuplicateKeys(t *testing.T) {
 
 	builder.init([]kv{
 		{cf: engine_util.CfDefault, key: []byte{3}, value: []byte{42}},
-		{cf: engine_util.CfLock, key: []byte{3}, value: []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, builder.ts()}},
+		{cf: engine_util.CfLock, key: []byte{3}, value: []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, builder.ts(), 0, 0, 0, 0, 0, 0, 0, 0}},
 		{cf: engine_util.CfDefault, key: []byte{15}, value: []byte{0}},
-		{cf: engine_util.CfLock, key: []byte{15}, value: []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, builder.ts()}},
+		{cf: engine_util.CfLock, key: []byte{15}, value: []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, builder.ts(), 0, 0, 0, 0, 0, 0, 0, 0}},
 	})
 	resp := builder.runOneCmd(&cmd).(*kvrpcpb.BatchRollbackResponse)
 
@@ -120,7 +120,7 @@ func TestRollbackOtherTxn(t *testing.T) {
 
 	builder.init([]kv{
 		{cf: engine_util.CfDefault, key: []byte{3}, ts: 80, value: []byte{42}},
-		{cf: engine_util.CfLock, key: []byte{3}, value: []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 80}},
+		{cf: engine_util.CfLock, key: []byte{3}, value: []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 80, 0, 0, 0, 0, 0, 0, 0, 0}},
 	})
 	resp := builder.runOneCmd(&cmd).(*kvrpcpb.BatchRollbackResponse)
 
