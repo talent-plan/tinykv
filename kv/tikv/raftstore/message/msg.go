@@ -98,7 +98,7 @@ func (cb *Callback) WaitRespWithTimeout(timeout time.Duration) *raft_cmdpb.RaftC
 }
 
 func NewCallback() *Callback {
-	done := make(chan struct{})
+	done := make(chan struct{}, 1)
 	cb := &Callback{done: done}
 	return cb
 }
