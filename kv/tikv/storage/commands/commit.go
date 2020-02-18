@@ -45,7 +45,7 @@ func commitKey(key []byte, commitTs uint64, txn *kvstore.MvccTxn) error {
 
 	if lock.TS != *txn.StartTS {
 		// Key is locked by a different transaction.
-		write, err := txn.FindWrite(key, *txn.StartTS)
+		write, _, err := txn.FindWrite(key, *txn.StartTS)
 		if err != nil {
 			return err
 		}
@@ -88,7 +88,7 @@ func (c *Commit) HandleError(err error) interface{} {
 
 	if e, ok := err.(KeyError); ok {
 		resp := kvrpcpb.CommitResponse{}
-		resp.Error = e.keyErrors()[0]
+		resp.Error = e.KeyErrors()[0]
 		return &resp
 	}
 

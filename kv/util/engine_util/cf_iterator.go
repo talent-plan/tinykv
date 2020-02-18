@@ -1,6 +1,8 @@
 package engine_util
 
-import "github.com/coocood/badger"
+import (
+	"github.com/coocood/badger"
+)
 
 type CFItem struct {
 	item      *badger.Item
