@@ -150,6 +150,14 @@ func (c *Cluster) Shutdown() {
 	}
 }
 
+func (c *Cluster) AddFilter(filter Filter) {
+	c.simulator.AddFilter(filter)
+}
+
+func (c *Cluster) ClearFilters() {
+	c.simulator.ClearFilters()
+}
+
 func (c *Cluster) Request(key []byte, reqs []*raft_cmdpb.Request, readQuorum bool, timeout time.Duration) *raft_cmdpb.RaftCmdResponse {
 	region := c.GetRegion(key)
 	regionID := region.GetId()
@@ -174,35 +182,44 @@ func (c *Cluster) CallCommand(request *raft_cmdpb.RaftCmdRequest, timeout time.D
 
 func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeout time.Duration) *raft_cmdpb.RaftCmdResponse {
 	startTime := time.Now()
+	regionID := request.Header.RegionId
+	leader := c.LeaderOfRegion(regionID)
 	for {
 		if time.Now().Sub(startTime) > timeout {
+			log.Panicf("can't call command %s on leader of region %d", request.String(), regionID)
 			return nil
-		}
-		regionID := request.Header.RegionId
-		leader := c.LeaderOfRegion(regionID)
-		if leader == nil {
-			log.Panicf("can't get leader of region %d", regionID)
 		}
 		request.Header.Peer = leader
 		resp := c.CallCommand(request, timeout)
-		if resp == nil {
-			log.Panicf("can't call command %s on leader of region %d", request.String(), regionID)
+		if resp != nil && resp.Header != nil && resp.Header.Error != nil {
+			err := resp.Header.Error
+			if err.StaleCommand != nil ||
+				err.EpochNotMatch != nil ||
+				err.NotLeader != nil {
+				log.Printf("warn: call command %s on leader of region %d errored (%s), retrying", request.String(), regionID, err.String())
+				if err.NotLeader != nil &&
+					err.NotLeader.Leader != nil {
+					leader = err.NotLeader.Leader
+				} else {
+					leader = c.LeaderOfRegion(regionID)
+				}
+				continue
+			}
 		}
 		return resp
 	}
 }
 
 func (c *Cluster) LeaderOfRegion(regionID uint64) *metapb.Peer {
-	storeIds := c.GetStoreIdsOfRegion(regionID)
 	for i := 0; i < 500; i++ {
-		for _, storeID := range storeIds {
-			leader := c.QueryLeader(storeID, regionID, 1*time.Second)
-			if leader != nil {
-				return leader
-			}
+		_, leader, err := c.pdClient.GetRegionByID(context.TODO(), regionID)
+		if err == nil && leader != nil {
+			log.Printf("leader of region: %d", leader.GetStoreId())
+			return leader
 		}
 		SleepMS(10)
 	}
+	log.Panicf("can't get leader of region %d", regionID)
 	return nil
 }
 
@@ -276,8 +293,12 @@ func (c *Cluster) MustPutCF(cf string, key, value []byte) {
 	}
 }
 
-func (c *Cluster) MustGet(key []byte, value []byte) {
-	c.getImpl(engine_util.CfDefault, key, true)
+func (c *Cluster) Get(key []byte) []byte {
+	return c.getImpl(engine_util.CfDefault, key, false)
+}
+
+func (c *Cluster) MustGet(key []byte) []byte {
+	return c.getImpl(engine_util.CfDefault, key, true)
 }
 
 func (c *Cluster) getImpl(cf string, key []byte, readQuorum bool) []byte {

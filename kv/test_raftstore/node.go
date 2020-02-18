@@ -195,19 +195,5 @@ func (c *NodeSimulator) CallCommandOnNode(nodeID uint64, request *raft_cmdpb.Raf
 
 	resp := cb.WaitRespWithTimeout(timeout)
 
-	if resp == nil {
-		return nil
-	}
-
-	reqCount := len(request.Requests)
-
-	if resp.Header != nil && resp.Header.Error != nil {
-		panic(&resp.Header.Error)
-	}
-	if len(resp.Responses) != reqCount {
-		log.Panicf("responses count %d is not equal to requests count %d",
-			len(resp.Responses), reqCount)
-	}
-
 	return resp
 }

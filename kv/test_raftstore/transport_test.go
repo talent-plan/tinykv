@@ -1,6 +1,8 @@
 package test_raftstore
 
 import (
+	"bytes"
+	"log"
 	"testing"
 )
 
@@ -23,7 +25,24 @@ func testPartitionWrite(cluster Cluster) {
 
 	// leader in majority, partition doesn't affect write/read
 	cluster.Partition([]uint64{1, 2, 3}, []uint64{4, 5})
-	cluster.MustGet(key, value)
+	cluster.MustPut(key, value)
+	val := cluster.Get(key)
+	if bytes.Compare(val, value) != 0 {
+		log.Panic(val, value)
+	}
+	cluster.MustTransferLeader(regionID, &peer)
+	cluster.ClearFilters()
+
+	// leader in minority, new leader should be elected
+	cluster.Partition([]uint64{1, 2}, []uint64{3, 4, 5})
+	val = cluster.MustGet(key)
+	if bytes.Compare(val, value) != 0 {
+		log.Panic(val, value)
+	}
+	leaderID := cluster.LeaderOfRegion(regionID).Id
+	if leaderID == 1 || leaderID == 2 {
+		log.Panic(leaderID, "leaderID == 1 || leaderID == 2")
+	}
 
 	cluster.Shutdown()
 }
