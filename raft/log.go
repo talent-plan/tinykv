@@ -39,9 +39,9 @@ type RaftLog struct {
 
 	logger Logger
 
-	// maxNextEntsSize is the maximum number aggregate byte size of the messages
-	// returned from calls to nextEnts.
-	maxNextEntsSize uint64
+	// maxEntsSize is the maximum number aggregate byte size of the entries
+	// returned from RaftLog.
+	maxEntsSize uint64
 }
 
 // newLog returns log using the given storage and default options. It
@@ -53,14 +53,14 @@ func newLog(storage Storage, logger Logger) *RaftLog {
 
 // newLogWithSize returns a log using the given storage and max
 // message size.
-func newLogWithSize(storage Storage, logger Logger, maxNextEntsSize uint64) *RaftLog {
+func newLogWithSize(storage Storage, logger Logger, maxEntsSize uint64) *RaftLog {
 	if storage == nil {
 		log.Panic("storage must not be nil")
 	}
 	log := &RaftLog{
-		storage:         storage,
-		logger:          logger,
-		maxNextEntsSize: maxNextEntsSize,
+		storage:     storage,
+		logger:      logger,
+		maxEntsSize: maxEntsSize,
 	}
 	firstIndex, err := storage.FirstIndex()
 	if err != nil {
@@ -149,21 +149,13 @@ func (l *RaftLog) unstableEntries() []pb.Entry {
 // If applied is smaller than the index of snapshot, it returns all committed
 // entries after the index of snapshot.
 func (l *RaftLog) nextEnts() (ents []pb.Entry) {
-	off := max(l.applied+1, l.firstIndex())
-	if l.committed+1 > off {
-		ents, err := l.slice(off, l.committed+1, l.maxNextEntsSize)
-		if err != nil {
-			l.logger.Panicf("unexpected error when getting unapplied entries (%v)", err)
-		}
-		return ents
-	}
-	return nil
+	return l.nextEntsSince(l.applied)
 }
 
 func (l *RaftLog) nextEntsSince(sinceIdx uint64) (ents []pb.Entry) {
 	off := max(sinceIdx+1, l.firstIndex())
 	if l.committed+1 > off {
-		ents, err := l.slice(off, l.committed+1, l.maxNextEntsSize)
+		ents, err := l.slice(off, l.committed+1, l.maxEntsSize)
 		if err != nil {
 			l.logger.Panicf("unexpected error when getting unapplied entries (%v)", err)
 		}
@@ -267,16 +259,16 @@ func (l *RaftLog) Term(i uint64) (uint64, error) {
 	panic(err) // TODO(bdarnell)
 }
 
-func (l *RaftLog) Entries(i, maxsize uint64) ([]pb.Entry, error) {
+func (l *RaftLog) Entries(i uint64) ([]pb.Entry, error) {
 	if i > l.LastIndex() {
 		return nil, nil
 	}
-	return l.slice(i, l.LastIndex()+1, maxsize)
+	return l.slice(i, l.LastIndex()+1, l.maxEntsSize)
 }
 
-// allEntries returns all entries in the log.
+// allEntries returns all entries in the log, ignoring the maxEntsSize restrict.
 func (l *RaftLog) allEntries() []pb.Entry {
-	ents, err := l.Entries(l.firstIndex(), noLimit)
+	ents, err := l.slice(l.firstIndex(), l.LastIndex()+1, noLimit)
 	if err == nil {
 		return ents
 	}

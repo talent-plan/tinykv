@@ -27,6 +27,96 @@ var ErrStepLocalMsg = errors.New("raft: cannot step raft local message")
 // but there is no peer found in raft.Prs for that node.
 var ErrStepPeerNotFound = errors.New("raft: cannot step as peer not found")
 
+// SoftState provides state that is useful for logging and debugging.
+// The state is volatile and does not need to be persisted to the WAL.
+type SoftState struct {
+	Lead      uint64 // must use atomic operations to access; keep 64-bit aligned.
+	RaftState StateType
+}
+
+func (a *SoftState) equal(b *SoftState) bool {
+	return a.Lead == b.Lead && a.RaftState == b.RaftState
+}
+
+// Ready encapsulates the entries and messages that are ready to read,
+// be saved to stable storage, committed or sent to other peers.
+// All fields in Ready are read-only.
+type Ready struct {
+	// The current volatile state of a Node.
+	// SoftState will be nil if there is no update.
+	// It is not required to consume or store SoftState.
+	*SoftState
+
+	// The current state of a Node to be saved to stable storage BEFORE
+	// Messages are sent.
+	// HardState will be equal to empty state if there is no update.
+	pb.HardState
+
+	// Entries specifies entries to be saved to stable storage BEFORE
+	// Messages are sent.
+	Entries []pb.Entry
+
+	// Snapshot specifies the snapshot to be saved to stable storage.
+	Snapshot pb.Snapshot
+
+	// CommittedEntries specifies entries to be committed to a
+	// store/state-machine. These have previously been committed to stable
+	// store.
+	CommittedEntries []pb.Entry
+
+	// Messages specifies outbound messages to be sent AFTER Entries are
+	// committed to stable storage.
+	// If it contains a MessageType_MsgSnapshot message, the application MUST report back to raft
+	// when the snapshot has been received or has failed by calling ReportSnapshot.
+	Messages []pb.Message
+}
+
+func (rd Ready) containsUpdates() bool {
+	return rd.SoftState != nil || !IsEmptyHardState(rd.HardState) ||
+		!IsEmptySnap(&rd.Snapshot) || len(rd.Entries) > 0 ||
+		len(rd.CommittedEntries) > 0 || len(rd.Messages) > 0
+}
+
+// appliedCursor extracts from the Ready the highest index the client has
+// applied (once the Ready is confirmed via Advance). If no information is
+// contained in the Ready, returns zero.
+func (rd Ready) appliedCursor() uint64 {
+	if n := len(rd.CommittedEntries); n > 0 {
+		return rd.CommittedEntries[n-1].Index
+	}
+	if !IsEmptySnap(&rd.Snapshot) {
+		if index := rd.Snapshot.Metadata.Index; index > 0 {
+			return index
+		}
+	}
+	return 0
+}
+
+func newReady(r *Raft, prevSoftSt *SoftState, prevHardSt pb.HardState, sinceIdx *uint64) Ready {
+	rd := Ready{
+		Entries: r.RaftLog.unstableEntries(),
+	}
+	if len(r.msgs) != 0 {
+		rd.Messages = r.msgs
+		r.msgs = nil
+	}
+	if sinceIdx != nil {
+		rd.CommittedEntries = r.RaftLog.nextEntsSince(*sinceIdx)
+	} else {
+		rd.CommittedEntries = r.RaftLog.nextEnts()
+	}
+	if softSt := r.softState(); !softSt.equal(prevSoftSt) {
+		rd.SoftState = softSt
+	}
+	if hardSt := r.hardState(); !isHardStateEqual(hardSt, prevHardSt) {
+		rd.HardState = hardSt
+	}
+	if r.RaftLog.unstable.snapshot != nil {
+		rd.Snapshot = *r.RaftLog.unstable.snapshot
+	}
+	return rd
+}
+
 // RawNode is a thread-unsafe Node.
 // The methods of this struct correspond to the methods of Node and are described
 // more fully there.
@@ -71,7 +161,7 @@ func (rn *RawNode) commitApply(applied uint64) {
 }
 
 // NewRawNode returns a new RawNode given configuration and a list of raft peers.
-func NewRawNode(config *Config, peers []Peer) (*RawNode, error) {
+func NewRawNode(config *Config) (*RawNode, error) {
 	if config.ID == 0 {
 		panic("config.ID must not be zero")
 	}
@@ -89,27 +179,24 @@ func NewRawNode(config *Config, peers []Peer) (*RawNode, error) {
 	// to be able to tell us when it expects the RawNode to exist.
 	if lastIndex == 0 {
 		r.becomeFollower(1, None)
+		peers := config.peers
 		ents := make([]pb.Entry, len(peers))
 		for i, peer := range peers {
-			cc := pb.ConfChange{ChangeType: pb.ConfChangeType_AddNode, NodeId: peer.ID, Context: peer.Context}
+			cc := pb.ConfChange{ChangeType: pb.ConfChangeType_AddNode, NodeId: peer}
 			data, err := cc.Marshal()
 			if err != nil {
 				panic("unexpected marshal error")
 			}
-
 			ents[i] = pb.Entry{EntryType: pb.EntryType_EntryConfChange, Term: 1, Index: uint64(i + 1), Data: data}
 		}
 		r.RaftLog.append(ents...)
 		r.RaftLog.committed = uint64(len(ents))
-		for _, peer := range peers {
-			r.addNode(peer.ID)
-		}
 	}
 
 	// Set the initial hard and soft states after performing all initialization.
 	rn.prevSoftSt = r.softState()
 	if lastIndex == 0 {
-		rn.prevHardSt = emptyState
+		rn.prevHardSt = pb.HardState{}
 	} else {
 		rn.prevHardSt = r.hardState()
 	}
@@ -236,11 +323,6 @@ func (rn *RawNode) WithProgress(visitor func(id uint64, pr Progress)) {
 		pr := *pr
 		visitor(id, pr)
 	}
-}
-
-// ReportUnreachable reports the given node is not reachable for the last send.
-func (rn *RawNode) ReportUnreachable(id uint64) {
-	_ = rn.Raft.Step(pb.Message{MsgType: pb.MessageType_MsgUnreachable, From: id})
 }
 
 // ReportSnapshot reports the status of the sent snapshot.

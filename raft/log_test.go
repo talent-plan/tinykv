@@ -131,7 +131,7 @@ func TestAppend(t *testing.T) {
 		if index != tt.windex {
 			t.Errorf("#%d: lastIndex = %d, want %d", i, index, tt.windex)
 		}
-		g, err := raftLog.Entries(1, noLimit)
+		g, err := raftLog.Entries(1)
 		if err != nil {
 			t.Fatalf("#%d: unexpected error %v", i, err)
 		}
@@ -328,7 +328,7 @@ func TestCompactionSideEffects(t *testing.T) {
 		t.Errorf("lastIndex = %d, want = %d", raftLog.LastIndex(), prev+1)
 	}
 
-	ents, err := raftLog.Entries(raftLog.LastIndex(), noLimit)
+	ents, err := raftLog.Entries(raftLog.LastIndex())
 	if err != nil {
 		t.Fatalf("unexpected error %v", err)
 	}
