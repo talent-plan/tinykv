@@ -55,7 +55,7 @@ func testPartitionWrite(cluster *Cluster) {
 
 func TestNodePartitionWrite(t *testing.T) {
 	pdClient := NewMockPDClient(0)
-	simulator := NewNodeSimulator(&pdClient)
-	cluster := NewCluster(5, &pdClient, &simulator)
+	simulator := NewNodeSimulator(pdClient)
+	cluster := NewCluster(5, pdClient, &simulator)
 	testPartitionWrite(cluster)
 }
