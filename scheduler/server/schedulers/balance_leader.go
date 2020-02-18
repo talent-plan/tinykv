@@ -183,9 +183,8 @@ func (l *balanceLeaderScheduler) transferLeaderIn(cluster opt.Cluster, target *c
 func (l *balanceLeaderScheduler) createOperator(cluster opt.Cluster, region *core.RegionInfo, source, target *core.StoreInfo) []*operator.Operator {
 	targetID := target.GetID()
 
-	opInfluence := l.opController.GetOpInfluence(cluster)
 	kind := core.NewScheduleKind(core.LeaderKind, cluster.GetLeaderScheduleStrategy())
-	if !shouldBalance(cluster, source, target, region, kind, opInfluence, l.GetName()) {
+	if !shouldBalance(cluster, source, target, region, kind, l.GetName()) {
 		return nil
 	}
 

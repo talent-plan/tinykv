@@ -7,12 +7,12 @@ import (
 
 	"github.com/coocood/badger"
 	"github.com/ngaut/log"
-	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/runner"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
@@ -140,12 +140,12 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 		ID:            peer.GetId(),
 		ElectionTick:  cfg.RaftElectionTimeoutTicks,
 		HeartbeatTick: cfg.RaftHeartbeatTicks,
-		MaxSizePerMsg: cfg.RaftMaxSizePerMsg,
+		MaxEntsSize:   cfg.RaftMaxEntsSize,
 		Applied:       appliedIndex,
 		Storage:       ps,
 	}
 
-	raftGroup, err := raft.NewRawNode(raftCfg, nil)
+	raftGroup, err := raft.NewRawNode(raftCfg)
 	if err != nil {
 		return nil, err
 	}

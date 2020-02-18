@@ -1,6 +1,8 @@
 package engine_util
 
-import "github.com/coocood/badger"
+import (
+	"github.com/coocood/badger"
+)
 
 type CFItem struct {
 	item      *badger.Item
@@ -17,7 +19,7 @@ func (i *CFItem) Key() []byte {
 }
 
 func (i *CFItem) KeyCopy(dst []byte) []byte {
-	return i.item.KeyCopy(dst)
+	return i.item.KeyCopy(dst)[i.prefixLen:]
 }
 
 func (i *CFItem) Version() uint64 {
@@ -104,6 +106,9 @@ type DBIterator interface {
 	// Seek would seek to the provided key if present. If absent, it would seek to the next smallest key
 	// greater than provided.
 	Seek([]byte)
+
+	// Close the iterator
+	Close()
 }
 
 type DBItem interface {

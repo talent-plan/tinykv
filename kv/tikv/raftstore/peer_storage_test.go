@@ -3,13 +3,12 @@ package raftstore
 import (
 	"bytes"
 	"math"
-	"os"
 	"testing"
 
 	"github.com/coocood/badger"
-	"github.com/pingcap-incubator/tinykv/kv/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/raft"
 	"github.com/stretchr/testify/assert"
@@ -45,8 +44,9 @@ func newTestPeerStorageFromEnts(t *testing.T, ents []eraftpb.Entry) *PeerStorage
 }
 
 func cleanUpTestData(peerStore *PeerStorage) {
-	os.RemoveAll(peerStore.Engines.KvPath)
-	os.RemoveAll(peerStore.Engines.RaftPath)
+	if err := peerStore.Engines.Destroy(); err != nil {
+		panic(err)
+	}
 }
 
 func newTestEntry(index, term uint64) eraftpb.Entry {

@@ -150,6 +150,7 @@ func (rs *RawScan) BuildTxn(txn *kvstore.MvccTxn) error {
 	pairs := make([]*kvrpcpb.KvPair, 0)
 
 	it := txn.Reader.IterCF(rs.request.Cf)
+	defer it.Close()
 	for it.Seek(rs.request.StartKey); it.Valid() && len(pairs) < int(rs.request.Limit); it.Next() {
 		item := it.Item()
 		key := item.KeyCopy(nil)

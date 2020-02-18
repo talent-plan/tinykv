@@ -36,12 +36,6 @@ func nextEnts(r *Raft, s *MemoryStorage) (ents []pb.Entry) {
 	return ents
 }
 
-func mustAppendEntry(r *Raft, ents ...pb.Entry) {
-	if !r.appendEntry(ents...) {
-		panic("entry unexpectedly dropped")
-	}
-}
-
 type stateMachine interface {
 	Step(m pb.Message) error
 	readMessages() []pb.Message
@@ -141,85 +135,6 @@ func TestProgressLeader(t *testing.T) {
 		if err := r.Step(propMsg); err != nil {
 			t.Fatalf("proposal resulted in error: %v", err)
 		}
-	}
-}
-
-func TestUncommittedEntryLimit(t *testing.T) {
-	// Use a relatively large number of entries here to prevent regression of a
-	// bug which computed the size before it was fixed. This test would fail
-	// with the bug, either because we'd get dropped proposals earlier than we
-	// expect them, or because the final tally ends up nonzero. (At the time of
-	// writing, the former).
-	const maxEntries = 1024
-	testEntry := pb.Entry{Data: []byte("testdata")}
-	maxEntrySize := maxEntries * PayloadSize(&testEntry)
-
-	cfg := newTestConfig(1, []uint64{1, 2, 3}, 5, 1, NewMemoryStorage())
-	cfg.MaxUncommittedEntriesSize = uint64(maxEntrySize)
-	r := newRaft(cfg)
-	r.becomeCandidate()
-	r.becomeLeader()
-	if n := r.uncommittedSize; n != 0 {
-		t.Fatalf("expected zero uncommitted size, got %d bytes", n)
-	}
-
-	// Set the two followers to the replicate state. Commit to tail of log.
-	const numFollowers = 2
-	r.uncommittedSize = 0
-
-	// Send proposals to r1. The first 5 entries should be appended to the log.
-	propMsg := pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{&testEntry}}
-	propEnts := make([]pb.Entry, maxEntries)
-	for i := 0; i < maxEntries; i++ {
-		if err := r.Step(propMsg); err != nil {
-			t.Fatalf("proposal resulted in error: %v", err)
-		}
-		propEnts[i] = testEntry
-	}
-
-	// Send one more proposal to r1. It should be rejected.
-	if err := r.Step(propMsg); err != ErrProposalDropped {
-		t.Fatalf("proposal not dropped: %v", err)
-	}
-
-	// Read messages and reduce the uncommitted size as if we had committed
-	// these entries.
-	ms := r.readMessages()
-	if e := maxEntries * numFollowers; len(ms) != e {
-		t.Fatalf("expected %d messages, got %d", e, len(ms))
-	}
-	r.reduceUncommittedSize(propEnts)
-	if r.uncommittedSize != 0 {
-		t.Fatalf("committed everything, but still tracking %d", r.uncommittedSize)
-	}
-
-	// Send a single large proposal to r1. Should be accepted even though it
-	// pushes us above the limit because we were beneath it before the proposal.
-	propEnts = make([]pb.Entry, 2*maxEntries)
-	propEntsLarge := make([]*pb.Entry, 2*maxEntries)
-	for i := range propEnts {
-		propEnts[i] = testEntry
-		propEntsLarge[i] = &testEntry
-	}
-	propMsgLarge := pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: propEntsLarge}
-	if err := r.Step(propMsgLarge); err != nil {
-		t.Fatalf("proposal resulted in error: %v", err)
-	}
-
-	// Send one more proposal to r1. It should be rejected, again.
-	if err := r.Step(propMsg); err != ErrProposalDropped {
-		t.Fatalf("proposal not dropped: %v", err)
-	}
-
-	// Read messages and reduce the uncommitted size as if we had committed
-	// these entries.
-	ms = r.readMessages()
-	if e := 1 * numFollowers; len(ms) != e {
-		t.Fatalf("expected %d messages, got %d", e, len(ms))
-	}
-	r.reduceUncommittedSize(propEnts)
-	if n := r.uncommittedSize; n != 0 {
-		t.Fatalf("expected zero uncommitted size, got %d", n)
 	}
 }
 
@@ -348,7 +263,7 @@ func TestLeaderElectionOverwriteNewerLogs(t *testing.T) {
 func TestVoteFromAnyState(t *testing.T) {
 	vt := pb.MessageType_MsgRequestVote
 	vt_resp := pb.MessageType_MsgRequestVoteResponse
-	for st := StateType(0); st < numStates; st++ {
+	for st := StateType(0); st <= StateLeader; st++ {
 		r := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
 		r.Term = 1
 
@@ -1402,8 +1317,8 @@ func TestLeaderAppResp(t *testing.T) {
 		windex     uint64
 		wcommitted uint64
 	}{
-		{2, true, 0, 4, 1, 1, 0},  // denied resp; leader does not commit; optimistic update next after sended append msg
-		{2, false, 2, 4, 2, 2, 2}, // accept resp; leader commits; broadcast with commit index
+		{2, true, 0, 2, 1, 1, 0},  // denied resp; leader does not commit;
+		{2, false, 2, 3, 2, 2, 2}, // accept resp; leader commits; broadcast with commit index
 		{0, false, 0, 3, 0, 0, 0}, // ignore heartbeat replies
 	}
 
@@ -1464,7 +1379,7 @@ func TestBcastBeat(t *testing.T) {
 	sm.becomeCandidate()
 	sm.becomeLeader()
 	for i := 0; i < 10; i++ {
-		mustAppendEntry(sm, pb.Entry{Index: uint64(i) + 1})
+		sm.appendEntry(pb.Entry{Index: uint64(i) + 1})
 	}
 	// slow follower
 	sm.Prs[2].Match, sm.Prs[2].Next = 5, 6
@@ -1545,16 +1460,15 @@ func TestRecvMessageType_MsgBeat(t *testing.T) {
 
 func TestLeaderIncreaseNext(t *testing.T) {
 	previousEnts := []pb.Entry{{Term: 1, Index: 1}, {Term: 1, Index: 2}, {Term: 1, Index: 3}}
-	next := uint64(len(previousEnts))
 	// previous entries + noop entry + propose + 1
 	wnext := uint64(len(previousEnts)) + 1 + 1 + 1
 
 	sm := newTestRaft(1, []uint64{1, 2}, 10, 1, NewMemoryStorage())
 	sm.RaftLog.append(previousEnts...)
-	sm.becomeCandidate()
-	sm.becomeLeader()
-	sm.Prs[2].Next = next
-	sm.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: []byte("somedata")}}})
+	nt := newNetwork(sm, nil, nil)
+	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
+
+	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: []byte("somedata")}}})
 
 	p := sm.Prs[2]
 	if p.Next != wnext {
@@ -1738,7 +1652,7 @@ func TestStepIgnoreConfig(t *testing.T) {
 	pendingConfIndex := r.PendingConfIndex
 	r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{EntryType: pb.EntryType_EntryConfChange}}})
 	wents := []pb.Entry{{EntryType: pb.EntryType_EntryNormal, Term: 1, Index: 3, Data: nil}}
-	ents, err := r.RaftLog.Entries(index+1, noLimit)
+	ents, err := r.RaftLog.Entries(index + 1)
 	if err != nil {
 		t.Fatalf("unexpected error %v", err)
 	}
@@ -1763,7 +1677,7 @@ func TestNewLeaderPendingConfig(t *testing.T) {
 	for i, tt := range tests {
 		r := newTestRaft(1, []uint64{1, 2}, 10, 1, NewMemoryStorage())
 		if tt.addEntry {
-			mustAppendEntry(r, pb.Entry{EntryType: pb.EntryType_EntryNormal})
+			r.appendEntry(pb.Entry{EntryType: pb.EntryType_EntryNormal})
 		}
 		r.becomeCandidate()
 		r.becomeLeader()
@@ -2491,7 +2405,7 @@ func newTestConfig(id uint64, peers []uint64, election, heartbeat int, storage S
 		ElectionTick:  election,
 		HeartbeatTick: heartbeat,
 		Storage:       storage,
-		MaxSizePerMsg: noLimit,
+		MaxEntsSize:   noLimit,
 	}
 }
 

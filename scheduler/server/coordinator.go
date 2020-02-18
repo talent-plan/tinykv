@@ -113,7 +113,7 @@ func (c *coordinator) patrolRegions() {
 
 			key = region.GetEndKey()
 			if ops != nil {
-				c.opController.AddWaitingOperator(ops...)
+				c.opController.AddOperator(ops...)
 			}
 		}
 	}
@@ -326,7 +326,7 @@ func (c *coordinator) runScheduler(s *scheduleController) {
 				continue
 			}
 			if op := s.Schedule(); op != nil {
-				c.opController.AddWaitingOperator(op...)
+				c.opController.AddOperator(op...)
 			}
 
 		case <-s.Ctx().Done():

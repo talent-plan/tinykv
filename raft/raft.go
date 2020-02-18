@@ -36,7 +36,6 @@ const (
 	StateFollower StateType = iota
 	StateCandidate
 	StateLeader
-	numStates
 )
 
 // Possible values for CampaignType
@@ -122,36 +121,13 @@ type Config struct {
 	// applied entries. This is a very application dependent configuration.
 	Applied uint64
 
-	// MaxSizePerMsg limits the max byte size of each append message. Smaller
-	// value lowers the raft recovery cost(initial probing and message lost
-	// during normal operation). On the other side, it might affect the
-	// throughput during normal replication. Note: math.MaxUint64 for unlimited,
-	// 0 for at most one entry per message.
-	MaxSizePerMsg uint64
-	// MaxCommittedSizePerReady limits the size of the committed entries which
-	// can be applied.
-	MaxCommittedSizePerReady uint64
-	// MaxUncommittedEntriesSize limits the aggregate byte size of the
-	// uncommitted entries that may be appended to a leader's log. Once this
-	// limit is exceeded, proposals will begin to return ErrProposalDropped
-	// errors. Note: 0 for no limit.
-	MaxUncommittedEntriesSize uint64
-
-	skipBcastCommit bool
+	// MaxEntsSize limits the maximum number aggregate byte size of the entries
+	// returned from RaftLog.
+	MaxEntsSize uint64
 
 	// Logger is the logger used for raft log. For multinode which can host
 	// multiple raft group, each raft group can have its own logger
 	Logger Logger
-
-	// DisableProposalForwarding set to true means that followers will drop
-	// proposals, rather than forwarding them to the leader. One use case for
-	// this feature would be in a situation where the Raft leader is used to
-	// compute the data of a proposal, for example, adding a timestamp from a
-	// hybrid logical clock to data in a monotonically increasing way. Forwarding
-	// should be disabled to prevent a follower with an inaccurate hybrid
-	// logical clock from assigning the timestamp and then forwarding the data
-	// to the leader.
-	DisableProposalForwarding bool
 }
 
 func (c *Config) validate() error {
@@ -171,14 +147,8 @@ func (c *Config) validate() error {
 		return errors.New("storage cannot be nil")
 	}
 
-	if c.MaxUncommittedEntriesSize == 0 {
-		c.MaxUncommittedEntriesSize = noLimit
-	}
-
-	// default MaxCommittedSizePerReady to MaxSizePerMsg because they were
-	// previously the same parameter.
-	if c.MaxCommittedSizePerReady == 0 {
-		c.MaxCommittedSizePerReady = c.MaxSizePerMsg
+	if c.MaxEntsSize == 0 {
+		c.MaxEntsSize = noLimit
 	}
 
 	if c.Logger == nil {
@@ -197,10 +167,7 @@ type Raft struct {
 	// the log
 	RaftLog *RaftLog
 
-	maxMsgSize         uint64
-	maxUncommittedSize uint64
-	Prs                map[uint64]*Progress
-	matchBuf           uint64Slice
+	Prs map[uint64]*Progress
 
 	State StateType
 
@@ -234,10 +201,6 @@ type Raft struct {
 	//
 	// **Use `Raft::set_pending_membership_change()` to change this value.**
 	pendingMembershipChange *pb.ConfChange
-	// an estimate of the size of the uncommitted tail of the Raft log. Used to
-	// prevent unbounded log growth. Only maintained by the leader. Reset on
-	// term changes.
-	uncommittedSize uint64
 
 	// number of ticks since it reached last electionTimeout when it is leader
 	// or candidate.
@@ -249,15 +212,12 @@ type Raft struct {
 	// only leader keeps heartbeatElapsed.
 	heartbeatElapsed int
 
-	skipBcastCommit bool
-
 	heartbeatTimeout int
 	electionTimeout  int
 	// randomizedElectionTimeout is a random number between
 	// [electiontimeout, 2 * electiontimeout - 1]. It gets reset
 	// when raft changes its state to follower or candidate.
 	randomizedElectionTimeout int
-	disableProposalForwarding bool
 
 	tick func()
 	step stepFunc
@@ -269,7 +229,7 @@ func newRaft(c *Config) *Raft {
 	if err := c.validate(); err != nil {
 		panic(err.Error())
 	}
-	raftlog := newLogWithSize(c.Storage, c.Logger, c.MaxCommittedSizePerReady)
+	raftlog := newLogWithSize(c.Storage, c.Logger, c.MaxEntsSize)
 	hs, cs, err := c.Storage.InitialState()
 	if err != nil {
 		panic(err) // TODO(bdarnell)
@@ -285,23 +245,19 @@ func newRaft(c *Config) *Raft {
 		peers = cs.Nodes
 	}
 	r := &Raft{
-		id:                        c.ID,
-		Lead:                      None,
-		RaftLog:                   raftlog,
-		maxMsgSize:                c.MaxSizePerMsg,
-		maxUncommittedSize:        c.MaxUncommittedEntriesSize,
-		Prs:                       make(map[uint64]*Progress),
-		electionTimeout:           c.ElectionTick,
-		heartbeatTimeout:          c.HeartbeatTick,
-		logger:                    c.Logger,
-		skipBcastCommit:           c.skipBcastCommit,
-		disableProposalForwarding: c.DisableProposalForwarding,
+		id:               c.ID,
+		Lead:             None,
+		RaftLog:          raftlog,
+		Prs:              make(map[uint64]*Progress),
+		electionTimeout:  c.ElectionTick,
+		heartbeatTimeout: c.HeartbeatTick,
+		logger:           c.Logger,
 	}
 	for _, p := range peers {
 		r.Prs[p] = &Progress{Next: 1}
 	}
 
-	if !isHardStateEqual(hs, emptyState) {
+	if !IsEmptyHardState(hs) {
 		r.loadState(hs)
 	}
 	if c.Applied > 0 {
@@ -321,10 +277,6 @@ func newRaft(c *Config) *Raft {
 
 func (r *Raft) GetSnap() *pb.Snapshot {
 	return r.RaftLog.unstable.snapshot
-}
-
-func (r *Raft) SkipBcastCommit(skip bool) {
-	r.skipBcastCommit = skip
 }
 
 func (r *Raft) hasLeader() bool { return r.Lead != None }
@@ -399,7 +351,7 @@ func (r *Raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 	m.To = to
 
 	term, errt := r.RaftLog.Term(pr.Next - 1)
-	ents, erre := r.RaftLog.Entries(pr.Next, r.maxMsgSize)
+	ents, erre := r.RaftLog.Entries(pr.Next)
 	if len(ents) == 0 && !sendIfEmpty {
 		return false
 	}
@@ -433,10 +385,6 @@ func (r *Raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 		}
 		m.Entries = entries
 		m.Commit = r.RaftLog.committed
-		if n := len(m.Entries); n != 0 {
-			last := m.Entries[n-1].Index
-			pr.optimisticUpdate(last)
-		}
 	}
 	r.send(m)
 	return true
@@ -492,19 +440,14 @@ func (r *Raft) bcastHeartbeat() {
 // the commit index changed (in which case the caller should call
 // r.bcastAppend).
 func (r *Raft) maybeCommit() bool {
-	// Preserving matchBuf across calls is an optimization
-	// used to avoid allocating a new slice on each call.
-	if cap(r.matchBuf) < len(r.Prs) {
-		r.matchBuf = make(uint64Slice, len(r.Prs))
-	}
-	mis := r.matchBuf[:len(r.Prs)]
+	matchIndex := make(uint64Slice, len(r.Prs))
 	idx := 0
 	for _, p := range r.Prs {
-		mis[idx] = p.Match
+		matchIndex[idx] = p.Match
 		idx++
 	}
-	sort.Sort(mis)
-	mci := mis[len(mis)-r.quorum()]
+	sort.Sort(matchIndex)
+	mci := matchIndex[len(matchIndex)-r.quorum()]
 	return r.RaftLog.maybeCommit(mci, r.Term)
 }
 
@@ -530,30 +473,19 @@ func (r *Raft) reset(term uint64) {
 	})
 
 	r.PendingConfIndex = 0
-	r.uncommittedSize = 0
 }
 
-func (r *Raft) appendEntry(es ...pb.Entry) (accepted bool) {
+func (r *Raft) appendEntry(es ...pb.Entry) {
 	li := r.RaftLog.LastIndex()
 	for i := range es {
 		es[i].Term = r.Term
 		es[i].Index = li + 1 + uint64(i)
-	}
-	// Track the size of this uncommitted proposal.
-	if !r.increaseUncommittedSize(es) {
-		r.logger.Debugf(
-			"%x appending new entries to log would exceed uncommitted entry size limit; dropping proposal",
-			r.id,
-		)
-		// Drop the proposal.
-		return false
 	}
 	// use latest "last" index after truncate/append
 	li = r.RaftLog.append(es...)
 	r.getProgress(r.id).maybeUpdate(li)
 	// Regardless of maybeCommit's return, our caller will call bcastAppend.
 	r.maybeCommit()
-	return true
 }
 
 // tickElection is run by followers and candidates after r.electionTimeout.
@@ -630,15 +562,7 @@ func (r *Raft) becomeLeader() {
 	r.PendingConfIndex = r.RaftLog.LastIndex()
 
 	emptyEnt := pb.Entry{Data: nil}
-	if !r.appendEntry(emptyEnt) {
-		// This won't happen because we just called reset() above.
-		r.logger.Panic("empty entry was dropped")
-	}
-	// As a special case, don't count the initial empty entry towards the
-	// uncommitted log quota. This is because we want to preserve the
-	// behavior of allowing one entry larger than quota if the current
-	// usage is zero.
-	r.reduceUncommittedSize([]pb.Entry{emptyEnt})
+	r.appendEntry(emptyEnt)
 	r.logger.Infof("%x became leader at term %d", r.id, r.Term)
 }
 
@@ -789,9 +713,8 @@ func stepLeader(r *Raft, m pb.Message) error {
 		for _, e := range m.Entries {
 			es = append(es, *e)
 		}
-		if !r.appendEntry(es...) {
-			return ErrProposalDropped
-		}
+
+		r.appendEntry(es...)
 		r.bcastAppend()
 		return nil
 	}
@@ -814,9 +737,7 @@ func stepLeader(r *Raft, m pb.Message) error {
 			if pr.maybeUpdate(m.Index) {
 
 				if r.maybeCommit() {
-					if r.ShouldBcastCommit() {
-						r.bcastAppend()
-					}
+					r.bcastAppend()
 				}
 				// Transfer leadership is in progress.
 				if m.From == r.leadTransferee && pr.Match == r.RaftLog.LastIndex() {
@@ -830,8 +751,6 @@ func stepLeader(r *Raft, m pb.Message) error {
 			r.sendAppend(m.From)
 		}
 	case pb.MessageType_MsgSnapStatus:
-	case pb.MessageType_MsgUnreachable:
-		r.logger.Debugf("%x failed to send message to %x because it is unreachable [%s]", r.id, m.From, pr)
 	case pb.MessageType_MsgTransferLeader:
 		leadTransferee := m.From
 		lastLeadTransferee := r.leadTransferee
@@ -899,9 +818,6 @@ func stepFollower(r *Raft, m pb.Message) error {
 	case pb.MessageType_MsgPropose:
 		if r.Lead == None {
 			r.logger.Infof("%x no leader at term %d; dropping proposal", r.id, r.Term)
-			return ErrProposalDropped
-		} else if r.disableProposalForwarding {
-			r.logger.Infof("%x not forwarding to leader %x at term %d; dropping proposal", r.id, r.Lead, r.Term)
 			return ErrProposalDropped
 		}
 		m.To = r.Lead
@@ -1010,10 +926,6 @@ func (r *Raft) hasPendingConf() bool {
 	return r.PendingConfIndex > r.RaftLog.applied || r.pendingMembershipChange != nil
 }
 
-func (r *Raft) ShouldBcastCommit() bool {
-	return !r.skipBcastCommit || r.hasPendingConf()
-}
-
 // promotable indicates whether state machine can be promoted to Leader,
 // which is true when its own id is in progress list.
 func (r *Raft) promotable() bool {
@@ -1083,49 +995,6 @@ func (r *Raft) sendTimeoutNow(to uint64) {
 
 func (r *Raft) abortLeaderTransfer() {
 	r.leadTransferee = None
-}
-
-// increaseUncommittedSize computes the size of the proposed entries and
-// determines whether they would push leader over its maxUncommittedSize limit.
-// If the new entries would exceed the limit, the method returns false. If not,
-// the increase in uncommitted entry size is recorded and the method returns
-// true.
-func (r *Raft) increaseUncommittedSize(ents []pb.Entry) bool {
-	var s uint64
-	for _, e := range ents {
-		s += uint64(PayloadSize(&e))
-	}
-
-	if r.uncommittedSize > 0 && r.uncommittedSize+s > r.maxUncommittedSize {
-		// If the uncommitted tail of the Raft log is empty, allow any size
-		// proposal. Otherwise, limit the size of the uncommitted tail of the
-		// log and drop any proposal that would push the size over the limit.
-		return false
-	}
-	r.uncommittedSize += s
-	return true
-}
-
-// reduceUncommittedSize accounts for the newly committed entries by decreasing
-// the uncommitted entry size limit.
-func (r *Raft) reduceUncommittedSize(ents []pb.Entry) {
-	if r.uncommittedSize == 0 {
-		// Fast-path for followers, who do not track or enforce the limit.
-		return
-	}
-
-	var s uint64
-	for _, e := range ents {
-		s += uint64(PayloadSize(&e))
-	}
-	if s > r.uncommittedSize {
-		// uncommittedSize may underestimate the size of the uncommitted Raft
-		// log tail but will never overestimate it. Saturate at 0 instead of
-		// allowing overflow.
-		r.uncommittedSize = 0
-	} else {
-		r.uncommittedSize -= s
-	}
 }
 
 func numOfPendingConf(ents []pb.Entry) int {

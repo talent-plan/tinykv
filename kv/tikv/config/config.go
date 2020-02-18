@@ -27,7 +27,7 @@ type Config struct {
 	RaftElectionTimeoutTicks    int
 	RaftMinElectionTimeoutTicks int
 	RaftMaxElectionTimeoutTicks int
-	RaftMaxSizePerMsg           uint64
+	RaftMaxEntsSize             uint64
 	RaftMaxInflightMsgs         int
 
 	// When the entry exceed the max size, reject to propose it.
@@ -103,10 +103,6 @@ type Config struct {
 }
 
 type SplitCheckConfig struct {
-	// For once split check, there are several splitKey produced for batch.
-	// batchSplitLimit limits the number of produced split-key for one batch.
-	BatchSplitLimit uint64
-
 	// When region [a,e) size meets regionMaxSize, it will be split into
 	// several regions [a,b), [b,c), [c,d), [d,e). And the size of [a,b),
 	// [b,c), [c,d) will be regionSplitSize (maybe a little larger).
@@ -129,7 +125,7 @@ func NewDefaultConfig() *Config {
 		RaftElectionTimeoutTicks:    10,
 		RaftMinElectionTimeoutTicks: 0,
 		RaftMaxElectionTimeoutTicks: 0,
-		RaftMaxSizePerMsg:           1 * MB,
+		RaftMaxEntsSize:             1 * MB,
 		RaftMaxInflightMsgs:         256,
 		RaftEntryMaxSize:            8 * MB,
 		RaftLogGCTickInterval:       10 * time.Second,
@@ -180,7 +176,6 @@ const (
 func NewDefaultSplitCheckConfig() *SplitCheckConfig {
 	splitSize := splitSizeMB * MB
 	return &SplitCheckConfig{
-		BatchSplitLimit: batchSplitLimit,
 		RegionSplitSize: splitSize,
 		RegionMaxSize:   splitSize / 2 * 3,
 	}

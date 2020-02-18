@@ -1210,39 +1210,6 @@ func (s *testClusterInfoSuite) TestHeartbeatSplit(c *C) {
 	checkRegion(c, cluster.GetRegionInfoByKey([]byte("n")), region3)
 }
 
-func (s *testClusterInfoSuite) TestRegionSplitAndMerge(c *C) {
-	_, opt, err := newTestScheduleConfig()
-	c.Assert(err, IsNil)
-	cluster := createTestRaftCluster(mockid.NewIDAllocator(), opt, core.NewStorage(kv.NewMemoryKV()))
-
-	regions := []*core.RegionInfo{core.NewTestRegionInfo([]byte{}, []byte{})}
-
-	// Byte will underflow/overflow if n > 7.
-	n := 7
-
-	// Split.
-	for i := 0; i < n; i++ {
-		regions = core.SplitRegions(regions)
-		heartbeatRegions(c, cluster, regions)
-	}
-
-	// Merge.
-	for i := 0; i < n; i++ {
-		regions = core.MergeRegions(regions)
-		heartbeatRegions(c, cluster, regions)
-	}
-
-	// Split twice and merge once.
-	for i := 0; i < n*2; i++ {
-		if (i+1)%3 == 0 {
-			regions = core.MergeRegions(regions)
-		} else {
-			regions = core.SplitRegions(regions)
-		}
-		heartbeatRegions(c, cluster, regions)
-	}
-}
-
 func (s *testClusterInfoSuite) TestUpdateStorePendingPeerCount(c *C) {
 	_, opt, err := newTestScheduleConfig()
 	c.Assert(err, IsNil)
