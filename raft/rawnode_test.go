@@ -17,17 +17,26 @@ package raft
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"reflect"
 	"testing"
 
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
+type ignoreSizeHintMemStorage struct {
+	*MemoryStorage
+}
+
+func (s *ignoreSizeHintMemStorage) Entries(lo, hi uint64, maxSize uint64) ([]pb.Entry, error) {
+	return s.MemoryStorage.Entries(lo, hi, math.MaxUint64)
+}
+
 // TestRawNodeStep ensures that RawNode.Step ignore local message.
 func TestRawNodeStep(t *testing.T) {
 	for i, msgn := range pb.MessageType_name {
 		s := NewMemoryStorage()
-		rawNode, err := NewRawNode(newTestConfig(1, nil, 10, 1, s), []Peer{{ID: 1}})
+		rawNode, err := NewRawNode(newTestConfig(1, []uint64{1}, 10, 1, s))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -54,7 +63,7 @@ func TestRawNodeStep(t *testing.T) {
 func TestRawNodeProposeAndConfChange(t *testing.T) {
 	s := NewMemoryStorage()
 	var err error
-	rawNode, err := NewRawNode(newTestConfig(1, nil, 10, 1, s), []Peer{{ID: 1}})
+	rawNode, err := NewRawNode(newTestConfig(1, []uint64{1}, 10, 1, s))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +74,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		rawNode.AdvanceApply(idx)
 	}
 
-	if d := rawNode.Ready(); d.MustSync || !IsEmptyHardState(d.HardState) || len(d.Entries) > 0 {
+	if d := rawNode.Ready(); !IsEmptyHardState(d.HardState) || len(d.Entries) > 0 {
 		t.Fatalf("expected empty hard state with must-sync=false: %#v", d)
 	}
 
@@ -129,7 +138,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 // not affect the later propose to add new node.
 func TestRawNodeProposeAddDuplicateNode(t *testing.T) {
 	s := NewMemoryStorage()
-	rawNode, err := NewRawNode(newTestConfig(1, nil, 10, 1, s), []Peer{{ID: 1}})
+	rawNode, err := NewRawNode(newTestConfig(1, []uint64{1}, 10, 1, s))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,18 +250,16 @@ func TestRawNodeStart(t *testing.T) {
 			CommittedEntries: []pb.Entry{
 				{EntryType: pb.EntryType_EntryConfChange, Term: 1, Index: 1, Data: ccdata},
 			},
-			MustSync: true,
 		},
 		{
 			HardState:        pb.HardState{Term: 2, Commit: 3, Vote: 1},
 			Entries:          []pb.Entry{{Term: 2, Index: 3, Context: []byte(""), Data: []byte("foo")}},
 			CommittedEntries: []pb.Entry{{Term: 2, Index: 3, Context: []byte(""), Data: []byte("foo")}},
-			MustSync:         true,
 		},
 	}
 
 	storage := NewMemoryStorage()
-	rawNode, err := NewRawNode(newTestConfig(1, nil, 10, 1, storage), []Peer{{ID: 1}})
+	rawNode, err := NewRawNode(newTestConfig(1, []uint64{1}, 10, 1, storage))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,16 +312,15 @@ func TestRawNodeRestart(t *testing.T) {
 	st := pb.HardState{Term: 1, Commit: 1}
 
 	want := Ready{
-		HardState: emptyState,
+		HardState: pb.HardState{},
 		// commit up to commit index in st
 		CommittedEntries: entries[:st.Commit],
-		MustSync:         false,
 	}
 
 	storage := NewMemoryStorage()
 	storage.SetHardState(st)
 	storage.Append(entries)
-	rawNode, err := NewRawNode(newTestConfig(1, nil, 10, 1, storage), nil)
+	rawNode, err := NewRawNode(newTestConfig(1, nil, 10, 1, storage))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,17 +351,16 @@ func TestRawNodeRestartFromSnapshot(t *testing.T) {
 	st := pb.HardState{Term: 1, Commit: 3}
 
 	want := Ready{
-		HardState: emptyState,
+		HardState: pb.HardState{},
 		// commit up to commit index in st
 		CommittedEntries: entries,
-		MustSync:         false,
 	}
 
 	s := NewMemoryStorage()
 	s.SetHardState(st)
 	s.ApplySnapshot(snap)
 	s.Append(entries)
-	rawNode, err := NewRawNode(newTestConfig(1, nil, 10, 1, s), nil)
+	rawNode, err := NewRawNode(newTestConfig(1, nil, 10, 1, s))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,7 +382,7 @@ func TestRawNodeRestartFromSnapshot(t *testing.T) {
 
 func TestRawNodeStatus(t *testing.T) {
 	storage := NewMemoryStorage()
-	rawNode, err := NewRawNode(newTestConfig(1, nil, 10, 1, storage), []Peer{{ID: 1}})
+	rawNode, err := NewRawNode(newTestConfig(1, []uint64{1}, 10, 1, storage))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,10 +433,10 @@ func TestRawNodeCommitPaginationAfterRestart(t *testing.T) {
 	}
 
 	cfg := newTestConfig(1, []uint64{1}, 10, 1, s)
-	// Set a MaxSizePerMsg that would suggest to Raft that the last committed entry should
+	// Set a MaxEntsSize that would suggest to Raft that the last committed entry should
 	// not be included in the initial rd.CommittedEntries. However, our storage will ignore
 	// this and *will* return it (which is how the Commit index ended up being 10 initially).
-	cfg.MaxSizePerMsg = size - uint64(s.ents[len(s.ents)-1].Size()) - 1
+	cfg.MaxEntsSize = size - uint64(s.ents[len(s.ents)-1].Size()) - 1
 
 	s.ents = append(s.ents, pb.Entry{
 		Term:      1,
@@ -440,7 +445,7 @@ func TestRawNodeCommitPaginationAfterRestart(t *testing.T) {
 		Data:      []byte("boom"),
 	})
 
-	rawNode, err := NewRawNode(cfg, []Peer{{ID: 1}})
+	rawNode, err := NewRawNode(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

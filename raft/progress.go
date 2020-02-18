@@ -36,8 +36,6 @@ func (pr *Progress) maybeUpdate(n uint64) bool {
 	return updated
 }
 
-func (pr *Progress) optimisticUpdate(n uint64) { pr.Next = n + 1 }
-
 // maybeDecrTo returns false if the given to index comes from an out of order message.
 // Otherwise it decreases the progress next index to min(rejected, last) and returns true.
 func (pr *Progress) maybeDecrTo(rejected, last uint64) bool {

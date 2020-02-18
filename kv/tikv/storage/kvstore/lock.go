@@ -54,3 +54,23 @@ func (lock *Lock) IsLockedFor(key []byte, txnStartTs uint64) bool {
 	}
 	return lock.TS <= txnStartTs
 }
+
+// LockedError occurs when a key or keys are locked. The protobuf representation of the locked keys is stored as Info.
+type LockedError struct {
+	Info []kvrpcpb.LockInfo
+}
+
+func (err *LockedError) Error() string {
+	return fmt.Sprintf("storage: %d keys are locked", len(err.Info))
+}
+
+// KeyErrors converts a LockedError to an array of KeyErrors for sending to the client.
+func (err *LockedError) KeyErrors() []*kvrpcpb.KeyError {
+	var result []*kvrpcpb.KeyError
+	for _, i := range err.Info {
+		var ke kvrpcpb.KeyError
+		ke.Locked = &i
+		result = append(result, &ke)
+	}
+	return result
+}

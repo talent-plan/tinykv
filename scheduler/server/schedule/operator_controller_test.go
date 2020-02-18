@@ -74,16 +74,6 @@ func (t *testOperatorControllerSuite) TestGetOpInfluence(c *C) {
 			}
 		}
 	}(t.ctx)
-	go func(ctx context.Context) {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				oc.GetOpInfluence(tc)
-			}
-		}
-	}(t.ctx)
 	time.Sleep(1 * time.Second)
 	c.Assert(oc.GetOperator(2), NotNil)
 }
@@ -187,43 +177,6 @@ func (t *testOperatorControllerSuite) TestPollDispatchRegion(c *C) {
 	r, next = oc.pollNeedDispatchRegion()
 	c.Assert(r, IsNil)
 	c.Assert(next, IsFalse)
-}
-
-func (t *testOperatorControllerSuite) TestStoreLimit(c *C) {
-	opt := mockoption.NewScheduleOptions()
-	tc := mockcluster.NewCluster(opt)
-	oc := NewOperatorController(t.ctx, tc, mockhbstream.NewHeartbeatStream())
-	tc.AddLeaderStore(1, 0)
-	tc.UpdateLeaderCount(1, 1000)
-	tc.AddLeaderStore(2, 0)
-	for i := uint64(1); i <= 1000; i++ {
-		tc.AddLeaderRegion(i, i)
-	}
-	oc.SetStoreLimit(2, 1)
-	for i := uint64(1); i <= 5; i++ {
-		op := operator.NewOperator("test", "test", 1, &metapb.RegionEpoch{}, operator.OpRegion, operator.AddPeer{ToStore: 2, PeerID: i})
-		c.Assert(oc.AddOperator(op), IsTrue)
-		c.Assert(oc.RemoveOperator(op), IsTrue)
-	}
-	op := operator.NewOperator("test", "test", 1, &metapb.RegionEpoch{}, operator.OpRegion, operator.AddPeer{ToStore: 2, PeerID: 1})
-	c.Assert(oc.AddOperator(op), IsFalse)
-	c.Assert(oc.RemoveOperator(op), IsFalse)
-
-	oc.SetStoreLimit(2, 2)
-	for i := uint64(1); i <= 10; i++ {
-		op = operator.NewOperator("test", "test", i, &metapb.RegionEpoch{}, operator.OpRegion, operator.AddPeer{ToStore: 2, PeerID: i})
-		c.Assert(oc.AddOperator(op), IsTrue)
-		c.Assert(oc.RemoveOperator(op), IsTrue)
-	}
-	oc.SetAllStoresLimit(1)
-	for i := uint64(1); i <= 5; i++ {
-		op = operator.NewOperator("test", "test", i, &metapb.RegionEpoch{}, operator.OpRegion, operator.AddPeer{ToStore: 2, PeerID: i})
-		c.Assert(oc.AddOperator(op), IsTrue)
-		c.Assert(oc.RemoveOperator(op), IsTrue)
-	}
-	op = operator.NewOperator("test", "test", 1, &metapb.RegionEpoch{}, operator.OpRegion, operator.AddPeer{ToStore: 2, PeerID: 1})
-	c.Assert(oc.AddOperator(op), IsFalse)
-	c.Assert(oc.RemoveOperator(op), IsFalse)
 }
 
 // #1652

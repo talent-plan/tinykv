@@ -14,7 +14,6 @@
 package filter
 
 import (
-	"github.com/pingcap-incubator/tinykv/scheduler/pkg/cache"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/slice"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/opt"
@@ -107,29 +106,6 @@ func (f *excludedFilter) Source(opt opt.Options, store *core.StoreInfo) bool {
 func (f *excludedFilter) Target(opt opt.Options, store *core.StoreInfo) bool {
 	_, ok := f.targets[store.GetID()]
 	return ok
-}
-
-type storeLimitFilter struct{ scope string }
-
-// NewStoreLimitFilter creates a Filter that filters all stores those exceed the limit of a store.
-func NewStoreLimitFilter(scope string) Filter {
-	return &storeLimitFilter{scope: scope}
-}
-
-func (f *storeLimitFilter) Scope() string {
-	return f.scope
-}
-
-func (f *storeLimitFilter) Type() string {
-	return "store-limit-filter"
-}
-
-func (f *storeLimitFilter) Source(opt opt.Options, store *core.StoreInfo) bool {
-	return !store.IsAvailable()
-}
-
-func (f *storeLimitFilter) Target(opt opt.Options, store *core.StoreInfo) bool {
-	return !store.IsAvailable()
 }
 
 type stateFilter struct{ scope string }
@@ -244,32 +220,6 @@ func (f *snapshotCountFilter) Source(opt opt.Options, store *core.StoreInfo) boo
 
 func (f *snapshotCountFilter) Target(opt opt.Options, store *core.StoreInfo) bool {
 	return f.filter(opt, store)
-}
-
-type cacheFilter struct {
-	scope string
-	cache *cache.TTLUint64
-}
-
-// NewCacheFilter creates a Filter that filters all stores that are in the cache.
-func NewCacheFilter(scope string, cache *cache.TTLUint64) Filter {
-	return &cacheFilter{scope: scope, cache: cache}
-}
-
-func (f *cacheFilter) Scope() string {
-	return f.scope
-}
-
-func (f *cacheFilter) Type() string {
-	return "cache-filter"
-}
-
-func (f *cacheFilter) Source(opt opt.Options, store *core.StoreInfo) bool {
-	return f.cache.Exists(store.GetID())
-}
-
-func (f *cacheFilter) Target(opt opt.Options, store *core.StoreInfo) bool {
-	return false
 }
 
 type storageThresholdFilter struct{ scope string }
@@ -420,67 +370,4 @@ func (f StoreStateFilter) filterMoveRegion(opt opt.Options, store *core.StoreInf
 		return true
 	}
 	return false
-}
-
-// BlacklistType the type of BlackListStore Filter.
-type BlacklistType int
-
-// some flags about blacklist type.
-const (
-	// blacklist associated with the source.
-	BlacklistSource BlacklistType = 1 << iota
-	// blacklist associated with the target.
-	BlacklistTarget
-)
-
-// BlacklistStoreFilter filters the store according to the blacklist.
-type BlacklistStoreFilter struct {
-	scope     string
-	blacklist map[uint64]struct{}
-	flag      BlacklistType
-}
-
-// NewBlacklistStoreFilter creates a blacklist filter.
-func NewBlacklistStoreFilter(scope string, typ BlacklistType) *BlacklistStoreFilter {
-	return &BlacklistStoreFilter{
-		scope:     scope,
-		blacklist: make(map[uint64]struct{}),
-		flag:      typ,
-	}
-}
-
-// Scope returns the scheduler or the checker which the filter acts on.
-func (f *BlacklistStoreFilter) Scope() string {
-	return f.scope
-}
-
-// Type implements the Filter.
-func (f *BlacklistStoreFilter) Type() string {
-	return "blacklist-store-filter"
-}
-
-// Source implements the Filter.
-func (f *BlacklistStoreFilter) Source(opt opt.Options, store *core.StoreInfo) bool {
-	if f.flag&BlacklistSource != BlacklistSource {
-		return false
-	}
-	return f.filter(store)
-}
-
-// Add adds the store to the blacklist.
-func (f *BlacklistStoreFilter) Add(storeID uint64) {
-	f.blacklist[storeID] = struct{}{}
-}
-
-// Target implements the Filter.
-func (f *BlacklistStoreFilter) Target(opt opt.Options, store *core.StoreInfo) bool {
-	if f.flag&BlacklistTarget != BlacklistTarget {
-		return false
-	}
-	return f.filter(store)
-}
-
-func (f *BlacklistStoreFilter) filter(store *core.StoreInfo) bool {
-	_, ok := f.blacklist[store.GetID()]
-	return ok
 }

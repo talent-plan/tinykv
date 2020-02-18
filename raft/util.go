@@ -47,12 +47,11 @@ func max(a, b uint64) uint64 {
 }
 
 func IsLocalMsg(msgt pb.MessageType) bool {
-	return msgt == pb.MessageType_MsgHup || msgt == pb.MessageType_MsgBeat || msgt == pb.MessageType_MsgUnreachable ||
-		msgt == pb.MessageType_MsgSnapStatus
+	return msgt == pb.MessageType_MsgHup || msgt == pb.MessageType_MsgBeat || msgt == pb.MessageType_MsgSnapStatus
 }
 
 func IsResponseMsg(msgt pb.MessageType) bool {
-	return msgt == pb.MessageType_MsgAppendResponse || msgt == pb.MessageType_MsgRequestVoteResponse || msgt == pb.MessageType_MsgHeartbeatResponse || msgt == pb.MessageType_MsgUnreachable
+	return msgt == pb.MessageType_MsgAppendResponse || msgt == pb.MessageType_MsgRequestVoteResponse || msgt == pb.MessageType_MsgHeartbeatResponse
 }
 
 // EntryFormatter can be implemented by the application to provide human-readable formatting
@@ -127,4 +126,21 @@ func limitSize(ents []pb.Entry, maxSize uint64) []pb.Entry {
 		}
 	}
 	return ents[:limit]
+}
+
+func isHardStateEqual(a, b pb.HardState) bool {
+	return a.Term == b.Term && a.Vote == b.Vote && a.Commit == b.Commit
+}
+
+// IsEmptyHardState returns true if the given HardState is empty.
+func IsEmptyHardState(st pb.HardState) bool {
+	return isHardStateEqual(st, pb.HardState{})
+}
+
+// IsEmptySnap returns true if the given Snapshot is empty.
+func IsEmptySnap(sp *pb.Snapshot) bool {
+	if sp == nil || sp.Metadata == nil {
+		return true
+	}
+	return sp.Metadata.Index == 0
 }
