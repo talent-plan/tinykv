@@ -751,8 +751,6 @@ func stepLeader(r *Raft, m pb.Message) error {
 			r.sendAppend(m.From)
 		}
 	case pb.MessageType_MsgSnapStatus:
-	case pb.MessageType_MsgUnreachable:
-		r.logger.Debugf("%x failed to send message to %x because it is unreachable [%s]", r.id, m.From, pr)
 	case pb.MessageType_MsgTransferLeader:
 		leadTransferee := m.From
 		lastLeadTransferee := r.leadTransferee

@@ -10,8 +10,7 @@ import (
 type MsgSignificantType int
 
 const (
-	MsgSignificantTypeStatus      MsgSignificantType = 1
-	MsgSignificantTypeUnreachable MsgSignificantType = 2
+	MsgSignificantTypeStatus MsgSignificantType = 1
 )
 
 type MsgSignificant struct {
@@ -47,13 +46,6 @@ func (r *RaftstoreRouter) SendRaftCommand(req *raft_cmdpb.RaftCmdRequest, cb *me
 func (r *RaftstoreRouter) SignificantSend(regionID uint64, msg message.Msg) error {
 	// TODO: no capacity check now, so no difference between send and SignificantSend.
 	return r.router.send(regionID, msg)
-}
-
-func (r *RaftstoreRouter) ReportUnreachable(regionID, toPeerID uint64) error {
-	return r.SignificantSend(regionID, message.NewMsg(message.MsgTypeSignificantMsg, &MsgSignificant{
-		Type:     MsgSignificantTypeUnreachable,
-		ToPeerID: toPeerID,
-	}))
 }
 
 func (r *RaftstoreRouter) ReportSnapshotStatus(regionID uint64, toPeerID uint64, status raft.SnapshotStatus) error {

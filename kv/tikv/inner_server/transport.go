@@ -113,15 +113,9 @@ func (t *ServerTransport) ReportSnapshotStatus(msg *raft_serverpb.RaftMessage, s
 }
 
 func (t *ServerTransport) ReportUnreachable(msg *raft_serverpb.RaftMessage) {
-	regionID := msg.GetRegionId()
-	toPeerID := msg.GetToPeer().GetId()
-	toStoreID := msg.GetToPeer().GetStoreId()
 	if msg.GetMessage().GetMsgType() == eraftpb.MessageType_MsgSnapshot {
 		t.ReportSnapshotStatus(msg, raft.SnapshotFailure)
 		return
-	}
-	if err := t.raftRouter.ReportUnreachable(regionID, toPeerID); err != nil {
-		log.Errorf("report peer unreachable failed. regionID: %v, toStoreID: %v, toPeerID: %v, err: %v", regionID, toStoreID, toPeerID, err)
 	}
 }
 
