@@ -145,7 +145,7 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 		Storage:       ps,
 	}
 
-	raftGroup, err := raft.NewRawNode(raftCfg, nil)
+	raftGroup, err := raft.NewRawNode(raftCfg)
 	if err != nil {
 		return nil, err
 	}

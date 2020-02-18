@@ -128,3 +128,20 @@ func limitSize(ents []pb.Entry, maxSize uint64) []pb.Entry {
 	}
 	return ents[:limit]
 }
+
+func isHardStateEqual(a, b pb.HardState) bool {
+	return a.Term == b.Term && a.Vote == b.Vote && a.Commit == b.Commit
+}
+
+// IsEmptyHardState returns true if the given HardState is empty.
+func IsEmptyHardState(st pb.HardState) bool {
+	return isHardStateEqual(st, pb.HardState{})
+}
+
+// IsEmptySnap returns true if the given Snapshot is empty.
+func IsEmptySnap(sp *pb.Snapshot) bool {
+	if sp == nil || sp.Metadata == nil {
+		return true
+	}
+	return sp.Metadata.Index == 0
+}

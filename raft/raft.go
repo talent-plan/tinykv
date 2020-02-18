@@ -257,7 +257,7 @@ func newRaft(c *Config) *Raft {
 		r.Prs[p] = &Progress{Next: 1}
 	}
 
-	if !isHardStateEqual(hs, emptyState) {
+	if !IsEmptyHardState(hs) {
 		r.loadState(hs)
 	}
 	if c.Applied > 0 {
