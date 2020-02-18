@@ -140,7 +140,7 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 		ID:            peer.GetId(),
 		ElectionTick:  cfg.RaftElectionTimeoutTicks,
 		HeartbeatTick: cfg.RaftHeartbeatTicks,
-		MaxSizePerMsg: cfg.RaftMaxSizePerMsg,
+		MaxEntsSize:   cfg.RaftMaxEntsSize,
 		Applied:       appliedIndex,
 		Storage:       ps,
 	}
