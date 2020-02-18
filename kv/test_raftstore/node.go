@@ -29,8 +29,8 @@ type MockTransport struct {
 	snapMgrs map[uint64]*snap.SnapManager
 }
 
-func NewMockTransport() MockTransport {
-	return MockTransport{
+func NewMockTransport() *MockTransport {
+	return &MockTransport{
 		routers:  make(map[uint64]message.RaftRouter),
 		snapMgrs: make(map[uint64]*snap.SnapManager),
 	}
@@ -130,7 +130,7 @@ type NodeSimulator struct {
 func NewNodeSimulator(pdClient pd.Client) NodeSimulator {
 	trans := NewMockTransport()
 	return NodeSimulator{
-		trans:    &trans,
+		trans:    trans,
 		pdClient: pdClient,
 		nodes:    make(map[uint64]*raftstore.Node),
 	}
@@ -182,7 +182,10 @@ func (c *NodeSimulator) GetNodeIds() []uint64 {
 }
 
 func (c *NodeSimulator) CallCommandOnNode(nodeID uint64, request *raft_cmdpb.RaftCmdRequest, timeout time.Duration) *raft_cmdpb.RaftCmdResponse {
+	c.trans.RLock()
 	router := c.trans.routers[nodeID]
+	c.trans.RUnlock()
+
 	if router == nil {
 		log.Panicf("Can not find node %d", nodeID)
 	}

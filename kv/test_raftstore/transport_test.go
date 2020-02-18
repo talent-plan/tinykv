@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func testPartitionWrite(cluster Cluster) {
+func testPartitionWrite(cluster *Cluster) {
 	err := cluster.Start()
 	if err != nil {
 		panic(err)
@@ -46,8 +46,8 @@ func testPartitionWrite(cluster Cluster) {
 	cluster.MustPut(key, []byte("changed"))
 	cluster.ClearFilters()
 
-	// cluster.MustPut([]byte("k2"), []byte("v2"))
-	// MustGetEqual(cluster.engines[1], []byte("k2"), []byte("v2"))
+	cluster.MustPut([]byte("k2"), []byte("v2"))
+	MustGetEqual(cluster.engines[1], []byte("k2"), []byte("v2"))
 	MustGetEqual(cluster.engines[1], key, []byte("changed"))
 
 	cluster.Shutdown()

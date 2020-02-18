@@ -37,8 +37,8 @@ type Cluster struct {
 	simulator Simulator
 }
 
-func NewCluster(count int, pdClient pd.Client, simulator Simulator) Cluster {
-	return Cluster{
+func NewCluster(count int, pdClient pd.Client, simulator Simulator) *Cluster {
+	return &Cluster{
 		count:     count,
 		pdClient:  pdClient,
 		engines:   make(map[uint64]*engine_util.Engines),
