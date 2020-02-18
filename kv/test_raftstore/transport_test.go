@@ -43,6 +43,12 @@ func testPartitionWrite(cluster Cluster) {
 	if leaderID == 1 || leaderID == 2 {
 		log.Panic(leaderID, "leaderID == 1 || leaderID == 2")
 	}
+	cluster.MustPut(key, []byte("changed"))
+	cluster.ClearFilters()
+
+	// cluster.MustPut([]byte("k2"), []byte("v2"))
+	// MustGetEqual(cluster.engines[1], []byte("k2"), []byte("v2"))
+	MustGetEqual(cluster.engines[1], key, []byte("changed"))
 
 	cluster.Shutdown()
 }
