@@ -74,7 +74,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		rawNode.AdvanceApply(idx)
 	}
 
-	if d := rawNode.Ready(); d.MustSync || !IsEmptyHardState(d.HardState) || len(d.Entries) > 0 {
+	if d := rawNode.Ready(); !IsEmptyHardState(d.HardState) || len(d.Entries) > 0 {
 		t.Fatalf("expected empty hard state with must-sync=false: %#v", d)
 	}
 
@@ -250,13 +250,11 @@ func TestRawNodeStart(t *testing.T) {
 			CommittedEntries: []pb.Entry{
 				{EntryType: pb.EntryType_EntryConfChange, Term: 1, Index: 1, Data: ccdata},
 			},
-			MustSync: true,
 		},
 		{
 			HardState:        pb.HardState{Term: 2, Commit: 3, Vote: 1},
 			Entries:          []pb.Entry{{Term: 2, Index: 3, Context: []byte(""), Data: []byte("foo")}},
 			CommittedEntries: []pb.Entry{{Term: 2, Index: 3, Context: []byte(""), Data: []byte("foo")}},
-			MustSync:         true,
 		},
 	}
 
@@ -317,7 +315,6 @@ func TestRawNodeRestart(t *testing.T) {
 		HardState: pb.HardState{},
 		// commit up to commit index in st
 		CommittedEntries: entries[:st.Commit],
-		MustSync:         false,
 	}
 
 	storage := NewMemoryStorage()
@@ -357,7 +354,6 @@ func TestRawNodeRestartFromSnapshot(t *testing.T) {
 		HardState: pb.HardState{},
 		// commit up to commit index in st
 		CommittedEntries: entries,
-		MustSync:         false,
 	}
 
 	s := NewMemoryStorage()

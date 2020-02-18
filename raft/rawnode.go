@@ -69,10 +69,6 @@ type Ready struct {
 	// If it contains a MessageType_MsgSnapshot message, the application MUST report back to raft
 	// when the snapshot has been received or has failed by calling ReportSnapshot.
 	Messages []pb.Message
-
-	// MustSync indicates whether the HardState and Entries must be synchronously
-	// written to disk or if an asynchronous write is permissible.
-	MustSync bool
 }
 
 func (rd Ready) containsUpdates() bool {
@@ -118,19 +114,7 @@ func newReady(r *Raft, prevSoftSt *SoftState, prevHardSt pb.HardState, sinceIdx 
 	if r.RaftLog.unstable.snapshot != nil {
 		rd.Snapshot = *r.RaftLog.unstable.snapshot
 	}
-	rd.MustSync = MustSync(r.hardState(), prevHardSt, len(rd.Entries))
 	return rd
-}
-
-// MustSync returns true if the hard state and count of Raft entries indicate
-// that a synchronous write to persistent storage is required.
-func MustSync(st, prevst pb.HardState, entsnum int) bool {
-	// Persistent state on all servers:
-	// (Updated on stable storage before responding to RPCs)
-	// currentTerm
-	// votedFor
-	// log entries[]
-	return entsnum != 0 || st.Vote != prevst.Vote || st.Term != prevst.Term
 }
 
 // RawNode is a thread-unsafe Node.
