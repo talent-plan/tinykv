@@ -297,12 +297,51 @@ func TestUnreliable3A(t *testing.T) {
 	GenericTest(t, "3A", 5, true, false, false, -1)
 }
 
-// // Submit a request in the minority partition and check that the requests
-// // doesn't go through until the partition heals.  The leader in the original
-// // network ends up in the minority partition.
-// func TestOnePartition3A(t *testing.T) {
-// TODO: should replaced by TestPartitionWrite
-// }
+// Submit a request in the minority partition and check that the requests
+// doesn't go through until the partition heals.  The leader in the original
+// network ends up in the minority partition.
+func TestOnePartition3A(t *testing.T) {
+	cluster := NewTestCluster(5)
+	cluster.Start()
+	defer cluster.Shutdown()
+
+	regionID := cluster.GetRegion([]byte("")).GetId()
+	// transfer leader to (1, 1)
+	peer := NewPeer(1, 1)
+	cluster.MustTransferLeader(regionID, &peer)
+
+	// leader in majority, partition doesn't affect write/read
+	cluster.AddFilter(&PartitionFilter{
+		s1: []uint64{1, 2, 3},
+		s2: []uint64{4, 5},
+	})
+	cluster.MustPut([]byte("k1"), []byte("v1"))
+	cluster.MustGet([]byte("k1"), []byte("v1"))
+	MustGetNone(cluster.engines[4], []byte("k1"))
+	MustGetNone(cluster.engines[5], []byte("k1"))
+	cluster.MustTransferLeader(regionID, &peer)
+	cluster.ClearFilters()
+
+	// old leader in minority, new leader should be elected
+	cluster.AddFilter(&PartitionFilter{
+		s1: []uint64{1, 2},
+		s2: []uint64{3, 4, 5},
+	})
+	cluster.MustGet([]byte("k1"), []byte("v1"))
+	leaderID := cluster.LeaderOfRegion(regionID).Id
+	if leaderID == 1 || leaderID == 2 {
+		panic("unexpected leader id")
+	}
+	cluster.MustPut([]byte("k1"), []byte("changed"))
+	MustGetEqual(cluster.engines[1], []byte("k1"), []byte("v1"))
+	MustGetEqual(cluster.engines[2], []byte("k1"), []byte("v1"))
+	cluster.ClearFilters()
+
+	// when partition heals, old leader should sync data
+	cluster.MustPut([]byte("k2"), []byte("v2"))
+	MustGetEqual(cluster.engines[1], []byte("k2"), []byte("v2"))
+	MustGetEqual(cluster.engines[1], []byte("k1"), []byte("changed"))
+}
 
 func TestManyPartitionsOneClient3A(t *testing.T) {
 	// Test: partitions, one client (3A) ...

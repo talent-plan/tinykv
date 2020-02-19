@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/coocood/badger"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
@@ -115,6 +116,13 @@ func MustGet(engine *engine_util.Engines, cf string, key []byte, value []byte) {
 
 func MustGetEqual(engine *engine_util.Engines, key []byte, value []byte) {
 	MustGet(engine, engine_util.CfDefault, key, value)
+}
+
+func MustGetNone(engine *engine_util.Engines, key []byte) {
+	val, err := engine_util.GetCF(engine.Kv, engine_util.CfDefault, key)
+	if err != badger.ErrKeyNotFound {
+		log.Panicf("get value %s for key %s", hex.EncodeToString(val), hex.EncodeToString(key))
+	}
 }
 
 func NewTestCluster(count int) *Cluster {
