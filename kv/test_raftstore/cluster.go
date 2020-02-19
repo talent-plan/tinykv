@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"time"
@@ -152,7 +153,7 @@ func (c *Cluster) Request(key []byte, reqs []*raft_cmdpb.Request, timeout time.D
 		region := c.GetRegion(key)
 		regionID := region.GetId()
 		req := NewRequest(regionID, region.RegionEpoch, reqs)
-		resp, txn := c.CallCommandOnLeader(&req, 1*time.Second)
+		resp, txn := c.CallCommandOnLeader(&req, timeout)
 		if resp == nil {
 			// it should be timeouted innerly
 			SleepMS(100)
@@ -184,10 +185,23 @@ func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeou
 			panic(fmt.Sprintf("can't get leader of region %d", regionID))
 		}
 		request.Header.Peer = leader
-		resp, txn := c.CallCommand(request, timeout)
+		resp, txn := c.CallCommand(request, 1*time.Second)
 		if resp == nil {
 			log.Warnf("can't call command %s on leader %d of region %d", request.String(), leader.GetId(), regionID)
-			return nil, nil
+			newLeader := c.LeaderOfRegion(regionID)
+			if leader == newLeader {
+				region, _, err := c.pdClient.GetRegionByID(context.TODO(), regionID)
+				if err != nil {
+					return nil, nil
+				}
+				peers := region.GetPeers()
+				leader = peers[rand.Int()%len(peers)]
+				log.Debugf("leader info maybe wrong, use random leader %d of region %d", leader.GetId(), regionID)
+			} else {
+				leader = newLeader
+				log.Debugf("use new leader %d of region %d", leader.GetId(), regionID)
+			}
+			continue
 		}
 		if resp.Header.Error != nil {
 			err := resp.Header.Error
