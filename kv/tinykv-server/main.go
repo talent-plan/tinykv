@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/exec"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/interfaces"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -62,7 +63,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	var innerServer tikv.InnerServer
+	var innerServer interfaces.InnerServer
 	if conf.Server.Raft {
 		innerServer = setupRaftInnerServer(pdClient, conf)
 	} else {
@@ -122,7 +123,7 @@ func loadConfig() *config.Config {
 	return &conf
 }
 
-func setupRaftInnerServer(pdClient pd.Client, conf *config.Config) tikv.InnerServer {
+func setupRaftInnerServer(pdClient pd.Client, conf *config.Config) interfaces.InnerServer {
 	innerServer := inner_server.NewRaftInnerServer(conf)
 	if err := innerServer.Start(pdClient); err != nil {
 		log.Fatal(err)
@@ -131,7 +132,7 @@ func setupRaftInnerServer(pdClient pd.Client, conf *config.Config) tikv.InnerSer
 	return innerServer
 }
 
-func setupStandAloneInnerServer(pdClient pd.Client, conf *config.Config) tikv.InnerServer {
+func setupStandAloneInnerServer(pdClient pd.Client, conf *config.Config) interfaces.InnerServer {
 	innerServer := inner_server.NewStandAloneInnerServer(conf)
 	if err := innerServer.Start(pdClient); err != nil {
 		log.Fatal(err)

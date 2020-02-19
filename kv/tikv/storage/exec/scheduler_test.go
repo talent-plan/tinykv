@@ -1,8 +1,8 @@
 package exec
 
 import (
-	"github.com/pingcap-incubator/tinykv/kv/tikv"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/interfaces"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/stretchr/testify/assert"
@@ -14,7 +14,7 @@ import (
 // in order.
 func TestSeqScheduled(t *testing.T) {
 	seq := NewSeqScheduler(inner_server.NewMemInnerServer())
-	var chs []<-chan tikv.RespResult
+	var chs []<-chan interfaces.SchedResult
 	for i := 0; i < 6; i++ {
 		chs = append(chs, seq.Run(&dummyCmd{i}))
 	}

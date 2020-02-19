@@ -1,26 +1,26 @@
 package exec
 
 import (
-	"github.com/pingcap-incubator/tinykv/kv/tikv"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/interfaces"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 )
 
 // Sequential is a Scheduler which executes all commands sequentially on a single thread. Since there is no concurrency,
 // no latching, etc. is required.
 type Sequential struct {
-	innerServer tikv.InnerServer
+	innerServer interfaces.InnerServer
 	queue       chan task
 }
 
 // task is a task to be run by a scheduler.
 type task struct {
-	cmd           tikv.Command
-	resultChannel chan<- tikv.RespResult
+	cmd           interfaces.Command
+	resultChannel chan<- interfaces.SchedResult
 }
 
 // NewSeqScheduler creates a new sequential scheduler.
-func NewSeqScheduler(innerServer tikv.InnerServer) *Sequential {
+func NewSeqScheduler(innerServer interfaces.InnerServer) *Sequential {
 	sched := &Sequential{innerServer, make(chan task)}
 	go sched.handleTask()
 	return sched
@@ -59,7 +59,7 @@ func (seq *Sequential) handleTask() {
 		}
 
 		// Send response back to the gRPC thread.
-		task.resultChannel <- tikv.RespOk(task.cmd.Response())
+		task.resultChannel <- interfaces.RespOk(task.cmd.Response())
 
 		reader.Close()
 		close(task.resultChannel)
@@ -74,9 +74,9 @@ func handleError(err error, task task, reader dbreader.DBReader) bool {
 	}
 
 	if resp := task.cmd.HandleError(err); resp != nil {
-		task.resultChannel <- tikv.RespOk(resp)
+		task.resultChannel <- interfaces.RespOk(resp)
 	} else {
-		task.resultChannel <- tikv.RespErr(err)
+		task.resultChannel <- interfaces.RespErr(err)
 	}
 
 	if reader != nil {
@@ -90,8 +90,8 @@ func (seq *Sequential) Stop() {
 	seq.queue <- task{nil, nil}
 }
 
-func (seq *Sequential) Run(cmd tikv.Command) <-chan tikv.RespResult {
-	channel := make(chan tikv.RespResult, 1)
+func (seq *Sequential) Run(cmd interfaces.Command) <-chan interfaces.SchedResult {
+	channel := make(chan interfaces.SchedResult, 1)
 	tsk := task{cmd, channel}
 	seq.queue <- tsk
 	return channel
