@@ -556,37 +556,6 @@ func (s *testGetStoresSuite) BenchmarkGetStores(c *C) {
 	}
 }
 
-func (s *testClusterSuite) TestSetScheduleOpt(c *C) {
-	var err error
-	var cleanup func()
-	s.svr, cleanup, err = NewTestServer(c)
-	defer cleanup()
-	c.Assert(err, IsNil)
-	mustWaitLeader(c, []*Server{s.svr})
-	s.grpcPDClient = testutil.MustNewGrpcClient(c, s.svr.GetAddr())
-	clusterID := s.svr.clusterID
-
-	storeAddr := "127.0.0.1:0"
-	_, err = s.svr.bootstrapCluster(s.newBootstrapRequest(c, clusterID, storeAddr))
-	c.Assert(err, IsNil)
-
-	_, opt, err := newTestScheduleConfig()
-	c.Assert(err, IsNil)
-
-	scheduleCfg := opt.Load()
-	replicateCfg := s.svr.GetReplicationConfig()
-	pdServerCfg := s.svr.scheduleOpt.LoadPDServerConfig()
-
-	//PUT GET DELETE succeed
-	replicateCfg.MaxReplicas = 5
-
-	c.Assert(s.svr.SetScheduleConfig(*scheduleCfg), IsNil)
-	c.Assert(s.svr.SetPDServerConfig(*pdServerCfg), IsNil)
-	c.Assert(s.svr.SetReplicationConfig(*replicateCfg), IsNil)
-
-	c.Assert(s.svr.GetReplicationConfig().MaxReplicas, Equals, uint64(5))
-}
-
 var _ = Suite(&testStoresInfoSuite{})
 
 type testStoresInfoSuite struct{}

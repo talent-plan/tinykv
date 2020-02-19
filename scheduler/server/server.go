@@ -503,20 +503,6 @@ func (s *Server) GetScheduleConfig() *config.ScheduleConfig {
 	return cfg
 }
 
-// SetScheduleConfig sets the balance config information.
-func (s *Server) SetScheduleConfig(cfg config.ScheduleConfig) error {
-	if err := cfg.Validate(); err != nil {
-		return err
-	}
-	if err := cfg.Deprecated(); err != nil {
-		return err
-	}
-	old := s.scheduleOpt.Load()
-	s.scheduleOpt.Store(&cfg)
-	log.Info("schedule config is updated", zap.Reflect("new", cfg), zap.Reflect("old", old))
-	return nil
-}
-
 // GetReplicationConfig get the replication config.
 func (s *Server) GetReplicationConfig() *config.ReplicationConfig {
 	cfg := &config.ReplicationConfig{}
@@ -529,14 +515,6 @@ func (s *Server) SetReplicationConfig(cfg config.ReplicationConfig) error {
 	old := s.scheduleOpt.GetReplication().Load()
 	s.scheduleOpt.GetReplication().Store(&cfg)
 	log.Info("replication config is updated", zap.Reflect("new", cfg), zap.Reflect("old", old))
-	return nil
-}
-
-// SetPDServerConfig sets the server config.
-func (s *Server) SetPDServerConfig(cfg config.PDServerConfig) error {
-	old := s.scheduleOpt.LoadPDServerConfig()
-	s.scheduleOpt.SetPDServerConfig(&cfg)
-	log.Info("PD server config is updated", zap.Reflect("new", cfg), zap.Reflect("old", old))
 	return nil
 }
 

@@ -60,11 +60,6 @@ func (o *ScheduleOption) GetReplication() *Replication {
 	return o.replication
 }
 
-// SetPDServerConfig sets the PD configuration.
-func (o *ScheduleOption) SetPDServerConfig(cfg *PDServerConfig) {
-	o.pdServerConfig.Store(cfg)
-}
-
 // GetMaxReplicas returns the number of replicas for each region.
 func (o *ScheduleOption) GetMaxReplicas() int {
 	return o.replication.GetMaxReplicas()
