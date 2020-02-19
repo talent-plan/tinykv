@@ -16,7 +16,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"testing"
 	"time"
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
@@ -568,50 +567,6 @@ func (s *testCoordinatorSuite) TestRestart(c *C) {
 	region = waitAddPeer(c, stream, region, 3)
 	co.stop()
 	co.wg.Wait()
-}
-
-func BenchmarkPatrolRegion(b *testing.B) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	mergeLimit := uint64(4100)
-	regionNum := 10000
-
-	cfg, scheduleOpt, _ := newTestScheduleConfig()
-	cfg.MergeScheduleLimit = mergeLimit
-	scheduleOpt.SetSplitMergeInterval(time.Duration(0))
-	tc := newTestCluster(scheduleOpt)
-	hbStreams, cleanup := getHeartBeatStreams(ctx, &C{}, tc)
-	defer cleanup()
-	defer hbStreams.Close()
-
-	for i := 1; i < 4; i++ {
-		if err := tc.addRegionStore(uint64(i), regionNum, 96); err != nil {
-			return
-		}
-	}
-	for i := 0; i < regionNum; i++ {
-		if err := tc.addLeaderRegion(uint64(i), 1, 2, 3); err != nil {
-			return
-		}
-	}
-	co := newCoordinator(ctx, tc.RaftCluster, hbStreams)
-
-	listen := make(chan int)
-	go func() {
-		oc := co.opController
-		listen <- 0
-		for {
-			if oc.OperatorCount(operator.OpMerge) == mergeLimit {
-				co.cancel()
-				co.wg.Add(1)
-				return
-			}
-		}
-	}()
-	<-listen
-
-	b.ResetTimer()
-	co.patrolRegions()
 }
 
 var _ = Suite(&testOperatorControllerSuite{})

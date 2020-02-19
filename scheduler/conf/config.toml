@@ -47,8 +47,6 @@ level = "info"
 # log-rotate = true
 
 [schedule]
-max-merge-region-size = 20
-max-merge-region-keys = 200000
 split-merge-interval = "1h"
 max-snapshot-count = 3
 max-pending-peer-count = 16
@@ -56,7 +54,6 @@ max-store-down-time = "30m"
 leader-schedule-limit = 4
 region-schedule-limit = 2048
 replica-schedule-limit = 64
-merge-schedule-limit = 8
 ## There are some strategics supported: ["count", "size"], default: "count"
 # leader-schedule-strategy = "count" 
 ## When the score difference between the leader or Region of the two stores is 

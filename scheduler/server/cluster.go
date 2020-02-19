@@ -941,11 +941,6 @@ func (c *RaftCluster) GetReplicaScheduleLimit() uint64 {
 	return c.opt.GetReplicaScheduleLimit()
 }
 
-// GetMergeScheduleLimit returns the limit for merge schedule.
-func (c *RaftCluster) GetMergeScheduleLimit() uint64 {
-	return c.opt.GetMergeScheduleLimit()
-}
-
 // GetStoreBalanceRate returns the balance rate of a store.
 func (c *RaftCluster) GetStoreBalanceRate() float64 {
 	return c.opt.GetStoreBalanceRate()
@@ -954,36 +949,6 @@ func (c *RaftCluster) GetStoreBalanceRate() float64 {
 // GetTolerantSizeRatio gets the tolerant size ratio.
 func (c *RaftCluster) GetTolerantSizeRatio() float64 {
 	return c.opt.GetTolerantSizeRatio()
-}
-
-// GetSchedulerMaxWaitingOperator returns the number of the max waiting operators.
-func (c *RaftCluster) GetSchedulerMaxWaitingOperator() uint64 {
-	return c.opt.GetSchedulerMaxWaitingOperator()
-}
-
-// GetMaxMergeRegionSize returns the max region size.
-func (c *RaftCluster) GetMaxMergeRegionSize() uint64 {
-	return c.opt.GetMaxMergeRegionSize()
-}
-
-// GetMaxMergeRegionKeys returns the max number of keys.
-func (c *RaftCluster) GetMaxMergeRegionKeys() uint64 {
-	return c.opt.GetMaxMergeRegionKeys()
-}
-
-// GetSplitMergeInterval returns the interval between finishing split and starting to merge.
-func (c *RaftCluster) GetSplitMergeInterval() time.Duration {
-	return c.opt.GetSplitMergeInterval()
-}
-
-// IsOneWayMergeEnabled returns if a region can only be merged into the next region of it.
-func (c *RaftCluster) IsOneWayMergeEnabled() bool {
-	return c.opt.IsOneWayMergeEnabled()
-}
-
-// IsCrossTableMergeEnabled returns if across table merge is enabled.
-func (c *RaftCluster) IsCrossTableMergeEnabled() bool {
-	return c.opt.IsCrossTableMergeEnabled()
 }
 
 // GetPatrolRegionInterval returns the interval of patroling region.

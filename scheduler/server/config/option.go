@@ -19,7 +19,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/pingcap-incubator/tinykv/scheduler/pkg/typeutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule"
@@ -66,36 +65,6 @@ func (o *ScheduleOption) SetMaxReplicas(replicas int) {
 	o.replication.SetMaxReplicas(replicas)
 }
 
-// GetMaxMergeRegionSize returns the max region size.
-func (o *ScheduleOption) GetMaxMergeRegionSize() uint64 {
-	return o.Load().MaxMergeRegionSize
-}
-
-// GetMaxMergeRegionKeys returns the max number of keys.
-func (o *ScheduleOption) GetMaxMergeRegionKeys() uint64 {
-	return o.Load().MaxMergeRegionKeys
-}
-
-// GetSplitMergeInterval returns the interval between finishing split and starting to merge.
-func (o *ScheduleOption) GetSplitMergeInterval() time.Duration {
-	return o.Load().SplitMergeInterval.Duration
-}
-
-// SetSplitMergeInterval to set the interval between finishing split and starting to merge. It's only used to test.
-func (o *ScheduleOption) SetSplitMergeInterval(splitMergeInterval time.Duration) {
-	o.Load().SplitMergeInterval = typeutil.Duration{Duration: splitMergeInterval}
-}
-
-// IsOneWayMergeEnabled returns if a region can only be merged into the next region of it.
-func (o *ScheduleOption) IsOneWayMergeEnabled() bool {
-	return o.Load().EnableOneWayMerge
-}
-
-// IsCrossTableMergeEnabled returns if across table merge is enabled.
-func (o *ScheduleOption) IsCrossTableMergeEnabled() bool {
-	return o.Load().EnableCrossTableMerge
-}
-
 // GetPatrolRegionInterval returns the interval of patroling region.
 func (o *ScheduleOption) GetPatrolRegionInterval() time.Duration {
 	return o.Load().PatrolRegionInterval.Duration
@@ -121,11 +90,6 @@ func (o *ScheduleOption) GetReplicaScheduleLimit() uint64 {
 	return o.Load().ReplicaScheduleLimit
 }
 
-// GetMergeScheduleLimit returns the limit for merge schedule.
-func (o *ScheduleOption) GetMergeScheduleLimit() uint64 {
-	return o.Load().MergeScheduleLimit
-}
-
 // GetStoreBalanceRate returns the balance rate of a store.
 func (o *ScheduleOption) GetStoreBalanceRate() float64 {
 	return o.Load().StoreBalanceRate
@@ -134,11 +98,6 @@ func (o *ScheduleOption) GetStoreBalanceRate() float64 {
 // GetTolerantSizeRatio gets the tolerant size ratio.
 func (o *ScheduleOption) GetTolerantSizeRatio() float64 {
 	return o.Load().TolerantSizeRatio
-}
-
-// GetSchedulerMaxWaitingOperator returns the number of the max waiting operators.
-func (o *ScheduleOption) GetSchedulerMaxWaitingOperator() uint64 {
-	return o.Load().SchedulerMaxWaitingOperator
 }
 
 // GetLeaderScheduleStrategy is to get leader schedule strategy.

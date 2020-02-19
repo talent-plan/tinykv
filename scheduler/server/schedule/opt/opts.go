@@ -25,22 +25,15 @@ type Options interface {
 	GetLeaderScheduleLimit() uint64
 	GetRegionScheduleLimit() uint64
 	GetReplicaScheduleLimit() uint64
-	GetMergeScheduleLimit() uint64
 
 	// store limit
 	GetStoreBalanceRate() float64
 
 	GetMaxStoreDownTime() time.Duration
-	GetMaxMergeRegionSize() uint64
-	GetMaxMergeRegionKeys() uint64
-	GetSplitMergeInterval() time.Duration
-	IsOneWayMergeEnabled() bool
-	IsCrossTableMergeEnabled() bool
 
 	GetMaxReplicas() int
 
 	GetTolerantSizeRatio() float64
-	GetSchedulerMaxWaitingOperator() uint64
 
 	IsRemoveDownReplicaEnabled() bool
 	IsReplaceOfflineReplicaEnabled() bool
