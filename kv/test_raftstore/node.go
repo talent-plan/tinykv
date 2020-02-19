@@ -25,7 +25,7 @@ import (
 )
 
 type MockTransport struct {
-	sync.Mutex
+	sync.RWMutex
 
 	filters  []Filter
 	routers  map[uint64]message.RaftRouter
@@ -70,8 +70,8 @@ func (t *MockTransport) ClearFilters() {
 }
 
 func (t *MockTransport) Send(msg *raft_serverpb.RaftMessage) error {
-	t.Lock()
-	defer t.Unlock()
+	t.RLock()
+	defer t.RUnlock()
 
 	for _, filter := range t.filters {
 		if !filter.Before(msg) {
@@ -229,18 +229,5 @@ func (c *NodeSimulator) CallCommandOnStore(storeID uint64, request *raft_cmdpb.R
 	}
 
 	resp := cb.WaitRespWithTimeout(timeout)
-	if resp == nil {
-		return nil, nil
-	}
-
-	reqCount := len(request.Requests)
-	if resp.Header != nil && resp.Header.Error != nil {
-		return resp, cb.Txn
-	}
-	if len(resp.Responses) != reqCount {
-		log.Fatalf("responses count %d is not equal to requests count %d",
-			len(resp.Responses), reqCount)
-	}
-
 	return resp, cb.Txn
 }

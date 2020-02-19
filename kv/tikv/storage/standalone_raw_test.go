@@ -10,6 +10,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/tikv"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/exec"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/interfaces"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/stretchr/testify/assert"
 )
@@ -39,7 +40,7 @@ func Get(is *inner_server.StandAloneInnerServer, cf string, key []byte) ([]byte,
 	return reader.GetCF(cf, key)
 }
 
-func NewTestTiKVServer(innerServer tikv.InnerServer) *tikv.Server {
+func NewTestTiKVServer(innerServer interfaces.InnerServer) *tikv.Server {
 	sched := exec.NewSeqScheduler(innerServer)
 	server := tikv.NewServer(innerServer, sched)
 	return server

@@ -152,7 +152,7 @@ func (c *Cluster) Request(key []byte, reqs []*raft_cmdpb.Request, timeout time.D
 		region := c.GetRegion(key)
 		regionID := region.GetId()
 		req := NewRequest(regionID, region.RegionEpoch, reqs)
-		resp, txn := c.CallCommandOnLeader(&req, timeout)
+		resp, txn := c.CallCommandOnLeader(&req, 1*time.Second)
 		if resp == nil {
 			// it should be timeouted innerly
 			SleepMS(100)
@@ -174,21 +174,30 @@ func (c *Cluster) CallCommand(request *raft_cmdpb.RaftCmdRequest, timeout time.D
 
 func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeout time.Duration) (*raft_cmdpb.RaftCmdResponse, *badger.Txn) {
 	startTime := time.Now()
+	regionID := request.Header.RegionId
+	leader := c.LeaderOfRegion(regionID)
 	for {
-		regionID := request.Header.RegionId
-		leader := c.LeaderOfRegion(regionID)
+		if time.Now().Sub(startTime) > timeout {
+			return nil, nil
+		}
 		if leader == nil {
-			log.Fatalf("can't get leader of region %d", regionID)
+			panic(fmt.Sprintf("can't get leader of region %d", regionID))
 		}
 		request.Header.Peer = leader
 		resp, txn := c.CallCommand(request, timeout)
 		if resp == nil {
-			log.Fatalf("can't call command %s on leader %d of region %d", request.String(), leader.GetId(), regionID)
+			log.Warnf("can't call command %s on leader %d of region %d", request.String(), leader.GetId(), regionID)
+			return nil, nil
 		}
 		if resp.Header.Error != nil {
 			err := resp.Header.Error
-			if (err.GetStaleCommand() != nil || err.GetEpochNotMatch() != nil || err.GetNotLeader() != nil) && time.Now().Sub(startTime) < timeout {
+			if err.GetStaleCommand() != nil || err.GetEpochNotMatch() != nil || err.GetNotLeader() != nil {
 				log.Warnf("encouter retryable err %+v", resp)
+				if err.GetNotLeader() != nil && err.GetNotLeader().Leader != nil {
+					leader = err.GetNotLeader().Leader
+				} else {
+					leader = c.LeaderOfRegion(regionID)
+				}
 				continue
 			}
 		}
@@ -197,13 +206,10 @@ func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeou
 }
 
 func (c *Cluster) LeaderOfRegion(regionID uint64) *metapb.Peer {
-	storeIds := c.GetStoreIdsOfRegion(regionID)
 	for i := 0; i < 500; i++ {
-		for _, storeID := range storeIds {
-			leader := c.QueryLeader(storeID, regionID, 5*time.Second)
-			if leader != nil {
-				return leader
-			}
+		_, leader, err := c.pdClient.GetRegionByID(context.TODO(), regionID)
+		if err == nil && leader != nil {
+			return leader
 		}
 		SleepMS(10)
 	}
@@ -216,7 +222,7 @@ func (c *Cluster) QueryLeader(storeID, regionID uint64, timeout time.Duration) *
 	findLeader := NewStatusRequest(regionID, &peer, NewRegionLeaderCmd())
 	resp, _ := c.CallCommand(findLeader, timeout)
 	if resp == nil {
-		log.Fatalf("fail to get leader of region %d on store %d", regionID, storeID)
+		panic(fmt.Sprintf("fail to get leader of region %d on store %d", regionID, storeID))
 	}
 	regionLeader := resp.StatusResponse.RegionLeader
 	if regionLeader != nil && c.ValidLeaderID(regionID, regionLeader.Leader.StoreId) {
@@ -245,7 +251,7 @@ func (c *Cluster) GetRegion(key []byte) *metapb.Region {
 		// retry to get the region again.
 		SleepMS(20)
 	}
-	log.Fatalf("find no region for %s", hex.EncodeToString(key))
+	panic(fmt.Sprintf("find no region for %s", hex.EncodeToString(key)))
 	return nil
 }
 
@@ -383,7 +389,7 @@ func (c *Cluster) MustTransferLeader(regionID uint64, leader *metapb.Peer) {
 			return
 		}
 		if time.Now().Sub(timer) > 5*time.Second {
-			log.Fatalf("failed to transfer leader to [%d] %s", regionID, leader.String())
+			panic(fmt.Sprintf("failed to transfer leader to [%d] %s", regionID, leader.String()))
 		}
 		c.TransferLeader(regionID, leader)
 	}

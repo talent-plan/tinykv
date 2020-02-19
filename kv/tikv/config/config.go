@@ -130,7 +130,7 @@ func NewDefaultConfig() *Config {
 		RaftRejectTransferLeaderDuration: 3 * time.Second,
 		SplitRegionCheckTickInterval:     10 * time.Second,
 		RegionSplitCheckDiff:             splitSize / 8,
-		PdHeartbeatTickInterval:          20 * time.Second,
+		PdHeartbeatTickInterval:          100 * time.Millisecond,
 		PdStoreHeartbeatTickInterval:     10 * time.Second,
 		NotifyCapacity:                   40960,
 		SnapMgrGcTickInterval:            1 * time.Minute,
