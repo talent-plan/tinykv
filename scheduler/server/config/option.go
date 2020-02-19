@@ -18,9 +18,7 @@ import (
 	"reflect"
 	"sync/atomic"
 	"time"
-	"unsafe"
 
-	"github.com/coreos/go-semver/semver"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/typeutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
@@ -31,7 +29,6 @@ import (
 type ScheduleOption struct {
 	schedule       atomic.Value
 	replication    *Replication
-	clusterVersion unsafe.Pointer
 	pdServerConfig atomic.Value
 }
 
@@ -41,7 +38,6 @@ func NewScheduleOption(cfg *Config) *ScheduleOption {
 	o.Store(&cfg.Schedule)
 	o.replication = newReplication(&cfg.Replication)
 	o.pdServerConfig.Store(&cfg.PDServerCfg)
-	o.SetClusterVersion(&cfg.ClusterVersion)
 	return o
 }
 
@@ -226,21 +222,6 @@ func (o *ScheduleOption) RemoveSchedulerCfg(ctx context.Context, name string) er
 		}
 	}
 	return nil
-}
-
-// SetClusterVersion sets the cluster version.
-func (o *ScheduleOption) SetClusterVersion(v *semver.Version) {
-	atomic.StorePointer(&o.clusterVersion, unsafe.Pointer(v))
-}
-
-// CASClusterVersion sets the cluster version.
-func (o *ScheduleOption) CASClusterVersion(old, new *semver.Version) bool {
-	return atomic.CompareAndSwapPointer(&o.clusterVersion, unsafe.Pointer(old), unsafe.Pointer(new))
-}
-
-// LoadClusterVersion returns the cluster version.
-func (o *ScheduleOption) LoadClusterVersion() *semver.Version {
-	return (*semver.Version)(atomic.LoadPointer(&o.clusterVersion))
 }
 
 // LoadPDServerConfig returns PD server configurations.

@@ -20,7 +20,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coreos/go-semver/semver"
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
@@ -639,15 +638,6 @@ func (c *RaftCluster) putStore(store *metapb.Store) error {
 		return errors.Errorf("invalid put store %v", store)
 	}
 
-	v, err := ParseVersion(store.GetVersion())
-	if err != nil {
-		return errors.Errorf("invalid put store %v, error: %s", store, err)
-	}
-	clusterVersion := *c.opt.LoadClusterVersion()
-	if !IsCompatible(clusterVersion, *v) {
-		return errors.Errorf("version should compatible with version  %s, got %s", clusterVersion, v)
-	}
-
 	// Store address can not be the same as other stores.
 	for _, s := range c.GetStores() {
 		// It's OK to start a new store on the same address if the old store has been removed.
@@ -911,50 +901,8 @@ func (c *RaftCluster) AllocPeer(storeID uint64) (*metapb.Peer, error) {
 	return peer, nil
 }
 
-// OnStoreVersionChange changes the version of the cluster when needed.
-func (c *RaftCluster) OnStoreVersionChange() {
-	c.RLock()
-	defer c.RUnlock()
-	var (
-		minVersion     *semver.Version
-		clusterVersion *semver.Version
-	)
-
-	stores := c.GetStores()
-	for _, s := range stores {
-		if s.IsTombstone() {
-			continue
-		}
-		v := MustParseVersion(s.GetVersion())
-
-		if minVersion == nil || v.LessThan(*minVersion) {
-			minVersion = v
-		}
-	}
-	clusterVersion = c.opt.LoadClusterVersion()
-
-	if (*clusterVersion).LessThan(*minVersion) {
-		if !c.opt.CASClusterVersion(clusterVersion, minVersion) {
-			log.Error("cluster version changed by API at the same time")
-		}
-		log.Info("cluster version changed",
-			zap.Stringer("old-cluster-version", clusterVersion),
-			zap.Stringer("new-cluster-version", minVersion))
-		CheckPDVersion(c.opt)
-	}
-}
-
 func (c *RaftCluster) changedRegionNotifier() <-chan *core.RegionInfo {
 	return c.changedRegions
-}
-
-// IsFeatureSupported checks if the feature is supported by current cluster.
-func (c *RaftCluster) IsFeatureSupported(f Feature) bool {
-	c.RLock()
-	defer c.RUnlock()
-	clusterVersion := *c.opt.LoadClusterVersion()
-	minSupportVersion := *MinSupportedVersion(f)
-	return !clusterVersion.LessThan(minSupportVersion)
 }
 
 // GetConfig gets config from cluster.

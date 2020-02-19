@@ -25,7 +25,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/coreos/go-semver/semver"
 	"github.com/golang/protobuf/proto"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
@@ -478,7 +477,6 @@ func (s *Server) GetConfig() *config.Config {
 	cfg := s.cfg.Clone()
 	cfg.Schedule = *s.scheduleOpt.Load()
 	cfg.Replication = *s.scheduleOpt.GetReplication().Load()
-	cfg.ClusterVersion = *s.scheduleOpt.LoadClusterVersion()
 	cfg.PDServerCfg = *s.scheduleOpt.LoadPDServerConfig()
 	storage := s.GetStorage()
 	if storage == nil {
@@ -516,22 +514,6 @@ func (s *Server) SetReplicationConfig(cfg config.ReplicationConfig) error {
 	s.scheduleOpt.GetReplication().Store(&cfg)
 	log.Info("replication config is updated", zap.Reflect("new", cfg), zap.Reflect("old", old))
 	return nil
-}
-
-// SetClusterVersion sets the version of cluster.
-func (s *Server) SetClusterVersion(v string) error {
-	version, err := ParseVersion(v)
-	if err != nil {
-		return err
-	}
-	s.scheduleOpt.SetClusterVersion(version)
-	log.Info("cluster version is updated", zap.String("new-version", v))
-	return nil
-}
-
-// GetClusterVersion returns the version of cluster.
-func (s *Server) GetClusterVersion() semver.Version {
-	return *s.scheduleOpt.LoadClusterVersion()
 }
 
 // GetSecurityConfig get the security config.
@@ -673,7 +655,6 @@ func (s *Server) campaignLeader() {
 	s.member.EnableLeader()
 	defer s.member.DisableLeader()
 
-	CheckPDVersion(s.scheduleOpt)
 	log.Info("PD cluster leader is ready to serve", zap.String("leader-name", s.Name()))
 
 	tsTicker := time.NewTicker(tso.UpdateTimestampStep)

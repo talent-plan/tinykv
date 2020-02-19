@@ -44,7 +44,6 @@ func newTestScheduleConfig() (*config.ScheduleConfig, *config.ScheduleOption, er
 		return nil, nil, err
 	}
 	opt := config.NewScheduleOption(cfg)
-	opt.SetClusterVersion(MinSupportedVersion(Version2_0))
 	return &cfg.Schedule, opt, nil
 }
 
