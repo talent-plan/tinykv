@@ -81,7 +81,6 @@ const (
 	leaderTickInterval = 50 * time.Millisecond
 	// pdRootPath for all pd servers.
 	pdRootPath      = "/pd"
-	pdAPIPrefix     = "/pd/"
 	pdClusterIDPath = "/pd/cluster_id"
 )
 

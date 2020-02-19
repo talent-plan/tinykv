@@ -43,10 +43,6 @@ var (
 	historyKeepTime    = 5 * time.Minute
 	slowNotifyInterval = 5 * time.Second
 	fastNotifyInterval = 2 * time.Second
-	// PushOperatorTickInterval is the interval try to push the operator.
-	PushOperatorTickInterval = 500 * time.Millisecond
-	// StoreBalanceBaseTime represents the base time of balance rate.
-	StoreBalanceBaseTime float64 = 60
 )
 
 // HeartbeatStreams is an interface of async region heartbeat.

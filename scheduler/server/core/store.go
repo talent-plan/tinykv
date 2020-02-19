@@ -225,7 +225,6 @@ func (s *StoreInfo) GetLastHeartbeatTS() time.Time {
 }
 
 const minWeight = 1e-6
-const maxScore = 1024 * 1024 * 1024
 
 // LeaderScore returns the store's leader score.
 func (s *StoreInfo) LeaderScore(strategy ScheduleStrategy, delta int64) float64 {

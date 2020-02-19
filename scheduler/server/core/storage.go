@@ -29,10 +29,8 @@ import (
 
 const (
 	clusterPath  = "raft"
-	configPath   = "config"
 	schedulePath = "schedule"
 	gcPath       = "gc"
-	rulesPath    = "rules"
 
 	customScheduleConfigPath = "scheduler_config"
 )
