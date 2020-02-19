@@ -20,6 +20,13 @@ import (
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
+type SnapshotStatus int
+
+const (
+	SnapshotFinish  SnapshotStatus = 1
+	SnapshotFailure SnapshotStatus = 2
+)
+
 type Status struct {
 	ID uint64
 

@@ -7,28 +7,8 @@ import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
 
-// LockedError occurs when a key or keys are locked. The protobuf representation of the locked keys is stored as info.
-type LockedError struct {
-	info []kvrpcpb.LockInfo
-}
-
-func (err *LockedError) Error() string {
-	return fmt.Sprintf("storage: %d keys are locked", len(err.info))
-}
-
 type KeyError interface {
-	keyErrors() []*kvrpcpb.KeyError
-}
-
-// keyErrors converts a LockedError to amn array of KeyErrors for sending to the client.
-func (err *LockedError) keyErrors() []*kvrpcpb.KeyError {
-	var result []*kvrpcpb.KeyError
-	for _, i := range err.info {
-		var ke kvrpcpb.KeyError
-		ke.Locked = &i
-		result = append(result, &ke)
-	}
-	return result
+	KeyErrors() []*kvrpcpb.KeyError
 }
 
 // WriteConflict occurs when writes from two transactions conflict.
@@ -43,7 +23,7 @@ func (err *WriteConflict) Error() string {
 	return fmt.Sprintf("storage: write conflict at key %d", err.key)
 }
 
-func (err *WriteConflict) keyErrors() []*kvrpcpb.KeyError {
+func (err *WriteConflict) KeyErrors() []*kvrpcpb.KeyError {
 	var result kvrpcpb.KeyError
 	result.Conflict = &kvrpcpb.WriteConflict{
 		StartTs:    err.startTS,
@@ -70,8 +50,23 @@ func (err *LockNotFound) Error() string {
 	return fmt.Sprintf("storage: lock not found for %v", err.key)
 }
 
-func (err *LockNotFound) keyErrors() []*kvrpcpb.KeyError {
+func (err *LockNotFound) KeyErrors() []*kvrpcpb.KeyError {
 	var result kvrpcpb.KeyError
 	result.Retryable = fmt.Sprintf("lock not found for key %v", err.key)
+	return []*kvrpcpb.KeyError{&result}
+}
+
+type Committed struct {
+	key []byte
+	ts  uint64
+}
+
+func (err *Committed) Error() string {
+	return fmt.Sprintf("storage: key has already been committed: %v at %d", err.key, err.ts)
+}
+
+func (err *Committed) KeyErrors() []*kvrpcpb.KeyError {
+	var result kvrpcpb.KeyError
+	result.Abort = fmt.Sprintf("key has already been committed: %v at %d", err.key, err.ts)
 	return []*kvrpcpb.KeyError{&result}
 }

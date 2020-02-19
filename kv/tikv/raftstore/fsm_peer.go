@@ -241,8 +241,6 @@ func (d *peerMsgHandler) onSignificantMsg(msg *MsgSignificant) {
 	case MsgSignificantTypeStatus:
 		// Report snapshot status to the corresponding peer.
 		d.reportSnapshotStatus(msg.ToPeerID, msg.SnapshotStatus)
-	case MsgSignificantTypeUnreachable:
-		d.peer.RaftGroup.ReportUnreachable(msg.ToPeerID)
 	}
 }
 

@@ -1317,8 +1317,8 @@ func TestLeaderAppResp(t *testing.T) {
 		windex     uint64
 		wcommitted uint64
 	}{
-		{2, true, 0, 4, 1, 1, 0},  // denied resp; leader does not commit; optimistic update next after sended append msg
-		{2, false, 2, 4, 2, 2, 2}, // accept resp; leader commits; broadcast with commit index
+		{2, true, 0, 2, 1, 1, 0},  // denied resp; leader does not commit;
+		{2, false, 2, 3, 2, 2, 2}, // accept resp; leader commits; broadcast with commit index
 		{0, false, 0, 3, 0, 0, 0}, // ignore heartbeat replies
 	}
 
@@ -1460,16 +1460,15 @@ func TestRecvMessageType_MsgBeat(t *testing.T) {
 
 func TestLeaderIncreaseNext(t *testing.T) {
 	previousEnts := []pb.Entry{{Term: 1, Index: 1}, {Term: 1, Index: 2}, {Term: 1, Index: 3}}
-	next := uint64(len(previousEnts))
 	// previous entries + noop entry + propose + 1
 	wnext := uint64(len(previousEnts)) + 1 + 1 + 1
 
 	sm := newTestRaft(1, []uint64{1, 2}, 10, 1, NewMemoryStorage())
 	sm.RaftLog.append(previousEnts...)
-	sm.becomeCandidate()
-	sm.becomeLeader()
-	sm.Prs[2].Next = next
-	sm.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: []byte("somedata")}}})
+	nt := newNetwork(sm, nil, nil)
+	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
+
+	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: []byte("somedata")}}})
 
 	p := sm.Prs[2]
 	if p.Next != wnext {
@@ -1653,7 +1652,7 @@ func TestStepIgnoreConfig(t *testing.T) {
 	pendingConfIndex := r.PendingConfIndex
 	r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{EntryType: pb.EntryType_EntryConfChange}}})
 	wents := []pb.Entry{{EntryType: pb.EntryType_EntryNormal, Term: 1, Index: 3, Data: nil}}
-	ents, err := r.RaftLog.Entries(index+1, noLimit)
+	ents, err := r.RaftLog.Entries(index + 1)
 	if err != nil {
 		t.Fatalf("unexpected error %v", err)
 	}
@@ -2406,7 +2405,7 @@ func newTestConfig(id uint64, peers []uint64, election, heartbeat int, storage S
 		ElectionTick:  election,
 		HeartbeatTick: heartbeat,
 		Storage:       storage,
-		MaxSizePerMsg: noLimit,
+		MaxEntsSize:   noLimit,
 	}
 }
 

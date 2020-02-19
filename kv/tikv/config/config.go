@@ -27,7 +27,7 @@ type Config struct {
 	RaftElectionTimeoutTicks    int
 	RaftMinElectionTimeoutTicks int
 	RaftMaxElectionTimeoutTicks int
-	RaftMaxSizePerMsg           uint64
+	RaftMaxEntsSize             uint64
 	RaftMaxInflightMsgs         int
 
 	// When the entry exceed the max size, reject to propose it.
@@ -115,12 +115,12 @@ func NewDefaultConfig() *Config {
 		RaftdbPath:                  "",
 		SnapPath:                    "snap",
 		Capacity:                    0,
-		RaftBaseTickInterval:        1 * time.Second,
+		RaftBaseTickInterval:        10 * time.Millisecond,
 		RaftHeartbeatTicks:          2,
 		RaftElectionTimeoutTicks:    10,
 		RaftMinElectionTimeoutTicks: 0,
 		RaftMaxElectionTimeoutTicks: 0,
-		RaftMaxSizePerMsg:           1 * MB,
+		RaftMaxEntsSize:             1 * MB,
 		RaftMaxInflightMsgs:         256,
 		RaftEntryMaxSize:            8 * MB,
 		RaftLogGCTickInterval:       10 * time.Second,
@@ -143,22 +143,19 @@ func NewDefaultConfig() *Config {
 		AbnormalLeaderMissingDuration:    10 * time.Minute,
 		PeerStaleStateCheckInterval:      5 * time.Minute,
 		LeaderTransferMaxLogLag:          10,
-		// Disable consistency check by default as it will hurt performance.
-		// We should turn on this only in our tests.
-		RaftStoreMaxLeaderLease: 9 * time.Second,
-		AllowRemoveLeader:       false,
-		ApplyMaxBatchSize:       1024,
-		ApplyPoolSize:           2,
-		StoreMaxBatchSize:       1024,
-		RaftWorkerCnt:           2,
-		ConcurrentSendSnapLimit: 32,
-		ConcurrentRecvSnapLimit: 32,
-		GrpcInitialWindowSize:   2 * 1024 * 1024,
-		GrpcKeepAliveTime:       3 * time.Second,
-		GrpcKeepAliveTimeout:    60 * time.Second,
-		GrpcRaftConnNum:         1,
-		Addr:                    "127.0.0.1:20160",
-		SplitCheck:              NewDefaultSplitCheckConfig(),
+		AllowRemoveLeader:                false,
+		ApplyMaxBatchSize:                1024,
+		ApplyPoolSize:                    2,
+		StoreMaxBatchSize:                1024,
+		RaftWorkerCnt:                    2,
+		ConcurrentSendSnapLimit:          32,
+		ConcurrentRecvSnapLimit:          32,
+		GrpcInitialWindowSize:            2 * 1024 * 1024,
+		GrpcKeepAliveTime:                3 * time.Second,
+		GrpcKeepAliveTimeout:             60 * time.Second,
+		GrpcRaftConnNum:                  1,
+		Addr:                             "127.0.0.1:20160",
+		SplitCheck:                       NewDefaultSplitCheckConfig(),
 	}
 }
 

@@ -342,10 +342,6 @@ func (r *TaskResRouter) ReportSnapshotStatus(regionID uint64, toPeerID uint64, s
 	return nil
 }
 
-func (r *TaskResRouter) ReportUnreachable(regionID, toPeerID uint64) error {
-	return nil
-}
-
 func encodeKey(key []byte, ts uint64) []byte {
 	encodedKey := codec.EncodeBytes(key)
 	newKey := append(encodedKey, make([]byte, 8)...)
