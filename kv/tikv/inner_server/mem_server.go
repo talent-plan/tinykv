@@ -53,7 +53,7 @@ func (is *MemInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
 	for _, m := range batch {
 		switch data := m.Data.(type) {
 		case Put:
-			item := memItem{data.Key, data.Value}
+			item := memItem{data.Key, data.Value, false}
 			switch data.Cf {
 			case engine_util.CfDefault:
 				is.CfDefault.ReplaceOrInsert(item)
@@ -63,7 +63,7 @@ func (is *MemInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
 				is.CfWrite.ReplaceOrInsert(item)
 			}
 		case Delete:
-			item := memItem{data.Key, nil}
+			item := memItem{key: data.Key}
 			switch data.Cf {
 			case engine_util.CfDefault:
 				is.CfDefault.Delete(item)
@@ -79,28 +79,52 @@ func (is *MemInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
 }
 
 func (is *MemInnerServer) Get(cf string, key []byte) []byte {
-	reader, err := is.Reader(nil)
-	if err != nil {
-		panic(err)
+	item := memItem{key: key}
+	var result llrb.Item
+	switch cf {
+	case engine_util.CfDefault:
+		result = is.CfDefault.Get(item)
+	case engine_util.CfLock:
+		result = is.CfLock.Get(item)
+	case engine_util.CfWrite:
+		result = is.CfWrite.Get(item)
 	}
-	value, err := reader.GetCF(cf, key)
-	if err != nil {
-		panic(err)
+
+	if result == nil {
+		return nil
 	}
-	return value
+
+	return result.(memItem).value
 }
 
-func (is *MemInnerServer) Set(cf string, key []byte, value []byte) error {
-	return is.Write(nil, []Modify{
-		{
-			Type: ModifyTypePut,
-			Data: Put{
-				Cf:    cf,
-				Key:   key,
-				Value: value,
-			},
-		},
-	})
+func (is *MemInnerServer) Set(cf string, key []byte, value []byte) {
+	item := memItem{key, value, true}
+	switch cf {
+	case engine_util.CfDefault:
+		is.CfDefault.ReplaceOrInsert(item)
+	case engine_util.CfLock:
+		is.CfLock.ReplaceOrInsert(item)
+	case engine_util.CfWrite:
+		is.CfWrite.ReplaceOrInsert(item)
+	}
+}
+
+func (is *MemInnerServer) HasChanged(cf string, key []byte) bool {
+	item := memItem{key: key}
+	var result llrb.Item
+	switch cf {
+	case engine_util.CfDefault:
+		result = is.CfDefault.Get(item)
+	case engine_util.CfLock:
+		result = is.CfLock.Get(item)
+	case engine_util.CfWrite:
+		result = is.CfWrite.Get(item)
+	}
+	if result == nil {
+		return true
+	}
+
+	return !result.(memItem).fresh
 }
 
 func (is *MemInnerServer) Len(cf string) int {
@@ -122,7 +146,7 @@ type memReader struct {
 }
 
 func (mr *memReader) GetCF(cf string, key []byte) ([]byte, error) {
-	item := memItem{key, nil}
+	item := memItem{key: key}
 	var result llrb.Item
 	switch cf {
 	case engine_util.CfDefault:
@@ -157,7 +181,7 @@ func (mr *memReader) IterCF(cf string) engine_util.DBIterator {
 
 	min := data.Min()
 	if min == nil {
-		return &memIter{data, memItem{nil, nil}}
+		return &memIter{data, memItem{}}
 	}
 	return &memIter{data, min.(memItem)}
 }
@@ -178,7 +202,7 @@ func (it *memIter) Valid() bool {
 func (it *memIter) Next() {
 	first := true
 	oldItem := it.item
-	it.item = memItem{nil, nil}
+	it.item = memItem{}
 	it.data.AscendGreaterOrEqual(oldItem, func(item llrb.Item) bool {
 		// Skip the first item, which will be it.item
 		if first {
@@ -191,8 +215,8 @@ func (it *memIter) Next() {
 	})
 }
 func (it *memIter) Seek(key []byte) {
-	it.item = memItem{nil, nil}
-	it.data.AscendGreaterOrEqual(memItem{key, nil}, func(item llrb.Item) bool {
+	it.item = memItem{}
+	it.data.AscendGreaterOrEqual(memItem{key: key}, func(item llrb.Item) bool {
 		it.item = item.(memItem)
 
 		return false
@@ -204,6 +228,7 @@ func (it *memIter) Close() {}
 type memItem struct {
 	key   []byte
 	value []byte
+	fresh bool
 }
 
 func (it memItem) Key() []byte {
