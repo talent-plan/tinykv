@@ -221,19 +221,9 @@ func TestRawNodeProposeAddDuplicateNode(t *testing.T) {
 	}
 }
 
-// TestBlockProposal from node_test.go has no equivalent in rawNode because there is
-// no leader check in RawNode.
-
-// TestNodeTick from node_test.go has no equivalent in rawNode because
-// it reaches into the raft object which is not exposed.
-
-// TestNodeStop from node_test.go has no equivalent in rawNode because there is
-// no goroutine in RawNode.
-
 // TestRawNodeStart ensures that a node can be started correctly. The node should
 // start with correct configuration change entries, and can accept and commit
 // proposals.
-
 func TestRawNodeStart(t *testing.T) {
 	cc := pb.ConfChange{ChangeType: pb.ConfChangeType_AddNode, NodeId: 1}
 	ccdata, err := cc.Marshal()
@@ -311,7 +301,7 @@ func TestRawNodeRestart(t *testing.T) {
 	st := pb.HardState{Term: 1, Commit: 1}
 
 	want := Ready{
-		HardState: pb.HardState{},
+		Entries: []pb.Entry{},
 		// commit up to commit index in st
 		CommittedEntries: entries[:st.Commit],
 	}
@@ -350,7 +340,7 @@ func TestRawNodeRestartFromSnapshot(t *testing.T) {
 	st := pb.HardState{Term: 1, Commit: 3}
 
 	want := Ready{
-		HardState: pb.HardState{},
+		Entries: []pb.Entry{},
 		// commit up to commit index in st
 		CommittedEntries: entries,
 	}

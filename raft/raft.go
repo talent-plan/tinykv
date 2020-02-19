@@ -268,7 +268,7 @@ func newRaft(c *Config) *Raft {
 }
 
 func (r *Raft) GetSnap() *pb.Snapshot {
-	return r.RaftLog.unstable.snapshot
+	return r.RaftLog.pending_snapshot
 }
 
 func (r *Raft) hasLeader() bool { return r.Lead != None }

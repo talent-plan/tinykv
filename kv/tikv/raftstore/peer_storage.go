@@ -203,7 +203,7 @@ type PeerStorage struct {
 	regionSched  chan<- worker.Task
 	snapTriedCnt int
 
-	cache *EntryCache
+	cache *EntryCache // TODO: remove it
 	stats *CacheQueryStats
 
 	Tag string

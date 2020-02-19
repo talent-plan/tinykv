@@ -21,13 +21,15 @@ import (
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
+// RaftLog mange the log entries, its struct look like:
+//
+//  truntated.....first.....stabled....committed.....applied....last
+//  --------|     |------------------------------------------------|
+//  snapshot                          log entries
+//
 type RaftLog struct {
 	// storage contains all stable entries since the last snapshot.
 	storage Storage
-
-	// unstable contains all unstable entries and snapshot.
-	// they will be saved into storage.
-	unstable unstable
 
 	// committed is the highest log position that is known to be in
 	// stable storage on a quorum of nodes.
@@ -36,6 +38,15 @@ type RaftLog struct {
 	// been instructed to apply to its state machine.
 	// Invariant: applied <= committed
 	applied uint64
+
+	// the incoming unstable snapshot, if any.
+	pending_snapshot *pb.Snapshot
+	// all entries that have not yet been written to storage.
+	entries        []pb.Entry
+	offset         uint64 // truntated index + 1
+	truncatedTerm  uint64
+	truncatedIndex uint64
+	stabled        uint64
 
 	logger Logger
 }
@@ -59,8 +70,20 @@ func newLog(storage Storage, logger Logger) *RaftLog {
 	if err != nil {
 		panic(err) // TODO(bdarnell)
 	}
-	log.unstable.offset = lastIndex + 1
-	log.unstable.logger = logger
+	truncatedTerm, err := storage.Term(firstIndex - 1)
+	if err != nil {
+		panic(err) // TODO(bdarnell)
+	}
+	// get all entris in storage
+	entries, err := storage.Entries(firstIndex, lastIndex+1)
+	if err != nil {
+		panic(err) // TODO(bdarnell)
+	}
+	log.entries = entries
+	log.offset = firstIndex
+	log.truncatedIndex = firstIndex - 1
+	log.truncatedTerm = truncatedTerm
+	log.stabled = lastIndex
 	// Initialize our committed and applied pointers to the time of the last compaction.
 	log.committed = firstIndex - 1
 	log.applied = firstIndex - 1
@@ -69,7 +92,7 @@ func newLog(storage Storage, logger Logger) *RaftLog {
 }
 
 func (l *RaftLog) String() string {
-	return fmt.Sprintf("committed=%d, applied=%d, unstable.offset=%d, len(unstable.Entries)=%d", l.committed, l.applied, l.unstable.offset, len(l.unstable.entries))
+	return fmt.Sprintf("committed=%d, applied=%d, offset=%d, len(Entries)=%d", l.committed, l.applied, l.offset, len(l.entries))
 }
 
 // maybeAppend returns (0, false) if the entries cannot be appended. Otherwise,
@@ -99,8 +122,42 @@ func (l *RaftLog) append(ents ...pb.Entry) uint64 {
 	if after := ents[0].Index - 1; after < l.committed {
 		l.logger.Panicf("after(%d) is out of range [committed(%d)]", after, l.committed)
 	}
-	l.unstable.truncateAndAppend(ents)
+	l.truncateAndAppend(ents)
+	l.maybeCompact()
 	return l.LastIndex()
+}
+
+func (l *RaftLog) truncateAndAppend(ents []pb.Entry) {
+	after := ents[0].Index
+	if after == l.LastIndex()+1 {
+		l.entries = append(l.entries, ents...)
+		return
+	}
+	// truncate to after and copy to u.entries then append
+	l.logger.Infof("truncate the unstable entries before index %d", after)
+	if after-1 < l.stabled {
+		l.stabled = after - 1
+	}
+	l.entries = append([]pb.Entry{}, l.entries[:after-l.offset]...)
+	l.entries = append(l.entries, ents...)
+}
+
+func (l *RaftLog) maybeCompact() {
+	fi, err := l.storage.FirstIndex()
+	if err != nil {
+		panic(err) // TODO(bdarnell)
+	}
+	ft, err := l.storage.Term(fi - 1)
+	if err != nil {
+		panic(err) // TODO(bdarnell)
+	}
+	compactSize := fi - l.offset
+	if compactSize > 0 && compactSize < uint64(len(l.entries)) {
+		l.entries = l.entries[compactSize:]
+		l.offset = fi
+		l.truncatedIndex = fi - 1
+		l.truncatedTerm = ft
+	}
 }
 
 // findConflict finds the index of the conflict.
@@ -128,10 +185,10 @@ func (l *RaftLog) findConflict(ents []pb.Entry) uint64 {
 }
 
 func (l *RaftLog) unstableEntries() []pb.Entry {
-	if len(l.unstable.entries) == 0 {
+	if int(l.stabled+1-l.offset) > len(l.entries) {
 		return nil
 	}
-	return l.unstable.entries
+	return l.entries[l.stabled+1-l.offset:]
 }
 
 // nextEnts returns all the available entries for execution.
@@ -166,26 +223,29 @@ func (l *RaftLog) hasNextEntsSince(sinceIdx uint64) bool {
 }
 
 func (l *RaftLog) snapshot() (pb.Snapshot, error) {
-	if l.unstable.snapshot != nil {
-		return *l.unstable.snapshot, nil
+	if l.pending_snapshot != nil {
+		return *l.pending_snapshot, nil
 	}
 	return l.storage.Snapshot()
 }
 
 func (l *RaftLog) firstIndex() uint64 {
-	if i, ok := l.unstable.maybeFirstIndex(); ok {
-		return i
+	if l.pending_snapshot != nil {
+		return l.pending_snapshot.Metadata.Index + 1
 	}
-	index, err := l.storage.FirstIndex()
+	i, err := l.storage.FirstIndex()
 	if err != nil {
 		panic(err) // TODO(bdarnell)
 	}
-	return index
+	return i
 }
 
 func (l *RaftLog) LastIndex() uint64 {
-	if i, ok := l.unstable.maybeLastIndex(); ok {
-		return i
+	if len(l.entries) != 0 {
+		return l.entries[len(l.entries)-1].Index
+	}
+	if l.pending_snapshot != nil {
+		return l.pending_snapshot.Metadata.Index
 	}
 	i, err := l.storage.LastIndex()
 	if err != nil {
@@ -214,9 +274,20 @@ func (l *RaftLog) appliedTo(i uint64) {
 	l.applied = i
 }
 
-func (l *RaftLog) stableTo(i, t uint64) { l.unstable.stableTo(i, t) }
+func (l *RaftLog) stableTo(i, t uint64) {
+	if !l.matchTerm(i, t) {
+		return
+	}
+	if l.stabled < i {
+		l.stabled = i
+	}
+}
 
-func (l *RaftLog) stableSnapTo(i uint64) { l.unstable.stableSnapTo(i) }
+func (l *RaftLog) stableSnapTo(i uint64) {
+	if l.pending_snapshot != nil && l.pending_snapshot.Metadata.Index == i {
+		l.pending_snapshot = nil
+	}
+}
 
 func (l *RaftLog) lastTerm() uint64 {
 	t, err := l.Term(l.LastIndex())
@@ -227,45 +298,34 @@ func (l *RaftLog) lastTerm() uint64 {
 }
 
 func (l *RaftLog) Term(i uint64) (uint64, error) {
-	// the valid term range is [index of dummy entry, last index]
-	dummyIndex := l.firstIndex() - 1
-	if i < dummyIndex || i > l.LastIndex() {
-		// TODO: return an error instead?
-		return 0, nil
+	if i == l.truncatedIndex {
+		return l.truncatedTerm, nil
 	}
-
-	if t, ok := l.unstable.maybeTerm(i); ok {
-		return t, nil
+	if len(l.entries) == 0 {
+		return 0, ErrCompacted
 	}
-
-	t, err := l.storage.Term(i)
-	if err == nil {
-		return t, nil
+	if i < l.offset {
+		return 0, ErrCompacted
 	}
-	if err == ErrCompacted || err == ErrUnavailable {
-		return 0, err
+	if i > l.offset+uint64(len(l.entries))-1 {
+		return 0, ErrUnavailable
 	}
-	panic(err) // TODO(bdarnell)
+	return l.entries[i-l.offset].Term, nil
 }
 
 func (l *RaftLog) Entries(i uint64) ([]pb.Entry, error) {
 	if i > l.LastIndex() {
 		return nil, nil
 	}
-	return l.slice(i, l.LastIndex()+1)
+	if i < l.firstIndex() {
+		return nil, ErrCompacted
+	}
+	return l.entries[i-l.offset:], nil
 }
 
 // allEntries returns all entries in the log.
 func (l *RaftLog) allEntries() []pb.Entry {
-	ents, err := l.slice(l.firstIndex(), l.LastIndex()+1)
-	if err == nil {
-		return ents
-	}
-	if err == ErrCompacted { // try again if there was a racing compaction
-		return l.allEntries()
-	}
-	// TODO (xiangli): handle error?
-	panic(err)
+	return l.entries
 }
 
 // isUpToDate determines if the given (lastIndex,term) log is more up-to-date
@@ -297,46 +357,20 @@ func (l *RaftLog) maybeCommit(maxIndex, term uint64) bool {
 func (l *RaftLog) restore(s pb.Snapshot) {
 	l.logger.Infof("log [%s] starts to restore snapshot [index: %d, term: %d]", l, s.Metadata.Index, s.Metadata.Term)
 	l.committed = s.Metadata.Index
-	l.unstable.restore(s)
+	l.entries = nil
+	l.stabled = s.Metadata.Index
+	l.offset = s.Metadata.Index + 1
+	l.truncatedIndex = s.Metadata.Index
+	l.truncatedTerm = s.Metadata.Term
+	l.pending_snapshot = &s
 }
 
 // slice returns a slice of log entries from lo through hi-1, inclusive.
 func (l *RaftLog) slice(lo, hi uint64) ([]pb.Entry, error) {
-	err := l.mustCheckOutOfBounds(lo, hi)
-	if err != nil {
+	if err := l.mustCheckOutOfBounds(lo, hi); err != nil {
 		return nil, err
 	}
-	if lo == hi {
-		return nil, nil
-	}
-	var ents []pb.Entry
-	if lo < l.unstable.offset {
-		storedEnts, err := l.storage.Entries(lo, min(hi, l.unstable.offset))
-		if err == ErrCompacted {
-			return nil, err
-		} else if err == ErrUnavailable {
-			l.logger.Panicf("entries[%d:%d) is unavailable from storage", lo, min(hi, l.unstable.offset))
-		} else if err != nil {
-			panic(err) // TODO(bdarnell)
-		}
-
-		// check if ents has reached the size limitation
-		if uint64(len(storedEnts)) < min(hi, l.unstable.offset)-lo {
-			return storedEnts, nil
-		}
-
-		ents = storedEnts
-	}
-	if hi > l.unstable.offset {
-		unstable := l.unstable.slice(max(lo, l.unstable.offset), hi)
-		if len(ents) > 0 {
-			ents = append([]pb.Entry{}, ents...)
-			ents = append(ents, unstable...)
-		} else {
-			ents = unstable
-		}
-	}
-	return ents, nil
+	return l.entries[lo-l.offset : hi-l.offset], nil
 }
 
 // l.firstIndex <= lo <= hi <= l.firstIndex + len(l.entries)
@@ -349,8 +383,7 @@ func (l *RaftLog) mustCheckOutOfBounds(lo, hi uint64) error {
 		return ErrCompacted
 	}
 
-	length := l.LastIndex() + 1 - fi
-	if lo < fi || hi > fi+length {
+	if lo < fi || hi > l.LastIndex()+1 {
 		l.logger.Panicf("slice[%d,%d) out of bound [%d,%d]", lo, hi, fi, l.LastIndex())
 	}
 	return nil
@@ -360,7 +393,7 @@ func (l *RaftLog) zeroTermOnErrCompacted(t uint64, err error) uint64 {
 	if err == nil {
 		return t
 	}
-	if err == ErrCompacted {
+	if err == ErrCompacted || err == ErrUnavailable {
 		return 0
 	}
 	l.logger.Panicf("unexpected error (%v)", err)

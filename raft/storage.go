@@ -116,12 +116,12 @@ func (ms *MemoryStorage) Entries(lo, hi uint64) ([]pb.Entry, error) {
 	if hi > ms.lastIndex()+1 {
 		raftLogger.Panicf("entries' hi(%d) is out of bound lastindex(%d)", hi, ms.lastIndex())
 	}
-	// only contains dummy entries.
-	if len(ms.ents) == 1 {
-		return nil, ErrUnavailable
-	}
 
 	ents := ms.ents[lo-offset : hi-offset]
+	if len(ms.ents) == 1 && len(ents) != 0 {
+		// only contains dummy entries.
+		return nil, ErrUnavailable
+	}
 	return ents, nil
 }
 
