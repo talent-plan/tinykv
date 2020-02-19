@@ -149,10 +149,10 @@ func builderForScan(t *testing.T) *testBuilder {
 	return &builder
 }
 
-func (t *testBuilder) scanRequest(startKey []byte, limit uint32) *kvrpcpb.ScanRequest {
+func (builder *testBuilder) scanRequest(startKey []byte, limit uint32) *kvrpcpb.ScanRequest {
 	var req kvrpcpb.ScanRequest
 	req.StartKey = startKey
 	req.Limit = limit
-	req.Version = t.nextTs()
+	req.Version = builder.nextTs()
 	return &req
 }

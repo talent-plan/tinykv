@@ -169,6 +169,29 @@ func (txn *MvccTxn) DeleteLock(key []byte) {
 	})
 }
 
+type TxnSet interface {
+	Contains(ts uint64) bool
+}
+
+func (txn *MvccTxn) AllLocksForTxns(txns TxnSet) ([]KlPair, error) {
+	var result []KlPair
+	for iter := txn.Reader.IterCF(engine_util.CfLock); iter.Valid(); iter.Next() {
+		item := iter.Item()
+		val, err := item.Value()
+		if err != nil {
+			return nil, err
+		}
+		lock, err := ParseLock(val)
+		if err != nil {
+			return nil, err
+		}
+		if txns.Contains(lock.Ts) {
+			result = append(result, KlPair{item.Key(), lock})
+		}
+	}
+	return result, nil
+}
+
 // GetValue gets the value at precisely the given key and ts, without searching.
 func (txn *MvccTxn) GetValue(key []byte, ts uint64) ([]byte, error) {
 	return txn.Reader.GetCF(engine_util.CfDefault, EncodeKey(key, ts))
