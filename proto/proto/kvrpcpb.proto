@@ -162,14 +162,11 @@ message BatchRollbackResponse {
 // If the transaction is rollbacked/committed, return the result;
 // If the TTL of the transaction is exhausted, abort that transaction and return rolledback;
 // Otherwise, returns the TTL information.
-// CheckTxnStatusRequest may also push forward the minCommitTS of a large transaction.
 message CheckTxnStatusRequest {
     Context context = 1;
     bytes primary_key = 2;
     uint64 lock_ts = 3;	// primary key and lock ts together to locate the primary lock of a transaction.
-    uint64 caller_start_ts = 4;	// The start ts of the caller, i.e, the start ts of reader transaction.
-    uint64 current_ts = 5; // current_ts is used to check TTL timeout, it may be inaccurate.
-    bool rollback_if_not_exist = 6;
+    uint64 current_ts = 4; // current_ts is used to check TTL timeout, it may be inaccurate.
 }
 
 enum Action {
@@ -184,12 +181,11 @@ message CheckTxnStatusResponse {
     // Three kinds of txn status:
     // locked: lock_ttl > 0
     // committed: commit_version > 0
-    // rollbacked: lock_ttl = 0 && commit_version = 0
+    // rolled back: lock_ttl = 0 && commit_version = 0
     uint64 lock_ttl = 3;
     uint64 commit_version = 4;
     // The action performed by the CheckTxnStatus
     // If the action is rollback, set the rollback reason.
-    // If the minCommitTS is pushed, set the push flag.
     Action action = 5;
 }
 

@@ -46,7 +46,7 @@ func (scan *Scanner) Next() ([]byte, []byte, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		if lock != nil && lock.TS < *scan.txn.StartTS {
+		if lock != nil && lock.Ts < *scan.txn.StartTS {
 			// The key is currently locked.
 			return nil, nil, &LockedError{Info: []kvrpcpb.LockInfo{*lock.Info(userKey)}}
 		}
