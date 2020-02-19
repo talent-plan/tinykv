@@ -1,7 +1,6 @@
 package raftstore
 
 import (
-	"sync"
 	"time"
 
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
@@ -95,13 +94,10 @@ func newTickDriver(baseTickInterval time.Duration, router *router, storeTicker *
 	}
 }
 
-func (r *tickDriver) run(closeCh chan struct{}, wg *sync.WaitGroup) {
+func (r *tickDriver) run() {
 	timer := time.Tick(r.baseTickInterval)
 	for {
 		select {
-		case <-closeCh:
-			wg.Done()
-			return
 		case <-timer:
 			for regionID := range r.regions {
 				if r.router.send(regionID, message.NewPeerMsg(message.MsgTypeTick, regionID, nil)) != nil {
@@ -109,10 +105,17 @@ func (r *tickDriver) run(closeCh chan struct{}, wg *sync.WaitGroup) {
 				}
 			}
 			r.tickStore()
-		case regionID := <-r.newRegionCh:
+		case regionID, ok := <-r.newRegionCh:
+			if !ok {
+				return
+			}
 			r.regions[regionID] = struct{}{}
 		}
 	}
+}
+
+func (r *tickDriver) stop() {
+	close(r.newRegionCh)
 }
 
 func (r *tickDriver) tickStore() {

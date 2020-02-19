@@ -3,7 +3,9 @@ package test_raftstore
 import (
 	"context"
 	"io"
+	"log"
 	"sync"
+	"time"
 
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	tikvConf "github.com/pingcap-incubator/tinykv/kv/tikv/config"
@@ -14,104 +16,60 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/raft"
 )
 
 type MockTransport struct {
-	sync.Mutex
+	sync.RWMutex
 
-	sendFilters map[uint64][]Filter
-	recvFilters map[uint64][]Filter
-	routers     map[uint64]message.RaftRouter
-	snapMgrs    map[uint64]*snap.SnapManager
+	filters  []Filter
+	routers  map[uint64]message.RaftRouter
+	snapMgrs map[uint64]*snap.SnapManager
 }
 
-func NewMockTransport() MockTransport {
-	return MockTransport{
-		sendFilters: make(map[uint64][]Filter),
-		recvFilters: make(map[uint64][]Filter),
-		routers:     make(map[uint64]message.RaftRouter),
-		snapMgrs:    make(map[uint64]*snap.SnapManager),
+func NewMockTransport() *MockTransport {
+	return &MockTransport{
+		routers:  make(map[uint64]message.RaftRouter),
+		snapMgrs: make(map[uint64]*snap.SnapManager),
 	}
 }
 
-func (t *MockTransport) AddNode(storeID uint64, raftRouter message.RaftRouter, snapMgr *snap.SnapManager) {
+func (t *MockTransport) AddNode(nodeID uint64, raftRouter message.RaftRouter, snapMgr *snap.SnapManager) {
 	t.Lock()
 	defer t.Unlock()
 
-	t.routers[storeID] = raftRouter
-	t.snapMgrs[storeID] = snapMgr
+	t.routers[nodeID] = raftRouter
+	t.snapMgrs[nodeID] = snapMgr
 }
 
-func (t *MockTransport) getSendFilters(storeID uint64) []Filter {
-	filters := t.sendFilters[storeID]
-	if filters == nil {
-		filters = make([]Filter, 0, 0)
-	}
-	return filters
-}
-
-func (t *MockTransport) getRecvFilters(storeID uint64) []Filter {
-	filters := t.recvFilters[storeID]
-	if filters == nil {
-		filters = make([]Filter, 0, 0)
-	}
-	return filters
-}
-
-func (t *MockTransport) AddSendFilter(storeID uint64, filter Filter) {
+func (t *MockTransport) AddFilter(filter Filter) {
 	t.Lock()
 	defer t.Unlock()
 
-	filters := t.getSendFilters(storeID)
-	filters = append(filters, filter)
-	t.sendFilters[storeID] = filters
+	t.filters = append(t.filters, filter)
 }
 
-func (t *MockTransport) AddReceiveFilter(storeID uint64, filter Filter) {
+func (t *MockTransport) ClearFilters() {
 	t.Lock()
 	defer t.Unlock()
 
-	filters := t.getRecvFilters(storeID)
-	filters = append(filters, filter)
-	t.recvFilters[storeID] = filters
-}
-
-func (t *MockTransport) ClearSendFilters(storeID uint64) {
-	t.Lock()
-	defer t.Unlock()
-
-	t.sendFilters[storeID] = nil
-}
-
-func (t *MockTransport) ClearReceiveFilters(storeID uint64) {
-	t.Lock()
-	defer t.Unlock()
-
-	t.recvFilters[storeID] = nil
+	t.filters = nil
 }
 
 func (t *MockTransport) Send(msg *raft_serverpb.RaftMessage) error {
-	t.Lock()
-	defer t.Unlock()
+	t.RLock()
+	defer t.RUnlock()
+
+	for _, filter := range t.filters {
+		if !filter.Before(msg) {
+			return nil
+		}
+	}
 
 	fromStore := msg.GetFromPeer().GetStoreId()
 	toStore := msg.GetToPeer().GetStoreId()
-
-	fromFilters := t.getSendFilters(fromStore)
-	toFilters := t.getRecvFilters(toStore)
-
-	for _, filter := range fromFilters {
-		if !filter.Before(msg) {
-			return nil
-		}
-	}
-	for _, filter := range toFilters {
-		if !filter.Before(msg) {
-			return nil
-		}
-	}
 
 	regionID := msg.GetRegionId()
 	toPeerID := msg.GetToPeer().GetId()
@@ -156,31 +114,29 @@ func (t *MockTransport) Send(msg *raft_serverpb.RaftMessage) error {
 		}
 	}
 
-	for _, filter := range fromFilters {
-		filter.After()
-	}
-	for _, filter := range toFilters {
+	for _, filter := range t.filters {
 		filter.After()
 	}
 
 	return nil
 }
 
-type NodeCluster struct {
+type NodeSimulator struct {
 	trans    *MockTransport
 	pdClient pd.Client
-	nodes    []*raftstore.Node
+	nodes    map[uint64]*raftstore.Node
 }
 
-func NewNodeCluster(pdClient pd.Client) NodeCluster {
+func NewNodeSimulator(pdClient pd.Client) NodeSimulator {
 	trans := NewMockTransport()
-	return NodeCluster{
-		trans:    &trans,
+	return NodeSimulator{
+		trans:    trans,
 		pdClient: pdClient,
+		nodes:    make(map[uint64]*raftstore.Node),
 	}
 }
 
-func (c *NodeCluster) RunNode(raftConf *tikvConf.Config, engine *engine_util.Engines, ctx context.Context) error {
+func (c *NodeSimulator) RunNode(raftConf *tikvConf.Config, engine *engine_util.Engines, ctx context.Context) error {
 	var wg sync.WaitGroup
 	pdWorker := worker.NewWorker("pd-worker", &wg)
 
@@ -193,31 +149,54 @@ func (c *NodeCluster) RunNode(raftConf *tikvConf.Config, engine *engine_util.Eng
 	if err != nil {
 		return err
 	}
-	c.nodes = append(c.nodes, node)
 
-	c.trans.AddNode(node.GetStoreID(), raftRouter, snapManager)
+	storeID := node.GetStoreID()
+	c.nodes[storeID] = node
+	c.trans.AddNode(storeID, raftRouter, snapManager)
 
 	return nil
 }
 
-func (c *NodeCluster) StopNodes() {
-	for _, node := range c.nodes {
-		node.Stop()
+func (c *NodeSimulator) StopNode(nodeID uint64) {
+	node := c.nodes[nodeID]
+	if node == nil {
+		log.Panicf("Can not find node %d", nodeID)
 	}
+	node.Stop()
 }
 
-func (c *NodeCluster) AddSendFilter(storeID uint64, filter Filter) {
-	c.trans.AddSendFilter(storeID, filter)
+func (c *NodeSimulator) AddFilter(filter Filter) {
+	c.trans.AddFilter(filter)
 }
 
-func (c *NodeCluster) ClearSendFilters(storeID uint64) {
-	c.trans.ClearSendFilters(storeID)
+func (c *NodeSimulator) ClearFilters() {
+	c.trans.ClearFilters()
 }
 
-func (c *NodeCluster) AddReceiveFilter(storeID uint64, filter Filter) {
-	c.trans.AddReceiveFilter(storeID, filter)
+func (c *NodeSimulator) GetNodeIds() []uint64 {
+	nodeIDs := make([]uint64, 0, len(c.nodes))
+	for nodeID := range c.nodes {
+		nodeIDs = append(nodeIDs, nodeID)
+	}
+	return nodeIDs
 }
 
-func (c *NodeCluster) ClearReceiveFilters(storeID uint64) {
-	c.trans.ClearReceiveFilters(storeID)
+func (c *NodeSimulator) CallCommandOnNode(nodeID uint64, request *raft_cmdpb.RaftCmdRequest, timeout time.Duration) *raft_cmdpb.RaftCmdResponse {
+	c.trans.RLock()
+	router := c.trans.routers[nodeID]
+	c.trans.RUnlock()
+
+	if router == nil {
+		log.Panicf("Can not find node %d", nodeID)
+	}
+
+	cb := message.NewCallback()
+	err := router.SendRaftCommand(request, cb)
+	if err != nil {
+		panic(err)
+	}
+
+	resp := cb.WaitRespWithTimeout(timeout)
+
+	return resp
 }
