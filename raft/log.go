@@ -23,7 +23,7 @@ import (
 
 // RaftLog mange the log entries, its struct look like:
 //
-//  truntated.....first.....stabled....committed.....applied....last
+//  truntated.....first.....stabled....applied.....committed....last
 //  --------|     |------------------------------------------------|
 //  snapshot                          log entries
 //
