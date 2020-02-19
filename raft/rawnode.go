@@ -171,12 +171,10 @@ func NewRawNode(config *Config) (*RawNode, error) {
 	}
 	lastIndex, err := config.Storage.LastIndex()
 	if err != nil {
-		panic(err) // TODO(bdarnell)
+		panic(err)
 	}
 	// If the log is empty, this is a new RawNode (like StartNode); otherwise it's
 	// restoring an existing RawNode (like RestartNode).
-	// TODO(bdarnell): rethink RawNode initialization and whether the application needs
-	// to be able to tell us when it expects the RawNode to exist.
 	if lastIndex == 0 {
 		r.becomeFollower(1, None)
 		peers := config.peers

@@ -1564,8 +1564,6 @@ func TestRestoreFromSnapMsg(t *testing.T) {
 	if sm.Lead != uint64(1) {
 		t.Errorf("sm.Lead = %d, want 1", sm.Lead)
 	}
-
-	// TODO(bdarnell): what should this test?
 }
 
 func TestSlowNodeRestore(t *testing.T) {
