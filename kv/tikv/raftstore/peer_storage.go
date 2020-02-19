@@ -3,13 +3,11 @@ package raftstore
 import (
 	"bytes"
 	"fmt"
-	"math"
 	"sync/atomic"
 	"time"
 
 	"github.com/coocood/badger"
 	"github.com/coocood/badger/y"
-	"github.com/cznic/mathutil"
 	"github.com/golang/protobuf/proto"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
@@ -45,80 +43,6 @@ func CompactRaftLog(tag string, state *rspb.RaftApplyState, compactIndex, compac
 	state.TruncatedState.Index = compactIndex
 	state.TruncatedState.Term = compactTerm
 	return nil
-}
-
-type EntryCache struct {
-	cache []eraftpb.Entry
-}
-
-func (ec *EntryCache) front() eraftpb.Entry {
-	return ec.cache[0]
-}
-
-func (ec *EntryCache) back() eraftpb.Entry {
-	return ec.cache[len(ec.cache)-1]
-}
-
-func (ec *EntryCache) length() int {
-	return len(ec.cache)
-}
-
-func (ec *EntryCache) fetchEntriesTo(begin, end uint64, fetchSize *uint64, ents []eraftpb.Entry) []eraftpb.Entry {
-	if begin >= end {
-		return nil
-	}
-	y.Assert(ec.length() > 0)
-	cacheLow := ec.front().Index
-	y.Assert(begin >= cacheLow)
-	cacheStart := int(begin - cacheLow)
-	cacheEnd := int(end - cacheLow)
-	if cacheEnd > ec.length() {
-		cacheEnd = ec.length()
-	}
-	for i := cacheStart; i < cacheEnd; i++ {
-		entry := ec.cache[i]
-		y.AssertTruef(entry.Index == cacheLow+uint64(i), "%d %d %d", entry.Index, cacheLow, i)
-		*fetchSize += uint64(entry.Size())
-		ents = append(ents, entry)
-	}
-	return ents
-}
-
-func (ec *EntryCache) append(tag string, entries []eraftpb.Entry) {
-	if len(entries) == 0 {
-		return
-	}
-	if ec.length() > 0 {
-		firstIndex := entries[0].Index
-		cacheLastIndex := ec.back().Index
-		if cacheLastIndex >= firstIndex {
-			if ec.front().Index >= firstIndex {
-				ec.cache = ec.cache[:0]
-			} else {
-				left := ec.length() - int(cacheLastIndex-firstIndex+1)
-				ec.cache = ec.cache[:left]
-			}
-		} else if cacheLastIndex+1 < firstIndex {
-			panic(fmt.Sprintf("%s unexpected hole %d < %d", tag, cacheLastIndex, firstIndex))
-		}
-	}
-	ec.cache = append(ec.cache, entries...)
-	if ec.length() > MaxCacheCapacity {
-		extraSize := ec.length() - MaxCacheCapacity
-		ec.cache = ec.cache[extraSize:]
-	}
-}
-
-func (ec *EntryCache) compactTo(idx uint64) {
-	if ec.length() == 0 {
-		return
-	}
-	firstIdx := ec.front().Index
-	if firstIdx > idx {
-		return
-	}
-	pos := mathutil.Min(int(idx-firstIdx), ec.length())
-	ec.cache = ec.cache[pos:]
 }
 
 type ApplySnapResult struct {
@@ -203,9 +127,6 @@ type PeerStorage struct {
 	regionSched  chan<- worker.Task
 	snapTriedCnt int
 
-	cache *EntryCache // TODO: remove it
-	stats *CacheQueryStats
-
 	Tag string
 }
 
@@ -236,8 +157,6 @@ func NewPeerStorage(engines *engine_util.Engines, region *metapb.Region, regionS
 		applyState:  *applyState,
 		lastTerm:    lastTerm,
 		regionSched: regionSched,
-		cache:       &EntryCache{},
-		stats:       &CacheQueryStats{},
 	}, nil
 }
 
@@ -273,30 +192,11 @@ func (ps *PeerStorage) Entries(low, high uint64) ([]eraftpb.Entry, error) {
 	if low == high {
 		return ents, nil
 	}
-	cacheLow := uint64(math.MaxUint64)
-	if ps.cache.length() > 0 {
-		cacheLow = ps.cache.front().Index
+	ents, _, err = fetchEntriesTo(ps.Engines.Raft, ps.region.Id, low, high, ents)
+	if err != nil {
+		return ents, err
 	}
-	reginID := ps.region.Id
-	if high <= cacheLow {
-		// not overlap
-		ps.stats.miss++
-		ents, _, err = fetchEntriesTo(ps.Engines.Raft, reginID, low, high, ents)
-		if err != nil {
-			return ents, err
-		}
-		return ents, nil
-	}
-	var fetchedSize, beginIdx uint64
-	if low < cacheLow {
-		ps.stats.miss++
-		ents, fetchedSize, err = fetchEntriesTo(ps.Engines.Raft, reginID, low, cacheLow, ents)
-		beginIdx = cacheLow
-	} else {
-		beginIdx = low
-	}
-	ps.stats.hit++
-	return ps.cache.fetchEntriesTo(beginIdx, high, &fetchedSize, ents), nil
+	return ents, nil
 }
 
 func (ps *PeerStorage) Term(idx uint64) (uint64, error) {
@@ -445,41 +345,11 @@ func (ps *PeerStorage) Append(invokeCtx *InvokeContext, entries []eraftpb.Entry,
 	}
 	invokeCtx.RaftState.LastIndex = lastIndex
 	invokeCtx.lastTerm = lastTerm
-
-	// TODO: if the writebatch is failed to commit, the cache will be wrong.
-	ps.cache.append(ps.Tag, entries)
 	return nil
-}
-
-func (ps *PeerStorage) CompactTo(idx uint64) {
-	ps.cache.compactTo(idx)
-}
-
-func (ps *PeerStorage) MaybeGCCache(replicatedIdx, appliedIdx uint64) {
-	if replicatedIdx == appliedIdx {
-		// The region is inactive, clear the cache immediately.
-		ps.cache.compactTo(appliedIdx + 1)
-	} else {
-		if ps.cache.length() == 0 {
-			return
-		}
-		cacheFirstIdx := ps.cache.front().Index
-		if cacheFirstIdx > replicatedIdx+1 {
-			// Catching up log requires accessing fs already, let's optimize for
-			// the common case.
-			// Maybe gc to second least replicated_idx is better.
-			ps.cache.compactTo(appliedIdx + 1)
-		}
-	}
 }
 
 func (ps *PeerStorage) clearMeta(kvWB, raftWB *engine_util.WriteBatch) error {
 	return ClearMeta(ps.Engines, kvWB, raftWB, ps.region.Id, ps.raftState.LastIndex)
-}
-
-type CacheQueryStats struct {
-	hit  uint64
-	miss uint64
 }
 
 // Delete all data that is not covered by `new_region`.

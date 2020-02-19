@@ -665,7 +665,6 @@ func (d *peerMsgHandler) onReadyCompactLog(firstIndex uint64, truncatedIndex uin
 		EndIdx:     truncatedIndex + 1,
 	}
 	d.peer.LastCompactedIdx = raftLogGCTask.EndIdx
-	d.peer.Store().CompactTo(raftLogGCTask.EndIdx)
 	d.ctx.raftLogGCTaskSender <- worker.Task{
 		Tp:   worker.TaskTypeRaftLogGC,
 		Data: raftLogGCTask,
@@ -901,10 +900,6 @@ func (d *peerMsgHandler) onRaftGCLogTick() {
 	totalGCLogs := uint64(0)
 
 	appliedIdx := d.peer.Store().AppliedIndex()
-	if !d.peer.IsLeader() {
-		d.peer.Store().CompactTo(appliedIdx + 1)
-		return
-	}
 
 	// Leader will replicate the compact log command to followers,
 	// If we use current replicated_index (like 10) as the compact index,
@@ -940,7 +935,6 @@ func (d *peerMsgHandler) onRaftGCLogTick() {
 	if replicatedIdx > 0 {
 		y.Assert(lastIdx >= replicatedIdx)
 	}
-	d.peer.Store().MaybeGCCache(replicatedIdx, appliedIdx)
 	firstIdx, _ := d.peer.Store().FirstIndex()
 	var compactIdx uint64
 	if appliedIdx > firstIdx &&
