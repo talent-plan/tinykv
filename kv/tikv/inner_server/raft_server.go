@@ -37,6 +37,8 @@ type RaftInnerServer struct {
 	pdWorker      *worker.Worker
 	resolveWorker *worker.Worker
 	snapWorker    *worker.Worker
+
+	wg sync.WaitGroup
 }
 
 type RegionError struct {
@@ -204,10 +206,9 @@ func (ris *RaftInnerServer) GetStoreMeta() *metapb.Store {
 }
 
 func (ris *RaftInnerServer) Start(pdClient pd.Client) error {
-	var wg sync.WaitGroup
-	ris.pdWorker = worker.NewWorker("pd-worker", &wg)
-	ris.resolveWorker = worker.NewWorker("resolver", &wg)
-	ris.snapWorker = worker.NewWorker("snap-worker", &wg)
+	ris.pdWorker = worker.NewWorker("pd-worker", &ris.wg)
+	ris.resolveWorker = worker.NewWorker("resolver", &ris.wg)
+	ris.snapWorker = worker.NewWorker("snap-worker", &ris.wg)
 
 	cfg := ris.raftConfig
 	router, batchSystem := raftstore.CreateRaftBatchSystem(cfg)
@@ -238,6 +239,7 @@ func (ris *RaftInnerServer) Stop() error {
 	ris.snapWorker.Stop()
 	ris.node.Stop()
 	ris.resolveWorker.Stop()
+	ris.wg.Wait()
 	if err := ris.engines.Raft.Close(); err != nil {
 		return err
 	}
