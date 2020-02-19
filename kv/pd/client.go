@@ -45,7 +45,7 @@ type Client interface {
 	GetRegionByID(ctx context.Context, regionID uint64) (*metapb.Region, *metapb.Peer, error)
 	AskBatchSplit(ctx context.Context, region *metapb.Region, count int) (*pdpb.AskBatchSplitResponse, error)
 	StoreHeartbeat(ctx context.Context, stats *pdpb.StoreStats) error
-	RegionHeartbeat(*pdpb.RegionHeartbeatRequest)
+	RegionHeartbeat(*pdpb.RegionHeartbeatRequest) error
 	SetRegionHeartbeatResponseHandler(storeID uint64, h func(*pdpb.RegionHeartbeatResponse))
 	Close()
 }
@@ -578,8 +578,9 @@ func (c *client) StoreHeartbeat(ctx context.Context, stats *pdpb.StoreStats) err
 	return nil
 }
 
-func (c *client) RegionHeartbeat(request *pdpb.RegionHeartbeatRequest) {
+func (c *client) RegionHeartbeat(request *pdpb.RegionHeartbeatRequest) error {
 	c.regionCh <- request
+	return nil
 }
 
 func (c *client) SetRegionHeartbeatResponseHandler(_ uint64, h func(*pdpb.RegionHeartbeatResponse)) {
