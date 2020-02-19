@@ -99,7 +99,7 @@ func NewReplicaSelector(regionStores []*core.StoreInfo, filters ...filter.Filter
 // distinct score.
 func (s *ReplicaSelector) SelectSource(opt opt.Options, stores []*core.StoreInfo) *core.StoreInfo {
 	var (
-		best      *core.StoreInfo
+		best *core.StoreInfo
 	)
 	for _, store := range stores {
 		if best == nil || compareStoreScore(store, best) < 0 {
@@ -116,7 +116,7 @@ func (s *ReplicaSelector) SelectSource(opt opt.Options, stores []*core.StoreInfo
 // distinct score.
 func (s *ReplicaSelector) SelectTarget(opt opt.Options, stores []*core.StoreInfo, filters ...filter.Filter) *core.StoreInfo {
 	var (
-		best      *core.StoreInfo
+		best *core.StoreInfo
 	)
 	for _, store := range stores {
 		if filter.Target(opt, store, filters) {

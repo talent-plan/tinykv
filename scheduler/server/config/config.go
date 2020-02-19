@@ -173,7 +173,7 @@ const (
 	defaultMaxResetTsGap = 24 * time.Hour
 	defaultKeyType       = "table"
 
-	defaultEnableGRPCGateway   = true
+	defaultEnableGRPCGateway = true
 )
 
 func adjustString(v *string, defValue string) {
@@ -506,15 +506,15 @@ func (c *ScheduleConfig) Clone() *ScheduleConfig {
 }
 
 const (
-	defaultMaxReplicas                 = 3
-	defaultPatrolRegionInterval        = 100 * time.Millisecond
-	defaultMaxStoreDownTime            = 30 * time.Minute
-	defaultLeaderScheduleLimit         = 4
-	defaultRegionScheduleLimit         = 2048
-	defaultReplicaScheduleLimit        = 64
-	defaultStoreBalanceRate            = 15
-	defaultTolerantSizeRatio           = 0
-	defaultLeaderScheduleStrategy      = "count"
+	defaultMaxReplicas            = 3
+	defaultPatrolRegionInterval   = 100 * time.Millisecond
+	defaultMaxStoreDownTime       = 30 * time.Minute
+	defaultLeaderScheduleLimit    = 4
+	defaultRegionScheduleLimit    = 2048
+	defaultReplicaScheduleLimit   = 64
+	defaultStoreBalanceRate       = 15
+	defaultTolerantSizeRatio      = 0
+	defaultLeaderScheduleStrategy = "count"
 )
 
 func (c *ScheduleConfig) adjust(meta *configMetaData) error {
@@ -660,7 +660,7 @@ type ReplicationConfig struct {
 
 func (c *ReplicationConfig) clone() *ReplicationConfig {
 	return &ReplicationConfig{
-		MaxReplicas:          c.MaxReplicas,
+		MaxReplicas: c.MaxReplicas,
 	}
 }
 

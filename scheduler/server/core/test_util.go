@@ -86,7 +86,7 @@ func NewStoreInfoWithIdAndCount(id uint64, regionCount int) *StoreInfo {
 	stats.Available = uint64(1024)
 	store := NewStoreInfo(
 		&metapb.Store{
-			Id:     id,
+			Id: id,
 		},
 		SetStoreStats(stats),
 		SetRegionCount(regionCount),

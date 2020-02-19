@@ -21,8 +21,8 @@ import (
 )
 
 var (
-	tablePrefix  = []byte{'t'}
-	metaPrefix   = []byte{'m'}
+	tablePrefix = []byte{'t'}
+	metaPrefix  = []byte{'m'}
 )
 
 const (
