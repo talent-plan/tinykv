@@ -15,7 +15,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -159,15 +158,12 @@ func (c *NodeSimulator) RunStore(raftConf *tikvConf.Config, engine *engine_util.
 	c.Lock()
 	defer c.Unlock()
 
-	var wg sync.WaitGroup
-	pdWorker := worker.NewWorker("pd-worker", &wg)
-
 	router, batchSystem := raftstore.CreateRaftBatchSystem(raftConf)
 	raftRouter := raftstore.NewRaftstoreRouter(router)
 	snapManager := snap.NewSnapManager(raftConf.SnapPath)
 	node := raftstore.NewNode(batchSystem, &metapb.Store{}, raftConf, c.pdClient)
 
-	err := node.Start(ctx, engine, c.trans, snapManager, pdWorker, raftRouter)
+	err := node.Start(ctx, engine, c.trans, snapManager, raftRouter)
 	if err != nil {
 		return err
 	}

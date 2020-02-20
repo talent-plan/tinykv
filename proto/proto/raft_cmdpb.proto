@@ -173,19 +173,10 @@ message StatusResponse {
 message RaftRequestHeader {
     uint64 region_id = 1;
     metapb.Peer peer = 2;
-    // true for read linearization
-    bool read_quorum = 3;
     // 16 bytes, to distinguish request.  
-    bytes uuid = 4;
-    
-    metapb.RegionEpoch region_epoch = 5;
-    uint64 term = 6;
-
-    bool sync_log = 7;
-    bool replica_read = 8;
-
-    // Read requests can be responsed directly after the Raft applys to `applied_index`.
-    uint64 applied_index = 9;
+    bytes uuid = 3;
+    metapb.RegionEpoch region_epoch = 4;
+    uint64 term = 5;
 }
 
 message RaftResponseHeader {

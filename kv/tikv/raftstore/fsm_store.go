@@ -93,12 +93,11 @@ type Transport interface {
 }
 
 type storeFsm struct {
-	id                  uint64
-	lastCompactCheckKey []byte
-	stopped             bool
-	startTime           *time.Time
-	receiver            <-chan message.Msg
-	ticker              *ticker
+	id        uint64
+	stopped   bool
+	startTime *time.Time
+	receiver  <-chan message.Msg
+	ticker    *ticker
 }
 
 func newStoreFsm(cfg *config.Config) (chan<- message.Msg, *storeFsm) {

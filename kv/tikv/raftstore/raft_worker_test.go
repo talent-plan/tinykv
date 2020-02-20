@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"go.uber.org/atomic"
 
 	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
@@ -90,8 +89,7 @@ func (b *EntryBuilder) build(applyCh chan<- *applyBatch, peerID, regionID uint64
 	}
 	msg := message.Msg{Type: message.MsgTypeApplyProposal, RegionID: regionID, Data: newRegionProposal(peerID, regionID, []*proposal{prop})}
 	applyCh <- &applyBatch{
-		msgs:  []message.Msg{msg},
-		peers: make(map[uint64]*peerState),
+		msgs: []message.Msg{msg},
 	}
 
 	data, err := b.req.Marshal()
@@ -110,8 +108,7 @@ func commit(applyCh chan<- *applyBatch, entries []eraftpb.Entry, regionID uint64
 	}
 	msg := message.Msg{Type: message.MsgTypeApply, RegionID: regionID, Data: apply}
 	applyCh <- &applyBatch{
-		msgs:  []message.Msg{msg},
-		peers: make(map[uint64]*peerState),
+		msgs: []message.Msg{msg},
 	}
 }
 
@@ -126,8 +123,12 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 		engine: engines,
 		router: router,
 	}
+	applyCh := make(chan *applyBatch, 1)
+	aw := newApplyWorker(ctx, applyCh, router)
+	wg := new(sync.WaitGroup)
+	wg.Add(1)
+	go aw.run(wg)
 
-	rw := newRaftWorker(ctx, router.workerSenders[0], router)
 	reg := &registration{
 		id: 3,
 		region: &metapb.Region{
@@ -144,15 +145,9 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 		},
 	}
 	newPeer := &peerState{
-		msgCh:  router.workerSenders[0],
-		closed: atomic.NewBool(false),
-		apply:  newApplier(reg),
+		apply: newApplier(reg),
 	}
 	router.peers.Store(uint64(1), newPeer)
-
-	wg := new(sync.WaitGroup)
-	wg.Add(1)
-	go rw.runApply(wg)
 
 	cb := message.NewCallback()
 	entry := NewEntryBuilder(1, 1).
@@ -160,12 +155,12 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 		put(engine_util.CfDefault, []byte("k2"), []byte("v2")).
 		put(engine_util.CfDefault, []byte("k3"), []byte("v3")).
 		epoch(1, 3).
-		build(rw.applyCh, 3, 1, cb)
-	commit(rw.applyCh, []eraftpb.Entry{*entry}, 1)
+		build(applyCh, 3, 1, cb)
+	commit(applyCh, []eraftpb.Entry{*entry}, 1)
 	resp := cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError() == nil)
 	require.Equal(t, len(resp.GetResponses()), 3)
-	fetchApplyRes(rw.raftCh)
+	fetchApplyRes(router.peerSender)
 
 	cb = message.NewCallback()
 	entry = NewEntryBuilder(2, 1).
@@ -173,8 +168,8 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 		get(engine_util.CfDefault, []byte("k2")).
 		get(engine_util.CfDefault, []byte("k3")).
 		epoch(1, 3).
-		build(rw.applyCh, 3, 1, cb)
-	commit(rw.applyCh, []eraftpb.Entry{*entry}, 1)
+		build(applyCh, 3, 1, cb)
+	commit(applyCh, []eraftpb.Entry{*entry}, 1)
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError() == nil)
 	require.Equal(t, len(resp.GetResponses()), 3)
@@ -182,7 +177,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	require.True(t, bytes.Equal(resp.GetResponses()[1].GetGet().Value, []byte("v2")))
 	require.True(t, bytes.Equal(resp.GetResponses()[2].GetGet().Value, []byte("v3")))
 
-	applyRes := fetchApplyRes(rw.raftCh)
+	applyRes := fetchApplyRes(router.peerSender)
 	require.Equal(t, applyRes.applyState.AppliedIndex, uint64(2))
 	require.Equal(t, applyRes.appliedIndexTerm, uint64(1))
 
@@ -191,13 +186,13 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 		put(engine_util.CfLock, []byte("k1"), []byte("v11")).
 		delete(engine_util.CfDefault, []byte("k2")).
 		epoch(1, 3).
-		build(rw.applyCh, 3, 1, cb)
-	commit(rw.applyCh, []eraftpb.Entry{*entry}, 1)
+		build(applyCh, 3, 1, cb)
+	commit(applyCh, []eraftpb.Entry{*entry}, 1)
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError() == nil)
 	require.Equal(t, newPeer.apply.appliedIndexTerm, uint64(2))
 	require.Equal(t, newPeer.apply.applyState.AppliedIndex, uint64(3))
-	applyRes = fetchApplyRes(rw.raftCh)
+	applyRes = fetchApplyRes(router.peerSender)
 	require.Equal(t, applyRes.regionID, uint64(1))
 	require.Equal(t, applyRes.applyState.AppliedIndex, uint64(3))
 	require.Equal(t, applyRes.appliedIndexTerm, uint64(2))
@@ -207,15 +202,15 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	entry = NewEntryBuilder(4, 2).
 		snap().
 		epoch(1, 3).
-		build(rw.applyCh, 3, 1, cb)
-	commit(rw.applyCh, []eraftpb.Entry{*entry}, 1)
+		build(applyCh, 3, 1, cb)
+	commit(applyCh, []eraftpb.Entry{*entry}, 1)
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError() == nil)
 	require.Equal(t, len(resp.GetResponses()), 1)
 	val, err := engine_util.GetCFFromTxn(cb.Txn, engine_util.CfLock, []byte("k1"))
 	require.Nil(t, err)
 	require.True(t, bytes.Equal(val, []byte("v11")))
-	applyRes = fetchApplyRes(rw.raftCh)
+	applyRes = fetchApplyRes(router.peerSender)
 	require.Equal(t, applyRes.applyState.AppliedIndex, uint64(4))
 	require.Equal(t, applyRes.appliedIndexTerm, uint64(2))
 
@@ -223,11 +218,11 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	entry = NewEntryBuilder(5, 2).
 		put(engine_util.CfDefault, []byte("k2"), []byte("v2")).
 		epoch(1, 1).
-		build(rw.applyCh, 3, 1, cb)
-	commit(rw.applyCh, []eraftpb.Entry{*entry}, 1)
+		build(applyCh, 3, 1, cb)
+	commit(applyCh, []eraftpb.Entry{*entry}, 1)
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError().GetEpochNotMatch() != nil)
-	applyRes = fetchApplyRes(rw.raftCh)
+	applyRes = fetchApplyRes(router.peerSender)
 	require.Equal(t, applyRes.applyState.AppliedIndex, uint64(5))
 	require.Equal(t, applyRes.appliedIndexTerm, uint64(2))
 
@@ -236,11 +231,11 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 		put(engine_util.CfDefault, []byte("k3"), []byte("v31")).
 		put(engine_util.CfDefault, []byte("k5"), []byte("v5")).
 		epoch(1, 3).
-		build(rw.applyCh, 3, 1, cb)
-	commit(rw.applyCh, []eraftpb.Entry{*entry}, 1)
+		build(applyCh, 3, 1, cb)
+	commit(applyCh, []eraftpb.Entry{*entry}, 1)
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError().GetKeyNotInRegion() != nil)
-	applyRes = fetchApplyRes(rw.raftCh)
+	applyRes = fetchApplyRes(router.peerSender)
 	require.Equal(t, applyRes.applyState.AppliedIndex, uint64(6))
 	require.Equal(t, applyRes.appliedIndexTerm, uint64(2))
 	val, err = engine_util.GetCF(engines.Kv, engine_util.CfDefault, []byte("k3"))
@@ -250,19 +245,19 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 
 	cb1 := message.NewCallback()
 	entry = NewEntryBuilder(7, 2).
-		build(rw.applyCh, 3, 1, cb1)
+		build(applyCh, 3, 1, cb1)
 	cb = message.NewCallback()
 	entry = NewEntryBuilder(7, 3).
 		delete(engine_util.CfLock, []byte("k1")).
 		delete(engine_util.CfWrite, []byte("k1")).
 		epoch(1, 3).
-		build(rw.applyCh, 3, 1, cb)
-	commit(rw.applyCh, []eraftpb.Entry{*entry}, 1)
+		build(applyCh, 3, 1, cb)
+	commit(applyCh, []eraftpb.Entry{*entry}, 1)
 	resp1 := cb1.WaitResp()
 	require.True(t, resp1.GetHeader().GetError().GetStaleCommand() != nil)
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError() == nil)
-	applyRes = fetchApplyRes(rw.raftCh)
+	applyRes = fetchApplyRes(router.peerSender)
 	require.Equal(t, applyRes.applyState.AppliedIndex, uint64(7))
 	require.Equal(t, applyRes.appliedIndexTerm, uint64(3))
 
@@ -270,13 +265,13 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	entry1 := NewEntryBuilder(8, 3).
 		put(engine_util.CfDefault, []byte("k10"), []byte("v10")).
 		epoch(1, 3).
-		build(rw.applyCh, 3, 1, cb1)
+		build(applyCh, 3, 1, cb1)
 	cb = message.NewCallback()
 	entry2 := NewEntryBuilder(9, 3).
 		get(engine_util.CfDefault, []byte("k10")).
 		epoch(1, 3).
-		build(rw.applyCh, 3, 1, cb)
-	commit(rw.applyCh, []eraftpb.Entry{*entry1, *entry2}, 1)
+		build(applyCh, 3, 1, cb)
+	commit(applyCh, []eraftpb.Entry{*entry1, *entry2}, 1)
 	resp1 = cb1.WaitResp()
 	require.True(t, resp1.GetHeader().GetError() == nil)
 	resp = cb.WaitResp()

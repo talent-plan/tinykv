@@ -5,34 +5,18 @@ import (
 
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
-	"go.uber.org/atomic"
 )
 
 // peerState contains the peer states that needs to run raft command and apply command.
 // It binds to a worker to make sure the commands are always executed on a same goroutine.
 type peerState struct {
-	msgCh chan message.Msg
-	peer  *peerFsm
-	apply *applier
-
-	closed *atomic.Bool
-}
-
-func (np *peerState) send(msg message.Msg) error {
-	if np.closed.Load() {
-		return errPeerNotFound
-	}
-	np.msgCh <- msg
-	return nil
-}
-
-func (np *peerState) close() {
-	np.closed.Store(true)
+	closed uint32
+	peer   *peerFsm
+	apply  *applier
 }
 
 type applyBatch struct {
 	msgs      []message.Msg
-	peers     map[uint64]*peerState
 	proposals []*regionProposal
 }
 
@@ -43,13 +27,12 @@ type raftWorker struct {
 	raftCh  chan message.Msg
 	raftCtx *RaftContext
 
-	applyCh  chan *applyBatch
-	applyCtx *applyContext
+	applyCh chan *applyBatch
 
 	closeCh <-chan struct{}
 }
 
-func newRaftWorker(ctx *GlobalContext, ch chan message.Msg, pm *router) *raftWorker {
+func newRaftWorker(ctx *GlobalContext, pm *router) *raftWorker {
 	raftCtx := &RaftContext{
 		GlobalContext: ctx,
 		applyMsgs:     new(applyMsgs),
@@ -58,11 +41,10 @@ func newRaftWorker(ctx *GlobalContext, ch chan message.Msg, pm *router) *raftWor
 		raftWB:        new(engine_util.WriteBatch),
 	}
 	return &raftWorker{
-		raftCh:   ch,
-		raftCtx:  raftCtx,
-		pr:       pm,
-		applyCh:  make(chan *applyBatch, 1),
-		applyCtx: newApplyContext("", ctx.engine, ch, ctx.cfg),
+		raftCh:  pm.peerSender,
+		raftCtx: raftCtx,
+		applyCh: make(chan *applyBatch, 1),
+		pr:      pm,
 	}
 }
 
@@ -70,7 +52,7 @@ func newRaftWorker(ctx *GlobalContext, ch chan message.Msg, pm *router) *raftWor
 // On each loop, raft commands are batched by channel buffer.
 // After commands are handled, we collect apply messages by peers, make a applyBatch, send it to apply channel.
 func (rw *raftWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
-	go rw.runApply(wg)
+	defer wg.Done()
 	var msgs []message.Msg
 	for {
 		msgs = msgs[:0]
@@ -88,9 +70,7 @@ func (rw *raftWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
 		peerStateMap := make(map[uint64]*peerState)
 		rw.raftCtx.pendingCount = 0
 		rw.raftCtx.hasReady = false
-		batch := &applyBatch{
-			peers: peerStateMap,
-		}
+		batch := &applyBatch{}
 		for _, msg := range msgs {
 			peerState := rw.getPeerState(peerStateMap, msg.RegionID)
 			newRaftMsgHandler(peerState.peer, rw.raftCtx).HandleMsgs(msg)
@@ -155,23 +135,33 @@ func (rw *raftWorker) removeQueuedSnapshots() {
 	}
 }
 
-// runApply runs apply tasks, since it is already batched by raftCh, we don't need to batch it here.
-func (rw *raftWorker) runApply(wg *sync.WaitGroup) {
+type applyWorker struct {
+	pr       *router
+	applyCh  chan *applyBatch
+	applyCtx *applyContext
+}
+
+func newApplyWorker(ctx *GlobalContext, ch chan *applyBatch, pr *router) *applyWorker {
+	return &applyWorker{
+		pr:       pr,
+		applyCh:  ch,
+		applyCtx: newApplyContext("", ctx.engine, pr.peerSender, ctx.cfg),
+	}
+}
+
+// run runs apply tasks, since it is already batched by raftCh, we don't need to batch it here.
+func (aw *applyWorker) run(wg *sync.WaitGroup) {
+	defer wg.Done()
 	for {
-		batch := <-rw.applyCh
+		batch := <-aw.applyCh
 		if batch == nil {
-			wg.Done()
 			return
 		}
 		for _, msg := range batch.msgs {
-			ps := batch.peers[msg.RegionID]
-			if ps == nil {
-				ps = rw.pr.get(msg.RegionID)
-				batch.peers[msg.RegionID] = ps
-			}
-			ps.apply.handleTask(rw.applyCtx, msg)
+			ps := aw.pr.get(msg.RegionID)
+			ps.apply.handleTask(aw.applyCtx, msg)
 		}
-		rw.applyCtx.flush()
+		aw.applyCtx.flush()
 	}
 }
 
@@ -180,12 +170,19 @@ type storeWorker struct {
 	store *storeMsgHandler
 }
 
+func newStoreWorker(ctx *GlobalContext, r *router) *storeWorker {
+	storeCtx := &StoreContext{GlobalContext: ctx, applyingSnapCount: new(uint64)}
+	return &storeWorker{
+		store: newStoreFsmDelegate(r.storeFsm, storeCtx),
+	}
+}
+
 func (sw *storeWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
+	defer wg.Done()
 	for {
 		var msg message.Msg
 		select {
 		case <-closeCh:
-			wg.Done()
 			return
 		case msg = <-sw.store.receiver:
 		}

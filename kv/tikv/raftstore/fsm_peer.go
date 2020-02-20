@@ -20,7 +20,6 @@ import (
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/raft"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/tidb/tablecodec"
 )
 
 type PeerTick int
@@ -148,8 +147,6 @@ func (d *peerMsgHandler) HandleMsgs(msgs ...message.Msg) {
 		case message.MsgTypeApplyRes:
 			res := msg.Data.(*applyTaskRes)
 			d.onApplyResult(res)
-		case message.MsgTypeSignificantMsg:
-			d.onSignificantMsg(msg.Data.(*MsgSignificant))
 		case message.MsgTypeSplitRegion:
 			split := msg.Data.(*message.MsgSplitRegion)
 			log.Infof("%s on split with %v", d.peer.Tag, split.SplitKeys)
@@ -162,7 +159,10 @@ func (d *peerMsgHandler) HandleMsgs(msgs ...message.Msg) {
 			d.onGCSnap(gcSnap.Snaps)
 		case message.MsgTypeStart:
 			d.startTicker()
-		case message.MsgTypeNoop:
+		case message.MsgTypeSnapStatus:
+			status := msg.Data.(*message.MsgSnapStatus)
+			// Report snapshot status to the corresponding peer.
+			d.reportSnapshotStatus(status.ToPeerID, status.SnapshotStatus)
 		}
 	}
 }
@@ -229,18 +229,6 @@ func (d *peerMsgHandler) onGCSnap(snaps []snap.SnapKeyWithSending) {
 			}
 			d.ctx.snapMgr.DeleteSnapshot(key, a, false)
 		}
-	}
-}
-
-func (d *peerMsgHandler) onClearRegionSize() {
-	d.peer.ApproximateSize = nil
-}
-
-func (d *peerMsgHandler) onSignificantMsg(msg *MsgSignificant) {
-	switch msg.Type {
-	case MsgSignificantTypeStatus:
-		// Report snapshot status to the corresponding peer.
-		d.reportSnapshotStatus(msg.ToPeerID, msg.SnapshotStatus)
 	}
 }
 
@@ -862,15 +850,11 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 	// The peer that is being checked is a leader. It might step down to be a follower later. It
 	// doesn't matter whether the peer is a leader or not. If it's not a leader, the proposing
 	// command log entry can't be committed.
-
 	resp = &raft_cmdpb.RaftCmdResponse{}
 	BindRespTerm(resp, d.peer.Term())
 	if d.peer.Propose(d.ctx.engine.Kv, d.ctx.cfg, cb, msg, resp) {
 		d.hasReady = true
 	}
-
-	// TODO: add timeout, if the command is not applied after timeout,
-	// we will call the callback with timeout error.
 }
 
 func (d *peerMsgHandler) findSiblingRegion() *metapb.Region {
@@ -986,7 +970,7 @@ func (d *peerMsgHandler) onSplitRegionCheckTick() {
 	if !d.peer.IsLeader() {
 		return
 	}
-	if d.peer.SizeDiffHint < d.ctx.cfg.RegionSplitCheckDiff {
+	if d.peer.ApproximateSize != nil && d.peer.SizeDiffHint < d.ctx.cfg.RegionSplitCheckDiff {
 		return
 	}
 	d.ctx.splitCheckTaskSender <- worker.Task{
@@ -996,18 +980,6 @@ func (d *peerMsgHandler) onSplitRegionCheckTick() {
 		},
 	}
 	d.peer.SizeDiffHint = 0
-}
-
-func isTableKey(key []byte) bool {
-	return bytes.HasPrefix(key, tablecodec.TablePrefix())
-}
-
-func isSameTable(leftKey, rightKey []byte) bool {
-	return bytes.HasPrefix(leftKey, tablecodec.TablePrefix()) &&
-		bytes.HasPrefix(rightKey, tablecodec.TablePrefix()) &&
-		len(leftKey) >= tablecodec.TableSplitKeyLen &&
-		len(rightKey) >= tablecodec.TableSplitKeyLen &&
-		bytes.Compare(leftKey[:tablecodec.TableSplitKeyLen], rightKey[:tablecodec.TableSplitKeyLen]) == 0
 }
 
 func (d *peerMsgHandler) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, splitKeys [][]byte, cb *message.Callback) {
@@ -1139,6 +1111,7 @@ func (d *peerMsgHandler) executeRegionLeader() *raft_cmdpb.StatusResponse {
 	return resp
 }
 
+// TODO: can we remove it?
 func (d *peerMsgHandler) executeRegionDetail(request *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.StatusResponse, error) {
 	if !d.peer.isInitialized() {
 		regionID := request.Header.RegionId

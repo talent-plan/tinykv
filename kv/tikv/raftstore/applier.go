@@ -19,15 +19,6 @@ import (
 	"github.com/pingcap/errors"
 )
 
-const (
-	DefaultApplyWBSize = 4 * 1024
-
-	WriteTypeFlagPut      = 'P'
-	WriteTypeFlagDelete   = 'D'
-	WriteTypeFlagLock     = 'L'
-	WriteTypeFlagRollback = 'R'
-)
-
 type pendingCmd struct {
 	index uint64
 	term  uint64

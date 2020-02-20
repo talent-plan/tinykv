@@ -7,18 +7,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/raft"
 )
 
-type MsgSignificantType int
-
-const (
-	MsgSignificantTypeStatus MsgSignificantType = 1
-)
-
-type MsgSignificant struct {
-	Type           MsgSignificantType
-	ToPeerID       uint64
-	SnapshotStatus raft.SnapshotStatus
-}
-
 type RaftstoreRouter struct {
 	router *router
 }
@@ -43,14 +31,8 @@ func (r *RaftstoreRouter) SendRaftCommand(req *raft_cmdpb.RaftCmdRequest, cb *me
 	return r.router.sendRaftCommand(msg)
 }
 
-func (r *RaftstoreRouter) SignificantSend(regionID uint64, msg message.Msg) error {
-	// TODO: no capacity check now, so no difference between send and SignificantSend.
-	return r.router.send(regionID, msg)
-}
-
 func (r *RaftstoreRouter) ReportSnapshotStatus(regionID uint64, toPeerID uint64, status raft.SnapshotStatus) error {
-	return r.SignificantSend(regionID, message.NewMsg(message.MsgTypeSignificantMsg, &MsgSignificant{
-		Type:           MsgSignificantTypeStatus,
+	return r.router.send(regionID, message.NewMsg(message.MsgTypeSnapStatus, &message.MsgSnapStatus{
 		ToPeerID:       toPeerID,
 		SnapshotStatus: status,
 	}))

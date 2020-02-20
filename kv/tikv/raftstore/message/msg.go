@@ -6,6 +6,7 @@ import (
 	"github.com/coocood/badger"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
+	"github.com/pingcap-incubator/tinykv/raft"
 )
 
 type MsgType int64
@@ -18,17 +19,13 @@ const (
 	MsgTypeRegionApproximateSize MsgType = 5
 	MsgTypeGcSnap                MsgType = 10
 	MsgTypeTick                  MsgType = 12
-	MsgTypeSignificantMsg        MsgType = 13
+	MsgTypeSnapStatus            MsgType = 13
 	MsgTypeStart                 MsgType = 14
 	MsgTypeApplyRes              MsgType = 15
-	MsgTypeNoop                  MsgType = 16
 
 	MsgTypeStoreRaftMessage MsgType = 101
 	MsgTypeStoreTick        MsgType = 106
 	MsgTypeStoreStart       MsgType = 107
-
-	MsgTypeFsmNormal  MsgType = 201
-	MsgTypeFsmControl MsgType = 202
 
 	MsgTypeApply             MsgType = 301
 	MsgTypeApplyRegistration MsgType = 302
@@ -61,6 +58,11 @@ type MsgSplitRegion struct {
 	RegionEpoch *metapb.RegionEpoch
 	SplitKeys   [][]byte
 	Callback    *Callback
+}
+
+type MsgSnapStatus struct {
+	ToPeerID       uint64
+	SnapshotStatus raft.SnapshotStatus
 }
 
 type Callback struct {
