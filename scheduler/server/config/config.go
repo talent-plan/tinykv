@@ -419,8 +419,6 @@ func (c *Config) configFromFile(path string) (*toml.MetaData, error) {
 
 // ScheduleConfig is the schedule configuration.
 type ScheduleConfig struct {
-	// SplitMergeInterval is the minimum interval time to permit merge after split.
-	SplitMergeInterval typeutil.Duration `toml:"split-merge-interval,omitempty" json:"split-merge-interval"`
 	// PatrolRegionInterval is the interval for scanning region during patrol.
 	PatrolRegionInterval typeutil.Duration `toml:"patrol-region-interval,omitempty" json:"patrol-region-interval"`
 	// MaxStoreDownTime is the max duration after which

@@ -25,7 +25,6 @@ const (
 	defaultMaxPendingPeerCount         = 16
 	defaultMaxMergeRegionSize          = 0
 	defaultMaxMergeRegionKeys          = 0
-	defaultSplitMergeInterval          = 0
 	defaultMaxStoreDownTime            = 30 * time.Minute
 	defaultLeaderScheduleLimit         = 4
 	defaultRegionScheduleLimit         = 64
@@ -51,7 +50,6 @@ type ScheduleOptions struct {
 	MaxMergeRegionSize           uint64
 	MaxMergeRegionKeys           uint64
 	SchedulerMaxWaitingOperator  uint64
-	SplitMergeInterval           time.Duration
 	EnableOneWayMerge            bool
 	EnableCrossTableMerge        bool
 	KeyType                      string
@@ -81,7 +79,6 @@ func NewScheduleOptions() *ScheduleOptions {
 	mso.MaxMergeRegionSize = defaultMaxMergeRegionSize
 	mso.MaxMergeRegionKeys = defaultMaxMergeRegionKeys
 	mso.SchedulerMaxWaitingOperator = defaultSchedulerMaxWaitingOperator
-	mso.SplitMergeInterval = defaultSplitMergeInterval
 	mso.MaxStoreDownTime = defaultMaxStoreDownTime
 	mso.MaxReplicas = defaultMaxReplicas
 	mso.MaxPendingPeerCount = defaultMaxPendingPeerCount
@@ -128,11 +125,6 @@ func (mso *ScheduleOptions) GetMaxMergeRegionSize() uint64 {
 // GetMaxMergeRegionKeys mocks method
 func (mso *ScheduleOptions) GetMaxMergeRegionKeys() uint64 {
 	return mso.MaxMergeRegionKeys
-}
-
-// GetSplitMergeInterval mocks method
-func (mso *ScheduleOptions) GetSplitMergeInterval() time.Duration {
-	return mso.SplitMergeInterval
 }
 
 // IsOneWayMergeEnabled mocks method

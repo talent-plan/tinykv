@@ -19,7 +19,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/testutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	. "github.com/pingcap/check"
-	"time"
 )
 
 var _ = Suite(&testClusterWorkerSuite{})
@@ -103,7 +102,6 @@ func (s *testClusterWorkerSuite) TestAskSplit(c *C) {
 
 	cluster := s.svr.GetRaftCluster()
 	c.Assert(cluster, NotNil)
-	cluster.opt.SetSplitMergeInterval(time.Hour)
 	regions := cluster.GetRegions()
 
 	req := &pdpb.AskSplitRequest{
