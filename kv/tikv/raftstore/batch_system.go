@@ -229,13 +229,13 @@ func (bs *RaftBatchSystem) startWorkers(peers []*peerFsm) {
 	workers.regionWorker.Start(runner.NewRegionTaskHandler(engines, ctx.snapMgr))
 	workers.raftLogGCWorker.Start(runner.NewRaftLogGCTaskHandler())
 	workers.pdWorker.Start(runner.NewPDTaskHandler(ctx.store.Id, ctx.pdClient, NewRaftstoreRouter(router)))
-	go bs.tickDriver.run() // TODO: temp workaround.
+	go bs.tickDriver.run()
 }
 
 func (bs *RaftBatchSystem) shutDown() {
-	bs.tickDriver.stop()
 	close(bs.closeCh)
 	bs.wg.Wait()
+	bs.tickDriver.stop()
 	if bs.workers == nil {
 		return
 	}

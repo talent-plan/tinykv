@@ -41,12 +41,6 @@ func TestConfigValidate(t *testing.T) {
 	cfg = NewDefaultConfig()
 	cfg.RaftBaseTickInterval = 1 * time.Second
 	cfg.RaftElectionTimeoutTicks = 10
-	cfg.RaftStoreMaxLeaderLease = 20 * time.Second
-	require.NotNil(t, cfg.Validate())
-
-	cfg = NewDefaultConfig()
-	cfg.RaftBaseTickInterval = 1 * time.Second
-	cfg.RaftElectionTimeoutTicks = 10
 	cfg.PeerStaleStateCheckInterval = 5 * time.Second
 	require.NotNil(t, cfg.Validate())
 
