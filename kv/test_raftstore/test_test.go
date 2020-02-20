@@ -282,96 +282,96 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 	}
 }
 
-func TestBasic3A(t *testing.T) {
-	// Test: one client (3A) ...
-	GenericTest(t, "3A", 1, false, false, false, -1)
-}
+// func TestBasic3A(t *testing.T) {
+// 	// Test: one client (3A) ...
+// 	GenericTest(t, "3A", 1, false, false, false, -1)
+// }
 
-func TestConcurrent3A(t *testing.T) {
-	// Test: many clients (3A) ...
-	GenericTest(t, "3A", 5, false, false, false, -1)
-}
+// func TestConcurrent3A(t *testing.T) {
+// 	// Test: many clients (3A) ...
+// 	GenericTest(t, "3A", 5, false, false, false, -1)
+// }
 
-func TestUnreliable3A(t *testing.T) {
-	// Test: unreliable net, many clients (3A) ...
-	GenericTest(t, "3A", 5, true, false, false, -1)
-}
+// func TestUnreliable3A(t *testing.T) {
+// 	// Test: unreliable net, many clients (3A) ...
+// 	GenericTest(t, "3A", 5, true, false, false, -1)
+// }
 
-// Submit a request in the minority partition and check that the requests
-// doesn't go through until the partition heals.  The leader in the original
-// network ends up in the minority partition.
-func TestOnePartition3A(t *testing.T) {
-	cluster := NewTestCluster(5)
-	cluster.Start()
-	defer cluster.Shutdown()
+// // Submit a request in the minority partition and check that the requests
+// // doesn't go through until the partition heals.  The leader in the original
+// // network ends up in the minority partition.
+// func TestOnePartition3A(t *testing.T) {
+// 	cluster := NewTestCluster(5)
+// 	cluster.Start()
+// 	defer cluster.Shutdown()
 
-	regionID := cluster.GetRegion([]byte("")).GetId()
-	// transfer leader to (1, 1)
-	peer := NewPeer(1, 1)
-	cluster.MustTransferLeader(regionID, &peer)
+// 	regionID := cluster.GetRegion([]byte("")).GetId()
+// 	// transfer leader to (1, 1)
+// 	peer := NewPeer(1, 1)
+// 	cluster.MustTransferLeader(regionID, &peer)
 
-	// leader in majority, partition doesn't affect write/read
-	cluster.AddFilter(&PartitionFilter{
-		s1: []uint64{1, 2, 3},
-		s2: []uint64{4, 5},
-	})
-	cluster.MustPut([]byte("k1"), []byte("v1"))
-	cluster.MustGet([]byte("k1"), []byte("v1"))
-	MustGetNone(cluster.engines[4], []byte("k1"))
-	MustGetNone(cluster.engines[5], []byte("k1"))
-	cluster.MustTransferLeader(regionID, &peer)
-	cluster.ClearFilters()
+// 	// leader in majority, partition doesn't affect write/read
+// 	cluster.AddFilter(&PartitionFilter{
+// 		s1: []uint64{1, 2, 3},
+// 		s2: []uint64{4, 5},
+// 	})
+// 	cluster.MustPut([]byte("k1"), []byte("v1"))
+// 	cluster.MustGet([]byte("k1"), []byte("v1"))
+// 	MustGetNone(cluster.engines[4], []byte("k1"))
+// 	MustGetNone(cluster.engines[5], []byte("k1"))
+// 	cluster.MustTransferLeader(regionID, &peer)
+// 	cluster.ClearFilters()
 
-	// old leader in minority, new leader should be elected
-	cluster.AddFilter(&PartitionFilter{
-		s1: []uint64{1, 2},
-		s2: []uint64{3, 4, 5},
-	})
-	cluster.MustGet([]byte("k1"), []byte("v1"))
-	leaderID := cluster.LeaderOfRegion(regionID).Id
-	if leaderID == 1 || leaderID == 2 {
-		panic("unexpected leader id")
-	}
-	cluster.MustPut([]byte("k1"), []byte("changed"))
-	MustGetEqual(cluster.engines[1], []byte("k1"), []byte("v1"))
-	MustGetEqual(cluster.engines[2], []byte("k1"), []byte("v1"))
-	cluster.ClearFilters()
+// 	// old leader in minority, new leader should be elected
+// 	cluster.AddFilter(&PartitionFilter{
+// 		s1: []uint64{1, 2},
+// 		s2: []uint64{3, 4, 5},
+// 	})
+// 	cluster.MustGet([]byte("k1"), []byte("v1"))
+// 	leaderID := cluster.LeaderOfRegion(regionID).Id
+// 	if leaderID == 1 || leaderID == 2 {
+// 		panic("unexpected leader id")
+// 	}
+// 	cluster.MustPut([]byte("k1"), []byte("changed"))
+// 	MustGetEqual(cluster.engines[1], []byte("k1"), []byte("v1"))
+// 	MustGetEqual(cluster.engines[2], []byte("k1"), []byte("v1"))
+// 	cluster.ClearFilters()
 
-	// when partition heals, old leader should sync data
-	cluster.MustPut([]byte("k2"), []byte("v2"))
-	MustGetEqual(cluster.engines[1], []byte("k2"), []byte("v2"))
-	MustGetEqual(cluster.engines[1], []byte("k1"), []byte("changed"))
-}
+// 	// when partition heals, old leader should sync data
+// 	cluster.MustPut([]byte("k2"), []byte("v2"))
+// 	MustGetEqual(cluster.engines[1], []byte("k2"), []byte("v2"))
+// 	MustGetEqual(cluster.engines[1], []byte("k1"), []byte("changed"))
+// }
 
-func TestManyPartitionsOneClient3A(t *testing.T) {
-	// Test: partitions, one client (3A) ...
-	GenericTest(t, "3A", 1, false, false, true, -1)
-}
+// func TestManyPartitionsOneClient3A(t *testing.T) {
+// 	// Test: partitions, one client (3A) ...
+// 	GenericTest(t, "3A", 1, false, false, true, -1)
+// }
 
-func TestManyPartitionsManyClients3A(t *testing.T) {
-	// Test: partitions, many clients (3A) ...
-	GenericTest(t, "3A", 5, false, false, true, -1)
-}
+// func TestManyPartitionsManyClients3A(t *testing.T) {
+// 	// Test: partitions, many clients (3A) ...
+// 	GenericTest(t, "3A", 5, false, false, true, -1)
+// }
 
-func TestPersistOneClient3A(t *testing.T) {
-	// Test: restarts, one client (3A) ...
-	GenericTest(t, "3A", 1, false, true, false, -1)
-}
+// func TestPersistOneClient3A(t *testing.T) {
+// 	// Test: restarts, one client (3A) ...
+// 	GenericTest(t, "3A", 1, false, true, false, -1)
+// }
 
-func TestPersistConcurrent3A(t *testing.T) {
-	// Test: restarts, many clients (3A) ...
-	GenericTest(t, "3A", 5, false, true, false, -1)
-}
+// func TestPersistConcurrent3A(t *testing.T) {
+// 	// Test: restarts, many clients (3A) ...
+// 	GenericTest(t, "3A", 5, false, true, false, -1)
+// }
 
-func TestPersistConcurrentUnreliable3A(t *testing.T) {
-	// Test: unreliable net, restarts, many clients (3A) ...
-	GenericTest(t, "3A", 5, true, true, false, -1)
-}
+// func TestPersistConcurrentUnreliable3A(t *testing.T) {
+// 	// Test: unreliable net, restarts, many clients (3A) ...
+// 	GenericTest(t, "3A", 5, true, true, false, -1)
+// }
 
-func TestPersistPartition3A(t *testing.T) {
-	// Test: restarts, partitions, many clients (3A) ...
-	GenericTest(t, "3A", 5, false, true, true, -1)
-}
+// func TestPersistPartition3A(t *testing.T) {
+// 	// Test: restarts, partitions, many clients (3A) ...
+// 	GenericTest(t, "3A", 5, false, true, true, -1)
+// }
 
 func TestPersistPartitionUnreliable3A(t *testing.T) {
 	// Test: unreliable net, restarts, partitions, many clients (3A) ...
