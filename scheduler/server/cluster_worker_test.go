@@ -19,6 +19,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/testutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	. "github.com/pingcap/check"
+	"time"
 )
 
 var _ = Suite(&testClusterWorkerSuite{})
@@ -87,4 +88,41 @@ func (s *testClusterWorkerSuite) TestValidRequestRegion(c *C) {
 	r5 := &metapb.Region{Id: 1, StartKey: []byte(""), EndKey: []byte("a"), RegionEpoch: &metapb.RegionEpoch{ConfVer: 2, Version: 2}}
 	c.Assert(cluster.validRequestRegion(r5), IsNil)
 	cluster.stop()
+}
+
+func (s *testClusterWorkerSuite) TestAskSplit(c *C) {var err error
+	var cleanup func()
+	s.svr, cleanup, err = NewTestServer(c)
+	defer cleanup()
+	c.Assert(err, IsNil)
+	mustWaitLeader(c, []*Server{s.svr})
+	s.grpcPDClient = testutil.MustNewGrpcClient(c, s.svr.GetAddr())
+	_, err = s.svr.bootstrapCluster(s.newBootstrapRequest(c, s.svr.clusterID, "127.0.0.1:0"))
+	c.Assert(err, IsNil)
+
+	cluster := s.svr.GetRaftCluster()
+	c.Assert(cluster, NotNil)
+	cluster.opt.SetSplitMergeInterval(time.Hour)
+	regions := cluster.GetRegions()
+
+	req := &pdpb.AskSplitRequest{
+		Header: &pdpb.RequestHeader{
+			ClusterId: s.svr.ClusterID(),
+		},
+		Region: regions[0].GetMeta(),
+	}
+
+	_, err = cluster.handleAskSplit(req)
+	c.Assert(err, IsNil)
+
+	req1 := &pdpb.AskBatchSplitRequest{
+		Header: &pdpb.RequestHeader{
+			ClusterId: s.svr.ClusterID(),
+		},
+		Region:     regions[0].GetMeta(),
+		SplitCount: 10,
+	}
+
+	_, err = cluster.handleAskBatchSplit(req1)
+	c.Assert(err, IsNil)
 }

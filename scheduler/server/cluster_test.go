@@ -1068,6 +1068,34 @@ func (s *testClusterInfoSuite) TestRegionHeartbeat(c *C) {
 	}
 }
 
+func heartbeatRegions(c *C, cluster *RaftCluster, regions []*core.RegionInfo) {
+	// Heartbeat and check region one by one.
+	for _, r := range regions {
+		c.Assert(cluster.processRegionHeartbeat(r), IsNil)
+
+		checkRegion(c, cluster.GetRegion(r.GetID()), r)
+		checkRegion(c, cluster.GetRegionInfoByKey(r.GetStartKey()), r)
+
+		if len(r.GetEndKey()) > 0 {
+			end := r.GetEndKey()[0]
+			checkRegion(c, cluster.GetRegionInfoByKey([]byte{end - 1}), r)
+		}
+	}
+
+	// Check all regions after handling all heartbeats.
+	for _, r := range regions {
+		checkRegion(c, cluster.GetRegion(r.GetID()), r)
+		checkRegion(c, cluster.GetRegionInfoByKey(r.GetStartKey()), r)
+
+		if len(r.GetEndKey()) > 0 {
+			end := r.GetEndKey()[0]
+			checkRegion(c, cluster.GetRegionInfoByKey([]byte{end - 1}), r)
+			result := cluster.GetRegionInfoByKey([]byte{end + 1})
+			c.Assert(result.GetID(), Not(Equals), r.GetID())
+		}
+	}
+}
+
 func (s *testClusterInfoSuite) TestHeartbeatSplit(c *C) {
 	_, opt, err := newTestScheduleConfig()
 	c.Assert(err, IsNil)
@@ -1105,6 +1133,39 @@ func (s *testClusterInfoSuite) TestHeartbeatSplit(c *C) {
 	c.Assert(cluster.GetRegionInfoByKey([]byte("n")), IsNil)
 	c.Assert(cluster.processRegionHeartbeat(region3), IsNil)
 	checkRegion(c, cluster.GetRegionInfoByKey([]byte("n")), region3)
+}
+
+func (s *testClusterInfoSuite) TestRegionSplitAndMerge(c *C) {
+	_, opt, err := newTestScheduleConfig()
+	c.Assert(err, IsNil)
+	cluster := createTestRaftCluster(mockid.NewIDAllocator(), opt, core.NewStorage(kv.NewMemoryKV()))
+
+	regions := []*core.RegionInfo{core.NewTestRegionInfo([]byte{}, []byte{})}
+
+	// Byte will underflow/overflow if n > 7.
+	n := 7
+
+	// Split.
+	for i := 0; i < n; i++ {
+		regions = core.SplitRegions(regions)
+		heartbeatRegions(c, cluster, regions)
+	}
+
+	// Merge.
+	for i := 0; i < n; i++ {
+		regions = core.MergeRegions(regions)
+		heartbeatRegions(c, cluster, regions)
+	}
+
+	// Split twice and merge once.
+	for i := 0; i < n*2; i++ {
+		if (i+1)%3 == 0 {
+			regions = core.MergeRegions(regions)
+		} else {
+			regions = core.SplitRegions(regions)
+		}
+		heartbeatRegions(c, cluster, regions)
+	}
 }
 
 func (s *testClusterInfoSuite) TestUpdateStorePendingPeerCount(c *C) {

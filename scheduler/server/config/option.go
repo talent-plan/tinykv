@@ -15,6 +15,7 @@ package config
 
 import (
 	"context"
+	"github.com/pingcap-incubator/tinykv/scheduler/pkg/typeutil"
 	"reflect"
 	"sync/atomic"
 	"time"
@@ -63,6 +64,16 @@ func (o *ScheduleOption) GetMaxReplicas() int {
 // SetMaxReplicas sets the number of replicas for each region.
 func (o *ScheduleOption) SetMaxReplicas(replicas int) {
 	o.replication.SetMaxReplicas(replicas)
+}
+
+// GetSplitMergeInterval returns the interval between finishing split and starting to merge.
+func (o *ScheduleOption) GetSplitMergeInterval() time.Duration {
+	return o.Load().SplitMergeInterval.Duration
+}
+
+// SetSplitMergeInterval to set the interval between finishing split and starting to merge. It's only used to test.
+func (o *ScheduleOption) SetSplitMergeInterval(splitMergeInterval time.Duration) {
+	o.Load().SplitMergeInterval = typeutil.Duration{Duration: splitMergeInterval}
 }
 
 // GetPatrolRegionInterval returns the interval of patroling region.
