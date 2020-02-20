@@ -201,7 +201,7 @@ func (n *Node) BootstrapCluster(ctx context.Context, engines *engine_util.Engine
 			log.Infof("cluster is already bootstrapped, clusterID: %v", n.clusterID)
 			return false, ClearPrepareBootstrap(engines, regionID)
 		}
-		log.Errorf("bootstrap cluster, clusterID: %v, err: %v", n.clusterID, err)
+		log.Errorf("bootstrap cluster, clusterID: %v, err: %v", n.clusterID, resErr)
 	}
 	return false, errors.New("bootstrap cluster failed")
 }

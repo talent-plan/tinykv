@@ -30,9 +30,6 @@ type Config struct {
 	RaftMaxEntsSize             uint64
 	RaftMaxInflightMsgs         int
 
-	// When the entry exceed the max size, reject to propose it.
-	RaftEntryMaxSize uint64
-
 	// Interval to gc unnecessary raft log (ms).
 	RaftLogGCTickInterval time.Duration
 	// A threshold to gc stale raft log, must >= 1.
@@ -75,9 +72,6 @@ type Config struct {
 	PeerStaleStateCheckInterval   time.Duration
 
 	LeaderTransferMaxLogLag uint64
-
-	// The lease provided by a successfully proposed and applied entry.
-	RaftStoreMaxLeaderLease time.Duration
 
 	AllowRemoveLeader bool
 
@@ -122,7 +116,6 @@ func NewDefaultConfig() *Config {
 		RaftMaxElectionTimeoutTicks: 0,
 		RaftMaxEntsSize:             1 * MB,
 		RaftMaxInflightMsgs:         256,
-		RaftEntryMaxSize:            8 * MB,
 		RaftLogGCTickInterval:       10 * time.Second,
 		RaftLogGcThreshold:          50,
 		// Assume the average size of entries is 1k.
@@ -132,7 +125,7 @@ func NewDefaultConfig() *Config {
 		RaftRejectTransferLeaderDuration: 3 * time.Second,
 		SplitRegionCheckTickInterval:     10 * time.Second,
 		RegionSplitCheckDiff:             splitSize / 8,
-		PdHeartbeatTickInterval:          20 * time.Second,
+		PdHeartbeatTickInterval:          100 * time.Millisecond,
 		PdStoreHeartbeatTickInterval:     10 * time.Second,
 		NotifyCapacity:                   40960,
 		SnapMgrGcTickInterval:            1 * time.Minute,
@@ -213,9 +206,6 @@ func (c *Config) Validate() error {
 	}
 
 	electionTimeout := c.RaftBaseTickInterval * time.Duration(c.RaftElectionTimeoutTicks)
-	if electionTimeout < c.RaftStoreMaxLeaderLease {
-		return fmt.Errorf("election timeout %v ns is less than % v ns", electionTimeout, c.RaftStoreMaxLeaderLease)
-	}
 
 	if c.PeerStaleStateCheckInterval < electionTimeout*2 {
 		return fmt.Errorf("peer stale state check interval %v ns is less than election timeout x 2 %v ns",

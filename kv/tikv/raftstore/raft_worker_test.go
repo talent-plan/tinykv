@@ -81,21 +81,7 @@ func (b *EntryBuilder) epoch(confVer, version uint64) *EntryBuilder {
 	return b
 }
 
-func (b *EntryBuilder) propose(applyCh chan<- *applyBatch, peerID, regionID uint64, callback *message.Callback) {
-	prop := &proposal{
-		isConfChange: false,
-		index:        b.entry.Index,
-		term:         b.entry.Term,
-		cb:           callback,
-	}
-	msg := message.Msg{Type: message.MsgTypeApplyProposal, RegionID: regionID, Data: newRegionProposal(peerID, regionID, []*proposal{prop})}
-	applyCh <- &applyBatch{
-		msgs:  []message.Msg{msg},
-		peers: make(map[uint64]*peerState),
-	}
-}
-
-func (b *EntryBuilder) schedule(applyCh chan<- *applyBatch, peerID, regionID uint64, callback *message.Callback) {
+func (b *EntryBuilder) build(applyCh chan<- *applyBatch, peerID, regionID uint64, callback *message.Callback) *eraftpb.Entry {
 	prop := &proposal{
 		isConfChange: false,
 		index:        b.entry.Index,
@@ -113,12 +99,16 @@ func (b *EntryBuilder) schedule(applyCh chan<- *applyBatch, peerID, regionID uin
 		panic("marshal err")
 	}
 	b.entry.Data = data
+	return &b.entry
+}
+
+func commit(applyCh chan<- *applyBatch, entries []eraftpb.Entry, regionID uint64) {
 	apply := &apply{
 		regionId: regionID,
-		term:     b.entry.Term,
-		entries:  []eraftpb.Entry{b.entry},
+		term:     entries[0].Term,
+		entries:  entries,
 	}
-	msg = message.Msg{Type: message.MsgTypeApply, RegionID: regionID, Data: apply}
+	msg := message.Msg{Type: message.MsgTypeApply, RegionID: regionID, Data: apply}
 	applyCh <- &applyBatch{
 		msgs:  []message.Msg{msg},
 		peers: make(map[uint64]*peerState),
@@ -165,24 +155,26 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	go rw.runApply(wg)
 
 	cb := message.NewCallback()
-	NewEntryBuilder(1, 1).
+	entry := NewEntryBuilder(1, 1).
 		put(engine_util.CfDefault, []byte("k1"), []byte("v1")).
 		put(engine_util.CfDefault, []byte("k2"), []byte("v2")).
 		put(engine_util.CfDefault, []byte("k3"), []byte("v3")).
 		epoch(1, 3).
-		schedule(rw.applyCh, 3, 1, cb)
+		build(rw.applyCh, 3, 1, cb)
+	commit(rw.applyCh, []eraftpb.Entry{*entry}, 1)
 	resp := cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError() == nil)
 	require.Equal(t, len(resp.GetResponses()), 3)
 	fetchApplyRes(rw.raftCh)
 
 	cb = message.NewCallback()
-	NewEntryBuilder(2, 1).
+	entry = NewEntryBuilder(2, 1).
 		get(engine_util.CfDefault, []byte("k1")).
 		get(engine_util.CfDefault, []byte("k2")).
 		get(engine_util.CfDefault, []byte("k3")).
 		epoch(1, 3).
-		schedule(rw.applyCh, 3, 1, cb)
+		build(rw.applyCh, 3, 1, cb)
+	commit(rw.applyCh, []eraftpb.Entry{*entry}, 1)
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError() == nil)
 	require.Equal(t, len(resp.GetResponses()), 3)
@@ -195,11 +187,12 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	require.Equal(t, applyRes.appliedIndexTerm, uint64(1))
 
 	cb = message.NewCallback()
-	NewEntryBuilder(3, 2).
+	entry = NewEntryBuilder(3, 2).
 		put(engine_util.CfLock, []byte("k1"), []byte("v11")).
 		delete(engine_util.CfDefault, []byte("k2")).
 		epoch(1, 3).
-		schedule(rw.applyCh, 3, 1, cb)
+		build(rw.applyCh, 3, 1, cb)
+	commit(rw.applyCh, []eraftpb.Entry{*entry}, 1)
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError() == nil)
 	require.Equal(t, newPeer.apply.appliedIndexTerm, uint64(2))
@@ -211,14 +204,15 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	require.Equal(t, len(applyRes.execResults), 0)
 
 	cb = message.NewCallback()
-	NewEntryBuilder(4, 2).
+	entry = NewEntryBuilder(4, 2).
 		snap().
 		epoch(1, 3).
-		schedule(rw.applyCh, 3, 1, cb)
+		build(rw.applyCh, 3, 1, cb)
+	commit(rw.applyCh, []eraftpb.Entry{*entry}, 1)
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError() == nil)
 	require.Equal(t, len(resp.GetResponses()), 1)
-	val, err := engine_util.GetCFFromTxn(cb.RegionSnap.Txn, engine_util.CfLock, []byte("k1"))
+	val, err := engine_util.GetCFFromTxn(cb.Txn, engine_util.CfLock, []byte("k1"))
 	require.Nil(t, err)
 	require.True(t, bytes.Equal(val, []byte("v11")))
 	applyRes = fetchApplyRes(rw.raftCh)
@@ -226,10 +220,11 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	require.Equal(t, applyRes.appliedIndexTerm, uint64(2))
 
 	cb = message.NewCallback()
-	NewEntryBuilder(5, 2).
+	entry = NewEntryBuilder(5, 2).
 		put(engine_util.CfDefault, []byte("k2"), []byte("v2")).
 		epoch(1, 1).
-		schedule(rw.applyCh, 3, 1, cb)
+		build(rw.applyCh, 3, 1, cb)
+	commit(rw.applyCh, []eraftpb.Entry{*entry}, 1)
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError().GetEpochNotMatch() != nil)
 	applyRes = fetchApplyRes(rw.raftCh)
@@ -237,11 +232,12 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	require.Equal(t, applyRes.appliedIndexTerm, uint64(2))
 
 	cb = message.NewCallback()
-	NewEntryBuilder(6, 2).
+	entry = NewEntryBuilder(6, 2).
 		put(engine_util.CfDefault, []byte("k3"), []byte("v31")).
 		put(engine_util.CfDefault, []byte("k5"), []byte("v5")).
 		epoch(1, 3).
-		schedule(rw.applyCh, 3, 1, cb)
+		build(rw.applyCh, 3, 1, cb)
+	commit(rw.applyCh, []eraftpb.Entry{*entry}, 1)
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError().GetKeyNotInRegion() != nil)
 	applyRes = fetchApplyRes(rw.raftCh)
@@ -253,14 +249,15 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	require.True(t, bytes.Equal(val, []byte("v3")))
 
 	cb1 := message.NewCallback()
-	NewEntryBuilder(7, 2).
-		propose(rw.applyCh, 3, 1, cb1)
+	entry = NewEntryBuilder(7, 2).
+		build(rw.applyCh, 3, 1, cb1)
 	cb = message.NewCallback()
-	NewEntryBuilder(7, 3).
+	entry = NewEntryBuilder(7, 3).
 		delete(engine_util.CfLock, []byte("k1")).
 		delete(engine_util.CfWrite, []byte("k1")).
 		epoch(1, 3).
-		schedule(rw.applyCh, 3, 1, cb)
+		build(rw.applyCh, 3, 1, cb)
+	commit(rw.applyCh, []eraftpb.Entry{*entry}, 1)
 	resp1 := cb1.WaitResp()
 	require.True(t, resp1.GetHeader().GetError().GetStaleCommand() != nil)
 	resp = cb.WaitResp()
@@ -268,6 +265,24 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	applyRes = fetchApplyRes(rw.raftCh)
 	require.Equal(t, applyRes.applyState.AppliedIndex, uint64(7))
 	require.Equal(t, applyRes.appliedIndexTerm, uint64(3))
+
+	cb1 = message.NewCallback()
+	entry1 := NewEntryBuilder(8, 3).
+		put(engine_util.CfDefault, []byte("k10"), []byte("v10")).
+		epoch(1, 3).
+		build(rw.applyCh, 3, 1, cb1)
+	cb = message.NewCallback()
+	entry2 := NewEntryBuilder(9, 3).
+		get(engine_util.CfDefault, []byte("k10")).
+		epoch(1, 3).
+		build(rw.applyCh, 3, 1, cb)
+	commit(rw.applyCh, []eraftpb.Entry{*entry1, *entry2}, 1)
+	resp1 = cb1.WaitResp()
+	require.True(t, resp1.GetHeader().GetError() == nil)
+	resp = cb.WaitResp()
+	require.True(t, resp.GetHeader().GetError() == nil)
+	require.Equal(t, len(resp.GetResponses()), 1)
+	require.True(t, bytes.Equal(resp.GetResponses()[0].GetGet().Value, []byte("v10")))
 }
 
 func fetchApplyRes(raftCh <-chan message.Msg) *applyTaskRes {
