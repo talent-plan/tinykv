@@ -266,7 +266,6 @@ func (c *Cluster) GetRegion(key []byte) *metapb.Region {
 		SleepMS(20)
 	}
 	panic(fmt.Sprintf("find no region for %s", hex.EncodeToString(key)))
-	return nil
 }
 
 func (c *Cluster) GetStoreIdsOfRegion(regionID uint64) []uint64 {
