@@ -90,7 +90,7 @@ func (p *Prewrite) prewriteMutation(txn *kvstore.MvccTxn, mut *kvrpcpb.Mutation)
 	if existingLock, err := txn.GetLock(key); err != nil {
 		return nil, err
 	} else if existingLock != nil {
-		if existingLock.TS != *txn.StartTS {
+		if existingLock.Ts != *txn.StartTS {
 			// Key is locked by someone else.
 			return existingLock.Info(key), nil
 		} else {
@@ -102,8 +102,9 @@ func (p *Prewrite) prewriteMutation(txn *kvstore.MvccTxn, mut *kvrpcpb.Mutation)
 	// Write a lock and value.
 	lock := kvstore.Lock{
 		Primary: p.request.PrimaryLock,
-		TS:      *txn.StartTS,
+		Ts:      *txn.StartTS,
 		Kind:    kvstore.WriteKindFromProto(mut.Op),
+		Ttl:     p.request.LockTtl,
 	}
 	txn.PutLock(key, &lock)
 	txn.PutValue(key, mut.Value)

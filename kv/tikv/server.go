@@ -84,7 +84,9 @@ func (svr *Server) KvCommit(ctx context.Context, req *kvrpcpb.CommitRequest) (*k
 }
 
 func (svr *Server) KvCheckTxnStatus(ctx context.Context, req *kvrpcpb.CheckTxnStatusRequest) (*kvrpcpb.CheckTxnStatusResponse, error) {
-	return nil, nil
+	cmd := commands.NewCheckTxnStatus(req)
+	resp := <-svr.scheduler.Run(&cmd)
+	return checkTxnStatusResponse(&resp)
 }
 
 func (svr *Server) KvBatchRollback(ctx context.Context, req *kvrpcpb.BatchRollbackRequest) (*kvrpcpb.BatchRollbackResponse, error) {

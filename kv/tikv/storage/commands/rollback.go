@@ -30,7 +30,7 @@ func rollbackKey(key []byte, txn *kvstore.MvccTxn) error {
 		return err
 	}
 
-	if lock == nil || lock.TS != *txn.StartTS {
+	if lock == nil || lock.Ts != *txn.StartTS {
 		// There is no lock, check the write status.
 		existingWrite, ts, err := txn.FindWrite(key, *txn.StartTS)
 		if err != nil {

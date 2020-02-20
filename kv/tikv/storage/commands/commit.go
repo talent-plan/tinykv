@@ -43,7 +43,7 @@ func commitKey(key []byte, commitTs uint64, txn *kvstore.MvccTxn) error {
 		return nil
 	}
 
-	if lock.TS != *txn.StartTS {
+	if lock.Ts != *txn.StartTS {
 		// Key is locked by a different transaction.
 		write, _, err := txn.FindWrite(key, *txn.StartTS)
 		if err != nil {
