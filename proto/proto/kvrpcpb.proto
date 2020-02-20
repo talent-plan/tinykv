@@ -189,19 +189,11 @@ message CheckTxnStatusResponse {
     Action action = 5;
 }
 
-message TxnInfo {
-    uint64 txn = 1;
-    uint64 status = 2;
-}
-
 message ResolveLockRequest {
     Context context = 1;
     uint64 start_version  = 2;
     // If the txn is rolled back, do not set it.
     uint64 commit_version = 3;
-    repeated TxnInfo txn_infos = 4;
-    // Only resolve specified keys.
-    repeated bytes keys = 5;
 }
 
 message ResolveLockResponse {

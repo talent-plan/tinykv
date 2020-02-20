@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"errors"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
@@ -15,65 +14,17 @@ func NewResolveLock(request *kvrpcpb.ResolveLockRequest) ResolveLock {
 }
 
 func (c *ResolveLock) BuildTxn(txn *kvstore.MvccTxn) error {
-	if len(c.request.Keys) != 0 {
-		// In TiKV, this is a ResolveLockLite command.
-
-		if c.request.StartVersion == 0 {
-			return errors.New("storage: malformed resolve lock request: Keys is not empty and StartVersion is 0")
-		}
-
-		txn.StartTS = &c.request.StartVersion
-		commitTs := c.request.CommitVersion
-		if commitTs == 0 {
-			// Rollback all keys.
-			for _, key := range c.request.Keys {
-				err := rollbackKey(key, txn)
-				if err != nil {
-					return err
-				}
-			}
-		} else {
-			// Commit all keys.
-			for _, key := range c.request.Keys {
-				err := commitKey(key, commitTs, txn)
-				if err != nil {
-					// Ignore lock not found errors.
-					_, ok := err.(*LockNotFound)
-					if !ok {
-						return err
-					}
-				}
-			}
-		}
-
-		return nil
-	}
-
-	// In TiKV, this is a batched ResolveLock command.
-
 	// A map from start timestamps to commit timestamps which tells us whether a transaction (identified by start ts)
 	// has been committed (and if so, then its commit ts) or rolled back (in which case the commit ts is 0).
-	txnStatus := map[uint64]uint64{}
-	txns := make([]uint64, len(c.request.TxnInfos))
-	if c.request.StartVersion == 0 {
-		// Resolve multiple transactions.
-		for i, info := range c.request.TxnInfos {
-			txnStatus[info.Txn] = info.Status
-			txns[i] = info.Txn
-		}
-	} else {
-		// Resolve a single transaction.
-		txnStatus[c.request.StartVersion] = c.request.CommitVersion
-	}
+	txn.StartTS = &c.request.StartVersion
+	commitTs := c.request.CommitVersion
 
 	// Find all locks where the lock's transaction (start ts) is in txnStatus.
-	keyLocks, err := txn.AllLocksForTxns(txnSet{txnStatus})
+	keyLocks, err := txn.AllLocksForTxn()
 	if err != nil {
 		return err
 	}
 	for _, kl := range keyLocks {
-		txn.StartTS = &kl.Lock.Ts
-		commitTs := txnStatus[kl.Lock.Ts]
 		if commitTs == 0 {
 			err := rollbackKey(kl.Key, txn)
 			if err != nil {
@@ -88,16 +39,6 @@ func (c *ResolveLock) BuildTxn(txn *kvstore.MvccTxn) error {
 	}
 
 	return nil
-}
-
-// Helper struct to implement the kvstore.TxnSet interface for a map from uint64 -> uint64.
-type txnSet struct {
-	inner map[uint64]uint64
-}
-
-func (set txnSet) Contains(ts uint64) bool {
-	_, ok := set.inner[ts]
-	return ok
 }
 
 func (c *ResolveLock) Context() *kvrpcpb.Context {

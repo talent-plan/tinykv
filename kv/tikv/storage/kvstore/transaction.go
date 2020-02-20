@@ -169,11 +169,8 @@ func (txn *MvccTxn) DeleteLock(key []byte) {
 	})
 }
 
-type TxnSet interface {
-	Contains(ts uint64) bool
-}
-
-func (txn *MvccTxn) AllLocksForTxns(txns TxnSet) ([]KlPair, error) {
+// AllLocksForTxn returns all locks for the current transaction.
+func (txn *MvccTxn) AllLocksForTxn() ([]KlPair, error) {
 	var result []KlPair
 	for iter := txn.Reader.IterCF(engine_util.CfLock); iter.Valid(); iter.Next() {
 		item := iter.Item()
@@ -185,7 +182,7 @@ func (txn *MvccTxn) AllLocksForTxns(txns TxnSet) ([]KlPair, error) {
 		if err != nil {
 			return nil, err
 		}
-		if txns.Contains(lock.Ts) {
+		if lock.Ts == *txn.StartTS {
 			result = append(result, KlPair{item.Key(), lock})
 		}
 	}
