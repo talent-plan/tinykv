@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/coocood/badger"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
@@ -22,20 +23,20 @@ func NewPeer(storeID, peerID uint64) metapb.Peer {
 	return peer
 }
 
-func NewBaseRequest(regionID uint64, epoch *metapb.RegionEpoch, readQuorum bool) raft_cmdpb.RaftCmdRequest {
+func NewBaseRequest(regionID uint64, epoch *metapb.RegionEpoch) raft_cmdpb.RaftCmdRequest {
 	req := raft_cmdpb.RaftCmdRequest{}
-	req.Header = &raft_cmdpb.RaftRequestHeader{RegionId: regionID, RegionEpoch: epoch, ReadQuorum: readQuorum}
+	req.Header = &raft_cmdpb.RaftRequestHeader{RegionId: regionID, RegionEpoch: epoch}
 	return req
 }
 
-func NewRequest(regionID uint64, epoch *metapb.RegionEpoch, requests []*raft_cmdpb.Request, readQuorum bool) raft_cmdpb.RaftCmdRequest {
-	req := NewBaseRequest(regionID, epoch, readQuorum)
+func NewRequest(regionID uint64, epoch *metapb.RegionEpoch, requests []*raft_cmdpb.Request) raft_cmdpb.RaftCmdRequest {
+	req := NewBaseRequest(regionID, epoch)
 	req.Requests = requests
 	return req
 }
 
 func NewAdminRequest(regionID uint64, epoch *metapb.RegionEpoch, request *raft_cmdpb.AdminRequest) *raft_cmdpb.RaftCmdRequest {
-	req := NewBaseRequest(regionID, epoch, false)
+	req := NewBaseRequest(regionID, epoch)
 	req.AdminRequest = request
 	return &req
 }
@@ -44,6 +45,38 @@ func NewPutCfCmd(cf string, key, value []byte) *raft_cmdpb.Request {
 	cmd := &raft_cmdpb.Request{}
 	cmd.CmdType = raft_cmdpb.CmdType_Put
 	cmd.Put = &raft_cmdpb.PutRequest{Key: key, Value: value, Cf: cf}
+	return cmd
+}
+
+func NewGetCfCmd(cf string, key []byte) *raft_cmdpb.Request {
+	get := &raft_cmdpb.GetRequest{
+		Cf:  cf,
+		Key: key,
+	}
+	cmd := &raft_cmdpb.Request{
+		CmdType: raft_cmdpb.CmdType_Get,
+		Get:     get,
+	}
+	return cmd
+}
+
+func NewDeleteCfCmd(cf string, key []byte) *raft_cmdpb.Request {
+	delete := &raft_cmdpb.DeleteRequest{
+		Cf:  cf,
+		Key: key,
+	}
+	cmd := &raft_cmdpb.Request{
+		CmdType: raft_cmdpb.CmdType_Delete,
+		Delete:  delete,
+	}
+	return cmd
+}
+
+func NewSnapCmd() *raft_cmdpb.Request {
+	cmd := &raft_cmdpb.Request{
+		CmdType: raft_cmdpb.CmdType_Snap,
+		Snap:    &raft_cmdpb.SnapRequest{},
+	}
 	return cmd
 }
 
@@ -57,7 +90,7 @@ func NewTransferLeaderCmd(peer *metapb.Peer) *raft_cmdpb.AdminRequest {
 }
 
 func NewStatusRequest(regionID uint64, peer *metapb.Peer, request *raft_cmdpb.StatusRequest) *raft_cmdpb.RaftCmdRequest {
-	req := NewBaseRequest(regionID, &metapb.RegionEpoch{}, false)
+	req := NewBaseRequest(regionID, &metapb.RegionEpoch{})
 	req.Header.Peer = peer
 	req.StatusRequest = request
 	return &req
@@ -67,18 +100,6 @@ func NewRegionLeaderCmd() *raft_cmdpb.StatusRequest {
 	cmd := raft_cmdpb.StatusRequest{}
 	cmd.CmdType = raft_cmdpb.StatusCmdType_RegionLeader
 	return &cmd
-}
-
-func NewGetCfCmd(cf string, key []byte) *raft_cmdpb.Request {
-	get := &raft_cmdpb.GetRequest{
-		Cf:  cf,
-		Key: key,
-	}
-	cmd := &raft_cmdpb.Request{
-		CmdType: raft_cmdpb.CmdType_Get,
-		Get:     get,
-	}
-	return cmd
 }
 
 // MustGet value is optional
@@ -95,4 +116,17 @@ func MustGet(engine *engine_util.Engines, cf string, key []byte, value []byte) {
 
 func MustGetEqual(engine *engine_util.Engines, key []byte, value []byte) {
 	MustGet(engine, engine_util.CfDefault, key, value)
+}
+
+func MustGetNone(engine *engine_util.Engines, key []byte) {
+	val, err := engine_util.GetCF(engine.Kv, engine_util.CfDefault, key)
+	if err != badger.ErrKeyNotFound {
+		log.Panicf("get value %s for key %s", hex.EncodeToString(val), hex.EncodeToString(key))
+	}
+}
+
+func NewTestCluster(count int) *Cluster {
+	pdClient := NewMockPDClient(0)
+	simulator := NewNodeSimulator(pdClient)
+	return NewCluster(count, pdClient, simulator)
 }

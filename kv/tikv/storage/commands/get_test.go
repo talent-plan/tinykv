@@ -236,7 +236,7 @@ func TestGetLocked(t *testing.T) {
 	builder.init([]kv{
 		{cf: engine_util.CfDefault, key: []byte{99}, ts: 50, value: []byte{42}},
 		{cf: engine_util.CfWrite, key: []byte{99}, ts: 54, value: []byte{1, 0, 0, 0, 0, 0, 0, 0, 50}},
-		{cf: engine_util.CfLock, key: []byte{99}, value: []byte{99, 1, 0, 0, 0, 0, 0, 0, 0, 200}},
+		{cf: engine_util.CfLock, key: []byte{99}, value: []byte{99, 1, 0, 0, 0, 0, 0, 0, 0, 200, 0, 0, 0, 0, 0, 0, 0, 0}},
 	})
 
 	var req0 kvrpcpb.GetRequest

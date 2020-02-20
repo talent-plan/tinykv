@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/interfaces"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,6 +10,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/tikv"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/exec"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/interfaces"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/stretchr/testify/assert"
 )

@@ -1,6 +1,10 @@
 package test_raftstore
 
-import rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
+import (
+	"math/rand"
+
+	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
+)
 
 type Filter interface {
 	Before(msgs *rspb.RaftMessage) bool
@@ -15,14 +19,14 @@ type PartitionFilter struct {
 func (f *PartitionFilter) Before(msg *rspb.RaftMessage) bool {
 	inS1 := false
 	inS2 := false
-	for _, nodeID := range f.s1 {
-		if msg.FromPeer.StoreId == nodeID || msg.ToPeer.StoreId == nodeID {
+	for _, storeID := range f.s1 {
+		if msg.FromPeer.StoreId == storeID || msg.ToPeer.StoreId == storeID {
 			inS1 = true
 			break
 		}
 	}
-	for _, nodeID := range f.s2 {
-		if msg.FromPeer.StoreId == nodeID || msg.ToPeer.StoreId == nodeID {
+	for _, storeID := range f.s2 {
+		if msg.FromPeer.StoreId == storeID || msg.ToPeer.StoreId == storeID {
 			inS2 = true
 			break
 		}
@@ -31,3 +35,11 @@ func (f *PartitionFilter) Before(msg *rspb.RaftMessage) bool {
 }
 
 func (f *PartitionFilter) After() {}
+
+type DropFilter struct{}
+
+func (f *DropFilter) Before(msg *rspb.RaftMessage) bool {
+	return (rand.Int() % 1000) > 100
+}
+
+func (f *DropFilter) After() {}
