@@ -80,22 +80,6 @@ func PrintConfigCheckMsg(cfg *config.Config) {
 	}
 }
 
-// CheckPDVersion checks if PD needs to be upgraded.
-func CheckPDVersion(opt *config.ScheduleOption) {
-	pdVersion := *MinSupportedVersion(Base)
-	if PDReleaseVersion != "None" {
-		pdVersion = *MustParseVersion(PDReleaseVersion)
-	}
-	clusterVersion := *opt.LoadClusterVersion()
-	log.Info("load cluster version", zap.Stringer("cluster-version", clusterVersion))
-	if pdVersion.LessThan(clusterVersion) {
-		log.Warn(
-			"PD version less than cluster version, please upgrade PD",
-			zap.String("PD-version", pdVersion.String()),
-			zap.String("cluster-version", clusterVersion.String()))
-	}
-}
-
 func initOrGetClusterID(c *clientv3.Client, key string) (uint64, error) {
 	ctx, cancel := context.WithTimeout(c.Ctx(), requestTimeout)
 	defer cancel()

@@ -16,7 +16,6 @@ package core
 import (
 	"fmt"
 	"math"
-	"strings"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
@@ -135,11 +134,6 @@ func (s *StoreInfo) GetVersion() string {
 	return s.meta.GetVersion()
 }
 
-// GetLabels returns the labels of the store.
-func (s *StoreInfo) GetLabels() []*metapb.StoreLabel {
-	return s.meta.GetLabels()
-}
-
 // GetID returns the ID of the store.
 func (s *StoreInfo) GetID() uint64 {
 	return s.meta.GetId()
@@ -231,7 +225,6 @@ func (s *StoreInfo) GetLastHeartbeatTS() time.Time {
 }
 
 const minWeight = 1e-6
-const maxScore = 1024 * 1024 * 1024
 
 // LeaderScore returns the store's leader score.
 func (s *StoreInfo) LeaderScore(strategy ScheduleStrategy, delta int64) float64 {
@@ -246,49 +239,8 @@ func (s *StoreInfo) LeaderScore(strategy ScheduleStrategy, delta int64) float64 
 }
 
 // RegionScore returns the store's region score.
-func (s *StoreInfo) RegionScore(highSpaceRatio, lowSpaceRatio float64, delta int64) float64 {
-	var score float64
-	var amplification float64
-	available := float64(s.GetAvailable()) / (1 << 20)
-	used := float64(s.GetUsedSize()) / (1 << 20)
-	capacity := float64(s.GetCapacity()) / (1 << 20)
-
-	if s.GetRegionSize() == 0 {
-		amplification = 1
-	} else {
-		// because of rocksdb compression, region size is larger than actual used size
-		amplification = float64(s.GetRegionSize()) / used
-	}
-
-	// highSpaceBound is the lower bound of the high space stage.
-	highSpaceBound := (1 - highSpaceRatio) * capacity
-	// lowSpaceBound is the upper bound of the low space stage.
-	lowSpaceBound := (1 - lowSpaceRatio) * capacity
-	if available-float64(delta)/amplification >= highSpaceBound {
-		score = float64(s.GetRegionSize() + delta)
-	} else if available-float64(delta)/amplification <= lowSpaceBound {
-		score = maxScore - (available - float64(delta)/amplification)
-	} else {
-		// to make the score function continuous, we use linear function y = k * x + b as transition period
-		// from above we know that there are two points must on the function image
-		// note that it is possible that other irrelative files occupy a lot of storage, so capacity == available + used + irrelative
-		// and we regarded irrelative as a fixed value.
-		// Then amp = size / used = size / (capacity - irrelative - available)
-		//
-		// When available == highSpaceBound,
-		// we can conclude that size = (capacity - irrelative - highSpaceBound) * amp = (used + available - highSpaceBound) * amp
-		// Similarly, when available == lowSpaceBound,
-		// we can conclude that size = (capacity - irrelative - lowSpaceBound) * amp = (used + available - lowSpaceBound) * amp
-		// These are the two fixed points' x-coordinates, and y-coordinates which can be easily obtained from the above two functions.
-		x1, y1 := (used+available-highSpaceBound)*amplification, (used+available-highSpaceBound)*amplification
-		x2, y2 := (used+available-lowSpaceBound)*amplification, maxScore-lowSpaceBound
-
-		k := (y2 - y1) / (x2 - x1)
-		b := y1 - k*x1
-		score = k*float64(s.GetRegionSize()+delta) + b
-	}
-
-	return score / math.Max(s.GetRegionWeight(), minWeight)
+func (s *StoreInfo) RegionScore() float64 {
+	return float64(s.GetRegionSize()) / math.Max(s.GetRegionWeight(), minWeight)
 }
 
 // StorageSize returns store's used storage size reported from tikv.
@@ -334,12 +286,12 @@ func (s *StoreInfo) ResourceSize(kind ResourceKind) int64 {
 }
 
 // ResourceScore returns score of leader/region in the store.
-func (s *StoreInfo) ResourceScore(scheduleKind ScheduleKind, highSpaceRatio, lowSpaceRatio float64, delta int64) float64 {
+func (s *StoreInfo) ResourceScore(scheduleKind ScheduleKind, delta int64) float64 {
 	switch scheduleKind.Resource {
 	case LeaderKind:
 		return s.LeaderScore(scheduleKind.Strategy, delta)
 	case RegionKind:
-		return s.RegionScore(highSpaceRatio, lowSpaceRatio, delta)
+		return s.RegionScore()
 	default:
 		return 0
 	}
@@ -397,64 +349,6 @@ func (s *StoreInfo) IsDisconnected() bool {
 // IsUnhealth checks if a store is unhealth.
 func (s *StoreInfo) IsUnhealth() bool {
 	return s.DownTime() > storeUnhealthDuration
-}
-
-// GetLabelValue returns a label's value (if exists).
-func (s *StoreInfo) GetLabelValue(key string) string {
-	for _, label := range s.GetLabels() {
-		if strings.EqualFold(label.GetKey(), key) {
-			return label.GetValue()
-		}
-	}
-	return ""
-}
-
-// CompareLocation compares 2 stores' labels and returns at which level their
-// locations are different. It returns -1 if they are at the same location.
-func (s *StoreInfo) CompareLocation(other *StoreInfo, labels []string) int {
-	for i, key := range labels {
-		v1, v2 := s.GetLabelValue(key), other.GetLabelValue(key)
-		// If label is not set, the store is considered at the same location
-		// with any other store.
-		if v1 != "" && v2 != "" && !strings.EqualFold(v1, v2) {
-			return i
-		}
-	}
-	return -1
-}
-
-const replicaBaseScore = 100
-
-// DistinctScore returns the score that the other is distinct from the stores.
-// A higher score means the other store is more different from the existed stores.
-func DistinctScore(labels []string, stores []*StoreInfo, other *StoreInfo) float64 {
-	var score float64
-	for _, s := range stores {
-		if s.GetID() == other.GetID() {
-			continue
-		}
-		if index := s.CompareLocation(other, labels); index != -1 {
-			score += math.Pow(replicaBaseScore, float64(len(labels)-index-1))
-		}
-	}
-	return score
-}
-
-// MergeLabels merges the passed in labels with origins, overriding duplicated
-// ones.
-func (s *StoreInfo) MergeLabels(labels []*metapb.StoreLabel) []*metapb.StoreLabel {
-	storeLabels := s.GetLabels()
-L:
-	for _, newLabel := range labels {
-		for _, label := range storeLabels {
-			if strings.EqualFold(label.Key, newLabel.Key) {
-				label.Value = newLabel.Value
-				continue L
-			}
-		}
-		storeLabels = append(storeLabels, newLabel)
-	}
-	return storeLabels
 }
 
 type storeNotFoundErr struct {

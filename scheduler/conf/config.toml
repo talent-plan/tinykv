@@ -47,8 +47,6 @@ level = "info"
 # log-rotate = true
 
 [schedule]
-max-merge-region-size = 20
-max-merge-region-keys = 200000
 split-merge-interval = "1h"
 max-snapshot-count = 3
 max-pending-peer-count = 16
@@ -56,7 +54,6 @@ max-store-down-time = "30m"
 leader-schedule-limit = 4
 region-schedule-limit = 2048
 replica-schedule-limit = 64
-merge-schedule-limit = 8
 ## There are some strategics supported: ["count", "size"], default: "count"
 # leader-schedule-strategy = "count" 
 ## When the score difference between the leader or Region of the two stores is 
@@ -82,16 +79,3 @@ merge-schedule-limit = 8
 [replication]
 ## The number of replicas for each region.
 max-replicas = 3
-## The label keys specified the location of a store.
-## The placement priorities is implied by the order of label keys.
-## For example, ["zone", "rack"] means that we should place replicas to
-## different zones first, then to different racks if we don't have enough zones.
-location-labels = []
-## Strictly checks if the label of TiKV is matched with location labels.
-# strictly-match-label = false
-
-[label-property]
-## Do not assign region leaders to stores that have these tags.
-# [[label-property.reject-leader]]
-# key = "zone"
-# value = "cn1

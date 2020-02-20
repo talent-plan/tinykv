@@ -41,6 +41,14 @@ const (
 	DefaultSlowRequestTime = 1 * time.Second
 )
 
+// ListEtcdMembers returns a list of internal etcd members.
+func ListEtcdMembers(client *clientv3.Client) (*clientv3.MemberListResponse, error) {
+	ctx, cancel := context.WithTimeout(client.Ctx(), DefaultRequestTimeout)
+	listResp, err := client.MemberList(ctx)
+	cancel()
+	return listResp, errors.WithStack(err)
+}
+
 // CheckClusterID checks Etcd's cluster ID, returns an error if mismatch.
 // This function will never block even quorum is not satisfied.
 func CheckClusterID(localClusterID types.ID, um types.URLsMap, tlsConfig *tls.Config) error {
@@ -71,30 +79,6 @@ func CheckClusterID(localClusterID types.ID, um types.URLsMap, tlsConfig *tls.Co
 		}
 	}
 	return nil
-}
-
-// AddEtcdMember adds an etcd member.
-func AddEtcdMember(client *clientv3.Client, urls []string) (*clientv3.MemberAddResponse, error) {
-	ctx, cancel := context.WithTimeout(client.Ctx(), DefaultRequestTimeout)
-	addResp, err := client.MemberAdd(ctx, urls)
-	cancel()
-	return addResp, errors.WithStack(err)
-}
-
-// ListEtcdMembers returns a list of internal etcd members.
-func ListEtcdMembers(client *clientv3.Client) (*clientv3.MemberListResponse, error) {
-	ctx, cancel := context.WithTimeout(client.Ctx(), DefaultRequestTimeout)
-	listResp, err := client.MemberList(ctx)
-	cancel()
-	return listResp, errors.WithStack(err)
-}
-
-// RemoveEtcdMember removes a member by the given id.
-func RemoveEtcdMember(client *clientv3.Client, id uint64) (*clientv3.MemberRemoveResponse, error) {
-	ctx, cancel := context.WithTimeout(client.Ctx(), DefaultRequestTimeout)
-	rmResp, err := client.MemberRemove(ctx, id)
-	cancel()
-	return rmResp, errors.WithStack(err)
 }
 
 // EtcdKVGet returns the etcd GetResponse by given key or key prefix

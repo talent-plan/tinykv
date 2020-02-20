@@ -28,7 +28,7 @@ import (
 func GetClientConn(addr string, caPath string, certPath string, keyPath string) (*grpc.ClientConn, error) {
 	opt := grpc.WithInsecure()
 	if len(caPath) != 0 {
-		certificates := []tls.Certificate{}
+		var certificates []tls.Certificate
 		if len(certPath) != 0 && len(keyPath) != 0 {
 			// Load the client certificates from disk
 			certificate, err := tls.LoadX509KeyPair(certPath, keyPath)

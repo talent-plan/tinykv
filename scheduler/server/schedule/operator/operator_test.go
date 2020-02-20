@@ -23,7 +23,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockcluster"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockoption"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
-	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/opt"
 	. "github.com/pingcap/check"
 )
 
@@ -41,17 +40,10 @@ func (s *testOperatorSuite) SetUpTest(c *C) {
 	cfg := mockoption.NewScheduleOptions()
 	cfg.MaxMergeRegionSize = 2
 	cfg.MaxMergeRegionKeys = 2
-	cfg.LabelProperties = map[string][]*metapb.StoreLabel{
-		opt.RejectLeader: {{Key: "reject", Value: "leader"}},
-	}
 	s.cluster = mockcluster.NewCluster(cfg)
-	stores := map[uint64][]string{
-		1: {}, 2: {}, 3: {}, 4: {}, 5: {}, 6: {},
-		7: {"reject", "leader"},
-		8: {"reject", "leader"},
-	}
-	for storeID, labels := range stores {
-		s.cluster.PutStoreWithLabels(storeID, labels...)
+	stores := []uint64{1, 2, 3, 4, 5, 6, 7, 8}
+	for _, storeID := range stores {
+		s.cluster.PutStore(core.NewStoreInfo(&metapb.Store{Id: storeID}))
 	}
 }
 
@@ -95,17 +87,14 @@ func (s *testOperatorSuite) TestInterleaveStepGroups(c *C) {
 	c.Assert(res, DeepEquals, ans[0])
 }
 
-func (s *testOperatorSuite) TestFindNoLabelProperty(c *C) {
+func (s *testOperatorSuite) TestFindAvailableStore(c *C) {
 	stores := []uint64{8, 7, 3, 4, 7, 3, 1, 5, 6}
-	i, id := findNoLabelProperty(s.cluster, opt.RejectLeader, stores)
-	c.Assert(i, Equals, 2)
-	c.Assert(id, Equals, uint64(3))
-	i, id = findNoLabelProperty(s.cluster, opt.RejectLeader, stores[2:])
+	i, id := findAvailableStore(s.cluster, stores)
+	c.Assert(i, Equals, 0)
+	c.Assert(id, Equals, uint64(8))
+	i, id = findAvailableStore(s.cluster, stores[2:])
 	c.Assert(i, Equals, 0)
 	c.Assert(id, Equals, uint64(3))
-	i, id = findNoLabelProperty(s.cluster, opt.RejectLeader, stores[:2])
-	c.Assert(i, Less, 0)
-	c.Assert(id, Equals, uint64(0))
 }
 
 func (s *testOperatorSuite) TestOperatorStep(c *C) {

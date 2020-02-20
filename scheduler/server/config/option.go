@@ -18,11 +18,7 @@ import (
 	"reflect"
 	"sync/atomic"
 	"time"
-	"unsafe"
 
-	"github.com/coreos/go-semver/semver"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/scheduler/pkg/typeutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule"
@@ -32,8 +28,6 @@ import (
 type ScheduleOption struct {
 	schedule       atomic.Value
 	replication    *Replication
-	labelProperty  atomic.Value
-	clusterVersion unsafe.Pointer
 	pdServerConfig atomic.Value
 }
 
@@ -43,8 +37,6 @@ func NewScheduleOption(cfg *Config) *ScheduleOption {
 	o.Store(&cfg.Schedule)
 	o.replication = newReplication(&cfg.Replication)
 	o.pdServerConfig.Store(&cfg.PDServerCfg)
-	o.labelProperty.Store(cfg.LabelProperty)
-	o.SetClusterVersion(&cfg.ClusterVersion)
 	return o
 }
 
@@ -63,11 +55,6 @@ func (o *ScheduleOption) GetReplication() *Replication {
 	return o.replication
 }
 
-// SetPDServerConfig sets the PD configuration.
-func (o *ScheduleOption) SetPDServerConfig(cfg *PDServerConfig) {
-	o.pdServerConfig.Store(cfg)
-}
-
 // GetMaxReplicas returns the number of replicas for each region.
 func (o *ScheduleOption) GetMaxReplicas() int {
 	return o.replication.GetMaxReplicas()
@@ -76,56 +63,6 @@ func (o *ScheduleOption) GetMaxReplicas() int {
 // SetMaxReplicas sets the number of replicas for each region.
 func (o *ScheduleOption) SetMaxReplicas(replicas int) {
 	o.replication.SetMaxReplicas(replicas)
-}
-
-// GetLocationLabels returns the location labels for each region.
-func (o *ScheduleOption) GetLocationLabels() []string {
-	return o.replication.GetLocationLabels()
-}
-
-// IsPlacementRulesEnabled returns if the placement rules is enabled.
-func (o *ScheduleOption) IsPlacementRulesEnabled() bool {
-	return o.replication.IsPlacementRulesEnabled()
-}
-
-// GetMaxSnapshotCount returns the number of the max snapshot which is allowed to send.
-func (o *ScheduleOption) GetMaxSnapshotCount() uint64 {
-	return o.Load().MaxSnapshotCount
-}
-
-// GetMaxPendingPeerCount returns the number of the max pending peers.
-func (o *ScheduleOption) GetMaxPendingPeerCount() uint64 {
-	return o.Load().MaxPendingPeerCount
-}
-
-// GetMaxMergeRegionSize returns the max region size.
-func (o *ScheduleOption) GetMaxMergeRegionSize() uint64 {
-	return o.Load().MaxMergeRegionSize
-}
-
-// GetMaxMergeRegionKeys returns the max number of keys.
-func (o *ScheduleOption) GetMaxMergeRegionKeys() uint64 {
-	return o.Load().MaxMergeRegionKeys
-}
-
-// GetSplitMergeInterval returns the interval between finishing split and starting to merge.
-func (o *ScheduleOption) GetSplitMergeInterval() time.Duration {
-	return o.Load().SplitMergeInterval.Duration
-}
-
-// SetSplitMergeInterval to set the interval between finishing split and starting to merge. It's only used to test.
-func (o *ScheduleOption) SetSplitMergeInterval(splitMergeInterval time.Duration) {
-	o.Load().SplitMergeInterval = typeutil.Duration{Duration: splitMergeInterval}
-}
-
-// IsOneWayMergeEnabled returns if a region can only be merged into the next region of it.
-func (o *ScheduleOption) IsOneWayMergeEnabled() bool {
-	return o.Load().EnableOneWayMerge
-}
-
-// IsCrossTableMergeEnabled returns if across table merge is enabled.
-func (o *ScheduleOption) IsCrossTableMergeEnabled() bool {
-	return o.Load().EnableCrossTableMerge
 }
 
 // GetPatrolRegionInterval returns the interval of patroling region.
@@ -153,11 +90,6 @@ func (o *ScheduleOption) GetReplicaScheduleLimit() uint64 {
 	return o.Load().ReplicaScheduleLimit
 }
 
-// GetMergeScheduleLimit returns the limit for merge schedule.
-func (o *ScheduleOption) GetMergeScheduleLimit() uint64 {
-	return o.Load().MergeScheduleLimit
-}
-
 // GetStoreBalanceRate returns the balance rate of a store.
 func (o *ScheduleOption) GetStoreBalanceRate() float64 {
 	return o.Load().StoreBalanceRate
@@ -166,21 +98,6 @@ func (o *ScheduleOption) GetStoreBalanceRate() float64 {
 // GetTolerantSizeRatio gets the tolerant size ratio.
 func (o *ScheduleOption) GetTolerantSizeRatio() float64 {
 	return o.Load().TolerantSizeRatio
-}
-
-// GetLowSpaceRatio returns the low space ratio.
-func (o *ScheduleOption) GetLowSpaceRatio() float64 {
-	return o.Load().LowSpaceRatio
-}
-
-// GetHighSpaceRatio returns the high space ratio.
-func (o *ScheduleOption) GetHighSpaceRatio() float64 {
-	return o.Load().HighSpaceRatio
-}
-
-// GetSchedulerMaxWaitingOperator returns the number of the max waiting operators.
-func (o *ScheduleOption) GetSchedulerMaxWaitingOperator() uint64 {
-	return o.Load().SchedulerMaxWaitingOperator
 }
 
 // GetLeaderScheduleStrategy is to get leader schedule strategy.
@@ -211,11 +128,6 @@ func (o *ScheduleOption) IsMakeUpReplicaEnabled() bool {
 // IsRemoveExtraReplicaEnabled returns if remove extra replica is enabled.
 func (o *ScheduleOption) IsRemoveExtraReplicaEnabled() bool {
 	return o.Load().EnableRemoveExtraReplica
-}
-
-// IsLocationReplacementEnabled returns if location replace is enabled.
-func (o *ScheduleOption) IsLocationReplacementEnabled() bool {
-	return o.Load().EnableLocationReplacement
 }
 
 // GetSchedulers gets the scheduler configurations.
@@ -271,137 +183,9 @@ func (o *ScheduleOption) RemoveSchedulerCfg(ctx context.Context, name string) er
 	return nil
 }
 
-// SetLabelProperty sets the label property.
-func (o *ScheduleOption) SetLabelProperty(typ, labelKey, labelValue string) {
-	cfg := o.LoadLabelPropertyConfig().Clone()
-	for _, l := range cfg[typ] {
-		if l.Key == labelKey && l.Value == labelValue {
-			return
-		}
-	}
-	cfg[typ] = append(cfg[typ], StoreLabel{Key: labelKey, Value: labelValue})
-	o.labelProperty.Store(cfg)
-}
-
-// DeleteLabelProperty deletes the label property.
-func (o *ScheduleOption) DeleteLabelProperty(typ, labelKey, labelValue string) {
-	cfg := o.LoadLabelPropertyConfig().Clone()
-	oldLabels := cfg[typ]
-	cfg[typ] = []StoreLabel{}
-	for _, l := range oldLabels {
-		if l.Key == labelKey && l.Value == labelValue {
-			continue
-		}
-		cfg[typ] = append(cfg[typ], l)
-	}
-	if len(cfg[typ]) == 0 {
-		delete(cfg, typ)
-	}
-	o.labelProperty.Store(cfg)
-}
-
-// LoadLabelPropertyConfig returns the label property.
-func (o *ScheduleOption) LoadLabelPropertyConfig() LabelPropertyConfig {
-	return o.labelProperty.Load().(LabelPropertyConfig)
-}
-
-// SetClusterVersion sets the cluster version.
-func (o *ScheduleOption) SetClusterVersion(v *semver.Version) {
-	atomic.StorePointer(&o.clusterVersion, unsafe.Pointer(v))
-}
-
-// CASClusterVersion sets the cluster version.
-func (o *ScheduleOption) CASClusterVersion(old, new *semver.Version) bool {
-	return atomic.CompareAndSwapPointer(&o.clusterVersion, unsafe.Pointer(old), unsafe.Pointer(new))
-}
-
-// LoadClusterVersion returns the cluster version.
-func (o *ScheduleOption) LoadClusterVersion() *semver.Version {
-	return (*semver.Version)(atomic.LoadPointer(&o.clusterVersion))
-}
-
 // LoadPDServerConfig returns PD server configurations.
 func (o *ScheduleOption) LoadPDServerConfig() *PDServerConfig {
 	return o.pdServerConfig.Load().(*PDServerConfig)
-}
-
-// Persist saves the configuration to the storage.
-func (o *ScheduleOption) Persist(storage *core.Storage) error {
-	cfg := &Config{
-		Schedule:       *o.Load(),
-		Replication:    *o.replication.Load(),
-		LabelProperty:  o.LoadLabelPropertyConfig(),
-		ClusterVersion: *o.LoadClusterVersion(),
-		PDServerCfg:    *o.LoadPDServerConfig(),
-	}
-	err := storage.SaveConfig(cfg)
-	return err
-}
-
-// Reload reloads the configuration from the storage.
-func (o *ScheduleOption) Reload(storage *core.Storage) error {
-	cfg := &Config{
-		Schedule:       *o.Load().Clone(),
-		Replication:    *o.replication.Load(),
-		LabelProperty:  o.LoadLabelPropertyConfig().Clone(),
-		ClusterVersion: *o.LoadClusterVersion(),
-		PDServerCfg:    *o.LoadPDServerConfig(),
-	}
-	isExist, err := storage.LoadConfig(cfg)
-	if err != nil {
-		return err
-	}
-	o.adjustScheduleCfg(cfg)
-	if isExist {
-		o.Store(&cfg.Schedule)
-		o.replication.Store(&cfg.Replication)
-		o.labelProperty.Store(cfg.LabelProperty)
-		o.SetClusterVersion(&cfg.ClusterVersion)
-		o.pdServerConfig.Store(&cfg.PDServerCfg)
-	}
-	return nil
-}
-
-func (o *ScheduleOption) adjustScheduleCfg(persistentCfg *Config) {
-	scheduleCfg := o.Load().Clone()
-	for i, s := range scheduleCfg.Schedulers {
-		for _, ps := range persistentCfg.Schedule.Schedulers {
-			if s.Type == ps.Type && reflect.DeepEqual(s.Args, ps.Args) {
-				scheduleCfg.Schedulers[i].Disable = ps.Disable
-				break
-			}
-		}
-	}
-	restoredSchedulers := make([]SchedulerConfig, 0, len(persistentCfg.Schedule.Schedulers))
-	for _, ps := range persistentCfg.Schedule.Schedulers {
-		needRestore := true
-		for _, s := range scheduleCfg.Schedulers {
-			if s.Type == ps.Type && reflect.DeepEqual(s.Args, ps.Args) {
-				needRestore = false
-				break
-			}
-		}
-		if needRestore {
-			restoredSchedulers = append(restoredSchedulers, ps)
-		}
-	}
-	scheduleCfg.Schedulers = append(scheduleCfg.Schedulers, restoredSchedulers...)
-	persistentCfg.Schedule.Schedulers = scheduleCfg.Schedulers
-	persistentCfg.Schedule.MigrateDeprecatedFlags()
-	o.Store(scheduleCfg)
-}
-
-// CheckLabelProperty checks the label property.
-func (o *ScheduleOption) CheckLabelProperty(typ string, labels []*metapb.StoreLabel) bool {
-	pc := o.labelProperty.Load().(LabelPropertyConfig)
-	for _, cfg := range pc[typ] {
-		for _, l := range labels {
-			if l.Key == cfg.Key && l.Value == cfg.Value {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // Replication provides some help to do replication.
@@ -436,19 +220,4 @@ func (r *Replication) SetMaxReplicas(replicas int) {
 	v := c.clone()
 	v.MaxReplicas = uint64(replicas)
 	r.Store(v)
-}
-
-// GetLocationLabels returns the location labels for each region.
-func (r *Replication) GetLocationLabels() []string {
-	return r.Load().LocationLabels
-}
-
-// GetStrictlyMatchLabel returns whether check label strict.
-func (r *Replication) GetStrictlyMatchLabel() bool {
-	return r.Load().StrictlyMatchLabel
-}
-
-// IsPlacementRulesEnabled returns whether the feature is enabled.
-func (r *Replication) IsPlacementRulesEnabled() bool {
-	return r.Load().EnablePlacementRules
 }

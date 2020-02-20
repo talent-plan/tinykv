@@ -119,25 +119,6 @@ func (c *coordinator) patrolRegions() {
 	}
 }
 
-// drivePushOperator is used to push the unfinished operator to the excutor.
-func (c *coordinator) drivePushOperator() {
-	defer logutil.LogPanic()
-
-	defer c.wg.Done()
-	log.Info("coordinator begins to actively drive push operator")
-	ticker := time.NewTicker(schedule.PushOperatorTickInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-c.ctx.Done():
-			log.Info("drive push operator has been stopped")
-			return
-		case <-ticker.C:
-			c.opController.PushOperators()
-		}
-	}
-}
-
 func (c *coordinator) run() {
 	ticker := time.NewTicker(runSchedulerCheckInterval)
 	defer ticker.Stop()
@@ -231,14 +212,10 @@ func (c *coordinator) run() {
 	// Removes the invalid scheduler config and persist.
 	scheduleCfg.Schedulers = scheduleCfg.Schedulers[:k]
 	c.cluster.opt.Store(scheduleCfg)
-	if err := c.cluster.opt.Persist(c.cluster.storage); err != nil {
-		log.Error("cannot persist schedule config", zap.Error(err))
-	}
 
-	c.wg.Add(2)
+	c.wg.Add(1)
 	// Starts to patrol regions.
 	go c.patrolRegions()
-	go c.drivePushOperator()
 }
 
 func (c *coordinator) stop() {
@@ -299,8 +276,6 @@ func (c *coordinator) removeScheduler(name string) error {
 	opt := c.cluster.opt
 	if err = opt.RemoveSchedulerCfg(s.Ctx(), name); err != nil {
 		log.Error("can not remove scheduler", zap.String("scheduler-name", name), zap.Error(err))
-	} else if err = opt.Persist(c.cluster.storage); err != nil {
-		log.Error("the option can not persist scheduler config", zap.Error(err))
 	} else {
 		err = c.cluster.storage.RemoveScheduleConfig(name)
 		if err != nil {
@@ -326,7 +301,7 @@ func (c *coordinator) runScheduler(s *scheduleController) {
 				continue
 			}
 			if op := s.Schedule(); op != nil {
-				c.opController.AddOperator(op...)
+				c.opController.AddOperator(op)
 			}
 
 		case <-s.Ctx().Done():
@@ -369,7 +344,7 @@ func (s *scheduleController) Stop() {
 	s.cancel()
 }
 
-func (s *scheduleController) Schedule() []*operator.Operator {
+func (s *scheduleController) Schedule() *operator.Operator {
 	for i := 0; i < maxScheduleRetries; i++ {
 		// If we have schedule, reset interval to the minimal interval.
 		if op := s.Scheduler.Schedule(s.cluster); op != nil {

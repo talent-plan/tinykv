@@ -69,13 +69,6 @@ func newBalanceRegionScheduler(opController *schedule.OperatorController, opts .
 // BalanceRegionCreateOption is used to create a scheduler with an option.
 type BalanceRegionCreateOption func(s *balanceRegionScheduler)
 
-// WithBalanceRegionName sets the name for the scheduler.
-func WithBalanceRegionName(name string) BalanceRegionCreateOption {
-	return func(s *balanceRegionScheduler) {
-		s.name = name
-	}
-}
-
 func (s *balanceRegionScheduler) GetName() string {
 	if s.name != "" {
 		return s.name
@@ -91,11 +84,11 @@ func (s *balanceRegionScheduler) IsScheduleAllowed(cluster opt.Cluster) bool {
 	return s.opController.OperatorCount(operator.OpRegion) < cluster.GetRegionScheduleLimit()
 }
 
-func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) []*operator.Operator {
+func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) *operator.Operator {
 	stores := cluster.GetStores()
 	stores = filter.SelectSourceStores(stores, s.filters, cluster)
 	sort.Slice(stores, func(i, j int) bool {
-		return stores[i].RegionScore(cluster.GetHighSpaceRatio(), cluster.GetLowSpaceRatio(), 0) > stores[j].RegionScore(cluster.GetHighSpaceRatio(), cluster.GetLowSpaceRatio(), 0)
+		return stores[i].RegionScore() > stores[j].RegionScore()
 	})
 	for _, source := range stores {
 		sourceID := source.GetID()
@@ -125,7 +118,7 @@ func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) []*operator.Opera
 
 			oldPeer := region.GetStorePeer(sourceID)
 			if op := s.transferPeer(cluster, region, oldPeer); op != nil {
-				return []*operator.Operator{op}
+				return op
 			}
 		}
 	}
@@ -134,19 +127,16 @@ func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) []*operator.Opera
 
 // transferPeer selects the best store to create a new peer to replace the old peer.
 func (s *balanceRegionScheduler) transferPeer(cluster opt.Cluster, region *core.RegionInfo, oldPeer *metapb.Peer) *operator.Operator {
-	// scoreGuard guarantees that the distinct score will not decrease.
-	stores := cluster.GetRegionStores(region)
 	sourceStoreID := oldPeer.GetStoreId()
 	source := cluster.GetStore(sourceStoreID)
 	if source == nil {
 		log.Error("failed to get the source store", zap.Uint64("store-id", sourceStoreID))
 	}
-	scoreGuard := filter.NewDistinctScoreFilter(s.GetName(), cluster.GetLocationLabels(), stores, source)
 	checker := checker.NewReplicaChecker(cluster, s.GetName())
 	exclude := make(map[uint64]struct{})
 	excludeFilter := filter.NewExcludedFilter(s.name, nil, exclude)
 	for {
-		storeID, _ := checker.SelectBestReplacementStore(region, oldPeer, scoreGuard, excludeFilter)
+		storeID := checker.SelectBestReplacementStore(region, oldPeer, excludeFilter)
 		if storeID == 0 {
 			return nil
 		}

@@ -170,28 +170,6 @@ func (mc *Cluster) AddRegionStore(storeID uint64, regionCount int) {
 	mc.PutStore(store)
 }
 
-// AddLabelsStore adds store with specified count of region and labels.
-func (mc *Cluster) AddLabelsStore(storeID uint64, regionCount int, labels map[string]string) {
-	var newLabels []*metapb.StoreLabel
-	for k, v := range labels {
-		newLabels = append(newLabels, &metapb.StoreLabel{Key: k, Value: v})
-	}
-	stats := &pdpb.StoreStats{}
-	stats.Capacity = 1000 * (1 << 20)
-	stats.Available = stats.Capacity - uint64(regionCount)*10
-	store := core.NewStoreInfo(
-		&metapb.Store{
-			Id:     storeID,
-			Labels: newLabels,
-		},
-		core.SetStoreStats(stats),
-		core.SetRegionCount(regionCount),
-		core.SetRegionSize(int64(regionCount)*10),
-		core.SetLastHeartbeatTS(time.Now()),
-	)
-	mc.PutStore(store)
-}
-
 // AddLeaderRegion adds region with specified leader and followers.
 func (mc *Cluster) AddLeaderRegion(regionID uint64, leaderID uint64, followerIds ...uint64) {
 	origin := mc.newMockRegionInfo(regionID, leaderID, followerIds...)
@@ -351,18 +329,6 @@ func (mc *Cluster) GetMaxReplicas() int {
 	return mc.ScheduleOptions.GetMaxReplicas()
 }
 
-// CheckLabelProperty checks label property.
-func (mc *Cluster) CheckLabelProperty(typ string, labels []*metapb.StoreLabel) bool {
-	for _, cfg := range mc.LabelProperties[typ] {
-		for _, l := range labels {
-			if l.Key == cfg.Key && l.Value == cfg.Value {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // PutRegionStores mocks method.
 func (mc *Cluster) PutRegionStores(id uint64, stores ...uint64) {
 	meta := &metapb.Region{Id: id}
@@ -370,15 +336,6 @@ func (mc *Cluster) PutRegionStores(id uint64, stores ...uint64) {
 		meta.Peers = append(meta.Peers, &metapb.Peer{StoreId: s})
 	}
 	mc.PutRegion(core.NewRegionInfo(meta, &metapb.Peer{StoreId: stores[0]}))
-}
-
-// PutStoreWithLabels mocks method.
-func (mc *Cluster) PutStoreWithLabels(id uint64, labelPairs ...string) {
-	var labels []*metapb.StoreLabel
-	for i := 0; i < len(labelPairs); i += 2 {
-		labels = append(labels, &metapb.StoreLabel{Key: labelPairs[i], Value: labelPairs[i+1]})
-	}
-	mc.PutStore(core.NewStoreInfo(&metapb.Store{Id: id, Labels: labels}))
 }
 
 // MockRegionInfo returns a mock region

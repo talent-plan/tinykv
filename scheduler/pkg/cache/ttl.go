@@ -140,13 +140,6 @@ type TTLUint64 struct {
 	*TTL
 }
 
-// NewIDTTL creates a new TTLUint64 cache.
-func NewIDTTL(ctx context.Context, gcInterval, ttl time.Duration) *TTLUint64 {
-	return &TTLUint64{
-		TTL: NewTTL(ctx, gcInterval, ttl),
-	}
-}
-
 // Put saves an ID in cache.
 func (c *TTLUint64) Put(id uint64) {
 	c.TTL.Put(id, nil)
