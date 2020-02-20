@@ -90,7 +90,8 @@ func (s *testClusterWorkerSuite) TestValidRequestRegion(c *C) {
 	cluster.stop()
 }
 
-func (s *testClusterWorkerSuite) TestAskSplit(c *C) {var err error
+func (s *testClusterWorkerSuite) TestAskSplit(c *C) {
+	var err error
 	var cleanup func()
 	s.svr, cleanup, err = NewTestServer(c)
 	defer cleanup()
