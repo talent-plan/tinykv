@@ -40,7 +40,7 @@ func (r *splitCheckHandler) Handle(t worker.Task) {
 	regionId := region.Id
 	log.Debugf("executing split check worker.Task: [regionId: %d, startKey: %s, endKey: %s]", regionId,
 		hex.EncodeToString(region.StartKey), hex.EncodeToString(region.EndKey))
-	key := r.splitCheck(region.StartKey, region.EndKey)
+	key := r.splitCheck(regionId, region.StartKey, region.EndKey)
 	if key != nil {
 		_, userKey, err := codec.DecodeBytes(key)
 		if err == nil {
@@ -66,16 +66,22 @@ func (r *splitCheckHandler) Handle(t worker.Task) {
 }
 
 /// SplitCheck gets the split keys by scanning the range.
-func (r *splitCheckHandler) splitCheck(startKey, endKey []byte) []byte {
+func (r *splitCheckHandler) splitCheck(regionID uint64, startKey, endKey []byte) []byte {
 	txn := r.engine.NewTransaction(false)
 	defer txn.Discard()
 
+	r.checker.reset()
 	it := engine_util.NewCFIterator(engine_util.CfDefault, txn)
 	defer it.Close()
 	for it.Seek(startKey); it.Valid(); it.Next() {
 		item := it.Item()
 		key := item.Key()
 		if engine_util.ExceedEndKey(key, endKey) {
+			// update region size
+			r.router.Send(regionID, message.Msg{
+				Type: message.MsgTypeRegionApproximateSize,
+				Data: r.checker.currentSize,
+			})
 			break
 		}
 		if r.checker.onKv(key, item) {
@@ -86,8 +92,9 @@ func (r *splitCheckHandler) splitCheck(startKey, endKey []byte) []byte {
 }
 
 type sizeSplitChecker struct {
-	maxSize     uint64
-	splitSize   uint64
+	maxSize   uint64
+	splitSize uint64
+
 	currentSize uint64
 	splitKey    []byte
 }
@@ -97,6 +104,11 @@ func newSizeSplitChecker(maxSize, splitSize uint64) *sizeSplitChecker {
 		maxSize:   maxSize,
 		splitSize: splitSize,
 	}
+}
+
+func (checker *sizeSplitChecker) reset() {
+	checker.currentSize = 0
+	checker.splitKey = nil
 }
 
 func (checker *sizeSplitChecker) onKv(key []byte, item engine_util.DBItem) bool {
@@ -114,7 +126,5 @@ func (checker *sizeSplitChecker) getSplitKey() []byte {
 	if checker.currentSize < checker.maxSize {
 		checker.splitKey = nil
 	}
-	key := checker.splitKey
-	checker.splitKey = nil
-	return key
+	return checker.splitKey
 }

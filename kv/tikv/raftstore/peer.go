@@ -2,7 +2,6 @@ package raftstore
 
 import (
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/coocood/badger"
@@ -41,43 +40,6 @@ func NotifyReqRegionRemoved(regionId uint64, cb *message.Callback) {
 	cb.Done(resp)
 }
 
-const (
-	ProposalContext_SyncLog ProposalContext = 1
-	ProposalContext_Split   ProposalContext = 1 << 1
-)
-
-type ProposalContext byte
-
-func (c ProposalContext) ToBytes() []byte {
-	return []byte{byte(c)}
-}
-
-func NewProposalContextFromBytes(ctx []byte) *ProposalContext {
-	var res ProposalContext
-	l := len(ctx)
-	if l == 0 {
-		return nil
-	} else if l == 1 {
-		res = ProposalContext(ctx[0])
-	} else {
-		panic(fmt.Sprintf("Invalid ProposalContext %v", ctx))
-	}
-	return &res
-}
-
-func (c *ProposalContext) contains(flag ProposalContext) bool {
-	return byte(*c)&byte(flag) != 0
-}
-
-func (c *ProposalContext) insert(flag ProposalContext) {
-	*c |= flag
-}
-
-type PeerStat struct {
-	WrittenBytes uint64
-	WrittenKeys  uint64
-}
-
 type DestroyPeerJob struct {
 	Initialized bool
 	AsyncRemove bool
@@ -111,8 +73,6 @@ type Peer struct {
 	// Index of last scheduled committed raft log.
 	LastApplyingIdx  uint64
 	LastCompactedIdx uint64
-	// The index of the latest committed split command.
-	lastCommittedSplitIdx uint64
 	// Approximate size of logs that is applied but not compacted yet.
 	RaftLogSizeHint uint64
 
@@ -445,10 +405,6 @@ func (p *Peer) ReadyToHandlePendingSnap() bool {
 	return p.LastApplyingIdx == p.Store().AppliedIndex()
 }
 
-func (p *Peer) isSplitting() bool {
-	return p.lastCommittedSplitIdx > p.Store().AppliedIndex()
-}
-
 func (p *Peer) TakeApplyProposals() *regionProposal {
 	if len(p.applyProposals) == 0 {
 		return nil
@@ -615,26 +571,9 @@ func (p *Peer) HandleRaftReadyApply(kv *badger.DB, applyMsgs *applyMsgs, ready *
 	} else {
 		committedEntries := ready.CommittedEntries
 		ready.CommittedEntries = nil
-		// leader needs to update lease and last commited split index.
-		splitToBeUpdated := p.IsLeader()
 		for _, entry := range committedEntries {
 			// raft meta is very small, can be ignored.
 			p.RaftLogSizeHint += uint64(len(entry.Data))
-
-			// We care about split commands that are committed in the current term.
-			if entry.Term == p.Term() && (splitToBeUpdated) {
-				//ctx := NewProposalContextFromBytes(entry.Context)
-				proposalCtx := NewProposalContextFromBytes([]byte{0})
-				if splitToBeUpdated && proposalCtx.contains(ProposalContext_Split) {
-					// We dont need to suspect its lease because peers of new region that
-					// in other store do not start election before theirs election timeout
-					// which is longer than the max leader lease.
-					// It's safe to read local within its current lease, however, it's not
-					// safe to renew its lease.
-					p.lastCommittedSplitIdx = entry.Index
-					splitToBeUpdated = false
-				}
-			}
 		}
 
 		l := len(committedEntries)
@@ -833,55 +772,14 @@ func (p *Peer) readyToTransferLeader(cfg *config.Config, peer *metapb.Peer) bool
 	return lastIndex <= status.Progress[peerId].Match+cfg.LeaderTransferMaxLogLag
 }
 
-func (p *Peer) GetMinProgress() uint64 {
-	var minMatch uint64 = math.MaxUint64
-	hasProgress := false
-	for _, pr := range p.RaftGroup.Status().Progress {
-		hasProgress = true
-		if pr.Match < minMatch {
-			minMatch = pr.Match
-		}
-	}
-	if !hasProgress {
-		return 0
-	}
-	return minMatch
-}
-
-func (p *Peer) PrePropose(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest) (*ProposalContext, error) {
-	ctx := new(ProposalContext)
-
-	if getSyncLogFromRequest(req) {
-		ctx.insert(ProposalContext_SyncLog)
-	}
-
-	if req.AdminRequest == nil {
-		return ctx, nil
-	}
-
-	switch req.AdminRequest.GetCmdType() {
-	case raft_cmdpb.AdminCmdType_BatchSplit:
-		ctx.insert(ProposalContext_Split)
-	default:
-	}
-
-	return ctx, nil
-}
-
 func (p *Peer) ProposeNormal(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest) (uint64, error) {
-	// TODO: validate request for unexpected changes.
-	ctx, err := p.PrePropose(cfg, req)
-	if err != nil {
-		log.Warnf("%v skip proposal: %v", p.Tag, err)
-		return 0, err
-	}
 	data, err := req.Marshal()
 	if err != nil {
 		return 0, err
 	}
 
 	proposeIndex := p.nextProposalIndex()
-	err = p.RaftGroup.Propose(ctx.ToBytes(), data)
+	err = p.RaftGroup.Propose(nil, data)
 	if err != nil {
 		return 0, err
 	}
@@ -944,8 +842,7 @@ func (p *Peer) ProposeConfChange(cfg *config.Config, req *raft_cmdpb.RaftCmdRequ
 	log.Infof("%v propose conf change %v peer %v", p.Tag, cc.ChangeType, cc.NodeId)
 
 	proposeIndex := p.nextProposalIndex()
-	var proposalCtx ProposalContext = ProposalContext_SyncLog
-	if err = p.RaftGroup.ProposeConfChange(proposalCtx.ToBytes(), cc); err != nil {
+	if err = p.RaftGroup.ProposeConfChange(nil, cc); err != nil {
 		return 0, err
 	}
 	if p.nextProposalIndex() == proposeIndex {
@@ -988,7 +885,7 @@ func (p *Peer) inspect(req *raft_cmdpb.RaftCmdRequest) (RequestPolicy, error) {
 		}
 
 		if hasRead && hasWrite {
-			return RequestPolicy_Invalid, fmt.Errorf("read and write can't be mixed in one batch.")
+			return RequestPolicy_Invalid, fmt.Errorf("read and write can't be mixed in one request.")
 		}
 	}
 	return RequestPolicy_ProposeNormal, nil
@@ -999,19 +896,6 @@ func getTransferLeaderCmd(req *raft_cmdpb.RaftCmdRequest) *raft_cmdpb.TransferLe
 		return nil
 	}
 	return req.AdminRequest.TransferLeader
-}
-
-func getSyncLogFromRequest(req *raft_cmdpb.RaftCmdRequest) bool {
-	if req.AdminRequest != nil {
-		switch req.AdminRequest.GetCmdType() {
-		case raft_cmdpb.AdminCmdType_ChangePeer,
-			raft_cmdpb.AdminCmdType_BatchSplit:
-			return true
-		default:
-			return false
-		}
-	}
-	return req.Header.GetSyncLog()
 }
 
 func makeTransferLeaderResponse() *raft_cmdpb.RaftCmdResponse {

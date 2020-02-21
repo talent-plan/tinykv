@@ -13,7 +13,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
@@ -47,7 +46,7 @@ func NewNode(system *RaftBatchSystem, store *metapb.Store, cfg *config.Config, p
 	}
 }
 
-func (n *Node) Start(ctx context.Context, engines *engine_util.Engines, trans Transport, snapMgr *snap.SnapManager, pdWorker *worker.Worker, router *RaftstoreRouter) error {
+func (n *Node) Start(ctx context.Context, engines *engine_util.Engines, trans Transport, snapMgr *snap.SnapManager, router *RaftstoreRouter) error {
 	storeID, err := n.checkStore(engines)
 	if err != nil {
 		return err
@@ -77,7 +76,7 @@ func (n *Node) Start(ctx context.Context, engines *engine_util.Engines, trans Tr
 	if err != nil {
 		return err
 	}
-	if err = n.startNode(engines, trans, snapMgr, pdWorker); err != nil {
+	if err = n.startNode(engines, trans, snapMgr); err != nil {
 		return err
 	}
 
@@ -206,9 +205,9 @@ func (n *Node) BootstrapCluster(ctx context.Context, engines *engine_util.Engine
 	return false, errors.New("bootstrap cluster failed")
 }
 
-func (n *Node) startNode(engines *engine_util.Engines, trans Transport, snapMgr *snap.SnapManager, pdWorker *worker.Worker) error {
+func (n *Node) startNode(engines *engine_util.Engines, trans Transport, snapMgr *snap.SnapManager) error {
 	log.Infof("start raft store node, storeID: %d", n.store.GetId())
-	return n.system.start(n.store, n.cfg, engines, trans, n.pdClient, snapMgr, pdWorker)
+	return n.system.start(n.store, n.cfg, engines, trans, n.pdClient, snapMgr)
 }
 
 func (n *Node) stopNode(storeID uint64) {

@@ -35,17 +35,7 @@ message EpochNotMatch {
     repeated metapb.Region current_regions = 1;
 }
 
-message ServerIsBusy {
-    string reason = 1;
-    uint64 backoff_ms = 2;
-}
-
 message StaleCommand {
-}
-
-message RaftEntryTooLarge {
-    uint64 region_id = 1;
-    uint64 entry_size = 2;
 }
 
 message Error {
@@ -56,8 +46,6 @@ message Error {
     RegionNotFound region_not_found = 3;
     KeyNotInRegion key_not_in_region = 4;
     EpochNotMatch epoch_not_match = 5;
-    ServerIsBusy server_is_busy = 6;
     StaleCommand stale_command = 7;
     StoreNotMatch store_not_match = 8;
-    RaftEntryTooLarge raft_entry_too_large = 9;
 }

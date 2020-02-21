@@ -59,7 +59,6 @@ func BootstrapStore(engines *engine_util.Engines, clusterID, storeID uint64) err
 	if err != nil {
 		return err
 	}
-	engines.SyncKVWAL()
 	return nil
 }
 
@@ -97,17 +96,13 @@ func PrepareBootstrapCluster(engines *engine_util.Engines, region *metapb.Region
 	if err != nil {
 		return err
 	}
-	err = engines.SyncKVWAL()
-	if err != nil {
-		return err
-	}
 	raftWB := new(engine_util.WriteBatch)
 	writeInitialRaftState(raftWB, region.Id)
 	err = engines.WriteRaft(raftWB)
 	if err != nil {
 		return err
 	}
-	return engines.SyncRaftWAL()
+	return nil
 }
 
 func writeInitialApplyState(kvWB *engine_util.WriteBatch, regionID uint64) {
@@ -148,13 +143,12 @@ func ClearPrepareBootstrap(engines *engine_util.Engines, regionID uint64) error 
 	if err != nil {
 		return err
 	}
-	return engines.SyncKVWAL()
+	return nil
 }
 
 func ClearPrepareBootstrapState(engines *engine_util.Engines) error {
 	err := engines.Kv.Update(func(txn *badger.Txn) error {
 		return txn.Delete(meta.PrepareBootstrapKey)
 	})
-	engines.SyncKVWAL()
 	return errors.WithStack(err)
 }
