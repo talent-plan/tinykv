@@ -34,13 +34,6 @@ func TestRaftstoreErrToPbError(t *testing.T) {
 	require.NotNil(t, pbErr.EpochNotMatch)
 	assert.Equal(t, pbErr.EpochNotMatch.CurrentRegions, []*metapb.Region{region})
 
-	backOffMs := uint64(10)
-	serverIsBusy := &ErrServerIsBusy{Reason: "tikv is busy", BackoffMs: backOffMs}
-	pbErr = RaftstoreErrToPbError(serverIsBusy)
-	require.NotNil(t, pbErr.ServerIsBusy)
-	assert.Equal(t, pbErr.ServerIsBusy.Reason, "tikv is busy")
-	assert.Equal(t, pbErr.ServerIsBusy.BackoffMs, backOffMs)
-
 	staleCommand := &ErrStaleCommand{}
 	pbErr = RaftstoreErrToPbError(staleCommand)
 	require.NotNil(t, pbErr.StaleCommand)
@@ -51,11 +44,4 @@ func TestRaftstoreErrToPbError(t *testing.T) {
 	require.NotNil(t, pbErr.StoreNotMatch)
 	assert.Equal(t, pbErr.StoreNotMatch.RequestStoreId, requestStoreId)
 	assert.Equal(t, pbErr.StoreNotMatch.ActualStoreId, actualStoreId)
-
-	entrySize := uint64(10000000)
-	raftEntryTooLarge := &ErrRaftEntryTooLarge{RegionId: regionId, EntrySize: entrySize}
-	pbErr = RaftstoreErrToPbError(raftEntryTooLarge)
-	require.NotNil(t, pbErr.RaftEntryTooLarge)
-	assert.Equal(t, pbErr.RaftEntryTooLarge.RegionId, regionId)
-	assert.Equal(t, pbErr.RaftEntryTooLarge.EntrySize, entrySize)
 }

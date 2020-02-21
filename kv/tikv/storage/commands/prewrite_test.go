@@ -23,6 +23,7 @@ func TestEmptyPrewrite(t *testing.T) {
 func TestSinglePrewrite(t *testing.T) {
 	builder := newBuilder(t)
 	cmd := NewPrewrite(builder.prewriteRequest(mutation(3, []byte{42}, kvrpcpb.Op_Put)))
+	cmd.request.LockTtl = 1000
 	resp := builder.runOneCmd(&cmd).(*kvrpcpb.PrewriteResponse)
 
 	assert.Empty(t, resp.Errors)
@@ -30,7 +31,7 @@ func TestSinglePrewrite(t *testing.T) {
 	builder.assertLens(1, 1, 0)
 	builder.assert([]kv{
 		{cf: engine_util.CfDefault, key: []byte{3}, value: []byte{42}},
-		{cf: engine_util.CfLock, key: []byte{3}, value: []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, builder.ts()}},
+		{cf: engine_util.CfLock, key: []byte{3}, value: []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, builder.ts(), 0, 0, 0, 0, 0, 0, 3, 232}},
 	})
 }
 
@@ -48,7 +49,7 @@ func TestPrewriteLocked(t *testing.T) {
 	builder.assertLens(1, 1, 0)
 	builder.assert([]kv{
 		{cf: engine_util.CfDefault, key: []byte{3}, ts: 100, value: []byte{42}},
-		{cf: engine_util.CfLock, key: []byte{3}, value: []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 100}},
+		{cf: engine_util.CfLock, key: []byte{3}, value: []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0}},
 	})
 }
 
@@ -90,7 +91,7 @@ func TestPrewriteWrittenNoConflict(t *testing.T) {
 	builder.assert([]kv{
 		{cf: engine_util.CfDefault, key: []byte{3}, value: []byte{5}, ts: 80},
 		{cf: engine_util.CfDefault, key: []byte{3}, value: []byte{42}},
-		{cf: engine_util.CfLock, key: []byte{3}, value: []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, builder.ts()}},
+		{cf: engine_util.CfLock, key: []byte{3}, value: []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, builder.ts(), 0, 0, 0, 0, 0, 0, 0, 0}},
 	})
 }
 
@@ -109,9 +110,9 @@ func TestMultiplePrewrites(t *testing.T) {
 
 	builder.assert([]kv{
 		{cf: engine_util.CfDefault, key: []byte{3}, ts: 100, value: []byte{42}},
-		{cf: engine_util.CfLock, key: []byte{3}, value: []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 100}},
+		{cf: engine_util.CfLock, key: []byte{3}, value: []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0}},
 		{cf: engine_util.CfDefault, key: []byte{4}, ts: 101, value: []byte{53}},
-		{cf: engine_util.CfLock, key: []byte{4}, value: []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 101}},
+		{cf: engine_util.CfLock, key: []byte{4}, value: []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 101, 0, 0, 0, 0, 0, 0, 0, 0}},
 	})
 }
 
@@ -127,7 +128,7 @@ func TestPrewriteOverwrite(t *testing.T) {
 
 	builder.assert([]kv{
 		{cf: engine_util.CfDefault, key: []byte{3}, value: []byte{45}},
-		{cf: engine_util.CfLock, key: []byte{3}, value: []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, builder.ts()}},
+		{cf: engine_util.CfLock, key: []byte{3}, value: []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, builder.ts(), 0, 0, 0, 0, 0, 0, 0, 0}},
 	})
 }
 

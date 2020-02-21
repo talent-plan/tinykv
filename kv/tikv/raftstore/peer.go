@@ -321,14 +321,13 @@ func (p *Peer) HasPendingSnapshot() bool {
 	return p.RaftGroup.GetSnap() != nil
 }
 
-func (p *Peer) Send(trans Transport, msgs []eraftpb.Message) error {
+func (p *Peer) Send(trans Transport, msgs []eraftpb.Message) {
 	for _, msg := range msgs {
 		err := p.sendRaftMessage(msg, trans)
 		if err != nil {
-			return err
+			// log.Warnf("%v send message err: %v", p.Tag, err)
 		}
 	}
-	return nil
 }
 
 /// Steps the raft message.
@@ -473,9 +472,7 @@ func (p *Peer) HandleRaftReadyAppend(trans Transport, applyMsgs *applyMsgs, kvWB
 	if len(p.pendingMessages) > 0 {
 		messages := p.pendingMessages
 		p.pendingMessages = nil
-		if err := p.Send(trans, messages); err != nil {
-			log.Warnf("%v clear snapshot pengding messages err: %v", p.Tag, err)
-		}
+		p.Send(trans, messages)
 	}
 
 	if p.HasPendingSnapshot() && !p.ReadyToHandlePendingSnap() {
@@ -500,9 +497,7 @@ func (p *Peer) HandleRaftReadyAppend(trans Transport, applyMsgs *applyMsgs, kvWB
 	// The leader can write to disk and replicate to the followers concurrently
 	// For more details, check raft thesis 10.2.1.
 	if p.IsLeader() {
-		if err := p.Send(trans, ready.Messages); err != nil {
-			log.Warnf("%v leader send message err: %v", p.Tag, err)
-		}
+		p.Send(trans, ready.Messages)
 		ready.Messages = ready.Messages[:0]
 	}
 
@@ -526,9 +521,7 @@ func (p *Peer) PostRaftReadyPersistent(trans Transport, applyMsgs *applyMsgs, re
 			p.pendingMessages = ready.Messages
 			ready.Messages = nil
 		} else {
-			if err := p.Send(trans, ready.Messages); err != nil {
-				log.Warnf("%v follower send messages err: %v", p.Tag, err)
-			}
+			p.Send(trans, ready.Messages)
 		}
 	}
 
@@ -886,11 +879,6 @@ func (p *Peer) ProposeNormal(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest)
 		return 0, err
 	}
 
-	if uint64(len(data)) > cfg.RaftEntryMaxSize {
-		log.Errorf("entry is too large, entry size %v", len(data))
-		return 0, &util.ErrRaftEntryTooLarge{RegionId: p.regionId, EntrySize: uint64(len(data))}
-	}
-
 	proposeIndex := p.nextProposalIndex()
 	err = p.RaftGroup.Propose(ctx.ToBytes(), data)
 	if err != nil {
@@ -1029,7 +1017,7 @@ func makeTransferLeaderResponse() *raft_cmdpb.RaftCmdResponse {
 	adminResp := &raft_cmdpb.AdminResponse{}
 	adminResp.CmdType = raft_cmdpb.AdminCmdType_TransferLeader
 	adminResp.TransferLeader = &raft_cmdpb.TransferLeaderResponse{}
-	resp := &raft_cmdpb.RaftCmdResponse{}
+	resp := &raft_cmdpb.RaftCmdResponse{Header: &raft_cmdpb.RaftResponseHeader{}}
 	resp.AdminResponse = adminResp
 	return resp
 }

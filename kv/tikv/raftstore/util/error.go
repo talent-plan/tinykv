@@ -43,15 +43,6 @@ func (e *ErrEpochNotMatch) Error() string {
 	return fmt.Sprintf("epoch not match, error msg %v, regions %v", e.Message, e.Regions)
 }
 
-type ErrServerIsBusy struct {
-	Reason    string
-	BackoffMs uint64
-}
-
-func (e *ErrServerIsBusy) Error() string {
-	return fmt.Sprintf("server is busy, reason %v, backoff ms %v", e.Reason, e.BackoffMs)
-}
-
 type ErrStaleCommand struct{}
 
 func (e *ErrStaleCommand) Error() string {
@@ -67,15 +58,6 @@ func (e *ErrStoreNotMatch) Error() string {
 	return fmt.Sprintf("store not match, request store id is %v, but actual store id is %v", e.RequestStoreId, e.ActualStoreId)
 }
 
-type ErrRaftEntryTooLarge struct {
-	RegionId  uint64
-	EntrySize uint64
-}
-
-func (e *ErrRaftEntryTooLarge) Error() string {
-	return fmt.Sprintf("raft entry too large, region_id: %v, len: %v", e.RegionId, e.EntrySize)
-}
-
 func RaftstoreErrToPbError(e error) *errorpb.Error {
 	ret := new(errorpb.Error)
 	switch err := errors.Cause(e).(type) {
@@ -88,14 +70,10 @@ func RaftstoreErrToPbError(e error) *errorpb.Error {
 			StartKey: err.Region.StartKey, EndKey: err.Region.EndKey}
 	case *ErrEpochNotMatch:
 		ret.EpochNotMatch = &errorpb.EpochNotMatch{CurrentRegions: err.Regions}
-	case *ErrServerIsBusy:
-		ret.ServerIsBusy = &errorpb.ServerIsBusy{Reason: err.Reason, BackoffMs: err.BackoffMs}
 	case *ErrStaleCommand:
 		ret.StaleCommand = &errorpb.StaleCommand{}
 	case *ErrStoreNotMatch:
 		ret.StoreNotMatch = &errorpb.StoreNotMatch{RequestStoreId: err.RequestStoreId, ActualStoreId: err.ActualStoreId}
-	case *ErrRaftEntryTooLarge:
-		ret.RaftEntryTooLarge = &errorpb.RaftEntryTooLarge{RegionId: err.RegionId, EntrySize: err.EntrySize}
 	default:
 		ret.Message = e.Error()
 	}
