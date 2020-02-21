@@ -1410,7 +1410,7 @@ func TestRecvMessageType_MsgBeat(t *testing.T) {
 
 	for i, tt := range tests {
 		sm := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
-		sm.RaftLog = &RaftLog{storage: &MemoryStorage{ents: []pb.Entry{{}, {Index: 1, Term: 0}, {Index: 2, Term: 1}}}}
+		sm.RaftLog = newLog(&MemoryStorage{ents: []pb.Entry{{}, {Index: 1, Term: 0}, {Index: 2, Term: 1}}}, raftLogger)
 		sm.Term = 1
 		sm.State = tt.state
 		switch tt.state {

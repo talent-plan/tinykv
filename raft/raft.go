@@ -17,7 +17,6 @@ package raft
 import (
 	"errors"
 	"fmt"
-	"math"
 	"math/rand"
 	"sort"
 	"strings"
@@ -29,7 +28,6 @@ import (
 
 // None is a placeholder node ID used when there is no leader.
 const None uint64 = 0
-const noLimit = math.MaxUint64
 
 // Possible values for StateType.
 const (

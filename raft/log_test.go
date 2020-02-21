@@ -635,10 +635,23 @@ func TestLogRestore(t *testing.T) {
 	storage.ApplySnapshot(pb.Snapshot{Metadata: snap})
 	raftLog := newLog(storage, raftLogger)
 
+	l, err := raftLog.slice(raftLog.firstIndex(), raftLog.LastIndex()+1)
+	if err != nil {
+		t.Errorf("unexpect err %d", err)
+	}
+	if len(l) != 0 {
+		t.Errorf("len = %d, want 0", len(l))
+	}
+	if len(raftLog.unstableEntries()) != 0 {
+		t.Errorf("len = %d, want 0", len(raftLog.unstableEntries()))
+	}
+	if len(raftLog.nextEnts()) != 0 {
+		t.Errorf("len = %d, want 0", len(raftLog.nextEnts()))
+	}
 	if len(raftLog.allEntries()) != 0 {
 		t.Errorf("len = %d, want 0", len(raftLog.allEntries()))
 	}
-	if raftLog.firstIndex() != index+1 {
+	if raftLog.firstIndex() != index {
 		t.Errorf("firstIndex = %d, want %d", raftLog.firstIndex(), index+1)
 	}
 	if raftLog.committed != index {
@@ -821,20 +834,18 @@ func TestSlice(t *testing.T) {
 	}
 
 	tests := []struct {
-		from  uint64
-		to    uint64
-		limit uint64
+		from uint64
+		to   uint64
 
 		w      []pb.Entry
 		wpanic bool
 	}{
-		// test no limit
-		{offset - 1, offset + 1, noLimit, nil, false},
-		{offset, offset + 1, noLimit, nil, false},
-		{half - 1, half + 1, noLimit, []pb.Entry{{Index: half - 1, Term: half - 1}, {Index: half, Term: half}}, false},
-		{half, half + 1, noLimit, []pb.Entry{{Index: half, Term: half}}, false},
-		{last - 1, last, noLimit, []pb.Entry{{Index: last - 1, Term: last - 1}}, false},
-		{last, last + 1, noLimit, nil, true},
+		{offset - 1, offset + 1, nil, false},
+		{offset, offset + 1, nil, false},
+		{half - 1, half + 1, []pb.Entry{{Index: half - 1, Term: half - 1}, {Index: half, Term: half}}, false},
+		{half, half + 1, []pb.Entry{{Index: half, Term: half}}, false},
+		{last - 1, last, []pb.Entry{{Index: last - 1, Term: last - 1}}, false},
+		{last, last + 1, nil, true},
 	}
 
 	for j, tt := range tests {

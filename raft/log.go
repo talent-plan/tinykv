@@ -21,7 +21,7 @@ import (
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
-// RaftLog mange the log entries, its struct look like:
+// RaftLog manage the log entries, its struct look like:
 //
 //  truntated.....first.....applied....committed....stabled.....last
 //  --------|     |------------------------------------------------|
@@ -41,12 +41,15 @@ type RaftLog struct {
 
 	// the incoming unstable snapshot, if any.
 	pending_snapshot *pb.Snapshot
-	// all entries that have not yet been written to storage.
-	entries   []pb.Entry
-	offset    uint64 // truntated index + 1
+	// all entries that have not yet compact.
+	entries []pb.Entry
+	// offset is used to manipulate entries slice, logic index - offset = slice index
+	offset uint64
+	// snapIndex and snapTerm are the most recent snapshot's index and term
 	snapTerm  uint64
 	snapIndex uint64
-	stabled   uint64
+	// log entries with index <= stabled are stabled to storage
+	stabled uint64
 
 	logger Logger
 }
@@ -80,12 +83,9 @@ func newLog(storage Storage, logger Logger) *RaftLog {
 		panic(err)
 	}
 	log.entries = entries
-	// offset is used to manipulate entries slice, logic index - offset = slice index
 	log.offset = firstIndex
-	// snapIndex and snapTerm are the most recent snapshot's index and term
 	log.snapIndex = firstIndex - 1
 	log.snapTerm = snapTerm
-	// log entries with index <= stabled are stabled to storage
 	log.stabled = lastIndex
 	// Initialize our committed and applied pointers to the time of the last compaction.
 	log.committed = firstIndex - 1
@@ -236,13 +236,9 @@ func (l *RaftLog) firstIndex() uint64 {
 		return l.entries[0].Index
 	}
 	if l.pending_snapshot != nil {
-		return l.pending_snapshot.Metadata.Index + 1
+		return l.pending_snapshot.Metadata.Index
 	}
-	i, err := l.storage.FirstIndex()
-	if err != nil {
-		panic(err)
-	}
-	return i
+	return l.snapIndex
 }
 
 func (l *RaftLog) LastIndex() uint64 {
@@ -252,11 +248,7 @@ func (l *RaftLog) LastIndex() uint64 {
 	if l.pending_snapshot != nil {
 		return l.pending_snapshot.Metadata.Index
 	}
-	i, err := l.storage.LastIndex()
-	if err != nil {
-		panic(err)
-	}
-	return i
+	return l.snapIndex
 }
 
 func (l *RaftLog) commitTo(tocommit uint64) {
@@ -368,7 +360,7 @@ func (l *RaftLog) restore(s pb.Snapshot) {
 
 // slice returns a slice of log entries from lo through hi-1, inclusive.
 func (l *RaftLog) slice(lo, hi uint64) ([]pb.Entry, error) {
-	if err := l.mustCheckOutOfBounds(lo, hi); err != nil {
+	if err := l.mustCheckOutOfBounds(lo, hi); err != nil || len(l.entries) == 0 {
 		return nil, err
 	}
 	return l.entries[lo-l.offset : hi-l.offset], nil
@@ -384,7 +376,7 @@ func (l *RaftLog) mustCheckOutOfBounds(lo, hi uint64) error {
 		return ErrCompacted
 	}
 
-	if lo < fi || hi > l.LastIndex()+1 {
+	if hi > l.LastIndex()+1 {
 		l.logger.Panicf("slice[%d,%d) out of bound [%d,%d]", lo, hi, fi, l.LastIndex())
 	}
 	return nil
