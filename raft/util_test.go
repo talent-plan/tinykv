@@ -15,8 +15,6 @@
 package raft
 
 import (
-	"math"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -25,31 +23,6 @@ import (
 
 var testFormatter EntryFormatter = func(data []byte) string {
 	return strings.ToUpper(string(data))
-}
-
-func TestLimitSize(t *testing.T) {
-	ents := []pb.Entry{{Index: 4, Term: 4}, {Index: 5, Term: 5}, {Index: 6, Term: 6}}
-	tests := []struct {
-		maxsize  uint64
-		wentries []pb.Entry
-	}{
-		{math.MaxUint64, []pb.Entry{{Index: 4, Term: 4}, {Index: 5, Term: 5}, {Index: 6, Term: 6}}},
-		// even if maxsize is zero, the first entry should be returned
-		{0, []pb.Entry{{Index: 4, Term: 4}}},
-		// limit to 2
-		{uint64(ents[0].Size() + ents[1].Size()), []pb.Entry{{Index: 4, Term: 4}, {Index: 5, Term: 5}}},
-		// limit to 2
-		{uint64(ents[0].Size() + ents[1].Size() + ents[2].Size()/2), []pb.Entry{{Index: 4, Term: 4}, {Index: 5, Term: 5}}},
-		{uint64(ents[0].Size() + ents[1].Size() + ents[2].Size() - 1), []pb.Entry{{Index: 4, Term: 4}, {Index: 5, Term: 5}}},
-		// all
-		{uint64(ents[0].Size() + ents[1].Size() + ents[2].Size()), []pb.Entry{{Index: 4, Term: 4}, {Index: 5, Term: 5}, {Index: 6, Term: 6}}},
-	}
-
-	for i, tt := range tests {
-		if !reflect.DeepEqual(limitSize(ents, tt.maxsize), tt.wentries) {
-			t.Errorf("#%d: entries = %v, want %v", i, limitSize(ents, tt.maxsize), tt.wentries)
-		}
-	}
 }
 
 func TestIsLocalMsg(t *testing.T) {

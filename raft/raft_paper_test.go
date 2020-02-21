@@ -669,7 +669,7 @@ func TestFollowerAppendEntries(t *testing.T) {
 			0, 0,
 			[]*pb.Entry{{Term: 1, Index: 1}},
 			[]*pb.Entry{{Term: 1, Index: 1}, {Term: 2, Index: 2}},
-			nil,
+			[]*pb.Entry{},
 		},
 		{
 			0, 0,

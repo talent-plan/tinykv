@@ -17,7 +17,6 @@ package raft
 import (
 	"errors"
 	"fmt"
-	"math"
 	"math/rand"
 	"sort"
 	"strings"
@@ -29,7 +28,6 @@ import (
 
 // None is a placeholder node ID used when there is no leader.
 const None uint64 = 0
-const noLimit = math.MaxUint64
 
 // Possible values for StateType.
 const (
@@ -121,10 +119,6 @@ type Config struct {
 	// applied entries. This is a very application dependent configuration.
 	Applied uint64
 
-	// MaxEntsSize limits the maximum number aggregate byte size of the entries
-	// returned from RaftLog.
-	MaxEntsSize uint64
-
 	// Logger is the logger used for raft log. For multinode which can host
 	// multiple raft group, each raft group can have its own logger
 	Logger Logger
@@ -145,10 +139,6 @@ func (c *Config) validate() error {
 
 	if c.Storage == nil {
 		return errors.New("storage cannot be nil")
-	}
-
-	if c.MaxEntsSize == 0 {
-		c.MaxEntsSize = noLimit
 	}
 
 	if c.Logger == nil {
@@ -229,17 +219,14 @@ func newRaft(c *Config) *Raft {
 	if err := c.validate(); err != nil {
 		panic(err.Error())
 	}
-	raftlog := newLogWithSize(c.Storage, c.Logger, c.MaxEntsSize)
+	raftlog := newLog(c.Storage, c.Logger)
 	hs, cs, err := c.Storage.InitialState()
 	if err != nil {
-		panic(err) // TODO(bdarnell)
+		panic(err)
 	}
 	peers := c.peers
 	if len(cs.Nodes) > 0 {
 		if len(peers) > 0 {
-			// TODO(bdarnell): the peers argument is always nil except in
-			// tests; the argument should be removed and these tests should be
-			// updated to specify their nodes through a snapshot.
 			panic("cannot specify both newRaft (peers) and ConfState.(Nodes)")
 		}
 		peers = cs.Nodes
@@ -276,7 +263,7 @@ func newRaft(c *Config) *Raft {
 }
 
 func (r *Raft) GetSnap() *pb.Snapshot {
-	return r.RaftLog.unstable.snapshot
+	return r.RaftLog.pending_snapshot
 }
 
 func (r *Raft) hasLeader() bool { return r.Lead != None }
@@ -364,7 +351,7 @@ func (r *Raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
 				r.logger.Debugf("%x failed to send snapshot to %x because snapshot is temporarily unavailable", r.id, to)
 				return false
 			}
-			panic(err) // TODO(bdarnell)
+			panic(err)
 		}
 		if IsEmptySnap(&snapshot) {
 			panic("need non-empty snapshot")
@@ -630,7 +617,7 @@ func (r *Raft) Step(m pb.Message) error {
 	switch m.MsgType {
 	case pb.MessageType_MsgHup:
 		if r.State != StateLeader {
-			ents, err := r.RaftLog.slice(r.RaftLog.applied+1, r.RaftLog.committed+1, noLimit)
+			ents, err := r.RaftLog.slice(r.RaftLog.applied+1, r.RaftLog.committed+1)
 			if err != nil {
 				r.logger.Panicf("unexpected error getting unapplied entries (%v)", err)
 			}
@@ -866,7 +853,7 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 		r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, Index: mlastIndex})
 	} else {
 		r.logger.Debugf("%x [logterm: %d, index: %d] rejected MessageType_MsgAppend [logterm: %d, index: %d] from %x",
-			r.id, r.RaftLog.zeroTermOnErrCompacted(r.RaftLog.Term(m.Index)), m.Index, m.LogTerm, m.Index, m.From)
+			r.id, r.RaftLog.zeroTermOnRangeErr(r.RaftLog.Term(m.Index)), m.Index, m.LogTerm, m.Index, m.From)
 		r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, Index: m.Index, Reject: true, RejectHint: r.RaftLog.LastIndex()})
 	}
 }

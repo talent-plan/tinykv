@@ -3,13 +3,11 @@ package raftstore
 import (
 	"bytes"
 	"fmt"
-	"math"
 	"sync/atomic"
 	"time"
 
 	"github.com/coocood/badger"
 	"github.com/coocood/badger/y"
-	"github.com/cznic/mathutil"
 	"github.com/golang/protobuf/proto"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
@@ -26,9 +24,8 @@ import (
 )
 
 const (
-	MaxSnapRetryCnt    = 5
-	raftLogMultiGetCnt = 8
-	MaxCacheCapacity   = 1024 - 1
+	MaxSnapRetryCnt  = 5
+	MaxCacheCapacity = 1024 - 1
 )
 
 // CompactRaftLog discards all log entries prior to compact_index. We must guarantee
@@ -46,84 +43,6 @@ func CompactRaftLog(tag string, state *rspb.RaftApplyState, compactIndex, compac
 	state.TruncatedState.Index = compactIndex
 	state.TruncatedState.Term = compactTerm
 	return nil
-}
-
-type EntryCache struct {
-	cache []eraftpb.Entry
-}
-
-func (ec *EntryCache) front() eraftpb.Entry {
-	return ec.cache[0]
-}
-
-func (ec *EntryCache) back() eraftpb.Entry {
-	return ec.cache[len(ec.cache)-1]
-}
-
-func (ec *EntryCache) length() int {
-	return len(ec.cache)
-}
-
-func (ec *EntryCache) fetchEntriesTo(begin, end, maxSize uint64, fetchSize *uint64, ents []eraftpb.Entry) []eraftpb.Entry {
-	if begin >= end {
-		return nil
-	}
-	y.Assert(ec.length() > 0)
-	cacheLow := ec.front().Index
-	y.Assert(begin >= cacheLow)
-	cacheStart := int(begin - cacheLow)
-	cacheEnd := int(end - cacheLow)
-	if cacheEnd > ec.length() {
-		cacheEnd = ec.length()
-	}
-	for i := cacheStart; i < cacheEnd; i++ {
-		entry := ec.cache[i]
-		y.AssertTruef(entry.Index == cacheLow+uint64(i), "%d %d %d", entry.Index, cacheLow, i)
-		entrySize := uint64(entry.Size())
-		*fetchSize += uint64(entrySize)
-		if *fetchSize != entrySize && *fetchSize > maxSize {
-			break
-		}
-		ents = append(ents, entry)
-	}
-	return ents
-}
-
-func (ec *EntryCache) append(tag string, entries []eraftpb.Entry) {
-	if len(entries) == 0 {
-		return
-	}
-	if ec.length() > 0 {
-		firstIndex := entries[0].Index
-		cacheLastIndex := ec.back().Index
-		if cacheLastIndex >= firstIndex {
-			if ec.front().Index >= firstIndex {
-				ec.cache = ec.cache[:0]
-			} else {
-				left := ec.length() - int(cacheLastIndex-firstIndex+1)
-				ec.cache = ec.cache[:left]
-			}
-		} else if cacheLastIndex+1 < firstIndex {
-			panic(fmt.Sprintf("%s unexpected hole %d < %d", tag, cacheLastIndex, firstIndex))
-		}
-	}
-	ec.cache = append(ec.cache, entries...)
-	if ec.length() > MaxCacheCapacity {
-		extraSize := ec.length() - MaxCacheCapacity
-		ec.cache = ec.cache[extraSize:]
-	}
-}
-
-func (ec *EntryCache) compactTo(idx uint64) {
-	if ec.length() == 0 {
-		return
-	}
-	firstIdx := ec.front().Index
-	if firstIdx > idx {
-		return
-	}
-	pos := mathutil.Min(int(idx-firstIdx), ec.length())
-	ec.cache = ec.cache[pos:]
 }
 
 type ApplySnapResult struct {
@@ -208,9 +127,6 @@ type PeerStorage struct {
 	regionSched  chan<- worker.Task
 	snapTriedCnt int
 
-	cache *EntryCache
-	stats *CacheQueryStats
-
 	Tag string
 }
 
@@ -241,8 +157,6 @@ func NewPeerStorage(engines *engine_util.Engines, region *metapb.Region, regionS
 		applyState:  *applyState,
 		lastTerm:    lastTerm,
 		regionSched: regionSched,
-		cache:       &EntryCache{},
-		stats:       &CacheQueryStats{},
 	}, nil
 }
 
@@ -269,7 +183,7 @@ func (ps *PeerStorage) IsApplyingSnapshot() bool {
 	return ps.snapState.StateType == snap.SnapState_Applying
 }
 
-func (ps *PeerStorage) Entries(low, high, maxSize uint64) ([]eraftpb.Entry, error) {
+func (ps *PeerStorage) Entries(low, high uint64) ([]eraftpb.Entry, error) {
 	err := ps.checkRange(low, high)
 	if err != nil {
 		return nil, err
@@ -278,34 +192,11 @@ func (ps *PeerStorage) Entries(low, high, maxSize uint64) ([]eraftpb.Entry, erro
 	if low == high {
 		return ents, nil
 	}
-	cacheLow := uint64(math.MaxUint64)
-	if ps.cache.length() > 0 {
-		cacheLow = ps.cache.front().Index
+	ents, _, err = fetchEntriesTo(ps.Engines.Raft, ps.region.Id, low, high, ents)
+	if err != nil {
+		return ents, err
 	}
-	reginID := ps.region.Id
-	if high <= cacheLow {
-		// not overlap
-		ps.stats.miss++
-		ents, _, err = fetchEntriesTo(ps.Engines.Raft, reginID, low, high, maxSize, ents)
-		if err != nil {
-			return ents, err
-		}
-		return ents, nil
-	}
-	var fetchedSize, beginIdx uint64
-	if low < cacheLow {
-		ps.stats.miss++
-		ents, fetchedSize, err = fetchEntriesTo(ps.Engines.Raft, reginID, low, cacheLow, maxSize, ents)
-		if fetchedSize > maxSize {
-			// maxSize exceed.
-			return ents, nil
-		}
-		beginIdx = cacheLow
-	} else {
-		beginIdx = low
-	}
-	ps.stats.hit++
-	return ps.cache.fetchEntriesTo(beginIdx, high, maxSize, &fetchedSize, ents), nil
+	return ents, nil
 }
 
 func (ps *PeerStorage) Term(idx uint64) (uint64, error) {
@@ -319,7 +210,7 @@ func (ps *PeerStorage) Term(idx uint64) (uint64, error) {
 	if ps.truncatedTerm() == ps.lastTerm || idx == ps.raftState.LastIndex {
 		return ps.lastTerm, nil
 	}
-	entries, err := ps.Entries(idx, idx+1, math.MaxUint64)
+	entries, err := ps.Entries(idx, idx+1)
 	if err != nil {
 		return 0, err
 	}
@@ -454,41 +345,11 @@ func (ps *PeerStorage) Append(invokeCtx *InvokeContext, entries []eraftpb.Entry,
 	}
 	invokeCtx.RaftState.LastIndex = lastIndex
 	invokeCtx.lastTerm = lastTerm
-
-	// TODO: if the writebatch is failed to commit, the cache will be wrong.
-	ps.cache.append(ps.Tag, entries)
 	return nil
-}
-
-func (ps *PeerStorage) CompactTo(idx uint64) {
-	ps.cache.compactTo(idx)
-}
-
-func (ps *PeerStorage) MaybeGCCache(replicatedIdx, appliedIdx uint64) {
-	if replicatedIdx == appliedIdx {
-		// The region is inactive, clear the cache immediately.
-		ps.cache.compactTo(appliedIdx + 1)
-	} else {
-		if ps.cache.length() == 0 {
-			return
-		}
-		cacheFirstIdx := ps.cache.front().Index
-		if cacheFirstIdx > replicatedIdx+1 {
-			// Catching up log requires accessing fs already, let's optimize for
-			// the common case.
-			// Maybe gc to second least replicated_idx is better.
-			ps.cache.compactTo(appliedIdx + 1)
-		}
-	}
 }
 
 func (ps *PeerStorage) clearMeta(kvWB, raftWB *engine_util.WriteBatch) error {
 	return ClearMeta(ps.Engines, kvWB, raftWB, ps.region.Id, ps.raftState.LastIndex)
-}
-
-type CacheQueryStats struct {
-	hit  uint64
-	miss uint64
 }
 
 // Delete all data that is not covered by `new_region`.
@@ -518,44 +379,11 @@ func (ps *PeerStorage) clearExtraData(newRegion *metapb.Region) {
 	}
 }
 
-func fetchEntriesTo(engine *badger.DB, regionID, low, high, maxSize uint64, buf []eraftpb.Entry) ([]eraftpb.Entry, uint64, error) {
+func fetchEntriesTo(engine *badger.DB, regionID, low, high uint64, buf []eraftpb.Entry) ([]eraftpb.Entry, uint64, error) {
 	var totalSize uint64
 	nextIndex := low
-	exceededMaxSize := false
 	txn := engine.NewTransaction(false)
 	defer txn.Discard()
-	if high-low <= raftLogMultiGetCnt {
-		// If election happens in inactive regions, they will just try
-		// to fetch one empty log.
-		for i := low; i < high; i++ {
-			key := meta.RaftLogKey(regionID, i)
-			item, err := txn.Get(key)
-			if err == badger.ErrKeyNotFound {
-				return nil, 0, raft.ErrUnavailable
-			} else if err != nil {
-				return nil, 0, err
-			}
-			val, err := item.Value()
-			if err != nil {
-				return nil, 0, err
-			}
-			var entry eraftpb.Entry
-			err = entry.Unmarshal(val)
-			if err != nil {
-				return nil, 0, err
-			}
-			y.Assert(entry.Index == i)
-			totalSize += uint64(len(val))
-
-			if len(buf) == 0 || totalSize <= maxSize {
-				buf = append(buf, entry)
-			}
-			if totalSize > maxSize {
-				break
-			}
-		}
-		return buf, totalSize, nil
-	}
 	startKey := meta.RaftLogKey(regionID, low)
 	endKey := meta.RaftLogKey(regionID, high)
 	iter := txn.NewIterator(badger.DefaultIteratorOptions)
@@ -580,17 +408,10 @@ func fetchEntriesTo(engine *badger.DB, regionID, low, high, maxSize uint64, buf 
 		}
 		nextIndex++
 		totalSize += uint64(len(val))
-		exceededMaxSize = totalSize > maxSize
-		if !exceededMaxSize || len(buf) == 0 {
-			buf = append(buf, entry)
-		}
-		if exceededMaxSize {
-			break
-		}
+		buf = append(buf, entry)
 	}
-	// If we get the correct number of entries, returns,
-	// or the total size almost exceeds max_size, returns.
-	if len(buf) == int(high-low) || exceededMaxSize {
+	// If we get the correct number of entries, returns.
+	if len(buf) == int(high-low) {
 		return buf, totalSize, nil
 	}
 	// Here means we don't fetch enough entries.

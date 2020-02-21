@@ -27,7 +27,6 @@ type Config struct {
 	RaftElectionTimeoutTicks    int
 	RaftMinElectionTimeoutTicks int
 	RaftMaxElectionTimeoutTicks int
-	RaftMaxEntsSize             uint64
 	RaftMaxInflightMsgs         int
 
 	// Interval to gc unnecessary raft log (ms).
@@ -113,7 +112,6 @@ func NewDefaultConfig() *Config {
 		RaftElectionTimeoutTicks:    10,
 		RaftMinElectionTimeoutTicks: 0,
 		RaftMaxElectionTimeoutTicks: 0,
-		RaftMaxEntsSize:             1 * MB,
 		RaftMaxInflightMsgs:         256,
 		RaftLogGCTickInterval:       10 * time.Second,
 		RaftLogGcThreshold:          50,
