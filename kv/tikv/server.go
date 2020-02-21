@@ -96,7 +96,9 @@ func (svr *Server) KvBatchRollback(ctx context.Context, req *kvrpcpb.BatchRollba
 }
 
 func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRequest) (*kvrpcpb.ResolveLockResponse, error) {
-	return nil, nil
+	cmd := commands.NewResolveLock(req)
+	resp := <-svr.scheduler.Run(&cmd)
+	return resolveLockResponse(&resp)
 }
 
 // Raw API.
