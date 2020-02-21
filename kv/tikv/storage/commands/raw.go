@@ -2,6 +2,7 @@ package commands
 
 import (
 	"github.com/coocood/badger"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
@@ -52,6 +53,10 @@ func (rg *RawGet) HandleError(err error) interface{} {
 	return nil
 }
 
+func (rg *RawGet) WillWrite(reader dbreader.DBReader) ([][]byte, error) {
+	return [][]byte{}, nil
+}
+
 // RawPut implements the Command interface for raw put requests.
 type RawPut struct {
 	request *kvrpcpb.RawPutRequest
@@ -94,6 +99,10 @@ func (rp *RawPut) HandleError(err error) interface{} {
 	return nil
 }
 
+func (rp *RawPut) WillWrite(reader dbreader.DBReader) ([][]byte, error) {
+	return [][]byte{rp.request.Key}, nil
+}
+
 // RawDelete implements the Command interface for raw delete requests.
 type RawDelete struct {
 	request *kvrpcpb.RawDeleteRequest
@@ -134,6 +143,10 @@ func (rd *RawDelete) HandleError(err error) interface{} {
 	}
 
 	return nil
+}
+
+func (rd *RawDelete) WillWrite(reader dbreader.DBReader) ([][]byte, error) {
+	return [][]byte{rd.request.Key}, nil
 }
 
 // RawScan implements the Command interface for raw scan requests.
@@ -188,4 +201,8 @@ func (rs *RawScan) HandleError(err error) interface{} {
 	}
 
 	return nil
+}
+
+func (rs *RawScan) WillWrite(reader dbreader.DBReader) ([][]byte, error) {
+	return [][]byte{}, nil
 }

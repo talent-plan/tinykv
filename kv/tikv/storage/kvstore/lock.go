@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
 
@@ -63,6 +65,26 @@ func (lock *Lock) IsLockedFor(key []byte, txnStartTs uint64) bool {
 		return false
 	}
 	return lock.Ts <= txnStartTs
+}
+
+// AllLocksForTxn returns all locks for the current transaction.
+func AllLocksForTxn(txnTs uint64, reader dbreader.DBReader) ([]KlPair, error) {
+	var result []KlPair
+	for iter := reader.IterCF(engine_util.CfLock); iter.Valid(); iter.Next() {
+		item := iter.Item()
+		val, err := item.Value()
+		if err != nil {
+			return nil, err
+		}
+		lock, err := ParseLock(val)
+		if err != nil {
+			return nil, err
+		}
+		if lock.Ts == txnTs {
+			result = append(result, KlPair{item.Key(), lock})
+		}
+	}
+	return result, nil
 }
 
 // LockedError occurs when a key or keys are locked. The protobuf representation of the locked keys is stored as Info.

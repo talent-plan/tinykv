@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
@@ -93,4 +94,8 @@ func (c *Commit) HandleError(err error) interface{} {
 	}
 
 	return nil
+}
+
+func (c *Commit) WillWrite(reader dbreader.DBReader) ([][]byte, error) {
+	return c.request.Keys, nil
 }

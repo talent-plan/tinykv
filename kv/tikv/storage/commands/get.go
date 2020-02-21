@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
@@ -69,4 +70,8 @@ func (g *Get) HandleError(err error) interface{} {
 	}
 
 	return nil
+}
+
+func (g *Get) WillWrite(reader dbreader.DBReader) ([][]byte, error) {
+	return [][]byte{}, nil
 }

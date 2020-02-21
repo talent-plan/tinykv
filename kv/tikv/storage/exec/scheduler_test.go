@@ -1,6 +1,7 @@
 package exec
 
 import (
+	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/interfaces"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
@@ -44,4 +45,8 @@ func (dc *dummyCmd) Response() interface{} {
 
 func (dc *dummyCmd) HandleError(err error) interface{} {
 	return nil
+}
+
+func (dc *dummyCmd) WillWrite(reader dbreader.DBReader) ([][]byte, error) {
+	return [][]byte{}, nil
 }

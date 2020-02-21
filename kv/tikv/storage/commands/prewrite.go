@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
@@ -110,4 +111,12 @@ func (p *Prewrite) prewriteMutation(txn *kvstore.MvccTxn, mut *kvrpcpb.Mutation)
 	txn.PutValue(key, mut.Value)
 
 	return nil, nil
+}
+
+func (p *Prewrite) WillWrite(reader dbreader.DBReader) ([][]byte, error) {
+	var result [][]byte
+	for _, m := range p.request.Mutations {
+		result = append(result, m.Key)
+	}
+	return result, nil
 }

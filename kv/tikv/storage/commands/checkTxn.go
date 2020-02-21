@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/tsoutil"
@@ -94,4 +95,8 @@ func (c *CheckTxnStatus) HandleError(err error) interface{} {
 
 func physical(ts uint64) uint64 {
 	return ts >> tsoutil.PhysicalShiftBits
+}
+
+func (c *CheckTxnStatus) WillWrite(reader dbreader.DBReader) ([][]byte, error) {
+	return [][]byte{c.request.PrimaryKey}, nil
 }
