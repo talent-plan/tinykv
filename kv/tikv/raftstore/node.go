@@ -36,9 +36,6 @@ func NewNode(system *RaftBatchSystem, store *metapb.Store, cfg *config.Config, p
 		store.Address = cfg.Addr
 	}
 	store.Version = "3.0.0-bata.1"
-	for _, l := range cfg.Labels {
-		store.Labels = append(store.Labels, &metapb.StoreLabel{Key: l.LabelKey, Value: l.LabelValue})
-	}
 	return &Node{
 		clusterID: pdClient.GetClusterID((context.TODO())),
 		store:     store,

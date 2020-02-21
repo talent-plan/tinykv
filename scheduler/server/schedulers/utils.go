@@ -14,11 +14,9 @@
 package schedulers
 
 import (
-	"context"
 	"time"
 
 	"github.com/montanaflynn/stats"
-	"github.com/pingcap-incubator/tinykv/scheduler/pkg/cache"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/opt"
 	"github.com/pingcap/log"
@@ -68,8 +66,8 @@ func shouldBalance(cluster opt.Cluster, source, target *core.StoreInfo, region *
 	sourceID := source.GetID()
 	targetID := target.GetID()
 	tolerantResource := getTolerantResource(cluster, region, kind)
-	sourceScore := source.ResourceScore(kind, cluster.GetHighSpaceRatio(), cluster.GetLowSpaceRatio(), -tolerantResource)
-	targetScore := target.ResourceScore(kind, cluster.GetHighSpaceRatio(), cluster.GetLowSpaceRatio(), tolerantResource)
+	sourceScore := source.ResourceScore(kind, -tolerantResource)
+	targetScore := target.ResourceScore(kind, tolerantResource)
 
 	// Make sure after move, source score is still greater than target score.
 	shouldBalance := sourceScore > targetScore
@@ -132,15 +130,4 @@ func adjustBalanceLimit(cluster opt.Cluster, kind core.ResourceKind) uint64 {
 	}
 	limit, _ := stats.StandardDeviation(counts)
 	return maxUint64(1, uint64(limit))
-}
-
-const (
-	taintCacheGCInterval = time.Second * 5
-	taintCacheTTL        = time.Minute * 5
-)
-
-// newTaintCache creates a TTL cache to hold stores that are not able to
-// schedule operators.
-func newTaintCache(ctx context.Context) *cache.TTLUint64 {
-	return cache.NewIDTTL(ctx, taintCacheGCInterval, taintCacheTTL)
 }

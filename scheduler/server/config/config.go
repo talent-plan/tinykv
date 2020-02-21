@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/coreos/go-semver/semver"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/typeutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule"
 	"github.com/pingcap/log"
@@ -79,8 +78,6 @@ type Config struct {
 
 	PDServerCfg PDServerConfig `toml:"pd-server" json:"pd-server"`
 
-	ClusterVersion semver.Version `json:"cluster-version"`
-
 	// QuotaBackendBytes Raise alarms when backend size exceeds the given quota. 0 means use the default quota.
 	// the default size is 2GB, the maximum is 8GB.
 	QuotaBackendBytes typeutil.ByteSize `toml:"quota-backend-bytes" json:"quota-backend-bytes"`
@@ -100,8 +97,6 @@ type Config struct {
 	ElectionInterval typeutil.Duration `toml:"election-interval"`
 
 	Security SecurityConfig `toml:"security" json:"security"`
-
-	LabelProperty LabelPropertyConfig `toml:"label-property" json:"label-property"`
 
 	configFile string
 
@@ -178,9 +173,7 @@ const (
 	defaultMaxResetTsGap = 24 * time.Hour
 	defaultKeyType       = "table"
 
-	defaultStrictlyMatchLabel  = false
-	defaultEnableGRPCGateway   = true
-	defaultDisableErrorVerbose = true
+	defaultEnableGRPCGateway = true
 )
 
 func adjustString(v *string, defValue string) {
@@ -385,7 +378,7 @@ func (c *Config) Adjust(meta *toml.MetaData) error {
 	if err := c.Schedule.adjust(configMetaData.Child("schedule")); err != nil {
 		return err
 	}
-	if err := c.Replication.adjust(configMetaData.Child("replication")); err != nil {
+	if err := c.Replication.adjust(); err != nil {
 		return err
 	}
 
@@ -426,22 +419,6 @@ func (c *Config) configFromFile(path string) (*toml.MetaData, error) {
 
 // ScheduleConfig is the schedule configuration.
 type ScheduleConfig struct {
-	// If the snapshot count of one store is greater than this value,
-	// it will never be used as a source or target store.
-	MaxSnapshotCount    uint64 `toml:"max-snapshot-count,omitempty" json:"max-snapshot-count"`
-	MaxPendingPeerCount uint64 `toml:"max-pending-peer-count,omitempty" json:"max-pending-peer-count"`
-	// If both the size of region is smaller than MaxMergeRegionSize
-	// and the number of rows in region is smaller than MaxMergeRegionKeys,
-	// it will try to merge with adjacent regions.
-	MaxMergeRegionSize uint64 `toml:"max-merge-region-size,omitempty" json:"max-merge-region-size"`
-	MaxMergeRegionKeys uint64 `toml:"max-merge-region-keys,omitempty" json:"max-merge-region-keys"`
-	// SplitMergeInterval is the minimum interval time to permit merge after split.
-	SplitMergeInterval typeutil.Duration `toml:"split-merge-interval,omitempty" json:"split-merge-interval"`
-	// EnableOneWayMerge is the option to enable one way merge. This means a Region can only be merged into the next region of it.
-	EnableOneWayMerge bool `toml:"enable-one-way-merge,omitempty" json:"enable-one-way-merge,string"`
-	// EnableCrossTableMerge is the option to enable cross table merge. This means two Regions can be merged with different table IDs.
-	// This option only works when merge strategy is "table".
-	EnableCrossTableMerge bool `toml:"enable-cross-table-merge,omitempty" json:"enable-cross-table-merge,string"`
 	// PatrolRegionInterval is the interval for scanning region during patrol.
 	PatrolRegionInterval typeutil.Duration `toml:"patrol-region-interval,omitempty" json:"patrol-region-interval"`
 	// MaxStoreDownTime is the max duration after which
@@ -455,26 +432,10 @@ type ScheduleConfig struct {
 	RegionScheduleLimit uint64 `toml:"region-schedule-limit,omitempty" json:"region-schedule-limit"`
 	// ReplicaScheduleLimit is the max coexist replica schedules.
 	ReplicaScheduleLimit uint64 `toml:"replica-schedule-limit,omitempty" json:"replica-schedule-limit"`
-	// MergeScheduleLimit is the max coexist merge schedules.
-	MergeScheduleLimit uint64 `toml:"merge-schedule-limit,omitempty" json:"merge-schedule-limit"`
 	// StoreBalanceRate is the maximum of balance rate for each store.
 	StoreBalanceRate float64 `toml:"store-balance-rate,omitempty" json:"store-balance-rate"`
 	// TolerantSizeRatio is the ratio of buffer size for balance scheduler.
 	TolerantSizeRatio float64 `toml:"tolerant-size-ratio,omitempty" json:"tolerant-size-ratio"`
-	//
-	//      high space stage         transition stage           low space stage
-	//   |--------------------|-----------------------------|-------------------------|
-	//   ^                    ^                             ^                         ^
-	//   0       HighSpaceRatio * capacity       LowSpaceRatio * capacity          capacity
-	//
-	// LowSpaceRatio is the lowest usage ratio of store which regraded as low space.
-	// When in low space, store region score increases to very large and varies inversely with available size.
-	LowSpaceRatio float64 `toml:"low-space-ratio,omitempty" json:"low-space-ratio"`
-	// HighSpaceRatio is the highest usage ratio of store which regraded as high space.
-	// High space means there is a lot of spare capacity, and store region score varies directly with used size.
-	HighSpaceRatio float64 `toml:"high-space-ratio,omitempty" json:"high-space-ratio"`
-	// SchedulerMaxWaitingOperator is the max coexist operators for each scheduler.
-	SchedulerMaxWaitingOperator uint64 `toml:"scheduler-max-waiting-operator,omitempty" json:"scheduler-max-waiting-operator"`
 	// WARN: DisableLearner is deprecated.
 	// DisableLearner is the option to disable using AddLearnerNode instead of AddNode.
 	DisableLearner bool `toml:"disable-raft-learner" json:"disable-raft-learner,string,omitempty"`
@@ -521,25 +482,14 @@ func (c *ScheduleConfig) Clone() *ScheduleConfig {
 	schedulers := make(SchedulerConfigs, len(c.Schedulers))
 	copy(schedulers, c.Schedulers)
 	return &ScheduleConfig{
-		MaxSnapshotCount:             c.MaxSnapshotCount,
-		MaxPendingPeerCount:          c.MaxPendingPeerCount,
-		MaxMergeRegionSize:           c.MaxMergeRegionSize,
-		MaxMergeRegionKeys:           c.MaxMergeRegionKeys,
-		SplitMergeInterval:           c.SplitMergeInterval,
 		PatrolRegionInterval:         c.PatrolRegionInterval,
 		MaxStoreDownTime:             c.MaxStoreDownTime,
 		LeaderScheduleLimit:          c.LeaderScheduleLimit,
 		LeaderScheduleStrategy:       c.LeaderScheduleStrategy,
 		RegionScheduleLimit:          c.RegionScheduleLimit,
 		ReplicaScheduleLimit:         c.ReplicaScheduleLimit,
-		MergeScheduleLimit:           c.MergeScheduleLimit,
-		EnableOneWayMerge:            c.EnableOneWayMerge,
-		EnableCrossTableMerge:        c.EnableCrossTableMerge,
 		StoreBalanceRate:             c.StoreBalanceRate,
 		TolerantSizeRatio:            c.TolerantSizeRatio,
-		LowSpaceRatio:                c.LowSpaceRatio,
-		HighSpaceRatio:               c.HighSpaceRatio,
-		SchedulerMaxWaitingOperator:  c.SchedulerMaxWaitingOperator,
 		DisableLearner:               c.DisableLearner,
 		DisableRemoveDownReplica:     c.DisableRemoveDownReplica,
 		DisableReplaceOfflineReplica: c.DisableReplaceOfflineReplica,
@@ -556,40 +506,18 @@ func (c *ScheduleConfig) Clone() *ScheduleConfig {
 }
 
 const (
-	defaultMaxReplicas                 = 3
-	defaultMaxSnapshotCount            = 3
-	defaultMaxPendingPeerCount         = 16
-	defaultMaxMergeRegionSize          = 20
-	defaultMaxMergeRegionKeys          = 200000
-	defaultSplitMergeInterval          = 1 * time.Hour
-	defaultPatrolRegionInterval        = 100 * time.Millisecond
-	defaultMaxStoreDownTime            = 30 * time.Minute
-	defaultLeaderScheduleLimit         = 4
-	defaultRegionScheduleLimit         = 2048
-	defaultReplicaScheduleLimit        = 64
-	defaultMergeScheduleLimit          = 8
-	defaultStoreBalanceRate            = 15
-	defaultTolerantSizeRatio           = 0
-	defaultLowSpaceRatio               = 0.8
-	defaultHighSpaceRatio              = 0.6
-	defaultSchedulerMaxWaitingOperator = 3
-	defaultLeaderScheduleStrategy      = "count"
+	defaultMaxReplicas            = 3
+	defaultPatrolRegionInterval   = 100 * time.Millisecond
+	defaultMaxStoreDownTime       = 30 * time.Minute
+	defaultLeaderScheduleLimit    = 4
+	defaultRegionScheduleLimit    = 2048
+	defaultReplicaScheduleLimit   = 64
+	defaultStoreBalanceRate       = 15
+	defaultTolerantSizeRatio      = 0
+	defaultLeaderScheduleStrategy = "count"
 )
 
 func (c *ScheduleConfig) adjust(meta *configMetaData) error {
-	if !meta.IsDefined("max-snapshot-count") {
-		adjustUint64(&c.MaxSnapshotCount, defaultMaxSnapshotCount)
-	}
-	if !meta.IsDefined("max-pending-peer-count") {
-		adjustUint64(&c.MaxPendingPeerCount, defaultMaxPendingPeerCount)
-	}
-	if !meta.IsDefined("max-merge-region-size") {
-		adjustUint64(&c.MaxMergeRegionSize, defaultMaxMergeRegionSize)
-	}
-	if !meta.IsDefined("max-merge-region-keys") {
-		adjustUint64(&c.MaxMergeRegionKeys, defaultMaxMergeRegionKeys)
-	}
-	adjustDuration(&c.SplitMergeInterval, defaultSplitMergeInterval)
 	adjustDuration(&c.PatrolRegionInterval, defaultPatrolRegionInterval)
 	adjustDuration(&c.MaxStoreDownTime, defaultMaxStoreDownTime)
 	if !meta.IsDefined("leader-schedule-limit") {
@@ -601,21 +529,13 @@ func (c *ScheduleConfig) adjust(meta *configMetaData) error {
 	if !meta.IsDefined("replica-schedule-limit") {
 		adjustUint64(&c.ReplicaScheduleLimit, defaultReplicaScheduleLimit)
 	}
-	if !meta.IsDefined("merge-schedule-limit") {
-		adjustUint64(&c.MergeScheduleLimit, defaultMergeScheduleLimit)
-	}
 	if !meta.IsDefined("tolerant-size-ratio") {
 		adjustFloat64(&c.TolerantSizeRatio, defaultTolerantSizeRatio)
-	}
-	if !meta.IsDefined("scheduler-max-waiting-operator") {
-		adjustUint64(&c.SchedulerMaxWaitingOperator, defaultSchedulerMaxWaitingOperator)
 	}
 	if !meta.IsDefined("leader-schedule-strategy") {
 		adjustString(&c.LeaderScheduleStrategy, defaultLeaderScheduleStrategy)
 	}
 	adjustFloat64(&c.StoreBalanceRate, defaultStoreBalanceRate)
-	adjustFloat64(&c.LowSpaceRatio, defaultLowSpaceRatio)
-	adjustFloat64(&c.HighSpaceRatio, defaultHighSpaceRatio)
 	adjustSchedulers(&c.Schedulers, defaultSchedulers)
 
 	for k, b := range c.migrateConfigurationMap() {
@@ -674,15 +594,6 @@ func (c *ScheduleConfig) MigrateDeprecatedFlags() {
 func (c *ScheduleConfig) Validate() error {
 	if c.TolerantSizeRatio < 0 {
 		return errors.New("tolerant-size-ratio should be nonnegative")
-	}
-	if c.LowSpaceRatio < 0 || c.LowSpaceRatio > 1 {
-		return errors.New("low-space-ratio should between 0 and 1")
-	}
-	if c.HighSpaceRatio < 0 || c.HighSpaceRatio > 1 {
-		return errors.New("high-space-ratio should between 0 and 1")
-	}
-	if c.LowSpaceRatio <= c.HighSpaceRatio {
-		return errors.New("low-space-ratio should be larger than high-space-ratio")
 	}
 	for _, scheduleConfig := range c.Schedulers {
 		if !schedule.IsSchedulerRegistered(scheduleConfig.Type) {
@@ -745,47 +656,18 @@ func IsDefaultScheduler(typ string) bool {
 type ReplicationConfig struct {
 	// MaxReplicas is the number of replicas for each region.
 	MaxReplicas uint64 `toml:"max-replicas,omitempty" json:"max-replicas"`
-
-	// The label keys specified the location of a store.
-	// The placement priorities is implied by the order of label keys.
-	// For example, ["zone", "rack"] means that we should place replicas to
-	// different zones first, then to different racks if we don't have enough zones.
-	LocationLabels typeutil.StringSlice `toml:"location-labels,omitempty" json:"location-labels"`
-	// StrictlyMatchLabel strictly checks if the label of TiKV is matched with LocationLabels.
-	StrictlyMatchLabel bool `toml:"strictly-match-label,omitempty" json:"strictly-match-label,string"`
-
-	// When PlacementRules feature is enabled. MaxReplicas and LocationLabels are not uesd any more.
-	EnablePlacementRules bool // Keep it false before full feature get merged. `toml:"enable-placement-rules" json:"enable-placement-rules,string"`
 }
 
 func (c *ReplicationConfig) clone() *ReplicationConfig {
-	locationLabels := make(typeutil.StringSlice, len(c.LocationLabels))
-	copy(locationLabels, c.LocationLabels)
 	return &ReplicationConfig{
-		MaxReplicas:          c.MaxReplicas,
-		LocationLabels:       locationLabels,
-		StrictlyMatchLabel:   c.StrictlyMatchLabel,
-		EnablePlacementRules: c.EnablePlacementRules,
+		MaxReplicas: c.MaxReplicas,
 	}
 }
 
-// Validate is used to validate if some replication configurations are right.
-func (c *ReplicationConfig) Validate() error {
-	for _, label := range c.LocationLabels {
-		err := ValidateLabelString(label)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (c *ReplicationConfig) adjust(meta *configMetaData) error {
+func (c *ReplicationConfig) adjust() error {
 	adjustUint64(&c.MaxReplicas, defaultMaxReplicas)
-	if !meta.IsDefined("strictly-match-label") {
-		c.StrictlyMatchLabel = defaultStrictlyMatchLabel
-	}
-	return c.Validate()
+
+	return nil
 }
 
 // SecurityConfig is the configuration for supporting tls.
@@ -832,26 +714,6 @@ func (c *PDServerConfig) adjust(meta *configMetaData) error {
 		c.KeyType = defaultKeyType
 	}
 	return nil
-}
-
-// StoreLabel is the config item of LabelPropertyConfig.
-type StoreLabel struct {
-	Key   string `toml:"key" json:"key"`
-	Value string `toml:"value" json:"value"`
-}
-
-// LabelPropertyConfig is the config section to set properties to store labels.
-type LabelPropertyConfig map[string][]StoreLabel
-
-// Clone returns a cloned label property configuration.
-func (c LabelPropertyConfig) Clone() LabelPropertyConfig {
-	m := make(map[string][]StoreLabel, len(c))
-	for k, sl := range c {
-		sl2 := make([]StoreLabel, 0, len(sl))
-		sl2 = append(sl2, sl...)
-		m[k] = sl2
-	}
-	return m
 }
 
 // ParseUrls parse a string into multiple urls.

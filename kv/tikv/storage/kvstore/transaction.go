@@ -169,6 +169,26 @@ func (txn *MvccTxn) DeleteLock(key []byte) {
 	})
 }
 
+// AllLocksForTxn returns all locks for the current transaction.
+func (txn *MvccTxn) AllLocksForTxn() ([]KlPair, error) {
+	var result []KlPair
+	for iter := txn.Reader.IterCF(engine_util.CfLock); iter.Valid(); iter.Next() {
+		item := iter.Item()
+		val, err := item.Value()
+		if err != nil {
+			return nil, err
+		}
+		lock, err := ParseLock(val)
+		if err != nil {
+			return nil, err
+		}
+		if lock.Ts == *txn.StartTS {
+			result = append(result, KlPair{item.Key(), lock})
+		}
+	}
+	return result, nil
+}
+
 // GetValue gets the value at precisely the given key and ts, without searching.
 func (txn *MvccTxn) GetValue(key []byte, ts uint64) ([]byte, error) {
 	return txn.Reader.GetCF(engine_util.CfDefault, EncodeKey(key, ts))

@@ -24,7 +24,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockcluster"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockhbstream"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockoption"
-	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/operator"
 	. "github.com/pingcap/check"
 )
@@ -230,22 +229,4 @@ func (t *testOperatorControllerSuite) TestDispatchOutdatedRegion(c *C) {
 	c.Assert(op.ConfVerChanged(region), Equals, 0)
 	// no new step
 	c.Assert(len(stream.MsgCh()), Equals, 3)
-}
-
-func newRegionInfo(id uint64, startKey, endKey string, size, keys int64, leader []uint64, peers ...[]uint64) *core.RegionInfo {
-	var prs []*metapb.Peer
-	for _, peer := range peers {
-		prs = append(prs, &metapb.Peer{Id: peer[0], StoreId: peer[1]})
-	}
-	return core.NewRegionInfo(
-		&metapb.Region{
-			Id:       id,
-			StartKey: []byte(startKey),
-			EndKey:   []byte(endKey),
-			Peers:    prs,
-		},
-		&metapb.Peer{Id: leader[0], StoreId: leader[1]},
-		core.SetApproximateSize(size),
-		core.SetApproximateKeys(keys),
-	)
 }

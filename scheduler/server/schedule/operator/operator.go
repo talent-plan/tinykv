@@ -22,7 +22,6 @@ import (
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
-	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/opt"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
 )
@@ -34,34 +33,12 @@ const (
 	// RegionOperatorWaitTime is the duration that when a region operator lives
 	// longer than it, the operator will be considered timeout.
 	RegionOperatorWaitTime = 10 * time.Minute
-	// RegionInfluence represents the influence of a operator step, which is used by ratelimit.
-	RegionInfluence int64 = 1000
-	// smallRegionInfluence represents the influence of a operator step
-	// when the region size is smaller than smallRegionThreshold, which is used by ratelimit.
-	smallRegionInfluence int64 = 200
-	// smallRegionThreshold is used to represent a region which can be regarded as a small region once the size is small than it.
-	smallRegionThreshold int64 = 20
 )
 
 // Cluster provides an overview of a cluster's regions distribution.
 type Cluster interface {
 	GetStore(id uint64) *core.StoreInfo
-	CheckLabelProperty(typ string, labels []*metapb.StoreLabel) bool
 	AllocPeer(storeID uint64) (*metapb.Peer, error)
-}
-
-type u64Slice []uint64
-
-func (s u64Slice) Len() int {
-	return len(s)
-}
-
-func (s u64Slice) Swap(i, j int) {
-	s[i], s[j] = s[j], s[i]
-}
-
-func (s u64Slice) Less(i, j int) bool {
-	return s[i] < s[j]
 }
 
 // OpStep describes the basic scheduling steps that can not be subdivided.
@@ -473,14 +450,12 @@ func transferLeaderStep(cluster Cluster, region *core.RegionInfo, storeID uint64
 	return
 }
 
-// findNoLabelProperty finds the first store without given label property.
-func findNoLabelProperty(cluster Cluster, prop string, storeIDs []uint64) (int, uint64) {
+// findAvailableStore finds the first available store.
+func findAvailableStore(cluster Cluster, storeIDs []uint64) (int, uint64) {
 	for i, id := range storeIDs {
 		store := cluster.GetStore(id)
 		if store != nil {
-			if !cluster.CheckLabelProperty(prop, store.GetLabels()) {
-				return i, id
-			}
+			return i, id
 		} else {
 			log.Debug("nil store", zap.Uint64("store-id", id))
 		}
@@ -491,7 +466,7 @@ func findNoLabelProperty(cluster Cluster, prop string, storeIDs []uint64) (int, 
 // transferLeaderToSuitableSteps returns the first suitable store to become region leader.
 // Returns an error if there is no suitable store.
 func transferLeaderToSuitableSteps(cluster Cluster, leaderID uint64, storeIDs []uint64) (OpKind, []OpStep, error) {
-	_, id := findNoLabelProperty(cluster, opt.RejectLeader, storeIDs)
+	_, id := findAvailableStore(cluster, storeIDs)
 	if id != 0 {
 		return OpLeader, []OpStep{TransferLeader{FromStore: leaderID, ToStore: id}}, nil
 	}

@@ -20,7 +20,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coreos/go-semver/semver"
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
@@ -631,34 +630,12 @@ func (c *RaftCluster) GetAdjacentRegions(region *core.RegionInfo) (*core.RegionI
 	return c.core.GetAdjacentRegions(region)
 }
 
-// UpdateStoreLabels updates a store's location labels.
-func (c *RaftCluster) UpdateStoreLabels(storeID uint64, labels []*metapb.StoreLabel) error {
-	store := c.GetStore(storeID)
-	if store == nil {
-		return errors.Errorf("invalid store ID %d, not found", storeID)
-	}
-	newStore := proto.Clone(store.GetMeta()).(*metapb.Store)
-	newStore.Labels = labels
-	// putStore will perform label merge.
-	err := c.putStore(newStore)
-	return err
-}
-
 func (c *RaftCluster) putStore(store *metapb.Store) error {
 	c.Lock()
 	defer c.Unlock()
 
 	if store.GetId() == 0 {
 		return errors.Errorf("invalid put store %v", store)
-	}
-
-	v, err := ParseVersion(store.GetVersion())
-	if err != nil {
-		return errors.Errorf("invalid put store %v, error: %s", store, err)
-	}
-	clusterVersion := *c.opt.LoadClusterVersion()
-	if !IsCompatible(clusterVersion, *v) {
-		return errors.Errorf("version should compatible with version  %s, got %s", clusterVersion, v)
 	}
 
 	// Store address can not be the same as other stores.
@@ -678,37 +655,10 @@ func (c *RaftCluster) putStore(store *metapb.Store) error {
 		s = core.NewStoreInfo(store)
 	} else {
 		// Update an existed store.
-		labels := s.MergeLabels(store.GetLabels())
-
 		s = s.Clone(
 			core.SetStoreAddress(store.Address, store.StatusAddress, store.PeerAddress),
 			core.SetStoreVersion(store.GitHash, store.Version),
-			core.SetStoreLabels(labels),
 		)
-	}
-	// Check location labels.
-	keysSet := make(map[string]struct{})
-	for _, k := range c.GetLocationLabels() {
-		keysSet[k] = struct{}{}
-		if v := s.GetLabelValue(k); len(v) == 0 {
-			log.Warn("label configuration is incorrect",
-				zap.Stringer("store", s.GetMeta()),
-				zap.String("label-key", k))
-			if c.GetStrictlyMatchLabel() {
-				return errors.Errorf("label configuration is incorrect, need to specify the key: %s ", k)
-			}
-		}
-	}
-	for _, label := range s.GetLabels() {
-		key := label.GetKey()
-		if _, ok := keysSet[key]; !ok {
-			log.Warn("not found the key match with the store label",
-				zap.Stringer("store", s.GetMeta()),
-				zap.String("label-key", key))
-			if c.GetStrictlyMatchLabel() {
-				return errors.Errorf("key matching the label was not found in the PD, store label key: %s ", key)
-			}
-		}
 	}
 	return c.putStoreLocked(s)
 }
@@ -848,9 +798,7 @@ func (c *RaftCluster) checkStores() {
 		}
 
 		if store.IsUp() {
-			if !store.IsLowSpace(c.GetLowSpaceRatio()) {
-				upStoreCount++
-			}
+			upStoreCount++
 			continue
 		}
 
@@ -953,54 +901,8 @@ func (c *RaftCluster) AllocPeer(storeID uint64) (*metapb.Peer, error) {
 	return peer, nil
 }
 
-// OnStoreVersionChange changes the version of the cluster when needed.
-func (c *RaftCluster) OnStoreVersionChange() {
-	c.RLock()
-	defer c.RUnlock()
-	var (
-		minVersion     *semver.Version
-		clusterVersion *semver.Version
-	)
-
-	stores := c.GetStores()
-	for _, s := range stores {
-		if s.IsTombstone() {
-			continue
-		}
-		v := MustParseVersion(s.GetVersion())
-
-		if minVersion == nil || v.LessThan(*minVersion) {
-			minVersion = v
-		}
-	}
-	clusterVersion = c.opt.LoadClusterVersion()
-
-	if (*clusterVersion).LessThan(*minVersion) {
-		if !c.opt.CASClusterVersion(clusterVersion, minVersion) {
-			log.Error("cluster version changed by API at the same time")
-		}
-		err := c.opt.Persist(c.storage)
-		if err != nil {
-			log.Error("persist cluster version meet error", zap.Error(err))
-		}
-		log.Info("cluster version changed",
-			zap.Stringer("old-cluster-version", clusterVersion),
-			zap.Stringer("new-cluster-version", minVersion))
-		CheckPDVersion(c.opt)
-	}
-}
-
 func (c *RaftCluster) changedRegionNotifier() <-chan *core.RegionInfo {
 	return c.changedRegions
-}
-
-// IsFeatureSupported checks if the feature is supported by current cluster.
-func (c *RaftCluster) IsFeatureSupported(f Feature) bool {
-	c.RLock()
-	defer c.RUnlock()
-	clusterVersion := *c.opt.LoadClusterVersion()
-	minSupportVersion := *MinSupportedVersion(f)
-	return !clusterVersion.LessThan(minSupportVersion)
 }
 
 // GetConfig gets config from cluster.
@@ -1039,11 +941,6 @@ func (c *RaftCluster) GetReplicaScheduleLimit() uint64 {
 	return c.opt.GetReplicaScheduleLimit()
 }
 
-// GetMergeScheduleLimit returns the limit for merge schedule.
-func (c *RaftCluster) GetMergeScheduleLimit() uint64 {
-	return c.opt.GetMergeScheduleLimit()
-}
-
 // GetStoreBalanceRate returns the balance rate of a store.
 func (c *RaftCluster) GetStoreBalanceRate() float64 {
 	return c.opt.GetStoreBalanceRate()
@@ -1052,56 +949,6 @@ func (c *RaftCluster) GetStoreBalanceRate() float64 {
 // GetTolerantSizeRatio gets the tolerant size ratio.
 func (c *RaftCluster) GetTolerantSizeRatio() float64 {
 	return c.opt.GetTolerantSizeRatio()
-}
-
-// GetLowSpaceRatio returns the low space ratio.
-func (c *RaftCluster) GetLowSpaceRatio() float64 {
-	return c.opt.GetLowSpaceRatio()
-}
-
-// GetHighSpaceRatio returns the high space ratio.
-func (c *RaftCluster) GetHighSpaceRatio() float64 {
-	return c.opt.GetHighSpaceRatio()
-}
-
-// GetSchedulerMaxWaitingOperator returns the number of the max waiting operators.
-func (c *RaftCluster) GetSchedulerMaxWaitingOperator() uint64 {
-	return c.opt.GetSchedulerMaxWaitingOperator()
-}
-
-// GetMaxSnapshotCount returns the number of the max snapshot which is allowed to send.
-func (c *RaftCluster) GetMaxSnapshotCount() uint64 {
-	return c.opt.GetMaxSnapshotCount()
-}
-
-// GetMaxPendingPeerCount returns the number of the max pending peers.
-func (c *RaftCluster) GetMaxPendingPeerCount() uint64 {
-	return c.opt.GetMaxPendingPeerCount()
-}
-
-// GetMaxMergeRegionSize returns the max region size.
-func (c *RaftCluster) GetMaxMergeRegionSize() uint64 {
-	return c.opt.GetMaxMergeRegionSize()
-}
-
-// GetMaxMergeRegionKeys returns the max number of keys.
-func (c *RaftCluster) GetMaxMergeRegionKeys() uint64 {
-	return c.opt.GetMaxMergeRegionKeys()
-}
-
-// GetSplitMergeInterval returns the interval between finishing split and starting to merge.
-func (c *RaftCluster) GetSplitMergeInterval() time.Duration {
-	return c.opt.GetSplitMergeInterval()
-}
-
-// IsOneWayMergeEnabled returns if a region can only be merged into the next region of it.
-func (c *RaftCluster) IsOneWayMergeEnabled() bool {
-	return c.opt.IsOneWayMergeEnabled()
-}
-
-// IsCrossTableMergeEnabled returns if across table merge is enabled.
-func (c *RaftCluster) IsCrossTableMergeEnabled() bool {
-	return c.opt.IsCrossTableMergeEnabled()
 }
 
 // GetPatrolRegionInterval returns the interval of patroling region.
@@ -1117,21 +964,6 @@ func (c *RaftCluster) GetMaxStoreDownTime() time.Duration {
 // GetMaxReplicas returns the number of replicas.
 func (c *RaftCluster) GetMaxReplicas() int {
 	return c.opt.GetMaxReplicas()
-}
-
-// GetLocationLabels returns the location labels for each region
-func (c *RaftCluster) GetLocationLabels() []string {
-	return c.opt.GetLocationLabels()
-}
-
-// GetStrictlyMatchLabel returns if the strictly label check is enabled.
-func (c *RaftCluster) GetStrictlyMatchLabel() bool {
-	return c.opt.GetReplication().GetStrictlyMatchLabel()
-}
-
-// IsPlacementRulesEnabled returns if the placement rules feature is enabled.
-func (c *RaftCluster) IsPlacementRulesEnabled() bool {
-	return c.opt.IsPlacementRulesEnabled()
 }
 
 // IsRemoveDownReplicaEnabled returns if remove down replica is enabled.
@@ -1162,16 +994,6 @@ func (c *RaftCluster) IsMakeUpReplicaEnabled() bool {
 // IsRemoveExtraReplicaEnabled returns if remove extra replica is enabled.
 func (c *RaftCluster) IsRemoveExtraReplicaEnabled() bool {
 	return c.opt.IsRemoveExtraReplicaEnabled()
-}
-
-// IsLocationReplacementEnabled returns if location replace is enabled.
-func (c *RaftCluster) IsLocationReplacementEnabled() bool {
-	return c.opt.IsLocationReplacementEnabled()
-}
-
-// CheckLabelProperty is used to check label property.
-func (c *RaftCluster) CheckLabelProperty(typ string, labels []*metapb.StoreLabel) bool {
-	return c.opt.CheckLabelProperty(typ, labels)
 }
 
 // isPrepared if the cluster information is collected

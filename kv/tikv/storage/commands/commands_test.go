@@ -38,57 +38,57 @@ func newBuilder(t *testing.T) testBuilder {
 }
 
 // init sets values in the test's DB.
-func (t *testBuilder) init(values []kv) {
+func (builder *testBuilder) init(values []kv) {
 	for _, kv := range values {
 		ts := kv.ts
 		if ts == 0 {
-			ts = t.prevTs
+			ts = builder.prevTs
 		}
 		switch kv.cf {
 		case engine_util.CfDefault:
-			t.mem.Set(kv.cf, kvstore.EncodeKey(kv.key, ts), kv.value)
+			builder.mem.Set(kv.cf, kvstore.EncodeKey(kv.key, ts), kv.value)
 		case engine_util.CfWrite:
-			t.mem.Set(kv.cf, kvstore.EncodeKey(kv.key, ts), kv.value)
+			builder.mem.Set(kv.cf, kvstore.EncodeKey(kv.key, ts), kv.value)
 		case engine_util.CfLock:
-			t.mem.Set(kv.cf, kv.key, kv.value)
+			builder.mem.Set(kv.cf, kv.key, kv.value)
 		}
 	}
 }
 
-func (t *testBuilder) runCommands(cmds ...interfaces.Command) []interface{} {
+func (builder *testBuilder) runCommands(cmds ...interfaces.Command) []interface{} {
 	var result []interface{}
 	for _, c := range cmds {
-		ch := t.sched.Run(c)
+		ch := builder.sched.Run(c)
 		r := <-ch
-		assert.Nil(t.t, r.Err)
+		assert.Nil(builder.t, r.Err)
 		result = append(result, r.Response)
 	}
-	t.sched.Stop()
+	builder.sched.Stop()
 	return result
 }
 
 // runOneCmd is like runCommands but only runs a single command.
-func (t *testBuilder) runOneCmd(cmd interfaces.Command) interface{} {
-	return t.runCommands(cmd)[0]
+func (builder *testBuilder) runOneCmd(cmd interfaces.Command) interface{} {
+	return builder.runCommands(cmd)[0]
 }
 
-func (t *testBuilder) nextTs() uint64 {
-	t.prevTs++
-	return t.prevTs
+func (builder *testBuilder) nextTs() uint64 {
+	builder.prevTs++
+	return builder.prevTs
 }
 
 // ts returns the most recent timestamp used by testBuilder as a byte.
-func (t *testBuilder) ts() byte {
-	return byte(t.prevTs)
+func (builder *testBuilder) ts() byte {
+	return byte(builder.prevTs)
 }
 
 // assert that a key/value pair exists and has the given value, or if there is no value that it is unchanged.
-func (t *testBuilder) assert(kvs []kv) {
+func (builder *testBuilder) assert(kvs []kv) {
 	for _, kv := range kvs {
 		var key []byte
 		ts := kv.ts
 		if ts == 0 {
-			ts = t.prevTs
+			ts = builder.prevTs
 		}
 		switch kv.cf {
 		case engine_util.CfDefault:
@@ -99,21 +99,21 @@ func (t *testBuilder) assert(kvs []kv) {
 			key = kv.key
 		}
 		if kv.value == nil {
-			assert.False(t.t, t.mem.HasChanged(kv.cf, key))
+			assert.False(builder.t, builder.mem.HasChanged(kv.cf, key))
 		} else {
-			assert.Equal(t.t, kv.value, t.mem.Get(kv.cf, key))
+			assert.Equal(builder.t, kv.value, builder.mem.Get(kv.cf, key))
 		}
 	}
 }
 
 // assertLen asserts the size of one of the column families.
-func (t *testBuilder) assertLen(cf string, size int) {
-	assert.Equal(t.t, size, t.mem.Len(cf))
+func (builder *testBuilder) assertLen(cf string, size int) {
+	assert.Equal(builder.t, size, builder.mem.Len(cf))
 }
 
 // assertLens asserts the size of each column family.
-func (t *testBuilder) assertLens(def int, lock int, write int) {
-	t.assertLen(engine_util.CfDefault, def)
-	t.assertLen(engine_util.CfLock, lock)
-	t.assertLen(engine_util.CfWrite, write)
+func (builder *testBuilder) assertLens(def int, lock int, write int) {
+	builder.assertLen(engine_util.CfDefault, def)
+	builder.assertLen(engine_util.CfLock, lock)
+	builder.assertLen(engine_util.CfWrite, write)
 }

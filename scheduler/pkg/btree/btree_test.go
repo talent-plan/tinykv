@@ -744,7 +744,7 @@ func cloneTest(t *testing.T, b *BTree, start int, p []Item, wg *sync.WaitGroup, 
 
 func TestCloneConcurrentOperations(t *testing.T) {
 	b := New(*btreeDegree)
-	trees := []*BTree{}
+	var trees []*BTree
 	p := perm(cloneTestSize)
 	var wg sync.WaitGroup
 	wg.Add(1)
