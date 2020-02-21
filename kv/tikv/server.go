@@ -10,7 +10,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/commands"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/interfaces"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/coprocessor"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 )
@@ -30,19 +29,6 @@ func NewServer(innerServer interfaces.InnerServer, scheduler interfaces.Schedule
 		innerServer: innerServer,
 		scheduler:   scheduler,
 	}
-}
-
-const requestMaxSize = 6 * 1024 * 1024
-
-func (svr *Server) checkRequestSize(size int) *errorpb.Error {
-	// TiKV has a limitation on raft log size.
-	// mocktikv has no raft inside, so we check the request's size instead.
-	if size >= requestMaxSize {
-		return &errorpb.Error{
-			RaftEntryTooLarge: &errorpb.RaftEntryTooLarge{},
-		}
-	}
-	return nil
 }
 
 func (svr *Server) Stop() error {
@@ -96,7 +82,9 @@ func (svr *Server) KvBatchRollback(ctx context.Context, req *kvrpcpb.BatchRollba
 }
 
 func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRequest) (*kvrpcpb.ResolveLockResponse, error) {
-	return nil, nil
+	cmd := commands.NewResolveLock(req)
+	resp := <-svr.scheduler.Run(&cmd)
+	return resolveLockResponse(&resp)
 }
 
 // Raw API.

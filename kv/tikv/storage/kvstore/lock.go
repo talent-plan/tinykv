@@ -16,6 +16,11 @@ type Lock struct {
 	Kind    WriteKind
 }
 
+type KlPair struct {
+	Key  []byte
+	Lock *Lock
+}
+
 // Info creates a LockInfo object from a Lock object for key.
 func (lock *Lock) Info(key []byte) *kvrpcpb.LockInfo {
 	info := kvrpcpb.LockInfo{}

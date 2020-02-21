@@ -19,7 +19,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coreos/go-semver/semver"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/server"
@@ -177,13 +176,6 @@ func (s *TestServer) GetCluster() *metapb.Cluster {
 	s.RLock()
 	defer s.RUnlock()
 	return s.server.GetCluster()
-}
-
-// GetClusterVersion returns PD cluster version.
-func (s *TestServer) GetClusterVersion() semver.Version {
-	s.RLock()
-	defer s.RUnlock()
-	return s.server.GetClusterVersion()
 }
 
 // GetServerID returns the unique etcd ID for this server in etcd cluster.

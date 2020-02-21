@@ -21,9 +21,8 @@ import (
 )
 
 var (
-	tablePrefix  = []byte{'t'}
-	metaPrefix   = []byte{'m'}
-	recordPrefix = []byte{'r'}
+	tablePrefix = []byte{'t'}
+	metaPrefix  = []byte{'m'}
 )
 
 const (
@@ -109,15 +108,6 @@ func EncodeBytes(data []byte) Key {
 	return result
 }
 
-// EncodeInt appends the encoded value to slice b and returns the appended slice.
-// EncodeInt guarantees that the encoded value is in ascending order for comparison.
-func EncodeInt(b []byte, v int64) []byte {
-	var data [8]byte
-	u := encodeIntToCmpUint(v)
-	binary.BigEndian.PutUint64(data[:], u)
-	return append(b, data[:]...)
-}
-
 // DecodeInt decodes value encoded by EncodeInt before.
 // It returns the leftover un-decoded slice, decoded value if no error.
 func DecodeInt(b []byte) ([]byte, int64, error) {
@@ -129,10 +119,6 @@ func DecodeInt(b []byte) ([]byte, int64, error) {
 	v := decodeCmpUintToInt(u)
 	b = b[8:]
 	return b, v, nil
-}
-
-func encodeIntToCmpUint(v int64) uint64 {
-	return uint64(v) ^ signMask
 }
 
 func decodeCmpUintToInt(u uint64) int64 {
@@ -174,22 +160,4 @@ func DecodeBytes(b []byte) ([]byte, []byte, error) {
 		}
 	}
 	return b, data, nil
-}
-
-// GenerateTableKey generates a table split key.
-func GenerateTableKey(tableID int64) []byte {
-	buf := make([]byte, 0, len(tablePrefix)+8)
-	buf = append(buf, tablePrefix...)
-	buf = EncodeInt(buf, tableID)
-	return buf
-}
-
-// GenerateRowKey generates a row key.
-func GenerateRowKey(tableID, rowID int64) []byte {
-	buf := make([]byte, 0, len(tablePrefix)+len(recordPrefix)+8*2)
-	buf = append(buf, tablePrefix...)
-	buf = EncodeInt(buf, tableID)
-	buf = append(buf, recordPrefix...)
-	buf = EncodeInt(buf, rowID)
-	return buf
 }

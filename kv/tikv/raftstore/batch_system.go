@@ -156,8 +156,7 @@ func (bs *RaftBatchSystem) start(
 	engines *engine_util.Engines,
 	trans Transport,
 	pdClient pd.Client,
-	snapMgr *snap.SnapManager,
-	pdWorker *worker.Worker) error {
+	snapMgr *snap.SnapManager) error {
 	y.Assert(bs.workers == nil)
 	// TODO: we can get cluster meta regularly too later.
 	if err := cfg.Validate(); err != nil {
@@ -172,7 +171,7 @@ func (bs *RaftBatchSystem) start(
 		splitCheckWorker: worker.NewWorker("split-check", wg),
 		regionWorker:     worker.NewWorker("snapshot-worker", wg),
 		raftLogGCWorker:  worker.NewWorker("raft-gc-worker", wg),
-		pdWorker:         pdWorker,
+		pdWorker:         worker.NewWorker("pd-worker", wg),
 		wg:               wg,
 	}
 	bs.ctx = &GlobalContext{
@@ -207,16 +206,12 @@ func (bs *RaftBatchSystem) startWorkers(peers []*peerFsm) {
 	ctx := bs.ctx
 	workers := bs.workers
 	router := bs.router
-	for i := 0; i < ctx.cfg.RaftWorkerCnt; i++ {
-		rw := newRaftWorker(ctx, router.workerSenders[i], router)
-		bs.wg.Add(1)
-		go rw.run(bs.closeCh, bs.wg)
-	}
-	storeCtx := &StoreContext{GlobalContext: ctx, applyingSnapCount: new(uint64)}
-	sw := &storeWorker{
-		store: newStoreFsmDelegate(router.storeFsm, storeCtx),
-	}
-	bs.wg.Add(1)
+	bs.wg.Add(3) // raftWorker, applyWorker, storeWorker
+	rw := newRaftWorker(ctx, router)
+	go rw.run(bs.closeCh, bs.wg)
+	aw := newApplyWorker(ctx, rw.applyCh, router)
+	go aw.run(bs.wg)
+	sw := newStoreWorker(ctx, router)
 	go sw.run(bs.closeCh, bs.wg)
 	router.sendStore(message.Msg{Type: message.MsgTypeStoreStart, Data: ctx.store})
 	for i := 0; i < len(peers); i++ {
@@ -251,7 +246,7 @@ func (bs *RaftBatchSystem) shutDown() {
 
 func CreateRaftBatchSystem(cfg *config.Config) (*router, *RaftBatchSystem) {
 	storeSender, storeFsm := newStoreFsm(cfg)
-	router := newRouter(cfg.RaftWorkerCnt, storeSender, storeFsm)
+	router := newRouter(storeSender, storeFsm)
 	raftBatchSystem := &RaftBatchSystem{
 		router:     router,
 		tickDriver: newTickDriver(cfg.RaftBaseTickInterval, router, storeFsm.ticker),

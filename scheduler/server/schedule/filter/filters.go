@@ -161,134 +161,6 @@ func (f *healthFilter) Target(opt opt.Options, store *core.StoreInfo) bool {
 	return f.filter(opt, store)
 }
 
-type pendingPeerCountFilter struct{ scope string }
-
-// NewPendingPeerCountFilter creates a Filter that filters all stores that are
-// currently handling too many pending peers.
-func NewPendingPeerCountFilter(scope string) Filter {
-	return &pendingPeerCountFilter{scope: scope}
-}
-
-func (p *pendingPeerCountFilter) Scope() string {
-	return p.scope
-}
-
-func (p *pendingPeerCountFilter) Type() string {
-	return "pending-peer-filter"
-}
-
-func (p *pendingPeerCountFilter) filter(opt opt.Options, store *core.StoreInfo) bool {
-	if opt.GetMaxPendingPeerCount() == 0 {
-		return false
-	}
-	return store.GetPendingPeerCount() > int(opt.GetMaxPendingPeerCount())
-}
-
-func (p *pendingPeerCountFilter) Source(opt opt.Options, store *core.StoreInfo) bool {
-	return p.filter(opt, store)
-}
-
-func (p *pendingPeerCountFilter) Target(opt opt.Options, store *core.StoreInfo) bool {
-	return p.filter(opt, store)
-}
-
-type snapshotCountFilter struct{ scope string }
-
-// NewSnapshotCountFilter creates a Filter that filters all stores that are
-// currently handling too many snapshots.
-func NewSnapshotCountFilter(scope string) Filter {
-	return &snapshotCountFilter{scope: scope}
-}
-
-func (f *snapshotCountFilter) Scope() string {
-	return f.scope
-}
-
-func (f *snapshotCountFilter) Type() string {
-	return "snapshot-filter"
-}
-
-func (f *snapshotCountFilter) filter(opt opt.Options, store *core.StoreInfo) bool {
-	return uint64(store.GetSendingSnapCount()) > opt.GetMaxSnapshotCount() ||
-		uint64(store.GetReceivingSnapCount()) > opt.GetMaxSnapshotCount() ||
-		uint64(store.GetApplyingSnapCount()) > opt.GetMaxSnapshotCount()
-}
-
-func (f *snapshotCountFilter) Source(opt opt.Options, store *core.StoreInfo) bool {
-	return f.filter(opt, store)
-}
-
-func (f *snapshotCountFilter) Target(opt opt.Options, store *core.StoreInfo) bool {
-	return f.filter(opt, store)
-}
-
-type storageThresholdFilter struct{ scope string }
-
-// NewStorageThresholdFilter creates a Filter that filters all stores that are
-// almost full.
-func NewStorageThresholdFilter(scope string) Filter {
-	return &storageThresholdFilter{scope: scope}
-}
-
-func (f *storageThresholdFilter) Scope() string {
-	return f.scope
-}
-
-func (f *storageThresholdFilter) Type() string {
-	return "storage-threshold-filter"
-}
-
-func (f *storageThresholdFilter) Source(opt opt.Options, store *core.StoreInfo) bool {
-	return false
-}
-
-func (f *storageThresholdFilter) Target(opt opt.Options, store *core.StoreInfo) bool {
-	return store.IsLowSpace(opt.GetLowSpaceRatio())
-}
-
-// distinctScoreFilter ensures that distinct score will not decrease.
-type distinctScoreFilter struct {
-	scope     string
-	labels    []string
-	stores    []*core.StoreInfo
-	safeScore float64
-}
-
-// NewDistinctScoreFilter creates a filter that filters all stores that have
-// lower distinct score than specified store.
-func NewDistinctScoreFilter(scope string, labels []string, stores []*core.StoreInfo, source *core.StoreInfo) Filter {
-	newStores := make([]*core.StoreInfo, 0, len(stores)-1)
-	for _, s := range stores {
-		if s.GetID() == source.GetID() {
-			continue
-		}
-		newStores = append(newStores, s)
-	}
-
-	return &distinctScoreFilter{
-		scope:     scope,
-		labels:    labels,
-		stores:    newStores,
-		safeScore: core.DistinctScore(labels, newStores, source),
-	}
-}
-
-func (f *distinctScoreFilter) Scope() string {
-	return f.scope
-}
-
-func (f *distinctScoreFilter) Type() string {
-	return "distinct-filter"
-}
-
-func (f *distinctScoreFilter) Source(opt opt.Options, store *core.StoreInfo) bool {
-	return false
-}
-
-func (f *distinctScoreFilter) Target(opt opt.Options, store *core.StoreInfo) bool {
-	return core.DistinctScore(f.labels, f.stores, store) < f.safeScore
-}
-
 // StoreStateFilter is used to determine whether a store can be selected as the
 // source or target of the schedule based on the store's state.
 type StoreStateFilter struct {
@@ -337,17 +209,11 @@ func (f StoreStateFilter) Target(opts opt.Options, store *core.StoreInfo) bool {
 	if f.TransferLeader &&
 		(store.IsDisconnected() ||
 			store.IsBlocked() ||
-			store.IsBusy() ||
-			opts.CheckLabelProperty(opt.RejectLeader, store.GetLabels())) {
+			store.IsBusy()) {
 		return true
 	}
 
 	if f.MoveRegion {
-		// only target consider the pending peers because pending more means the disk is slower.
-		if opts.GetMaxPendingPeerCount() > 0 && store.GetPendingPeerCount() > int(opts.GetMaxPendingPeerCount()) {
-			return true
-		}
-
 		if f.filterMoveRegion(opts, store) {
 			return true
 		}
@@ -364,10 +230,5 @@ func (f StoreStateFilter) filterMoveRegion(opt opt.Options, store *core.StoreInf
 		return true
 	}
 
-	if uint64(store.GetSendingSnapCount()) > opt.GetMaxSnapshotCount() ||
-		uint64(store.GetReceivingSnapCount()) > opt.GetMaxSnapshotCount() ||
-		uint64(store.GetApplyingSnapCount()) > opt.GetMaxSnapshotCount() {
-		return true
-	}
 	return false
 }

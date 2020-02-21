@@ -25,46 +25,23 @@ type Options interface {
 	GetLeaderScheduleLimit() uint64
 	GetRegionScheduleLimit() uint64
 	GetReplicaScheduleLimit() uint64
-	GetMergeScheduleLimit() uint64
 
 	// store limit
 	GetStoreBalanceRate() float64
 
-	GetMaxSnapshotCount() uint64
-	GetMaxPendingPeerCount() uint64
 	GetMaxStoreDownTime() time.Duration
-	GetMaxMergeRegionSize() uint64
-	GetMaxMergeRegionKeys() uint64
-	GetSplitMergeInterval() time.Duration
-	IsOneWayMergeEnabled() bool
-	IsCrossTableMergeEnabled() bool
 
 	GetMaxReplicas() int
-	GetLocationLabels() []string
-	GetStrictlyMatchLabel() bool
-	IsPlacementRulesEnabled() bool
 
 	GetTolerantSizeRatio() float64
-	GetLowSpaceRatio() float64
-	GetHighSpaceRatio() float64
-	GetSchedulerMaxWaitingOperator() uint64
 
 	IsRemoveDownReplicaEnabled() bool
 	IsReplaceOfflineReplicaEnabled() bool
 	IsMakeUpReplicaEnabled() bool
 	IsRemoveExtraReplicaEnabled() bool
-	IsLocationReplacementEnabled() bool
 	GetLeaderScheduleStrategy() core.ScheduleStrategy
 	GetKeyType() core.KeyType
-
-	CheckLabelProperty(typ string, labels []*metapb.StoreLabel) bool
 }
-
-const (
-	// RejectLeader is the label property type that suggests a store should not
-	// have any region leaders.
-	RejectLeader = "reject-leader"
-)
 
 // Cluster provides an overview of a cluster's regions distribution.
 // TODO: This interface should be moved to a better place.

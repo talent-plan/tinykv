@@ -25,7 +25,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/coreos/go-semver/semver"
 	"github.com/golang/protobuf/proto"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
@@ -82,7 +81,6 @@ const (
 	leaderTickInterval = 50 * time.Millisecond
 	// pdRootPath for all pd servers.
 	pdRootPath      = "/pd"
-	pdAPIPrefix     = "/pd/"
 	pdClusterIDPath = "/pd/cluster_id"
 )
 
@@ -478,8 +476,6 @@ func (s *Server) GetConfig() *config.Config {
 	cfg := s.cfg.Clone()
 	cfg.Schedule = *s.scheduleOpt.Load()
 	cfg.Replication = *s.scheduleOpt.GetReplication().Load()
-	cfg.LabelProperty = s.scheduleOpt.LoadLabelPropertyConfig().Clone()
-	cfg.ClusterVersion = *s.scheduleOpt.LoadClusterVersion()
 	cfg.PDServerCfg = *s.scheduleOpt.LoadPDServerConfig()
 	storage := s.GetStorage()
 	if storage == nil {
@@ -504,28 +500,6 @@ func (s *Server) GetScheduleConfig() *config.ScheduleConfig {
 	return cfg
 }
 
-// SetScheduleConfig sets the balance config information.
-func (s *Server) SetScheduleConfig(cfg config.ScheduleConfig) error {
-	if err := cfg.Validate(); err != nil {
-		return err
-	}
-	if err := cfg.Deprecated(); err != nil {
-		return err
-	}
-	old := s.scheduleOpt.Load()
-	s.scheduleOpt.Store(&cfg)
-	if err := s.scheduleOpt.Persist(s.storage); err != nil {
-		s.scheduleOpt.Store(old)
-		log.Error("failed to update schedule config",
-			zap.Reflect("new", cfg),
-			zap.Reflect("old", old),
-			zap.Error(err))
-		return err
-	}
-	log.Info("schedule config is updated", zap.Reflect("new", cfg), zap.Reflect("old", old))
-	return nil
-}
-
 // GetReplicationConfig get the replication config.
 func (s *Server) GetReplicationConfig() *config.ReplicationConfig {
 	cfg := &config.ReplicationConfig{}
@@ -535,104 +509,10 @@ func (s *Server) GetReplicationConfig() *config.ReplicationConfig {
 
 // SetReplicationConfig sets the replication config.
 func (s *Server) SetReplicationConfig(cfg config.ReplicationConfig) error {
-	if err := cfg.Validate(); err != nil {
-		return err
-	}
 	old := s.scheduleOpt.GetReplication().Load()
 	s.scheduleOpt.GetReplication().Store(&cfg)
-	if err := s.scheduleOpt.Persist(s.storage); err != nil {
-		s.scheduleOpt.GetReplication().Store(old)
-		log.Error("failed to update replication config",
-			zap.Reflect("new", cfg),
-			zap.Reflect("old", old),
-			zap.Error(err))
-		return err
-	}
 	log.Info("replication config is updated", zap.Reflect("new", cfg), zap.Reflect("old", old))
 	return nil
-}
-
-// SetPDServerConfig sets the server config.
-func (s *Server) SetPDServerConfig(cfg config.PDServerConfig) error {
-	old := s.scheduleOpt.LoadPDServerConfig()
-	s.scheduleOpt.SetPDServerConfig(&cfg)
-	if err := s.scheduleOpt.Persist(s.storage); err != nil {
-		s.scheduleOpt.SetPDServerConfig(old)
-		log.Error("failed to update PDServer config",
-			zap.Reflect("new", cfg),
-			zap.Reflect("old", old),
-			zap.Error(err))
-		return err
-	}
-	log.Info("PD server config is updated", zap.Reflect("new", cfg), zap.Reflect("old", old))
-	return nil
-}
-
-// SetLabelProperty inserts a label property config.
-func (s *Server) SetLabelProperty(typ, labelKey, labelValue string) error {
-	s.scheduleOpt.SetLabelProperty(typ, labelKey, labelValue)
-	err := s.scheduleOpt.Persist(s.storage)
-	if err != nil {
-		s.scheduleOpt.DeleteLabelProperty(typ, labelKey, labelValue)
-		log.Error("failed to update label property config",
-			zap.String("typ", typ),
-			zap.String("labelKey", labelKey),
-			zap.String("labelValue", labelValue),
-			zap.Reflect("config", s.scheduleOpt.LoadLabelPropertyConfig()),
-			zap.Error(err))
-		return err
-	}
-	log.Info("label property config is updated", zap.Reflect("config", s.scheduleOpt.LoadLabelPropertyConfig()))
-	return nil
-}
-
-// DeleteLabelProperty deletes a label property config.
-func (s *Server) DeleteLabelProperty(typ, labelKey, labelValue string) error {
-	s.scheduleOpt.DeleteLabelProperty(typ, labelKey, labelValue)
-	err := s.scheduleOpt.Persist(s.storage)
-	if err != nil {
-		s.scheduleOpt.SetLabelProperty(typ, labelKey, labelValue)
-		log.Error("failed to delete label property config",
-			zap.String("typ", typ),
-			zap.String("labelKey", labelKey),
-			zap.String("labelValue", labelValue),
-			zap.Reflect("config", s.scheduleOpt.LoadLabelPropertyConfig()),
-			zap.Error(err))
-		return err
-	}
-	log.Info("label property config is deleted", zap.Reflect("config", s.scheduleOpt.LoadLabelPropertyConfig()))
-	return nil
-}
-
-// GetLabelProperty returns the whole label property config.
-func (s *Server) GetLabelProperty() config.LabelPropertyConfig {
-	return s.scheduleOpt.LoadLabelPropertyConfig().Clone()
-}
-
-// SetClusterVersion sets the version of cluster.
-func (s *Server) SetClusterVersion(v string) error {
-	version, err := ParseVersion(v)
-	if err != nil {
-		return err
-	}
-	old := s.scheduleOpt.LoadClusterVersion()
-	s.scheduleOpt.SetClusterVersion(version)
-	err = s.scheduleOpt.Persist(s.storage)
-	if err != nil {
-		s.scheduleOpt.SetClusterVersion(old)
-		log.Error("failed to update cluster version",
-			zap.String("old-version", old.String()),
-			zap.String("new-version", v),
-			zap.Error(err))
-		return err
-	}
-	log.Info("cluster version is updated", zap.String("new-version", v))
-	return nil
-}
-
-// GetClusterVersion returns the version of cluster.
-func (s *Server) GetClusterVersion() semver.Version {
-	return *s.scheduleOpt.LoadClusterVersion()
 }
 
 // GetSecurityConfig get the security config.
@@ -719,11 +599,6 @@ func (s *Server) leaderLoop() {
 			continue
 		}
 		if leader != nil {
-			err := s.reloadConfigFromKV()
-			if err != nil {
-				log.Error("reload config failed", zap.Error(err))
-				continue
-			}
 			log.Info("start watch leader", zap.Stringer("leader", leader))
 			s.member.WatchLeader(s.serverLoopCtx, leader, rev)
 			log.Info("leader changed, try to campaign leader")
@@ -768,13 +643,8 @@ func (s *Server) campaignLeader() {
 	}
 	defer s.tso.ResetTimestamp()
 
-	err := s.reloadConfigFromKV()
-	if err != nil {
-		log.Error("failed to reload configuration", zap.Error(err))
-		return
-	}
 	// Try to create raft cluster.
-	err = s.createRaftCluster()
+	err := s.createRaftCluster()
 	if err != nil {
 		log.Error("failed to create raft cluster", zap.Error(err))
 		return
@@ -784,7 +654,6 @@ func (s *Server) campaignLeader() {
 	s.member.EnableLeader()
 	defer s.member.DisableLeader()
 
-	CheckPDVersion(s.scheduleOpt)
 	log.Info("PD cluster leader is ready to serve", zap.String("leader-name", s.Name()))
 
 	tsTicker := time.NewTicker(tso.UpdateTimestampStep)
@@ -832,12 +701,4 @@ func (s *Server) etcdLeaderLoop() {
 			return
 		}
 	}
-}
-
-func (s *Server) reloadConfigFromKV() error {
-	err := s.scheduleOpt.Reload(s.storage)
-	if err != nil {
-		return err
-	}
-	return nil
 }

@@ -16,7 +16,6 @@ package mockoption
 import (
 	"time"
 
-	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 )
 
@@ -26,7 +25,6 @@ const (
 	defaultMaxPendingPeerCount         = 16
 	defaultMaxMergeRegionSize          = 0
 	defaultMaxMergeRegionKeys          = 0
-	defaultSplitMergeInterval          = 0
 	defaultMaxStoreDownTime            = 30 * time.Minute
 	defaultLeaderScheduleLimit         = 4
 	defaultRegionScheduleLimit         = 64
@@ -34,12 +32,8 @@ const (
 	defaultMergeScheduleLimit          = 8
 	defaultStoreBalanceRate            = 60
 	defaultTolerantSizeRatio           = 2.5
-	defaultLowSpaceRatio               = 0.8
-	defaultHighSpaceRatio              = 0.6
 	defaultSchedulerMaxWaitingOperator = 3
-	defaultStrictlyMatchLabel          = true
 	defaultLeaderScheduleStrategy      = "count"
-	defaultEnablePlacementRules        = false
 	defaultKeyType                     = "table"
 )
 
@@ -56,30 +50,21 @@ type ScheduleOptions struct {
 	MaxMergeRegionSize           uint64
 	MaxMergeRegionKeys           uint64
 	SchedulerMaxWaitingOperator  uint64
-	SplitMergeInterval           time.Duration
 	EnableOneWayMerge            bool
 	EnableCrossTableMerge        bool
 	KeyType                      string
 	MaxStoreDownTime             time.Duration
 	MaxReplicas                  int
-	LocationLabels               []string
-	StrictlyMatchLabel           bool
 	TolerantSizeRatio            float64
-	LowSpaceRatio                float64
-	HighSpaceRatio               float64
 	EnableRemoveDownReplica      bool
 	EnableReplaceOfflineReplica  bool
 	EnableMakeUpReplica          bool
 	EnableRemoveExtraReplica     bool
-	EnableLocationReplacement    bool
-	EnablePlacementRules         bool
 	DisableRemoveDownReplica     bool
 	DisableReplaceOfflineReplica bool
 	DisableMakeUpReplica         bool
 	DisableRemoveExtraReplica    bool
-	DisableLocationReplacement   bool
 	LeaderScheduleStrategy       string
-	LabelProperties              map[string][]*metapb.StoreLabel
 }
 
 // NewScheduleOptions creates a mock schedule option.
@@ -94,20 +79,14 @@ func NewScheduleOptions() *ScheduleOptions {
 	mso.MaxMergeRegionSize = defaultMaxMergeRegionSize
 	mso.MaxMergeRegionKeys = defaultMaxMergeRegionKeys
 	mso.SchedulerMaxWaitingOperator = defaultSchedulerMaxWaitingOperator
-	mso.SplitMergeInterval = defaultSplitMergeInterval
 	mso.MaxStoreDownTime = defaultMaxStoreDownTime
 	mso.MaxReplicas = defaultMaxReplicas
-	mso.StrictlyMatchLabel = defaultStrictlyMatchLabel
-	mso.EnablePlacementRules = defaultEnablePlacementRules
 	mso.MaxPendingPeerCount = defaultMaxPendingPeerCount
 	mso.TolerantSizeRatio = defaultTolerantSizeRatio
-	mso.LowSpaceRatio = defaultLowSpaceRatio
-	mso.HighSpaceRatio = defaultHighSpaceRatio
 	mso.EnableRemoveDownReplica = true
 	mso.EnableReplaceOfflineReplica = true
 	mso.EnableMakeUpReplica = true
 	mso.EnableRemoveExtraReplica = true
-	mso.EnableLocationReplacement = true
 	mso.LeaderScheduleStrategy = defaultLeaderScheduleStrategy
 	mso.KeyType = defaultKeyType
 	return mso
@@ -138,16 +117,6 @@ func (mso *ScheduleOptions) GetStoreBalanceRate() float64 {
 	return mso.StoreBalanceRate
 }
 
-// GetMaxSnapshotCount mocks method
-func (mso *ScheduleOptions) GetMaxSnapshotCount() uint64 {
-	return mso.MaxSnapshotCount
-}
-
-// GetMaxPendingPeerCount mocks method
-func (mso *ScheduleOptions) GetMaxPendingPeerCount() uint64 {
-	return mso.MaxPendingPeerCount
-}
-
 // GetMaxMergeRegionSize mocks method
 func (mso *ScheduleOptions) GetMaxMergeRegionSize() uint64 {
 	return mso.MaxMergeRegionSize
@@ -156,11 +125,6 @@ func (mso *ScheduleOptions) GetMaxMergeRegionSize() uint64 {
 // GetMaxMergeRegionKeys mocks method
 func (mso *ScheduleOptions) GetMaxMergeRegionKeys() uint64 {
 	return mso.MaxMergeRegionKeys
-}
-
-// GetSplitMergeInterval mocks method
-func (mso *ScheduleOptions) GetSplitMergeInterval() time.Duration {
-	return mso.SplitMergeInterval
 }
 
 // IsOneWayMergeEnabled mocks method
@@ -183,34 +147,9 @@ func (mso *ScheduleOptions) GetMaxReplicas() int {
 	return mso.MaxReplicas
 }
 
-// GetLocationLabels mocks method
-func (mso *ScheduleOptions) GetLocationLabels() []string {
-	return mso.LocationLabels
-}
-
-// GetStrictlyMatchLabel mocks method
-func (mso *ScheduleOptions) GetStrictlyMatchLabel() bool {
-	return mso.StrictlyMatchLabel
-}
-
-// IsPlacementRulesEnabled mocks method
-func (mso *ScheduleOptions) IsPlacementRulesEnabled() bool {
-	return mso.EnablePlacementRules
-}
-
 // GetTolerantSizeRatio mocks method
 func (mso *ScheduleOptions) GetTolerantSizeRatio() float64 {
 	return mso.TolerantSizeRatio
-}
-
-// GetLowSpaceRatio mocks method
-func (mso *ScheduleOptions) GetLowSpaceRatio() float64 {
-	return mso.LowSpaceRatio
-}
-
-// GetHighSpaceRatio mocks method
-func (mso *ScheduleOptions) GetHighSpaceRatio() float64 {
-	return mso.HighSpaceRatio
 }
 
 // GetSchedulerMaxWaitingOperator mocks method.
@@ -241,11 +180,6 @@ func (mso *ScheduleOptions) IsMakeUpReplicaEnabled() bool {
 // IsRemoveExtraReplicaEnabled mocks method.
 func (mso *ScheduleOptions) IsRemoveExtraReplicaEnabled() bool {
 	return mso.EnableRemoveExtraReplica
-}
-
-// IsLocationReplacementEnabled mocks method.
-func (mso *ScheduleOptions) IsLocationReplacementEnabled() bool {
-	return mso.EnableLocationReplacement
 }
 
 // GetLeaderScheduleStrategy is to get leader schedule strategy.

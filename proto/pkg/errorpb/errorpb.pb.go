@@ -38,7 +38,7 @@ func (m *NotLeader) Reset()         { *m = NotLeader{} }
 func (m *NotLeader) String() string { return proto.CompactTextString(m) }
 func (*NotLeader) ProtoMessage()    {}
 func (*NotLeader) Descriptor() ([]byte, []int) {
-	return fileDescriptor_errorpb_1b641c8200630b0e, []int{0}
+	return fileDescriptor_errorpb_03375921e2a153aa, []int{0}
 }
 func (m *NotLeader) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -93,7 +93,7 @@ func (m *StoreNotMatch) Reset()         { *m = StoreNotMatch{} }
 func (m *StoreNotMatch) String() string { return proto.CompactTextString(m) }
 func (*StoreNotMatch) ProtoMessage()    {}
 func (*StoreNotMatch) Descriptor() ([]byte, []int) {
-	return fileDescriptor_errorpb_1b641c8200630b0e, []int{1}
+	return fileDescriptor_errorpb_03375921e2a153aa, []int{1}
 }
 func (m *StoreNotMatch) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -147,7 +147,7 @@ func (m *RegionNotFound) Reset()         { *m = RegionNotFound{} }
 func (m *RegionNotFound) String() string { return proto.CompactTextString(m) }
 func (*RegionNotFound) ProtoMessage()    {}
 func (*RegionNotFound) Descriptor() ([]byte, []int) {
-	return fileDescriptor_errorpb_1b641c8200630b0e, []int{2}
+	return fileDescriptor_errorpb_03375921e2a153aa, []int{2}
 }
 func (m *RegionNotFound) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -197,7 +197,7 @@ func (m *KeyNotInRegion) Reset()         { *m = KeyNotInRegion{} }
 func (m *KeyNotInRegion) String() string { return proto.CompactTextString(m) }
 func (*KeyNotInRegion) ProtoMessage()    {}
 func (*KeyNotInRegion) Descriptor() ([]byte, []int) {
-	return fileDescriptor_errorpb_1b641c8200630b0e, []int{3}
+	return fileDescriptor_errorpb_03375921e2a153aa, []int{3}
 }
 func (m *KeyNotInRegion) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -265,7 +265,7 @@ func (m *EpochNotMatch) Reset()         { *m = EpochNotMatch{} }
 func (m *EpochNotMatch) String() string { return proto.CompactTextString(m) }
 func (*EpochNotMatch) ProtoMessage()    {}
 func (*EpochNotMatch) Descriptor() ([]byte, []int) {
-	return fileDescriptor_errorpb_1b641c8200630b0e, []int{4}
+	return fileDescriptor_errorpb_03375921e2a153aa, []int{4}
 }
 func (m *EpochNotMatch) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -301,61 +301,6 @@ func (m *EpochNotMatch) GetCurrentRegions() []*metapb.Region {
 	return nil
 }
 
-type ServerIsBusy struct {
-	Reason               string   `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
-	BackoffMs            uint64   `protobuf:"varint,2,opt,name=backoff_ms,json=backoffMs,proto3" json:"backoff_ms,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *ServerIsBusy) Reset()         { *m = ServerIsBusy{} }
-func (m *ServerIsBusy) String() string { return proto.CompactTextString(m) }
-func (*ServerIsBusy) ProtoMessage()    {}
-func (*ServerIsBusy) Descriptor() ([]byte, []int) {
-	return fileDescriptor_errorpb_1b641c8200630b0e, []int{5}
-}
-func (m *ServerIsBusy) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *ServerIsBusy) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_ServerIsBusy.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (dst *ServerIsBusy) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ServerIsBusy.Merge(dst, src)
-}
-func (m *ServerIsBusy) XXX_Size() int {
-	return m.Size()
-}
-func (m *ServerIsBusy) XXX_DiscardUnknown() {
-	xxx_messageInfo_ServerIsBusy.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_ServerIsBusy proto.InternalMessageInfo
-
-func (m *ServerIsBusy) GetReason() string {
-	if m != nil {
-		return m.Reason
-	}
-	return ""
-}
-
-func (m *ServerIsBusy) GetBackoffMs() uint64 {
-	if m != nil {
-		return m.BackoffMs
-	}
-	return 0
-}
-
 type StaleCommand struct {
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -366,7 +311,7 @@ func (m *StaleCommand) Reset()         { *m = StaleCommand{} }
 func (m *StaleCommand) String() string { return proto.CompactTextString(m) }
 func (*StaleCommand) ProtoMessage()    {}
 func (*StaleCommand) Descriptor() ([]byte, []int) {
-	return fileDescriptor_errorpb_1b641c8200630b0e, []int{6}
+	return fileDescriptor_errorpb_03375921e2a153aa, []int{5}
 }
 func (m *StaleCommand) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -395,81 +340,24 @@ func (m *StaleCommand) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_StaleCommand proto.InternalMessageInfo
 
-type RaftEntryTooLarge struct {
-	RegionId             uint64   `protobuf:"varint,1,opt,name=region_id,json=regionId,proto3" json:"region_id,omitempty"`
-	EntrySize            uint64   `protobuf:"varint,2,opt,name=entry_size,json=entrySize,proto3" json:"entry_size,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *RaftEntryTooLarge) Reset()         { *m = RaftEntryTooLarge{} }
-func (m *RaftEntryTooLarge) String() string { return proto.CompactTextString(m) }
-func (*RaftEntryTooLarge) ProtoMessage()    {}
-func (*RaftEntryTooLarge) Descriptor() ([]byte, []int) {
-	return fileDescriptor_errorpb_1b641c8200630b0e, []int{7}
-}
-func (m *RaftEntryTooLarge) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *RaftEntryTooLarge) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_RaftEntryTooLarge.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (dst *RaftEntryTooLarge) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_RaftEntryTooLarge.Merge(dst, src)
-}
-func (m *RaftEntryTooLarge) XXX_Size() int {
-	return m.Size()
-}
-func (m *RaftEntryTooLarge) XXX_DiscardUnknown() {
-	xxx_messageInfo_RaftEntryTooLarge.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_RaftEntryTooLarge proto.InternalMessageInfo
-
-func (m *RaftEntryTooLarge) GetRegionId() uint64 {
-	if m != nil {
-		return m.RegionId
-	}
-	return 0
-}
-
-func (m *RaftEntryTooLarge) GetEntrySize() uint64 {
-	if m != nil {
-		return m.EntrySize
-	}
-	return 0
-}
-
 type Error struct {
-	Message              string             `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
-	NotLeader            *NotLeader         `protobuf:"bytes,2,opt,name=not_leader,json=notLeader" json:"not_leader,omitempty"`
-	RegionNotFound       *RegionNotFound    `protobuf:"bytes,3,opt,name=region_not_found,json=regionNotFound" json:"region_not_found,omitempty"`
-	KeyNotInRegion       *KeyNotInRegion    `protobuf:"bytes,4,opt,name=key_not_in_region,json=keyNotInRegion" json:"key_not_in_region,omitempty"`
-	EpochNotMatch        *EpochNotMatch     `protobuf:"bytes,5,opt,name=epoch_not_match,json=epochNotMatch" json:"epoch_not_match,omitempty"`
-	ServerIsBusy         *ServerIsBusy      `protobuf:"bytes,6,opt,name=server_is_busy,json=serverIsBusy" json:"server_is_busy,omitempty"`
-	StaleCommand         *StaleCommand      `protobuf:"bytes,7,opt,name=stale_command,json=staleCommand" json:"stale_command,omitempty"`
-	StoreNotMatch        *StoreNotMatch     `protobuf:"bytes,8,opt,name=store_not_match,json=storeNotMatch" json:"store_not_match,omitempty"`
-	RaftEntryTooLarge    *RaftEntryTooLarge `protobuf:"bytes,9,opt,name=raft_entry_too_large,json=raftEntryTooLarge" json:"raft_entry_too_large,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}           `json:"-"`
-	XXX_unrecognized     []byte             `json:"-"`
-	XXX_sizecache        int32              `json:"-"`
+	Message              string          `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	NotLeader            *NotLeader      `protobuf:"bytes,2,opt,name=not_leader,json=notLeader" json:"not_leader,omitempty"`
+	RegionNotFound       *RegionNotFound `protobuf:"bytes,3,opt,name=region_not_found,json=regionNotFound" json:"region_not_found,omitempty"`
+	KeyNotInRegion       *KeyNotInRegion `protobuf:"bytes,4,opt,name=key_not_in_region,json=keyNotInRegion" json:"key_not_in_region,omitempty"`
+	EpochNotMatch        *EpochNotMatch  `protobuf:"bytes,5,opt,name=epoch_not_match,json=epochNotMatch" json:"epoch_not_match,omitempty"`
+	StaleCommand         *StaleCommand   `protobuf:"bytes,7,opt,name=stale_command,json=staleCommand" json:"stale_command,omitempty"`
+	StoreNotMatch        *StoreNotMatch  `protobuf:"bytes,8,opt,name=store_not_match,json=storeNotMatch" json:"store_not_match,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}        `json:"-"`
+	XXX_unrecognized     []byte          `json:"-"`
+	XXX_sizecache        int32           `json:"-"`
 }
 
 func (m *Error) Reset()         { *m = Error{} }
 func (m *Error) String() string { return proto.CompactTextString(m) }
 func (*Error) ProtoMessage()    {}
 func (*Error) Descriptor() ([]byte, []int) {
-	return fileDescriptor_errorpb_1b641c8200630b0e, []int{8}
+	return fileDescriptor_errorpb_03375921e2a153aa, []int{6}
 }
 func (m *Error) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -533,13 +421,6 @@ func (m *Error) GetEpochNotMatch() *EpochNotMatch {
 	return nil
 }
 
-func (m *Error) GetServerIsBusy() *ServerIsBusy {
-	if m != nil {
-		return m.ServerIsBusy
-	}
-	return nil
-}
-
 func (m *Error) GetStaleCommand() *StaleCommand {
 	if m != nil {
 		return m.StaleCommand
@@ -554,22 +435,13 @@ func (m *Error) GetStoreNotMatch() *StoreNotMatch {
 	return nil
 }
 
-func (m *Error) GetRaftEntryTooLarge() *RaftEntryTooLarge {
-	if m != nil {
-		return m.RaftEntryTooLarge
-	}
-	return nil
-}
-
 func init() {
 	proto.RegisterType((*NotLeader)(nil), "errorpb.NotLeader")
 	proto.RegisterType((*StoreNotMatch)(nil), "errorpb.StoreNotMatch")
 	proto.RegisterType((*RegionNotFound)(nil), "errorpb.RegionNotFound")
 	proto.RegisterType((*KeyNotInRegion)(nil), "errorpb.KeyNotInRegion")
 	proto.RegisterType((*EpochNotMatch)(nil), "errorpb.EpochNotMatch")
-	proto.RegisterType((*ServerIsBusy)(nil), "errorpb.ServerIsBusy")
 	proto.RegisterType((*StaleCommand)(nil), "errorpb.StaleCommand")
-	proto.RegisterType((*RaftEntryTooLarge)(nil), "errorpb.RaftEntryTooLarge")
 	proto.RegisterType((*Error)(nil), "errorpb.Error")
 }
 func (m *NotLeader) Marshal() (dAtA []byte, err error) {
@@ -742,38 +614,6 @@ func (m *EpochNotMatch) MarshalTo(dAtA []byte) (int, error) {
 	return i, nil
 }
 
-func (m *ServerIsBusy) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *ServerIsBusy) MarshalTo(dAtA []byte) (int, error) {
-	var i int
-	_ = i
-	var l int
-	_ = l
-	if len(m.Reason) > 0 {
-		dAtA[i] = 0xa
-		i++
-		i = encodeVarintErrorpb(dAtA, i, uint64(len(m.Reason)))
-		i += copy(dAtA[i:], m.Reason)
-	}
-	if m.BackoffMs != 0 {
-		dAtA[i] = 0x10
-		i++
-		i = encodeVarintErrorpb(dAtA, i, uint64(m.BackoffMs))
-	}
-	if m.XXX_unrecognized != nil {
-		i += copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	return i, nil
-}
-
 func (m *StaleCommand) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
@@ -789,37 +629,6 @@ func (m *StaleCommand) MarshalTo(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
-	if m.XXX_unrecognized != nil {
-		i += copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	return i, nil
-}
-
-func (m *RaftEntryTooLarge) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *RaftEntryTooLarge) MarshalTo(dAtA []byte) (int, error) {
-	var i int
-	_ = i
-	var l int
-	_ = l
-	if m.RegionId != 0 {
-		dAtA[i] = 0x8
-		i++
-		i = encodeVarintErrorpb(dAtA, i, uint64(m.RegionId))
-	}
-	if m.EntrySize != 0 {
-		dAtA[i] = 0x10
-		i++
-		i = encodeVarintErrorpb(dAtA, i, uint64(m.EntrySize))
-	}
 	if m.XXX_unrecognized != nil {
 		i += copy(dAtA[i:], m.XXX_unrecognized)
 	}
@@ -887,45 +696,25 @@ func (m *Error) MarshalTo(dAtA []byte) (int, error) {
 		}
 		i += n5
 	}
-	if m.ServerIsBusy != nil {
-		dAtA[i] = 0x32
+	if m.StaleCommand != nil {
+		dAtA[i] = 0x3a
 		i++
-		i = encodeVarintErrorpb(dAtA, i, uint64(m.ServerIsBusy.Size()))
-		n6, err := m.ServerIsBusy.MarshalTo(dAtA[i:])
+		i = encodeVarintErrorpb(dAtA, i, uint64(m.StaleCommand.Size()))
+		n6, err := m.StaleCommand.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
 		i += n6
 	}
-	if m.StaleCommand != nil {
-		dAtA[i] = 0x3a
-		i++
-		i = encodeVarintErrorpb(dAtA, i, uint64(m.StaleCommand.Size()))
-		n7, err := m.StaleCommand.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n7
-	}
 	if m.StoreNotMatch != nil {
 		dAtA[i] = 0x42
 		i++
 		i = encodeVarintErrorpb(dAtA, i, uint64(m.StoreNotMatch.Size()))
-		n8, err := m.StoreNotMatch.MarshalTo(dAtA[i:])
+		n7, err := m.StoreNotMatch.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n8
-	}
-	if m.RaftEntryTooLarge != nil {
-		dAtA[i] = 0x4a
-		i++
-		i = encodeVarintErrorpb(dAtA, i, uint64(m.RaftEntryTooLarge.Size()))
-		n9, err := m.RaftEntryTooLarge.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n9
+		i += n7
 	}
 	if m.XXX_unrecognized != nil {
 		i += copy(dAtA[i:], m.XXX_unrecognized)
@@ -1024,40 +813,9 @@ func (m *EpochNotMatch) Size() (n int) {
 	return n
 }
 
-func (m *ServerIsBusy) Size() (n int) {
-	var l int
-	_ = l
-	l = len(m.Reason)
-	if l > 0 {
-		n += 1 + l + sovErrorpb(uint64(l))
-	}
-	if m.BackoffMs != 0 {
-		n += 1 + sovErrorpb(uint64(m.BackoffMs))
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
 func (m *StaleCommand) Size() (n int) {
 	var l int
 	_ = l
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *RaftEntryTooLarge) Size() (n int) {
-	var l int
-	_ = l
-	if m.RegionId != 0 {
-		n += 1 + sovErrorpb(uint64(m.RegionId))
-	}
-	if m.EntrySize != 0 {
-		n += 1 + sovErrorpb(uint64(m.EntrySize))
-	}
 	if m.XXX_unrecognized != nil {
 		n += len(m.XXX_unrecognized)
 	}
@@ -1087,20 +845,12 @@ func (m *Error) Size() (n int) {
 		l = m.EpochNotMatch.Size()
 		n += 1 + l + sovErrorpb(uint64(l))
 	}
-	if m.ServerIsBusy != nil {
-		l = m.ServerIsBusy.Size()
-		n += 1 + l + sovErrorpb(uint64(l))
-	}
 	if m.StaleCommand != nil {
 		l = m.StaleCommand.Size()
 		n += 1 + l + sovErrorpb(uint64(l))
 	}
 	if m.StoreNotMatch != nil {
 		l = m.StoreNotMatch.Size()
-		n += 1 + l + sovErrorpb(uint64(l))
-	}
-	if m.RaftEntryTooLarge != nil {
-		l = m.RaftEntryTooLarge.Size()
 		n += 1 + l + sovErrorpb(uint64(l))
 	}
 	if m.XXX_unrecognized != nil {
@@ -1629,105 +1379,6 @@ func (m *EpochNotMatch) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *ServerIsBusy) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowErrorpb
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= (uint64(b) & 0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: ServerIsBusy: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ServerIsBusy: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Reason", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowErrorpb
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= (uint64(b) & 0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthErrorpb
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Reason = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 2:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field BackoffMs", wireType)
-			}
-			m.BackoffMs = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowErrorpb
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.BackoffMs |= (uint64(b) & 0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		default:
-			iNdEx = preIndex
-			skippy, err := skipErrorpb(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthErrorpb
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
 func (m *StaleCommand) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -1757,95 +1408,6 @@ func (m *StaleCommand) Unmarshal(dAtA []byte) error {
 			return fmt.Errorf("proto: StaleCommand: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
-		default:
-			iNdEx = preIndex
-			skippy, err := skipErrorpb(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthErrorpb
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *RaftEntryTooLarge) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowErrorpb
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= (uint64(b) & 0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: RaftEntryTooLarge: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: RaftEntryTooLarge: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field RegionId", wireType)
-			}
-			m.RegionId = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowErrorpb
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.RegionId |= (uint64(b) & 0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 2:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EntrySize", wireType)
-			}
-			m.EntrySize = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowErrorpb
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.EntrySize |= (uint64(b) & 0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
 		default:
 			iNdEx = preIndex
 			skippy, err := skipErrorpb(dAtA[iNdEx:])
@@ -2058,39 +1620,6 @@ func (m *Error) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 6:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ServerIsBusy", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowErrorpb
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= (int(b) & 0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthErrorpb
-			}
-			postIndex := iNdEx + msglen
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.ServerIsBusy == nil {
-				m.ServerIsBusy = &ServerIsBusy{}
-			}
-			if err := m.ServerIsBusy.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
 		case 7:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field StaleCommand", wireType)
@@ -2154,39 +1683,6 @@ func (m *Error) Unmarshal(dAtA []byte) error {
 				m.StoreNotMatch = &StoreNotMatch{}
 			}
 			if err := m.StoreNotMatch.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 9:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field RaftEntryTooLarge", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowErrorpb
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= (int(b) & 0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthErrorpb
-			}
-			postIndex := iNdEx + msglen
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.RaftEntryTooLarge == nil {
-				m.RaftEntryTooLarge = &RaftEntryTooLarge{}
-			}
-			if err := m.RaftEntryTooLarge.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -2317,48 +1813,40 @@ var (
 	ErrIntOverflowErrorpb   = fmt.Errorf("proto: integer overflow")
 )
 
-func init() { proto.RegisterFile("errorpb.proto", fileDescriptor_errorpb_1b641c8200630b0e) }
+func init() { proto.RegisterFile("errorpb.proto", fileDescriptor_errorpb_03375921e2a153aa) }
 
-var fileDescriptor_errorpb_1b641c8200630b0e = []byte{
-	// 637 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x7c, 0x54, 0xdd, 0x6e, 0xd3, 0x30,
-	0x14, 0x26, 0xfb, 0x69, 0x97, 0xd3, 0x24, 0xdb, 0xa2, 0xb1, 0x45, 0x9b, 0x56, 0x4d, 0x11, 0x42,
-	0xbd, 0xa1, 0x88, 0x71, 0x81, 0x04, 0x12, 0x12, 0x43, 0x45, 0x54, 0xdd, 0x0a, 0x72, 0xb9, 0x8f,
-	0xdc, 0xe6, 0xb4, 0x8b, 0xda, 0xda, 0xc3, 0x76, 0x26, 0x65, 0x4f, 0xc2, 0x53, 0xf0, 0x1c, 0x5c,
-	0xf2, 0x08, 0xa8, 0xbc, 0x08, 0xb2, 0x93, 0xa6, 0x4d, 0x91, 0x76, 0x55, 0x9f, 0xcf, 0xe7, 0xfb,
-	0x7a, 0xec, 0xef, 0x73, 0xc0, 0x45, 0x21, 0xb8, 0xb8, 0x1b, 0xb6, 0xef, 0x04, 0x57, 0xdc, 0xaf,
-	0x17, 0xe5, 0xa9, 0x33, 0x47, 0x45, 0x97, 0xf0, 0xe9, 0xd1, 0x84, 0x4f, 0xb8, 0x59, 0xbe, 0xd4,
-	0xab, 0x1c, 0x0d, 0xfb, 0x60, 0xf7, 0xb9, 0xba, 0x46, 0x1a, 0xa3, 0xf0, 0xcf, 0xc0, 0x16, 0x38,
-	0x49, 0x38, 0x8b, 0x92, 0x38, 0xb0, 0x2e, 0xac, 0xd6, 0x0e, 0xd9, 0xcb, 0x81, 0x6e, 0xec, 0x3f,
-	0x83, 0xda, 0xcc, 0xb4, 0x05, 0x5b, 0x17, 0x56, 0xab, 0x71, 0xe9, 0xb4, 0x0b, 0xf9, 0xaf, 0x88,
-	0x82, 0x14, 0x7b, 0x21, 0x05, 0x77, 0xa0, 0xb8, 0xc0, 0x3e, 0x57, 0x37, 0x54, 0x8d, 0x6e, 0xfd,
-	0x16, 0x1c, 0x08, 0xfc, 0x9e, 0xa2, 0x54, 0x91, 0xd4, 0x1b, 0x2b, 0x69, 0xaf, 0xc0, 0x4d, 0x7f,
-	0x37, 0xf6, 0x9f, 0xc3, 0x3e, 0x1d, 0xa9, 0x94, 0xce, 0x56, 0x8d, 0x5b, 0xa6, 0xd1, 0xcd, 0xe1,
-	0xa2, 0x2f, 0x7c, 0x01, 0x1e, 0x31, 0x43, 0xf5, 0xb9, 0xfa, 0xc4, 0x53, 0x16, 0x3f, 0x3a, 0x77,
-	0x98, 0x82, 0xd7, 0xc3, 0xac, 0xcf, 0x55, 0x97, 0xe5, 0x34, 0xff, 0x00, 0xb6, 0xa7, 0x98, 0x99,
-	0x46, 0x87, 0xe8, 0x65, 0x55, 0x60, 0x6b, 0xe3, 0xe0, 0x67, 0x60, 0x4b, 0x45, 0x85, 0x8a, 0x34,
-	0x69, 0xdb, 0x90, 0xf6, 0x0c, 0xd0, 0xc3, 0xcc, 0x3f, 0x81, 0x3a, 0xb2, 0xd8, 0x6c, 0xed, 0x98,
-	0xad, 0x1a, 0xb2, 0xb8, 0x87, 0x59, 0xf8, 0x19, 0xdc, 0xce, 0x1d, 0x1f, 0xdd, 0x96, 0x17, 0xf1,
-	0x06, 0xf6, 0x47, 0xa9, 0x10, 0xc8, 0x54, 0x94, 0x4b, 0xcb, 0xc0, 0xba, 0xd8, 0x6e, 0x35, 0x2e,
-	0xbd, 0xe5, 0x45, 0xe6, 0xe3, 0x11, 0xaf, 0x68, 0xcb, 0x4b, 0x19, 0x76, 0xc0, 0x19, 0xa0, 0xb8,
-	0x47, 0xd1, 0x95, 0x57, 0xa9, 0xcc, 0xfc, 0x63, 0xa8, 0x09, 0xa4, 0x92, 0x33, 0x73, 0x02, 0x9b,
-	0x14, 0x95, 0x7f, 0x0e, 0x30, 0xa4, 0xa3, 0x29, 0x1f, 0x8f, 0xa3, 0xb9, 0x2c, 0x4e, 0x61, 0x17,
-	0xc8, 0x8d, 0x0c, 0x3d, 0x70, 0x06, 0x8a, 0xce, 0xf0, 0x23, 0x9f, 0xcf, 0x29, 0x8b, 0xc3, 0x2f,
-	0x70, 0x48, 0xe8, 0x58, 0x75, 0x98, 0x12, 0xd9, 0x37, 0xce, 0xaf, 0xa9, 0x98, 0xe0, 0xe3, 0x09,
-	0x38, 0x07, 0x40, 0xdd, 0x1d, 0xc9, 0xe4, 0x01, 0x97, 0x7f, 0x60, 0x90, 0x41, 0xf2, 0x80, 0xe1,
-	0xcf, 0x1d, 0xd8, 0xed, 0xe8, 0xe8, 0xf9, 0x01, 0xd4, 0xe7, 0x28, 0x25, 0x9d, 0x60, 0x31, 0xe2,
-	0xb2, 0xf4, 0x5f, 0x01, 0x30, 0xae, 0xa2, 0x4a, 0x90, 0xfc, 0xf6, 0x32, 0xbf, 0x65, 0x12, 0x89,
-	0xcd, 0xca, 0x50, 0x7e, 0xd0, 0x01, 0x32, 0x23, 0x69, 0xe6, 0x58, 0x1b, 0x6e, 0x5c, 0x68, 0x5c,
-	0x9e, 0x94, 0xc4, 0x6a, 0x1e, 0x74, 0xb2, 0x2a, 0xf9, 0xb8, 0x82, 0xc3, 0x29, 0x66, 0x86, 0x9f,
-	0xb0, 0xe2, 0xf6, 0x8d, 0x5d, 0xeb, 0x1a, 0xd5, 0x90, 0x10, 0x6f, 0x5a, 0x0d, 0xcd, 0x7b, 0xd8,
-	0x47, 0xed, 0xa7, 0x51, 0x99, 0x6b, 0x47, 0x83, 0x5d, 0xa3, 0x70, 0x5c, 0x2a, 0x54, 0xfc, 0x26,
-	0x2e, 0x56, 0xec, 0x7f, 0x07, 0x9e, 0x34, 0x2e, 0x46, 0x89, 0x8c, 0x86, 0xa9, 0xcc, 0x82, 0x9a,
-	0xa1, 0x3f, 0x2d, 0xe9, 0xeb, 0x26, 0x13, 0x47, 0xae, 0x5b, 0xfe, 0x16, 0x5c, 0xa9, 0xbd, 0x8b,
-	0x46, 0xb9, 0x79, 0x41, 0x7d, 0x93, 0xbb, 0xe6, 0x2c, 0x71, 0xe4, 0x5a, 0xa5, 0x07, 0xcf, 0xdf,
-	0xd3, 0x6a, 0xf0, 0xbd, 0x8d, 0xc1, 0x2b, 0x2f, 0x96, 0xb8, 0xb2, 0xf2, 0x80, 0x7b, 0x70, 0x24,
-	0xe8, 0x58, 0x45, 0xb9, 0xf5, 0x8a, 0xf3, 0x68, 0xa6, 0xa3, 0x12, 0xd8, 0x46, 0xe4, 0x74, 0xe5,
-	0xc1, 0x66, 0x98, 0xc8, 0xa1, 0xf8, 0x0f, 0x6a, 0xe4, 0xc7, 0x30, 0x57, 0x73, 0x15, 0xfe, 0x5a,
-	0x34, 0xad, 0xdf, 0x8b, 0xa6, 0xf5, 0x67, 0xd1, 0xb4, 0x7e, 0xfc, 0x6d, 0x3e, 0x81, 0x03, 0x2e,
-	0x26, 0x6d, 0x95, 0x4c, 0xef, 0xdb, 0xd3, 0x7b, 0xf3, 0x7d, 0x1a, 0xd6, 0xcc, 0xcf, 0xeb, 0x7f,
-	0x01, 0x00, 0x00, 0xff, 0xff, 0x51, 0x77, 0xa0, 0xcc, 0xe4, 0x04, 0x00, 0x00,
+var fileDescriptor_errorpb_03375921e2a153aa = []byte{
+	// 512 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x7c, 0x53, 0x5d, 0x8e, 0x12, 0x41,
+	0x10, 0x76, 0x60, 0x97, 0x9f, 0x82, 0x19, 0x70, 0xa2, 0xee, 0x64, 0x37, 0x21, 0x64, 0x62, 0x0c,
+	0x2f, 0x62, 0xc4, 0x07, 0x13, 0x1f, 0x4c, 0x5c, 0xb3, 0x46, 0x82, 0x12, 0xd3, 0x7b, 0x80, 0xc9,
+	0x2c, 0x53, 0xb2, 0x04, 0xe8, 0xc6, 0xee, 0x66, 0x93, 0xb9, 0x89, 0x07, 0xf0, 0x30, 0x3e, 0x7a,
+	0x04, 0x83, 0x17, 0x31, 0x5d, 0x3d, 0x0c, 0xf4, 0x3e, 0xec, 0xd3, 0x74, 0x55, 0xd7, 0xf7, 0x55,
+	0xd5, 0xf7, 0xf5, 0x80, 0x8f, 0x52, 0x0a, 0xb9, 0xb9, 0x19, 0x6e, 0xa4, 0xd0, 0x22, 0xac, 0x17,
+	0xe1, 0x79, 0x7b, 0x8d, 0x3a, 0xdd, 0xa7, 0xcf, 0x9f, 0xcc, 0xc5, 0x5c, 0xd0, 0xf1, 0x95, 0x39,
+	0xd9, 0x6c, 0x3c, 0x85, 0xe6, 0x54, 0xe8, 0x2f, 0x98, 0x66, 0x28, 0xc3, 0x0b, 0x68, 0x4a, 0x9c,
+	0x2f, 0x04, 0x4f, 0x16, 0x59, 0xe4, 0xf5, 0xbd, 0xc1, 0x09, 0x6b, 0xd8, 0xc4, 0x38, 0x0b, 0x9f,
+	0x43, 0x6d, 0x45, 0x65, 0x51, 0xa5, 0xef, 0x0d, 0x5a, 0xa3, 0xf6, 0xb0, 0xa0, 0xff, 0x86, 0x28,
+	0x59, 0x71, 0x17, 0xa7, 0xe0, 0x5f, 0x6b, 0x21, 0x71, 0x2a, 0xf4, 0xd7, 0x54, 0xcf, 0x6e, 0xc3,
+	0x01, 0x74, 0x25, 0xfe, 0xd8, 0xa2, 0xd2, 0x89, 0x32, 0x17, 0x07, 0xea, 0xa0, 0xc8, 0x53, 0xfd,
+	0x38, 0x0b, 0x5f, 0x40, 0x27, 0x9d, 0xe9, 0x6d, 0xba, 0x3a, 0x14, 0x56, 0xa8, 0xd0, 0xb7, 0xe9,
+	0xa2, 0x2e, 0x7e, 0x09, 0x01, 0xa3, 0xa1, 0xa6, 0x42, 0x7f, 0x12, 0x5b, 0x9e, 0x3d, 0x38, 0x77,
+	0xbc, 0x85, 0x60, 0x82, 0xf9, 0x54, 0xe8, 0x31, 0xb7, 0xb0, 0xb0, 0x0b, 0xd5, 0x25, 0xe6, 0x54,
+	0xd8, 0x66, 0xe6, 0xe8, 0x12, 0x54, 0xee, 0x2d, 0x7e, 0x01, 0x4d, 0xa5, 0x53, 0xa9, 0x13, 0x03,
+	0xaa, 0x12, 0xa8, 0x41, 0x89, 0x09, 0xe6, 0xe1, 0x19, 0xd4, 0x91, 0x67, 0x74, 0x75, 0x42, 0x57,
+	0x35, 0xe4, 0xd9, 0x04, 0xf3, 0xf8, 0x33, 0xf8, 0x57, 0x1b, 0x31, 0xbb, 0x2d, 0x85, 0x78, 0x0b,
+	0x9d, 0xd9, 0x56, 0x4a, 0xe4, 0x3a, 0xb1, 0xd4, 0x2a, 0xf2, 0xfa, 0xd5, 0x41, 0x6b, 0x14, 0xec,
+	0x85, 0xb4, 0xe3, 0xb1, 0xa0, 0x28, 0xb3, 0xa1, 0x8a, 0x03, 0x68, 0x5f, 0xeb, 0x74, 0x85, 0x1f,
+	0xc5, 0x7a, 0x9d, 0xf2, 0x2c, 0xfe, 0x55, 0x85, 0xd3, 0x2b, 0x63, 0x71, 0x18, 0x41, 0x7d, 0x8d,
+	0x4a, 0xa5, 0x73, 0xa4, 0x65, 0x9a, 0x6c, 0x1f, 0x86, 0xaf, 0x01, 0xb8, 0xd0, 0x89, 0x63, 0x58,
+	0x38, 0xdc, 0xbf, 0x93, 0xd2, 0x71, 0xd6, 0xe4, 0xa5, 0xf9, 0x1f, 0x8c, 0x51, 0xa4, 0x81, 0x41,
+	0x7e, 0x37, 0xc2, 0xd2, 0xb6, 0xad, 0xd1, 0x59, 0x09, 0x74, 0x75, 0x37, 0x0e, 0x3a, 0x3e, 0x5c,
+	0xc2, 0xe3, 0x25, 0xe6, 0x84, 0x5f, 0xf0, 0x62, 0x4b, 0x92, 0xe5, 0x98, 0xc3, 0x35, 0x83, 0x05,
+	0x4b, 0xd7, 0x9c, 0xf7, 0xd0, 0x41, 0xa3, 0x1b, 0xb1, 0xac, 0x8d, 0x72, 0xd1, 0x29, 0x31, 0x3c,
+	0x2b, 0x19, 0x1c, 0x5d, 0x99, 0x8f, 0x8e, 0xcc, 0xef, 0xc0, 0x57, 0x46, 0xad, 0x64, 0x66, 0xe5,
+	0x8a, 0xea, 0x84, 0x7e, 0x5a, 0xa2, 0x8f, 0xb5, 0x64, 0x6d, 0x75, 0x14, 0x99, 0xde, 0xf6, 0xe9,
+	0x1d, 0x7a, 0x37, 0xee, 0xf5, 0x76, 0x1e, 0x37, 0xf3, 0x95, 0x13, 0xb6, 0x6c, 0x67, 0x1a, 0xe8,
+	0x32, 0xfe, 0xbd, 0xeb, 0x79, 0x7f, 0x76, 0x3d, 0xef, 0xef, 0xae, 0xe7, 0xfd, 0xfc, 0xd7, 0x7b,
+	0x04, 0x5d, 0x21, 0xe7, 0x43, 0xbd, 0x58, 0xde, 0x0d, 0x97, 0x77, 0xf4, 0xf7, 0xdd, 0xd4, 0xe8,
+	0xf3, 0xe6, 0x7f, 0x00, 0x00, 0x00, 0xff, 0xff, 0xeb, 0xac, 0x8e, 0x0d, 0xc2, 0x03, 0x00, 0x00,
 }

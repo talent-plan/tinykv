@@ -78,7 +78,6 @@ type Config struct {
 	ApplyPoolSize     uint64
 
 	StoreMaxBatchSize uint64
-	RaftWorkerCnt     int
 
 	ConcurrentSendSnapLimit uint64
 	ConcurrentRecvSnapLimit uint64
@@ -90,7 +89,6 @@ type Config struct {
 
 	Addr          string
 	AdvertiseAddr string
-	Labels        []StoreLabel
 
 	SplitCheck *SplitCheckConfig
 }
@@ -101,10 +99,6 @@ type SplitCheckConfig struct {
 	// [b,c), [c,d) will be regionSplitSize (maybe a little larger).
 	RegionMaxSize   uint64
 	RegionSplitSize uint64
-}
-
-type StoreLabel struct {
-	LabelKey, LabelValue string
 }
 
 func NewDefaultConfig() *Config {
@@ -143,7 +137,6 @@ func NewDefaultConfig() *Config {
 		ApplyMaxBatchSize:                1024,
 		ApplyPoolSize:                    2,
 		StoreMaxBatchSize:                1024,
-		RaftWorkerCnt:                    2,
 		ConcurrentSendSnapLimit:          32,
 		ConcurrentRecvSnapLimit:          32,
 		GrpcInitialWindowSize:            2 * 1024 * 1024,
@@ -160,8 +153,6 @@ const (
 	splitSizeMB uint64 = 96
 	// Default region split keys.
 	splitKeys uint64 = 960000
-	// Default batch split limit.
-	batchSplitLimit uint64 = 10
 )
 
 func NewDefaultSplitCheckConfig() *SplitCheckConfig {
@@ -234,9 +225,6 @@ func (c *Config) Validate() error {
 	}
 	if c.ApplyMaxBatchSize == 0 {
 		return fmt.Errorf("apply-max-batch-size should be greater than 0")
-	}
-	if c.RaftWorkerCnt == 0 {
-		return fmt.Errorf("store-pool-size should be greater than 0")
 	}
 	if c.StoreMaxBatchSize == 0 {
 		return fmt.Errorf("store-max-batch-size should be greater than 0")

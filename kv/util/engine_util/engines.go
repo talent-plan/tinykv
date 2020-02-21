@@ -1,11 +1,12 @@
 package engine_util
 
 import (
+	"os"
+	"path/filepath"
+
 	"github.com/coocood/badger"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"os"
-	"path/filepath"
 )
 
 // Engines keeps references to and data for the engines used by unistore.
@@ -36,16 +37,6 @@ func (en *Engines) WriteKV(wb *WriteBatch) error {
 
 func (en *Engines) WriteRaft(wb *WriteBatch) error {
 	return wb.WriteToDB(en.Raft)
-}
-
-func (en *Engines) SyncKVWAL() error {
-	// TODO: implement
-	return nil
-}
-
-func (en *Engines) SyncRaftWAL() error {
-	// TODO: implement
-	return nil
 }
 
 func (en *Engines) Close() error {
@@ -88,7 +79,7 @@ func CreateDB(subPath string, conf *config.Engine) *badger.DB {
 	opts.NumMemtables = conf.NumMemTables
 	opts.NumLevelZeroTables = conf.NumL0Tables
 	opts.NumLevelZeroTablesStall = conf.NumL0TablesStall
-	opts.SyncWrites = conf.SyncWrite
+	opts.SyncWrites = true
 	opts.MaxCacheSize = conf.BlockCacheSize
 	opts.TableBuilderOptions.SuRFStartLevel = conf.SurfStartLevel
 	if err := os.MkdirAll(opts.Dir, os.ModePerm); err != nil {

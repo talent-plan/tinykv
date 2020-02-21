@@ -14,8 +14,6 @@
 package server
 
 import (
-	"time"
-
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/testutil"
@@ -101,11 +99,9 @@ func (s *testClusterWorkerSuite) TestAskSplit(c *C) {
 	s.grpcPDClient = testutil.MustNewGrpcClient(c, s.svr.GetAddr())
 	_, err = s.svr.bootstrapCluster(s.newBootstrapRequest(c, s.svr.clusterID, "127.0.0.1:0"))
 	c.Assert(err, IsNil)
-	s.svr.SetClusterVersion("3.1.0")
 
 	cluster := s.svr.GetRaftCluster()
 	c.Assert(cluster, NotNil)
-	cluster.opt.SetSplitMergeInterval(time.Hour)
 	regions := cluster.GetRegions()
 
 	req := &pdpb.AskSplitRequest{

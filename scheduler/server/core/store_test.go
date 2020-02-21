@@ -21,50 +21,12 @@ import (
 	. "github.com/pingcap/check"
 )
 
-var _ = Suite(&testDistinctScoreSuite{})
-
-type testDistinctScoreSuite struct{}
-
-func (s *testDistinctScoreSuite) TestDistinctScore(c *C) {
-	labels := []string{"zone", "rack", "host"}
-	zones := []string{"z1", "z2", "z3"}
-	racks := []string{"r1", "r2", "r3"}
-	hosts := []string{"h1", "h2", "h3"}
-
-	var stores []*StoreInfo
-	for i, zone := range zones {
-		for j, rack := range racks {
-			for k, host := range hosts {
-				storeID := uint64(i*len(racks)*len(hosts) + j*len(hosts) + k)
-				storeLabels := map[string]string{
-					"zone": zone,
-					"rack": rack,
-					"host": host,
-				}
-				store := NewStoreInfoWithLabel(storeID, 1, storeLabels)
-				stores = append(stores, store)
-
-				// Number of stores in different zones.
-				nzones := i * len(racks) * len(hosts)
-				// Number of stores in the same zone but in different racks.
-				nracks := j * len(hosts)
-				// Number of stores in the same rack but in different hosts.
-				nhosts := k
-				score := (nzones*replicaBaseScore+nracks)*replicaBaseScore + nhosts
-				c.Assert(DistinctScore(labels, stores, store), Equals, float64(score))
-			}
-		}
-	}
-	store := NewStoreInfoWithLabel(100, 1, nil)
-	c.Assert(DistinctScore(labels, stores, store), Equals, float64(0))
-}
-
 var _ = Suite(&testConcurrencySuite{})
 
 type testConcurrencySuite struct{}
 
 func (s *testConcurrencySuite) TestCloneStore(c *C) {
-	meta := &metapb.Store{Id: 1, Address: "mock://tikv-1", Labels: []*metapb.StoreLabel{{Key: "zone", Value: "z1"}, {Key: "host", Value: "h1"}}}
+	meta := &metapb.Store{Id: 1, Address: "mock://tikv-1"}
 	store := NewStoreInfo(meta)
 	start := time.Now()
 	wg := sync.WaitGroup{}

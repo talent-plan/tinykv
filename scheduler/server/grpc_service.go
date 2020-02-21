@@ -17,7 +17,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -221,7 +220,6 @@ func (s *Server) PutStore(ctx context.Context, request *pdpb.PutStoreRequest) (*
 	}
 
 	log.Info("put store ok", zap.Stringer("store", store))
-	cluster.OnStoreVersionChange()
 
 	return &pdpb.PutStoreResponse{
 		Header: s.header(),
@@ -355,12 +353,10 @@ func (s *Server) RegionHeartbeat(stream pdpb.PD_RegionHeartbeatServer) error {
 		}
 
 		storeID := request.GetLeader().GetStoreId()
-		storeLabel := strconv.FormatUint(storeID, 10)
 		store := cluster.GetStore(storeID)
 		if store == nil {
 			return errors.Errorf("invalid store ID %d, not found", storeID)
 		}
-		storeAddress := store.GetAddress()
 
 		hbStreams := cluster.GetHeartbeatStreams()
 
@@ -376,14 +372,14 @@ func (s *Server) RegionHeartbeat(stream pdpb.PD_RegionHeartbeatServer) error {
 		}
 		if region.GetID() == 0 {
 			msg := fmt.Sprintf("invalid request region, %v", request)
-			hbStreams.sendErr(pdpb.ErrorType_UNKNOWN, msg, request.GetLeader(), storeAddress, storeLabel)
+			hbStreams.sendErr(pdpb.ErrorType_UNKNOWN, msg, request.GetLeader())
 			continue
 		}
 
 		err = cluster.HandleRegionHeartbeat(region)
 		if err != nil {
 			msg := err.Error()
-			hbStreams.sendErr(pdpb.ErrorType_UNKNOWN, msg, request.GetLeader(), storeAddress, storeLabel)
+			hbStreams.sendErr(pdpb.ErrorType_UNKNOWN, msg, request.GetLeader())
 		}
 	}
 }
@@ -506,9 +502,6 @@ func (s *Server) AskBatchSplit(ctx context.Context, request *pdpb.AskBatchSplitR
 		return &pdpb.AskBatchSplitResponse{Header: s.notBootstrappedHeader()}, nil
 	}
 
-	if !cluster.IsFeatureSupported(BatchSplit) {
-		return &pdpb.AskBatchSplitResponse{Header: s.incompatibleVersion("batch_split")}, nil
-	}
 	if request.GetRegion() == nil {
 		return nil, errors.New("missing region for split")
 	}
@@ -761,13 +754,5 @@ func (s *Server) notBootstrappedHeader() *pdpb.ResponseHeader {
 	return s.errorHeader(&pdpb.Error{
 		Type:    pdpb.ErrorType_NOT_BOOTSTRAPPED,
 		Message: "cluster is not bootstrapped",
-	})
-}
-
-func (s *Server) incompatibleVersion(tag string) *pdpb.ResponseHeader {
-	msg := fmt.Sprintf("%s incompatible with current cluster version %s", tag, s.scheduleOpt.LoadClusterVersion())
-	return s.errorHeader(&pdpb.Error{
-		Type:    pdpb.ErrorType_INCOMPATIBLE_VERSION,
-		Message: msg,
 	})
 }

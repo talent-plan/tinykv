@@ -34,7 +34,6 @@ type RaftInnerServer struct {
 	snapManager   *snap.SnapManager
 	raftRouter    *raftstore.RaftstoreRouter
 	batchSystem   *raftstore.RaftBatchSystem
-	pdWorker      *worker.Worker
 	resolveWorker *worker.Worker
 	snapWorker    *worker.Worker
 
@@ -84,8 +83,6 @@ func NewRaftInnerServer(conf *kvConfig.Config) *RaftInnerServer {
 
 func setupRaftStoreConf(raftConf *config.Config, conf *kvConfig.Config) {
 	raftConf.Addr = conf.Server.StoreAddr
-	raftConf.RaftWorkerCnt = conf.RaftStore.RaftWorkers
-
 	// raftstore block
 	raftConf.PdHeartbeatTickInterval = kvConfig.ParseDuration(conf.RaftStore.PdHeartbeatTickInterval)
 	raftConf.RaftBaseTickInterval = kvConfig.ParseDuration(conf.RaftStore.RaftBaseTickInterval)
@@ -206,7 +203,6 @@ func (ris *RaftInnerServer) GetStoreMeta() *metapb.Store {
 }
 
 func (ris *RaftInnerServer) Start(pdClient pd.Client) error {
-	ris.pdWorker = worker.NewWorker("pd-worker", &ris.wg)
 	ris.resolveWorker = worker.NewWorker("resolver", &ris.wg)
 	ris.snapWorker = worker.NewWorker("snap-worker", &ris.wg)
 
@@ -225,7 +221,7 @@ func (ris *RaftInnerServer) Start(pdClient pd.Client) error {
 	resolveRunner := newResolverRunner(pdClient)
 
 	ris.resolveWorker.Start(resolveRunner)
-	err := ris.node.Start(context.TODO(), ris.engines, trans, ris.snapManager, ris.pdWorker, ris.raftRouter)
+	err := ris.node.Start(context.TODO(), ris.engines, trans, ris.snapManager, ris.raftRouter)
 	if err != nil {
 		return err
 	}

@@ -26,7 +26,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
 	. "github.com/pingcap/check"
-	"github.com/pkg/errors"
 )
 
 const (
@@ -43,14 +42,6 @@ type baseCluster struct {
 
 type testClusterSuite struct {
 	baseCluster
-}
-
-type testErrorKV struct {
-	kv.Base
-}
-
-func (kv *testErrorKV) Save(key, value string) error {
-	return errors.New("save failed")
 }
 
 func (s *baseCluster) allocID(c *C) uint64 {
@@ -563,72 +554,6 @@ func (s *testGetStoresSuite) BenchmarkGetStores(c *C) {
 		// Logic to benchmark
 		s.cluster.core.Stores.GetStores()
 	}
-}
-
-func (s *testClusterSuite) TestSetScheduleOpt(c *C) {
-	var err error
-	var cleanup func()
-	s.svr, cleanup, err = NewTestServer(c)
-	defer cleanup()
-	c.Assert(err, IsNil)
-	mustWaitLeader(c, []*Server{s.svr})
-	s.grpcPDClient = testutil.MustNewGrpcClient(c, s.svr.GetAddr())
-	clusterID := s.svr.clusterID
-
-	storeAddr := "127.0.0.1:0"
-	_, err = s.svr.bootstrapCluster(s.newBootstrapRequest(c, clusterID, storeAddr))
-	c.Assert(err, IsNil)
-
-	_, opt, err := newTestScheduleConfig()
-	c.Assert(err, IsNil)
-
-	scheduleCfg := opt.Load()
-	replicateCfg := s.svr.GetReplicationConfig()
-	pdServerCfg := s.svr.scheduleOpt.LoadPDServerConfig()
-
-	//PUT GET DELETE succeed
-	replicateCfg.MaxReplicas = 5
-	scheduleCfg.MaxSnapshotCount = 10
-	typ, labelKey, labelValue := "testTyp", "testKey", "testValue"
-
-	c.Assert(s.svr.SetScheduleConfig(*scheduleCfg), IsNil)
-	c.Assert(s.svr.SetPDServerConfig(*pdServerCfg), IsNil)
-	c.Assert(s.svr.SetLabelProperty(typ, labelKey, labelValue), IsNil)
-	c.Assert(s.svr.SetReplicationConfig(*replicateCfg), IsNil)
-
-	c.Assert(s.svr.GetReplicationConfig().MaxReplicas, Equals, uint64(5))
-	c.Assert(s.svr.scheduleOpt.GetMaxSnapshotCount(), Equals, uint64(10))
-	c.Assert(s.svr.scheduleOpt.LoadLabelPropertyConfig()[typ][0].Key, Equals, "testKey")
-	c.Assert(s.svr.scheduleOpt.LoadLabelPropertyConfig()[typ][0].Value, Equals, "testValue")
-
-	c.Assert(s.svr.DeleteLabelProperty(typ, labelKey, labelValue), IsNil)
-
-	c.Assert(len(s.svr.scheduleOpt.LoadLabelPropertyConfig()[typ]), Equals, 0)
-
-	//PUT GET failed
-	oldStorage := s.svr.storage
-	s.svr.storage = core.NewStorage(&testErrorKV{})
-	replicateCfg.MaxReplicas = 7
-	scheduleCfg.MaxSnapshotCount = 20
-
-	c.Assert(s.svr.SetScheduleConfig(*scheduleCfg), NotNil)
-	c.Assert(s.svr.SetReplicationConfig(*replicateCfg), NotNil)
-	c.Assert(s.svr.SetPDServerConfig(*pdServerCfg), NotNil)
-	c.Assert(s.svr.SetLabelProperty(typ, labelKey, labelValue), NotNil)
-
-	c.Assert(s.svr.GetReplicationConfig().MaxReplicas, Equals, uint64(5))
-	c.Assert(s.svr.scheduleOpt.GetMaxSnapshotCount(), Equals, uint64(10))
-	c.Assert(len(s.svr.scheduleOpt.LoadLabelPropertyConfig()[typ]), Equals, 0)
-
-	//DELETE failed
-	s.svr.storage = oldStorage
-	c.Assert(s.svr.SetReplicationConfig(*replicateCfg), IsNil)
-
-	s.svr.storage = core.NewStorage(&testErrorKV{})
-	c.Assert(s.svr.DeleteLabelProperty(typ, labelKey, labelValue), NotNil)
-
-	c.Assert(s.svr.scheduleOpt.LoadLabelPropertyConfig()[typ][0].Key, Equals, "testKey")
-	c.Assert(s.svr.scheduleOpt.LoadLabelPropertyConfig()[typ][0].Value, Equals, "testValue")
 }
 
 var _ = Suite(&testStoresInfoSuite{})
@@ -1208,6 +1133,39 @@ func (s *testClusterInfoSuite) TestHeartbeatSplit(c *C) {
 	c.Assert(cluster.GetRegionInfoByKey([]byte("n")), IsNil)
 	c.Assert(cluster.processRegionHeartbeat(region3), IsNil)
 	checkRegion(c, cluster.GetRegionInfoByKey([]byte("n")), region3)
+}
+
+func (s *testClusterInfoSuite) TestRegionSplitAndMerge(c *C) {
+	_, opt, err := newTestScheduleConfig()
+	c.Assert(err, IsNil)
+	cluster := createTestRaftCluster(mockid.NewIDAllocator(), opt, core.NewStorage(kv.NewMemoryKV()))
+
+	regions := []*core.RegionInfo{core.NewTestRegionInfo([]byte{}, []byte{})}
+
+	// Byte will underflow/overflow if n > 7.
+	n := 7
+
+	// Split.
+	for i := 0; i < n; i++ {
+		regions = core.SplitRegions(regions)
+		heartbeatRegions(c, cluster, regions)
+	}
+
+	// Merge.
+	for i := 0; i < n; i++ {
+		regions = core.MergeRegions(regions)
+		heartbeatRegions(c, cluster, regions)
+	}
+
+	// Split twice and merge once.
+	for i := 0; i < n*2; i++ {
+		if (i+1)%3 == 0 {
+			regions = core.MergeRegions(regions)
+		} else {
+			regions = core.SplitRegions(regions)
+		}
+		heartbeatRegions(c, cluster, regions)
+	}
 }
 
 func (s *testClusterInfoSuite) TestUpdateStorePendingPeerCount(c *C) {
