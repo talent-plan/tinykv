@@ -8,8 +8,8 @@ import (
 	"github.com/coocood/badger"
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/runner"
@@ -220,7 +220,7 @@ func (bs *RaftBatchSystem) startWorkers(peers []*peerFsm) {
 	}
 	engines := ctx.engine
 	cfg := ctx.cfg
-	workers.splitCheckWorker.Start(runner.NewSplitCheckHandler(engines.Kv, NewRaftstoreRouter(router), cfg.SplitCheck))
+	workers.splitCheckWorker.Start(runner.NewSplitCheckHandler(engines.Kv, NewRaftstoreRouter(router), cfg))
 	workers.regionWorker.Start(runner.NewRegionTaskHandler(engines, ctx.snapMgr))
 	workers.raftLogGCWorker.Start(runner.NewRaftLogGCTaskHandler())
 	workers.pdWorker.Start(runner.NewPDTaskHandler(ctx.store.Id, ctx.pdClient, NewRaftstoreRouter(router)))

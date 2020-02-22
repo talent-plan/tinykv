@@ -7,7 +7,7 @@ import (
 	"github.com/coocood/badger"
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"

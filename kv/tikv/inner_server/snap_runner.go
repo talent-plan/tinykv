@@ -4,11 +4,10 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"sync/atomic"
 	"time"
 
 	"github.com/ngaut/log"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
@@ -31,11 +30,9 @@ type recvSnapTask struct {
 }
 
 type snapRunner struct {
-	config         *config.Config
-	snapManager    *snap.SnapManager
-	router         message.RaftRouter
-	sendingCount   int64
-	receivingCount int64
+	config      *config.Config
+	snapManager *snap.SnapManager
+	router      message.RaftRouter
 }
 
 func newSnapRunner(snapManager *snap.SnapManager, config *config.Config, router message.RaftRouter) *snapRunner {
@@ -56,14 +53,6 @@ func (r *snapRunner) Handle(t worker.Task) {
 }
 
 func (r *snapRunner) send(t sendSnapTask) {
-	if n := atomic.LoadInt64(&r.sendingCount); n > int64(r.config.ConcurrentSendSnapLimit) {
-		log.Warnf("too many sending snapshot tasks, drop send snap [to: %v, snap: %v]", t.addr, t.msg)
-		t.callback(errors.New("too many sending snapshot tasks"))
-		return
-	}
-
-	atomic.AddInt64(&r.sendingCount, 1)
-	defer atomic.AddInt64(&r.sendingCount, -1)
 	t.callback(r.sendSnap(t.addr, t.msg))
 }
 
@@ -89,10 +78,10 @@ func (r *snapRunner) sendSnap(addr string, msg *raft_serverpb.RaftMessage) error
 	}
 
 	cc, err := grpc.Dial(addr, grpc.WithInsecure(),
-		grpc.WithInitialWindowSize(int32(r.config.GrpcInitialWindowSize)),
+		grpc.WithInitialWindowSize(2*1024*1024),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:    r.config.GrpcKeepAliveTime,
-			Timeout: r.config.GrpcKeepAliveTimeout,
+			Time:    3 * time.Second,
+			Timeout: 60 * time.Second,
 		}))
 	if err != nil {
 		return err
@@ -131,13 +120,6 @@ func (r *snapRunner) sendSnap(addr string, msg *raft_serverpb.RaftMessage) error
 }
 
 func (r *snapRunner) recv(t recvSnapTask) {
-	if n := atomic.LoadInt64(&r.receivingCount); n > int64(r.config.ConcurrentRecvSnapLimit) {
-		log.Warnf("too many recving snapshot tasks, ignore")
-		t.callback(errors.New("too many recving snapshot tasks"))
-		return
-	}
-	atomic.AddInt64(&r.receivingCount, 1)
-	defer atomic.AddInt64(&r.receivingCount, -1)
 	msg, err := r.recvSnap(t.stream)
 	if err == nil {
 		r.router.SendRaftMessage(msg)

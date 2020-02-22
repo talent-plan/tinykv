@@ -15,7 +15,6 @@ import (
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
-	tikvConf "github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
@@ -24,7 +23,7 @@ import (
 )
 
 type Simulator interface {
-	RunStore(raftConf *tikvConf.Config, engine *engine_util.Engines, ctx context.Context) error
+	RunStore(raftConf *config.Config, engine *engine_util.Engines, ctx context.Context) error
 	StopStore(storeID uint64)
 	AddFilter(filter Filter)
 	ClearFilters()
@@ -39,15 +38,17 @@ type Cluster struct {
 	snapPaths map[uint64]string
 	dirs      []string
 	simulator Simulator
+	cfg       *config.Config
 }
 
-func NewCluster(count int, pdClient pd.Client, simulator Simulator) *Cluster {
+func NewCluster(count int, pdClient pd.Client, simulator Simulator, cfg *config.Config) *Cluster {
 	return &Cluster{
 		count:     count,
 		pdClient:  pdClient,
 		engines:   make(map[uint64]*engine_util.Engines),
 		snapPaths: make(map[uint64]string),
 		simulator: simulator,
+		cfg:       cfg,
 	}
 }
 
@@ -57,6 +58,10 @@ func (c *Cluster) Start() {
 
 	for storeID := uint64(1); storeID <= uint64(c.count); storeID++ {
 		dbPath, err := ioutil.TempDir("", "test-raftstore")
+		if err != nil {
+			panic(err)
+		}
+		c.cfg.DBPath = dbPath
 		kvPath := filepath.Join(dbPath, "kv")
 		raftPath := filepath.Join(dbPath, "raft")
 		snapPath := filepath.Join(dbPath, "snap")
@@ -76,11 +81,8 @@ func (c *Cluster) Start() {
 			panic(err)
 		}
 
-		conf := config.DefaultConf
-		conf.Engine.DBPath = dbPath
-
-		raftDB := engine_util.CreateDB("raft", &conf.Engine)
-		kvDB := engine_util.CreateDB("kv", &conf.Engine)
+		raftDB := engine_util.CreateDB("raft", c.cfg)
+		kvDB := engine_util.CreateDB("kv", c.cfg)
 		engine := engine_util.NewEngines(kvDB, raftDB, kvPath, raftPath)
 		c.engines[storeID] = engine
 	}
@@ -422,9 +424,7 @@ func (c *Cluster) StopServer(storeID uint64) {
 
 func (c *Cluster) StartServer(storeID uint64) {
 	engine := c.engines[storeID]
-	raftConf := tikvConf.NewDefaultConfig()
-	raftConf.SnapPath = c.snapPaths[storeID]
-	err := c.simulator.RunStore(raftConf, engine, context.TODO())
+	err := c.simulator.RunStore(c.cfg, engine, context.TODO())
 	if err != nil {
 		panic(err)
 	}

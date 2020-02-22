@@ -3,9 +3,10 @@ package inner_server
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/ngaut/log"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 	"google.golang.org/grpc"
@@ -21,10 +22,10 @@ type raftConn struct {
 
 func newRaftConn(addr string, cfg *config.Config) (*raftConn, error) {
 	cc, err := grpc.Dial(addr, grpc.WithInsecure(),
-		grpc.WithInitialWindowSize(int32(cfg.GrpcInitialWindowSize)),
+		grpc.WithInitialWindowSize(2*1024*1024),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:                cfg.GrpcKeepAliveTime,
-			Timeout:             cfg.GrpcKeepAliveTimeout,
+			Time:                3 * time.Second,
+			Timeout:             60 * time.Second,
 			PermitWithoutStream: true,
 		}))
 	if err != nil {
@@ -61,25 +62,22 @@ type connKey struct {
 type RaftClient struct {
 	config *config.Config
 	sync.RWMutex
-	conns map[connKey]*raftConn
+	conn  *raftConn
 	addrs map[uint64]string
 }
 
 func newRaftClient(config *config.Config) *RaftClient {
 	return &RaftClient{
 		config: config,
-		conns:  make(map[connKey]*raftConn),
 		addrs:  make(map[uint64]string),
 	}
 }
 
 func (c *RaftClient) getConn(addr string, regionID uint64) (*raftConn, error) {
 	c.RLock()
-	key := connKey{addr, int(regionID % c.config.GrpcRaftConnNum)}
-	conn, ok := c.conns[key]
-	if ok {
+	if c.conn != nil {
 		c.RUnlock()
-		return conn, nil
+		return c.conn, nil
 	}
 	c.RUnlock()
 	newConn, err := newRaftConn(addr, c.config)
@@ -88,11 +86,11 @@ func (c *RaftClient) getConn(addr string, regionID uint64) (*raftConn, error) {
 	}
 	c.Lock()
 	defer c.Unlock()
-	if conn, ok := c.conns[key]; ok {
+	if c.conn != nil {
 		newConn.Stop()
-		return conn, nil
+		return c.conn, nil
 	}
-	c.conns[key] = newConn
+	c.conn = newConn
 	return newConn, nil
 }
 
@@ -110,8 +108,7 @@ func (c *RaftClient) Send(storeID uint64, addr string, msg *raft_serverpb.RaftMe
 	c.Lock()
 	defer c.Unlock()
 	conn.Stop()
-	key := connKey{addr, int(msg.GetRegionId() % c.config.GrpcRaftConnNum)}
-	delete(c.conns, key)
+	c.conn = nil
 	if oldAddr, ok := c.addrs[storeID]; ok && oldAddr == addr {
 		delete(c.addrs, storeID)
 	}

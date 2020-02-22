@@ -7,7 +7,7 @@ import (
 
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/runner"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
@@ -214,7 +214,7 @@ func (d *peerMsgHandler) onGCSnap(snaps []snap.SnapKeyWithSending) {
 				d.ctx.snapMgr.DeleteSnapshot(key, snap, false)
 			} else if fi, err1 := snap.Meta(); err1 == nil {
 				modTime := fi.ModTime()
-				if time.Since(modTime) > d.ctx.cfg.SnapGcTimeout {
+				if time.Since(modTime) > 4*time.Hour {
 					log.Infof("%s snap file %s has been expired, delete", d.tag(), key)
 					d.ctx.snapMgr.DeleteSnapshot(key, snap, false)
 				}
@@ -642,10 +642,6 @@ func (d *peerMsgHandler) onReadyChangePeer(cp changePeer) {
 }
 
 func (d *peerMsgHandler) onReadyCompactLog(firstIndex uint64, truncatedIndex uint64) {
-	totalCnt := d.peer.LastApplyingIdx - firstIndex
-	// the size of current CompactLog command can be ignored.
-	remainCnt := d.peer.LastApplyingIdx - truncatedIndex - 1
-	d.peer.RaftLogSizeHint *= remainCnt / totalCnt
 	raftLogGCTask := &runner.RaftLogGCTask{
 		RaftEngine: d.ctx.engine.Raft,
 		RegionID:   d.regionID(),
@@ -733,7 +729,7 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 		if lastRegionID == newRegionID {
 			// To prevent from big region, the right region needs run split
 			// check again after split.
-			newPeer.peer.SizeDiffHint = d.ctx.cfg.RegionSplitCheckDiff
+			newPeer.peer.SizeDiffHint = d.ctx.cfg.RegionSplitSize
 		}
 		d.ctx.router.register(newPeer)
 		_ = d.ctx.router.send(newRegionID, message.NewPeerMsg(message.MsgTypeStart, newRegionID, nil))
@@ -874,62 +870,13 @@ func (d *peerMsgHandler) findSiblingRegion() *metapb.Region {
 func (d *peerMsgHandler) onRaftGCLogTick() {
 	d.ticker.schedule(PeerTickRaftLogGC)
 
-	// As leader, we would not keep caches for the peers that didn't response heartbeat in the
-	// last few seconds. That happens probably because another TiKV is down. In this case if we
-	// do not clean up the cache, it may keep growing.
-	dropCacheDuration := time.Duration(d.ctx.cfg.RaftHeartbeatTicks)*d.ctx.cfg.RaftBaseTickInterval +
-		d.ctx.cfg.RaftEntryCacheLifeTime
-	cacheAliveLimit := time.Now().Add(-dropCacheDuration)
-
-	totalGCLogs := uint64(0)
-
 	appliedIdx := d.peer.Store().AppliedIndex()
-
-	// Leader will replicate the compact log command to followers,
-	// If we use current replicated_index (like 10) as the compact index,
-	// when we replicate this log, the newest replicated_index will be 11,
-	// but we only compact the log to 10, not 11, at that time,
-	// the first index is 10, and replicated_index is 11, with an extra log,
-	// and we will do compact again with compact index 11, in cycles...
-	// So we introduce a threshold, if replicated index - first index > threshold,
-	// we will try to compact log.
-	// raft log entries[..............................................]
-	//                  ^                                       ^
-	//                  |-----------------threshold------------ |
-	//              first_index                         replicated_index
-	// `alive_cache_idx` is the smallest `replicated_index` of healthy up nodes.
-	// `alive_cache_idx` is only used to gc cache.
-	truncatedIdx := d.peer.Store().truncatedIndex()
-	lastIdx, _ := d.peer.Store().LastIndex()
-	replicatedIdx, aliveCacheIdx := lastIdx, lastIdx
-	prs := d.peer.RaftGroup.Status().Progress
-	for peerID, progress := range prs {
-		if replicatedIdx > progress.Match {
-			replicatedIdx = progress.Match
-		}
-		if lastHeartbeat, ok := d.peer.PeerHeartbeats[peerID]; ok {
-			if aliveCacheIdx > progress.Match &&
-				progress.Match >= truncatedIdx &&
-				lastHeartbeat.After(cacheAliveLimit) {
-				aliveCacheIdx = progress.Match
-			}
-		}
-	}
-	// When an election happened or a new peer is added, replicated_idx can be 0.
-	if replicatedIdx > 0 {
-		y.Assert(lastIdx >= replicatedIdx)
-	}
 	firstIdx, _ := d.peer.Store().FirstIndex()
 	var compactIdx uint64
-	if appliedIdx > firstIdx &&
-		appliedIdx-firstIdx >= d.ctx.cfg.RaftLogGcCountLimit {
+	if appliedIdx > firstIdx && appliedIdx-firstIdx >= d.ctx.cfg.RaftLogGcCountLimit {
 		compactIdx = appliedIdx
-	} else if d.peer.RaftLogSizeHint >= d.ctx.cfg.RaftLogGcSizeLimit {
-		compactIdx = appliedIdx
-	} else if replicatedIdx < firstIdx || replicatedIdx-firstIdx <= d.ctx.cfg.RaftLogGcThreshold {
-		return
 	} else {
-		compactIdx = replicatedIdx
+		return
 	}
 
 	// Have no idea why subtract 1 here, but original code did this by magic.
@@ -939,8 +886,6 @@ func (d *peerMsgHandler) onRaftGCLogTick() {
 		// In case compact_idx == first_idx before subtraction.
 		return
 	}
-
-	totalGCLogs += compactIdx - firstIdx
 
 	term, err := d.peer.RaftGroup.Raft.RaftLog.Term(compactIdx)
 	if err != nil {
@@ -964,7 +909,7 @@ func (d *peerMsgHandler) onSplitRegionCheckTick() {
 	if !d.peer.IsLeader() {
 		return
 	}
-	if d.peer.ApproximateSize != nil && d.peer.SizeDiffHint < d.ctx.cfg.RegionSplitCheckDiff {
+	if d.peer.ApproximateSize != nil && d.peer.SizeDiffHint < d.ctx.cfg.RegionSplitSize/8 {
 		return
 	}
 	d.ctx.splitCheckTaskSender <- worker.Task{

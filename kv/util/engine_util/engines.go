@@ -63,25 +63,14 @@ func (en *Engines) Destroy() error {
 }
 
 // CreateDB creates a new Badger DB on disk at subPath.
-func CreateDB(subPath string, conf *config.Engine) *badger.DB {
+func CreateDB(subPath string, conf *config.Config) *badger.DB {
 	opts := badger.DefaultOptions
-	opts.NumCompactors = conf.NumCompactors
-	opts.ValueThreshold = conf.ValueThreshold
 	if subPath == "raft" {
 		// Do not need to write blob for raft engine because it will be deleted soon.
 		opts.ValueThreshold = 0
 	}
-	opts.ValueLogWriteOptions.WriteBufferSize = 4 * 1024 * 1024
 	opts.Dir = filepath.Join(conf.DBPath, subPath)
 	opts.ValueDir = opts.Dir
-	opts.ValueLogFileSize = conf.VlogFileSize
-	opts.MaxTableSize = conf.MaxTableSize
-	opts.NumMemtables = conf.NumMemTables
-	opts.NumLevelZeroTables = conf.NumL0Tables
-	opts.NumLevelZeroTablesStall = conf.NumL0TablesStall
-	opts.SyncWrites = true
-	opts.MaxCacheSize = conf.BlockCacheSize
-	opts.TableBuilderOptions.SuRFStartLevel = conf.SurfStartLevel
 	if err := os.MkdirAll(opts.Dir, os.ModePerm); err != nil {
 		log.Fatal(err)
 	}

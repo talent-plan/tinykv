@@ -18,7 +18,7 @@ type StandAloneInnerServer struct {
 }
 
 func NewStandAloneInnerServer(conf *kvConfig.Config) *StandAloneInnerServer {
-	db := engine_util.CreateDB("kv", &conf.Engine)
+	db := engine_util.CreateDB("kv", conf)
 	return &StandAloneInnerServer{
 		db: db,
 	}

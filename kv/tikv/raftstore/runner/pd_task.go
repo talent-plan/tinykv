@@ -30,10 +30,9 @@ type PdRegionHeartbeatTask struct {
 }
 
 type PdStoreHeartbeatTask struct {
-	Stats    *pdpb.StoreStats
-	Engine   *badger.DB
-	Path     string
-	Capacity uint64
+	Stats  *pdpb.StoreStats
+	Engine *badger.DB
+	Path   string
 }
 
 type pdTaskHandler struct {
@@ -132,10 +131,7 @@ func (r *pdTaskHandler) onStoreHeartbeat(t *PdStoreHeartbeatTask) {
 		return
 	}
 
-	capacity := t.Capacity
-	if capacity == 0 || diskStat.Total < capacity {
-		capacity = diskStat.Total
-	}
+	capacity := diskStat.Total
 	lsmSize, vlogSize := t.Engine.Size()
 	usedSize := t.Stats.UsedSize + uint64(lsmSize) + uint64(vlogSize) // t.Stats.UsedSize contains size of snapshot files.
 	available := uint64(0)

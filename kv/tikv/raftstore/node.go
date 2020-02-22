@@ -8,8 +8,8 @@ import (
 	"github.com/coocood/badger"
 	"github.com/golang/protobuf/proto"
 	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"
@@ -30,12 +30,7 @@ type Node struct {
 }
 
 func NewNode(system *RaftBatchSystem, store *metapb.Store, cfg *config.Config, pdClient pd.Client) *Node {
-	if cfg.AdvertiseAddr != "" {
-		store.Address = cfg.AdvertiseAddr
-	} else {
-		store.Address = cfg.Addr
-	}
-	store.Version = "3.0.0-bata.1"
+	store.Address = cfg.StoreAddr
 	return &Node{
 		clusterID: pdClient.GetClusterID((context.TODO())),
 		store:     store,

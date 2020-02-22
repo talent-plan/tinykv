@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/coocood/badger"
+	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
@@ -125,8 +126,8 @@ func MustGetNone(engine *engine_util.Engines, key []byte) {
 	}
 }
 
-func NewTestCluster(count int) *Cluster {
+func NewTestCluster(count int, cfg *config.Config) *Cluster {
 	pdClient := NewMockPDClient(0)
 	simulator := NewNodeSimulator(pdClient)
-	return NewCluster(count, pdClient, simulator)
+	return NewCluster(count, pdClient, simulator, cfg)
 }
