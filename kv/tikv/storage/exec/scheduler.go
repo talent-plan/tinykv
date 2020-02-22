@@ -65,7 +65,7 @@ func (seq *Sequential) handleTask() {
 
 		// Build an mvcc transaction.
 		txn := kvstore.NewTxn(reader)
-		err = task.cmd.BuildTxn(&txn)
+		resp, err := task.cmd.Execute(&txn)
 		if handleError(err, task, reader) {
 			seq.releaseLatches(latches)
 			continue
@@ -79,7 +79,6 @@ func (seq *Sequential) handleTask() {
 		}
 
 		// Send response back to the gRPC thread.
-		resp := task.cmd.Response()
 		task.resultChannel <- interfaces.RespOk(resp)
 
 		reader.Close()
@@ -132,11 +131,7 @@ func handleError(err error, task task, reader dbreader.DBReader) bool {
 		return false
 	}
 
-	if resp := task.cmd.HandleError(err); resp != nil {
-		task.resultChannel <- interfaces.RespOk(resp)
-	} else {
-		task.resultChannel <- interfaces.RespErr(err)
-	}
+	task.resultChannel <- interfaces.RespErr(err)
 
 	if reader != nil {
 		reader.Close()

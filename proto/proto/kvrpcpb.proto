@@ -121,20 +121,6 @@ message PrewriteResponse {
     repeated KeyError errors = 2;
 }
 
-// Used to update the lock_ttl of a large transaction to prevent it from been killed.
-message TxnHeartBeatRequest {
-    Context context = 1;
-    bytes primary_lock = 2;
-    uint64 start_version = 3;
-    uint64 advise_lock_ttl = 4;
-}
-
-message TxnHeartBeatResponse {
-    errorpb.Error region_error = 1;
-    KeyError error = 2;
-    uint64 lock_ttl = 3;
-}
-
 message CommitRequest {
     Context context = 1;
     uint64 start_version = 2;
@@ -177,16 +163,15 @@ enum Action {
 
 message CheckTxnStatusResponse {
     errorpb.Error region_error = 1;
-    KeyError error = 2;
     // Three kinds of txn status:
     // locked: lock_ttl > 0
     // committed: commit_version > 0
     // rolled back: lock_ttl = 0 && commit_version = 0
-    uint64 lock_ttl = 3;
-    uint64 commit_version = 4;
+    uint64 lock_ttl = 2;
+    uint64 commit_version = 3;
     // The action performed by the CheckTxnStatus
     // If the action is rollback, set the rollback reason.
-    Action action = 5;
+    Action action = 4;
 }
 
 message ResolveLockRequest {
@@ -254,17 +239,4 @@ message RawScanResponse {
 message KeyRange {
   bytes start_key = 1;
   bytes end_key = 2;
-}
-
-message SplitRegionRequest {
-    Context context = 1;
-    bytes split_key = 2 [deprecated=true];
-    repeated bytes split_keys = 3; // when use it to do batch split, `split_key` should be empty.
-}
-
-message SplitRegionResponse {
-    errorpb.Error region_error = 1;
-    metapb.Region left  = 2 [deprecated=true]; // set when there are only 2 result regions.
-    metapb.Region right = 3 [deprecated=true]; // set when there are only 2 result regions.
-    repeated metapb.Region regions = 4; // include all result regions.
 }

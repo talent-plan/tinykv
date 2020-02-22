@@ -31,19 +31,11 @@ type dummyCmd struct {
 	id int
 }
 
-func (dc *dummyCmd) BuildTxn(txn *kvstore.MvccTxn) error {
-	return nil
+func (dc *dummyCmd) Execute(txn *kvstore.MvccTxn) (interface{}, error) {
+	return dc.id, nil
 }
 
 func (dc *dummyCmd) Context() *kvrpcpb.Context {
-	return nil
-}
-
-func (dc *dummyCmd) Response() interface{} {
-	return dc.id
-}
-
-func (dc *dummyCmd) HandleError(err error) interface{} {
 	return nil
 }
 
