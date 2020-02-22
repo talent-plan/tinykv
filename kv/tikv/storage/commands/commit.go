@@ -9,11 +9,21 @@ import (
 )
 
 type Commit struct {
-	request *kvrpcpb.CommitRequest
+	CommandBase
+	request  *kvrpcpb.CommitRequest
+	response *kvrpcpb.CommitResponse
 }
 
 func NewCommit(request *kvrpcpb.CommitRequest) Commit {
-	return Commit{request}
+	response := new(kvrpcpb.CommitResponse)
+	return Commit{
+		CommandBase: CommandBase{
+			context:  request.Context,
+			response: response,
+		},
+		request:  request,
+		response: response,
+	}
 }
 
 func (c *Commit) BuildTxn(txn *kvstore.MvccTxn) error {
@@ -66,14 +76,6 @@ func commitKey(key []byte, commitTs uint64, txn *kvstore.MvccTxn) error {
 	txn.DeleteLock(key)
 
 	return nil
-}
-
-func (c *Commit) Context() *kvrpcpb.Context {
-	return c.request.Context
-}
-
-func (c *Commit) Response() interface{} {
-	return &kvrpcpb.CommitResponse{}
 }
 
 func (c *Commit) HandleError(err error) interface{} {

@@ -8,12 +8,21 @@ import (
 )
 
 type CheckTxnStatus struct {
+	CommandBase
 	request  *kvrpcpb.CheckTxnStatusRequest
-	response kvrpcpb.CheckTxnStatusResponse
+	response *kvrpcpb.CheckTxnStatusResponse
 }
 
 func NewCheckTxnStatus(request *kvrpcpb.CheckTxnStatusRequest) CheckTxnStatus {
-	return CheckTxnStatus{request: request}
+	response := new(kvrpcpb.CheckTxnStatusResponse)
+	return CheckTxnStatus{
+		CommandBase: CommandBase{
+			context:  request.Context,
+			response: response,
+		},
+		request:  request,
+		response: response,
+	}
 }
 
 func (c *CheckTxnStatus) BuildTxn(txn *kvstore.MvccTxn) error {
@@ -67,14 +76,6 @@ func (c *CheckTxnStatus) BuildTxn(txn *kvstore.MvccTxn) error {
 	return nil
 }
 
-func (c *CheckTxnStatus) Context() *kvrpcpb.Context {
-	return c.request.Context
-}
-
-func (c *CheckTxnStatus) Response() interface{} {
-	return &c.response
-}
-
 func (c *CheckTxnStatus) HandleError(err error) interface{} {
 	if err == nil {
 		return nil
@@ -82,12 +83,12 @@ func (c *CheckTxnStatus) HandleError(err error) interface{} {
 
 	if regionErr := extractRegionError(err); regionErr != nil {
 		c.response.RegionError = regionErr
-		return &c.response
+		return c.response
 	}
 
 	if e, ok := err.(KeyError); ok {
 		c.response.Error = e.KeyErrors()[0]
-		return &c.response
+		return c.response
 	}
 
 	return nil

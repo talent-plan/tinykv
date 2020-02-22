@@ -7,12 +7,22 @@ import (
 )
 
 type ResolveLock struct {
+	CommandBase
 	request  *kvrpcpb.ResolveLockRequest
+	response *kvrpcpb.ResolveLockResponse
 	keyLocks []kvstore.KlPair
 }
 
 func NewResolveLock(request *kvrpcpb.ResolveLockRequest) ResolveLock {
-	return ResolveLock{request: request}
+	response := new(kvrpcpb.ResolveLockResponse)
+	return ResolveLock{
+		CommandBase: CommandBase{
+			context:  request.Context,
+			response: response,
+		},
+		request:  request,
+		response: response,
+	}
 }
 
 func (rl *ResolveLock) BuildTxn(txn *kvstore.MvccTxn) error {
@@ -38,29 +48,19 @@ func (rl *ResolveLock) BuildTxn(txn *kvstore.MvccTxn) error {
 	return nil
 }
 
-func (rl *ResolveLock) Context() *kvrpcpb.Context {
-	return rl.request.Context
-}
-
-func (rl *ResolveLock) Response() interface{} {
-	return &kvrpcpb.ResolveLockResponse{}
-}
-
 func (rl *ResolveLock) HandleError(err error) interface{} {
 	if err == nil {
 		return nil
 	}
 
 	if regionErr := extractRegionError(err); regionErr != nil {
-		var resp kvrpcpb.ResolveLockResponse
-		resp.RegionError = regionErr
-		return &resp
+		rl.response.RegionError = regionErr
+		return rl.response
 	}
 
 	if e, ok := err.(KeyError); ok {
-		var resp kvrpcpb.ResolveLockResponse
-		resp.Error = e.KeyErrors()[0]
-		return &resp
+		rl.response.Error = e.KeyErrors()[0]
+		return rl.response
 	}
 
 	return nil

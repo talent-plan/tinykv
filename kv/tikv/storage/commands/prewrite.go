@@ -11,11 +11,21 @@ import (
 // transactions (complete or in-progress) then success is returned to the client. If all a client's prewrites succeed,
 // then it will send a commit message. I.e., prewrite is the first phase in a two phase commit.
 type Prewrite struct {
-	request *kvrpcpb.PrewriteRequest
+	CommandBase
+	request  *kvrpcpb.PrewriteRequest
+	response *kvrpcpb.PrewriteResponse
 }
 
 func NewPrewrite(request *kvrpcpb.PrewriteRequest) Prewrite {
-	return Prewrite{request}
+	response := new(kvrpcpb.PrewriteResponse)
+	return Prewrite{
+		CommandBase: CommandBase{
+			context:  request.Context,
+			response: response,
+		},
+		request:  request,
+		response: response,
+	}
 }
 
 func (p *Prewrite) BuildTxn(txn *kvstore.MvccTxn) error {
@@ -41,29 +51,19 @@ func (p *Prewrite) BuildTxn(txn *kvstore.MvccTxn) error {
 	return &kvstore.LockedError{Info: locks}
 }
 
-func (p *Prewrite) Context() *kvrpcpb.Context {
-	return p.request.Context
-}
-
-func (p *Prewrite) Response() interface{} {
-	return &kvrpcpb.PrewriteResponse{}
-}
-
 func (p *Prewrite) HandleError(err error) interface{} {
 	if err == nil {
 		return nil
 	}
 
 	if regionErr := extractRegionError(err); regionErr != nil {
-		resp := kvrpcpb.PrewriteResponse{}
-		resp.RegionError = regionErr
-		return &resp
+		p.response.RegionError = regionErr
+		return p.response
 	}
 
 	if e, ok := err.(KeyError); ok {
-		resp := kvrpcpb.PrewriteResponse{}
-		resp.Errors = e.KeyErrors()
-		return &resp
+		p.response.Errors = e.KeyErrors()
+		return p.response
 	}
 
 	return nil

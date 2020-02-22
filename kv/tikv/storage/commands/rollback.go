@@ -7,11 +7,21 @@ import (
 )
 
 type Rollback struct {
-	request *kvrpcpb.BatchRollbackRequest
+	CommandBase
+	request  *kvrpcpb.BatchRollbackRequest
+	response *kvrpcpb.BatchRollbackResponse
 }
 
 func NewRollback(request *kvrpcpb.BatchRollbackRequest) Rollback {
-	return Rollback{request}
+	response := new(kvrpcpb.BatchRollbackResponse)
+	return Rollback{
+		CommandBase: CommandBase{
+			context:  request.Context,
+			response: response,
+		},
+		request:  request,
+		response: response,
+	}
 }
 
 func (r *Rollback) BuildTxn(txn *kvstore.MvccTxn) error {
@@ -66,29 +76,19 @@ func rollbackKey(key []byte, txn *kvstore.MvccTxn) error {
 	return nil
 }
 
-func (r *Rollback) Context() *kvrpcpb.Context {
-	return r.request.Context
-}
-
-func (r *Rollback) Response() interface{} {
-	return &kvrpcpb.BatchRollbackResponse{}
-}
-
 func (r *Rollback) HandleError(err error) interface{} {
 	if err == nil {
 		return nil
 	}
 
 	if regionErr := extractRegionError(err); regionErr != nil {
-		resp := kvrpcpb.BatchRollbackResponse{}
-		resp.RegionError = regionErr
-		return &resp
+		r.response.RegionError = regionErr
+		return r.response
 	}
 
 	if e, ok := err.(KeyError); ok {
-		resp := kvrpcpb.BatchRollbackResponse{}
-		resp.Error = e.KeyErrors()[0]
-		return &resp
+		r.response.Error = e.KeyErrors()[0]
+		return r.response
 	}
 
 	return nil

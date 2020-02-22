@@ -1,18 +1,28 @@
 package commands
 
 import (
-	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
 
 type Scan struct {
+	ReadOnly
+	CommandBase
 	request  *kvrpcpb.ScanRequest
 	response *kvrpcpb.ScanResponse
 }
 
 func NewScan(request *kvrpcpb.ScanRequest) Scan {
-	return Scan{request, &kvrpcpb.ScanResponse{}}
+	response := new(kvrpcpb.ScanResponse)
+	result := Scan{
+		CommandBase: CommandBase{
+			context:  request.Context,
+			response: response,
+		},
+		request:  request,
+		response: response,
+	}
+	return result
 }
 
 func (s *Scan) BuildTxn(txn *kvstore.MvccTxn) error {
@@ -54,14 +64,6 @@ func (s *Scan) BuildTxn(txn *kvstore.MvccTxn) error {
 	}
 }
 
-func (s *Scan) Context() *kvrpcpb.Context {
-	return s.request.Context
-}
-
-func (s *Scan) Response() interface{} {
-	return s.response
-}
-
 func (s *Scan) HandleError(err error) interface{} {
 	if err == nil {
 		return nil
@@ -73,8 +75,4 @@ func (s *Scan) HandleError(err error) interface{} {
 	}
 
 	return nil
-}
-
-func (s *Scan) WillWrite(reader dbreader.DBReader) ([][]byte, error) {
-	return [][]byte{}, nil
 }

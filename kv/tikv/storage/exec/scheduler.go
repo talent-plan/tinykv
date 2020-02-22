@@ -79,7 +79,8 @@ func (seq *Sequential) handleTask() {
 		}
 
 		// Send response back to the gRPC thread.
-		task.resultChannel <- interfaces.RespOk(task.cmd.Response())
+		resp := task.cmd.Response()
+		task.resultChannel <- interfaces.RespOk(resp)
 
 		reader.Close()
 		close(task.resultChannel)
