@@ -5,7 +5,7 @@ import (
 
 	"github.com/coocood/badger"
 	"github.com/ngaut/log"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
@@ -24,11 +24,11 @@ type splitCheckHandler struct {
 	checker *sizeSplitChecker
 }
 
-func NewSplitCheckHandler(engine *badger.DB, router message.RaftRouter, config *config.SplitCheckConfig) *splitCheckHandler {
+func NewSplitCheckHandler(engine *badger.DB, router message.RaftRouter, conf *config.Config) *splitCheckHandler {
 	runner := &splitCheckHandler{
 		engine:  engine,
 		router:  router,
-		checker: newSizeSplitChecker(config.RegionMaxSize, config.RegionSplitSize),
+		checker: newSizeSplitChecker(conf.RegionMaxSize, conf.RegionSplitSize),
 	}
 	return runner
 }

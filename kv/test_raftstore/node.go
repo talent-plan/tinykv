@@ -10,8 +10,8 @@ import (
 
 	"github.com/coocood/badger"
 	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
-	tikvConf "github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
@@ -154,14 +154,14 @@ func NewNodeSimulator(pdClient pd.Client) *NodeSimulator {
 	}
 }
 
-func (c *NodeSimulator) RunStore(raftConf *tikvConf.Config, engine *engine_util.Engines, ctx context.Context) error {
+func (c *NodeSimulator) RunStore(cfg *config.Config, engine *engine_util.Engines, ctx context.Context) error {
 	c.Lock()
 	defer c.Unlock()
 
-	router, batchSystem := raftstore.CreateRaftBatchSystem(raftConf)
+	router, batchSystem := raftstore.CreateRaftBatchSystem(cfg)
 	raftRouter := raftstore.NewRaftstoreRouter(router)
-	snapManager := snap.NewSnapManager(raftConf.SnapPath)
-	node := raftstore.NewNode(batchSystem, &metapb.Store{}, raftConf, c.pdClient)
+	snapManager := snap.NewSnapManager(cfg.DBPath + "/snap")
+	node := raftstore.NewNode(batchSystem, &metapb.Store{}, cfg, c.pdClient)
 
 	err := node.Start(ctx, engine, c.trans, snapManager, raftRouter)
 	if err != nil {

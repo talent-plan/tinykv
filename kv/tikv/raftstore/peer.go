@@ -6,7 +6,7 @@ import (
 
 	"github.com/coocood/badger"
 	"github.com/ngaut/log"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/runner"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"
@@ -73,8 +73,6 @@ type Peer struct {
 	// Index of last scheduled committed raft log.
 	LastApplyingIdx  uint64
 	LastCompactedIdx uint64
-	// Approximate size of logs that is applied but not compacted yet.
-	RaftLogSizeHint uint64
 
 	PendingRemove bool
 
@@ -465,11 +463,6 @@ func (p *Peer) HandleRaftReadyAppend(trans Transport, applyMsgs *applyMsgs, kvWB
 }
 
 func (p *Peer) PostRaftReadyPersistent(trans Transport, applyMsgs *applyMsgs, ready *raft.Ready, invokeCtx *InvokeContext) *ApplySnapResult {
-	if invokeCtx.hasSnapshot() {
-		// When apply snapshot, there is no log applied and not compacted yet.
-		p.RaftLogSizeHint = 0
-	}
-
 	applySnapResult := p.Store().PostReadyPersistent(invokeCtx)
 
 	if !p.IsLeader() {
@@ -570,11 +563,6 @@ func (p *Peer) HandleRaftReadyApply(kv *badger.DB, applyMsgs *applyMsgs, ready *
 	} else {
 		committedEntries := ready.CommittedEntries
 		ready.CommittedEntries = nil
-		for _, entry := range committedEntries {
-			// raft meta is very small, can be ignored.
-			p.RaftLogSizeHint += uint64(len(entry.Data))
-		}
-
 		l := len(committedEntries)
 		if l > 0 {
 			p.LastApplyingIdx = committedEntries[l-1].Index
@@ -704,12 +692,6 @@ func (p *Peer) checkConfChange(cfg *config.Config, cmd *raft_cmdpb.RaftCmdReques
 	changeType := changePeer.GetChangeType()
 	peer := changePeer.GetPeer()
 
-	// Check the request itself is valid or not.
-	if changeType == eraftpb.ConfChangeType_RemoveNode && !cfg.AllowRemoveLeader && peer.Id == p.PeerId() {
-		log.Warnf("%s rejects remove leader request %v", p.Tag, changePeer)
-		return fmt.Errorf("ignore remove leader")
-	}
-
 	status := p.RaftGroup.Status()
 	total := len(status.Progress)
 	if total == 1 {
@@ -752,25 +734,6 @@ func (p *Peer) transferLeader(peer *metapb.Peer) {
 	p.RaftGroup.TransferLeader(peer.GetId())
 }
 
-func (p *Peer) readyToTransferLeader(cfg *config.Config, peer *metapb.Peer) bool {
-	peerId := peer.GetId()
-	status := p.RaftGroup.Status()
-
-	if _, ok := status.Progress[peerId]; !ok {
-		return false
-	}
-
-	// for _, pr := range status.Progress {
-	// 	if pr.State == raft.ProgressStateSnapshot {
-	// 		return false
-	// 	}
-	// }
-
-	lastIndex, _ := p.Store().LastIndex()
-
-	return lastIndex <= status.Progress[peerId].Match+cfg.LeaderTransferMaxLogLag
-}
-
 func (p *Peer) ProposeNormal(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest) (uint64, error) {
 	data, err := req.Marshal()
 	if err != nil {
@@ -796,20 +759,12 @@ func (p *Peer) ProposeTransferLeader(cfg *config.Config, req *raft_cmdpb.RaftCmd
 	transferLeader := getTransferLeaderCmd(req)
 	peer := transferLeader.Peer
 
-	transferred := false
-	if p.readyToTransferLeader(cfg, peer) {
-		p.transferLeader(peer)
-		transferred = true
-	} else {
-		log.Infof("%v transfer leader message %v ignored directly", p.Tag, req)
-		transferred = false
-	}
-
+	p.transferLeader(peer)
 	// transfer leader command doesn't need to replicate log and apply, so we
 	// return immediately. Note that this command may fail, we can view it just as an advice
 	cb.Done(makeTransferLeaderResponse())
 
-	return transferred
+	return true
 }
 
 // Fails in such cases:

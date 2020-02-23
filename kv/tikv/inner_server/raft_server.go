@@ -6,9 +6,8 @@ import (
 	"path/filepath"
 	"sync"
 
-	kvConfig "github.com/pingcap-incubator/tinykv/kv/config"
+	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
@@ -60,8 +59,8 @@ func (ris *RaftInnerServer) checkResponse(resp *raft_cmdpb.RaftCmdResponse, reqC
 }
 
 // NewRaftInnerServer creates a new inner server backed by a raftstore.
-func NewRaftInnerServer(conf *kvConfig.Config) *RaftInnerServer {
-	dbPath := conf.Engine.DBPath
+func NewRaftInnerServer(conf *config.Config) *RaftInnerServer {
+	dbPath := conf.DBPath
 	kvPath := filepath.Join(dbPath, "kv")
 	raftPath := filepath.Join(dbPath, "raft")
 	snapPath := filepath.Join(dbPath, "snap")
@@ -70,24 +69,11 @@ func NewRaftInnerServer(conf *kvConfig.Config) *RaftInnerServer {
 	os.MkdirAll(raftPath, os.ModePerm)
 	os.Mkdir(snapPath, os.ModePerm)
 
-	raftDB := engine_util.CreateDB("raft", &conf.Engine)
-	raftConf := config.NewDefaultConfig()
-	raftConf.SnapPath = snapPath
-	setupRaftStoreConf(raftConf, conf)
-
-	kvDB := engine_util.CreateDB("kv", &conf.Engine)
+	raftDB := engine_util.CreateDB("raft", conf)
+	kvDB := engine_util.CreateDB("kv", conf)
 	engines := engine_util.NewEngines(kvDB, raftDB, kvPath, raftPath)
 
-	return &RaftInnerServer{engines: engines, raftConfig: raftConf}
-}
-
-func setupRaftStoreConf(raftConf *config.Config, conf *kvConfig.Config) {
-	raftConf.Addr = conf.Server.StoreAddr
-	// raftstore block
-	raftConf.PdHeartbeatTickInterval = kvConfig.ParseDuration(conf.RaftStore.PdHeartbeatTickInterval)
-	raftConf.RaftBaseTickInterval = kvConfig.ParseDuration(conf.RaftStore.RaftBaseTickInterval)
-	raftConf.RaftHeartbeatTicks = conf.RaftStore.RaftHeartbeatTicks
-	raftConf.RaftElectionTimeoutTicks = conf.RaftStore.RaftElectionTimeoutTicks
+	return &RaftInnerServer{engines: engines, raftConfig: conf}
 }
 
 func (ris *RaftInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
@@ -209,13 +195,13 @@ func (ris *RaftInnerServer) Start(pdClient pd.Client) error {
 	cfg := ris.raftConfig
 	router, batchSystem := raftstore.CreateRaftBatchSystem(cfg)
 
-	ris.snapManager = snap.NewSnapManager(cfg.SnapPath)
+	ris.snapManager = snap.NewSnapManager(cfg.DBPath + "snap")
 	ris.batchSystem = batchSystem
 	ris.raftRouter = raftstore.NewRaftstoreRouter(router) // TODO: init with local reader
 	ris.node = raftstore.NewNode(ris.batchSystem, &ris.storeMeta, ris.raftConfig, pdClient)
 
 	resolveSender := ris.resolveWorker.Sender()
-	raftClient := newRaftClient(ris.raftConfig)
+	raftClient := newRaftClient(cfg)
 	trans := NewServerTransport(raftClient, resolveSender, ris.raftRouter, resolveSender)
 
 	resolveRunner := newResolverRunner(pdClient)

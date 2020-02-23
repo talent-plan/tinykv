@@ -2,21 +2,18 @@ package main
 
 import (
 	"flag"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/exec"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/interfaces"
 	"net"
-	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
-	"runtime"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/exec"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/interfaces"
+
 	"github.com/BurntSushi/toml"
-	"github.com/coocood/badger"
-	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
@@ -33,10 +30,6 @@ var (
 	storeAddr  = flag.String("addr", "", "store address")
 )
 
-var (
-	gitHash = "None"
-)
-
 const (
 	grpcInitialWindowSize     = 1 << 30
 	grpcInitialConnWindowSize = 1 << 30
@@ -46,25 +39,22 @@ func main() {
 	flag.Parse()
 	conf := loadConfig()
 	if *pdAddr != "" {
-		conf.Server.PDAddr = *pdAddr
+		conf.PDAddr = *pdAddr
 	}
 	if *storeAddr != "" {
-		conf.Server.StoreAddr = *storeAddr
+		conf.StoreAddr = *storeAddr
 	}
-	runtime.GOMAXPROCS(conf.Server.MaxProcs)
-	log.Info("gitHash:", gitHash)
-	log.SetLevelByString(conf.Server.LogLevel)
+	log.SetLevelByString(conf.LogLevel)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 	log.Infof("conf %v", conf)
-	config.SetGlobalConf(conf)
 
-	pdClient, err := pd.NewClient(strings.Split(conf.Server.PDAddr, ","), "")
+	pdClient, err := pd.NewClient(strings.Split(conf.PDAddr, ","), "")
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	var innerServer interfaces.InnerServer
-	if conf.Server.Raft {
+	if conf.Raft {
 		innerServer = setupRaftInnerServer(pdClient, conf)
 	} else {
 		innerServer = setupStandAloneInnerServer(pdClient, conf)
@@ -84,22 +74,13 @@ func main() {
 		grpc.MaxRecvMsgSize(10*1024*1024),
 	)
 	tikvpb.RegisterTikvServer(grpcServer, tikvServer)
-	listenAddr := conf.Server.StoreAddr[strings.IndexByte(conf.Server.StoreAddr, ':'):]
+	listenAddr := conf.StoreAddr[strings.IndexByte(conf.StoreAddr, ':'):]
 	l, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		log.Fatal(err)
 	}
 	handleSignal(grpcServer)
-	go func() {
-		log.Infof("listening on %v", conf.Server.StatusAddr)
-		http.HandleFunc("/status", func(writer http.ResponseWriter, request *http.Request) {
-			writer.WriteHeader(http.StatusOK)
-		})
-		err := http.ListenAndServe(conf.Server.StatusAddr, nil)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}()
+
 	err = grpcServer.Serve(l)
 	if err != nil {
 		log.Fatal(err)
@@ -112,15 +93,14 @@ func main() {
 }
 
 func loadConfig() *config.Config {
-	conf := config.DefaultConf
+	conf := config.NewDefaultConfig()
 	if *configPath != "" {
-		_, err := toml.DecodeFile(*configPath, &conf)
+		_, err := toml.DecodeFile(*configPath, conf)
 		if err != nil {
 			panic(err)
 		}
 	}
-	y.Assert(len(conf.Engine.Compression) >= badger.DefaultOptions.TableBuilderOptions.MaxLevels)
-	return &conf
+	return conf
 }
 
 func setupRaftInnerServer(pdClient pd.Client, conf *config.Config) interfaces.InnerServer {

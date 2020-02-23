@@ -8,9 +8,9 @@ import (
 
 	"github.com/coocood/badger"
 	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/lockstore"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/runner"
@@ -101,7 +101,7 @@ type storeFsm struct {
 }
 
 func newStoreFsm(cfg *config.Config) (chan<- message.Msg, *storeFsm) {
-	ch := make(chan message.Msg, cfg.NotifyCapacity)
+	ch := make(chan message.Msg, 40960)
 	fsm := &storeFsm{
 		receiver: (<-chan message.Msg)(ch),
 		ticker:   newStoreTicker(cfg),
@@ -303,10 +303,9 @@ func (d *storeMsgHandler) storeHeartbeatPD() {
 	stats.RegionCount = uint32(len(d.ctx.storeMeta.regions))
 	d.ctx.storeMetaLock.RUnlock()
 	storeInfo := &runner.PdStoreHeartbeatTask{
-		Stats:    stats,
-		Engine:   d.ctx.engine.Kv,
-		Capacity: d.ctx.cfg.Capacity,
-		Path:     d.ctx.engine.KvPath,
+		Stats:  stats,
+		Engine: d.ctx.engine.Kv,
+		Path:   d.ctx.engine.KvPath,
 	}
 	d.ctx.pdTaskSender <- worker.Task{Tp: worker.TaskTypePDStoreHeartbeat, Data: storeInfo}
 }

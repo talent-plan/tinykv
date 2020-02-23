@@ -3,7 +3,7 @@ package raftstore
 import (
 	"time"
 
-	"github.com/pingcap-incubator/tinykv/kv/tikv/config"
+	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 )
 
@@ -31,13 +31,15 @@ func newTicker(regionID uint64, cfg *config.Config) *ticker {
 	return t
 }
 
+const SnapMgrGcTickInterval = 1 * time.Minute
+
 func newStoreTicker(cfg *config.Config) *ticker {
 	baseInterval := cfg.RaftBaseTickInterval
 	t := &ticker{
 		schedules: make([]tickSchedule, 4),
 	}
 	t.schedules[int(StoreTickPdStoreHeartbeat)].interval = int64(cfg.PdStoreHeartbeatTickInterval / baseInterval)
-	t.schedules[int(StoreTickSnapGC)].interval = int64(cfg.SnapMgrGcTickInterval / baseInterval)
+	t.schedules[int(StoreTickSnapGC)].interval = int64(SnapMgrGcTickInterval / baseInterval)
 	return t
 }
 

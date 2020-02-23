@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/config"
 )
 
 func init() {
@@ -168,7 +169,8 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 	title = title + " (" + part + ")" // 3A or 3B
 
 	nservers := 5
-	cluster := NewTestCluster(nservers)
+	cfg := config.NewDefaultConfig()
+	cluster := NewTestCluster(nservers, cfg)
 
 	cluster.Start()
 	defer cluster.Shutdown()
@@ -301,7 +303,8 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 // doesn't go through until the partition heals.  The leader in the original
 // network ends up in the minority partition.
 func TestOnePartition3A(t *testing.T) {
-	cluster := NewTestCluster(5)
+	cfg := config.NewDefaultConfig()
+	cluster := NewTestCluster(5, cfg)
 	cluster.Start()
 	defer cluster.Shutdown()
 

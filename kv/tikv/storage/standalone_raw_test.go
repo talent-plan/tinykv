@@ -47,14 +47,14 @@ func NewTestTiKVServer(innerServer interfaces.InnerServer) *tikv.Server {
 }
 
 func newTestConfig() *config.Config {
-	conf := config.DefaultConf
-	conf.Engine.DBPath = filepath.Join(conf.Engine.DBPath, testPath)
-	return &conf
+	conf := config.NewDefaultConfig()
+	conf.DBPath = filepath.Join(conf.DBPath, testPath)
+	return conf
 }
 
 func cleanUpTestData(conf *config.Config) error {
 	if conf != nil {
-		return os.RemoveAll(conf.Engine.DBPath)
+		return os.RemoveAll(conf.DBPath)
 	}
 	return nil
 }
