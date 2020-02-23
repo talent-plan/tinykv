@@ -34,6 +34,28 @@ type kv struct {
 func newBuilder(t *testing.T) testBuilder {
 	mem := inner_server.NewMemInnerServer()
 	sched := exec.NewSeqScheduler(mem)
+	sched.Validate = func(txn *kvstore.MvccTxn, keys [][]byte) {
+		keyMap := make(map[string]struct{})
+		for _, k := range keys {
+			keyMap[string(k)] = struct{}{}
+		}
+		for _, wr := range txn.Writes {
+			key := wr.Key()
+			// This is a bit of a hack and relies on all the raw tests using keys shorter than 9 bytes, which is the
+			// minimum length for an encoded key.
+			if len(key) > 8 {
+				switch wr.Cf() {
+				case engine_util.CfDefault:
+					key = kvstore.DecodeUserKey(wr.Key())
+				case engine_util.CfWrite:
+					key = kvstore.DecodeUserKey(wr.Key())
+				}
+			}
+			if _, ok := keyMap[string(key)]; !ok {
+				t.Errorf("Failed latching validation: tried to write a key which was not latched in %v", wr.Data)
+			}
+		}
+	}
 	return testBuilder{t, sched, mem, 99}
 }
 

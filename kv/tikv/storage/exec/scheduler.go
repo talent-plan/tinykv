@@ -17,6 +17,8 @@ type Sequential struct {
 	latches map[string]*sync.WaitGroup
 	// Mutex to guard latches. A thread must hold this mutex while it makes any change to latches.
 	latchGuard sync.Mutex
+	// An optional validation function, only used for testing.
+	Validate func(txn *kvstore.MvccTxn, keys [][]byte)
 }
 
 // task is a task to be run by a scheduler.
@@ -69,6 +71,10 @@ func (seq *Sequential) handleTask() {
 		if handleError(err, task, reader) {
 			seq.releaseLatches(latches)
 			continue
+		}
+
+		if seq.Validate != nil {
+			seq.Validate(&txn, latches)
 		}
 
 		// Building the transaction succeeded without conflict, write all writes to backing storage.

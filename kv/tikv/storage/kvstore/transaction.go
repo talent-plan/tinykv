@@ -37,7 +37,7 @@ func (txn *MvccTxn) SeekWrite(key []byte, ts uint64) (*Write, uint64, error) {
 	}
 	item := iter.Item()
 	commitTs := decodeTimestamp(item.Key())
-	if bytes.Compare(decodeUserKey(item.Key()), key) != 0 {
+	if bytes.Compare(DecodeUserKey(item.Key()), key) != 0 {
 		return nil, 0, nil
 	}
 	value, err := item.Value()
@@ -82,7 +82,7 @@ func (txn *MvccTxn) FindWrittenValue(key []byte, ts uint64) ([]byte, error) {
 	for iter.Seek(EncodeKey(key, ts)); iter.Valid(); iter.Next() {
 		item := iter.Item()
 		// If the user key part of the combined key has changed, then we've got to the next key without finding a put write.
-		if bytes.Compare(decodeUserKey(item.Key()), key) != 0 {
+		if bytes.Compare(DecodeUserKey(item.Key()), key) != 0 {
 			return nil, nil
 		}
 		value, err := item.Value()
@@ -207,8 +207,8 @@ func EncodeKey(key []byte, ts uint64) []byte {
 	return newKey
 }
 
-// decodeUserKey takes a key + timestamp and returns the key part.
-func decodeUserKey(key []byte) []byte {
+// DecodeUserKey takes a key + timestamp and returns the key part.
+func DecodeUserKey(key []byte) []byte {
 	_, userKey, err := codec.DecodeBytes(key)
 	if err != nil {
 		panic(err)

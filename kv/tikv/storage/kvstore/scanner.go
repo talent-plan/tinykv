@@ -33,7 +33,7 @@ func (scan *Scanner) Next() ([]byte, []byte, interface{}) {
 		}
 
 		item := scan.writeIter.Item()
-		userKey := decodeUserKey(item.Key())
+		userKey := DecodeUserKey(item.Key())
 		commitTs := decodeTimestamp(item.Key())
 
 		if commitTs >= *scan.txn.StartTS {

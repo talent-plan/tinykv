@@ -7,6 +7,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/stretchr/testify/assert"
+	"sync"
 
 	"testing"
 )
@@ -41,4 +42,27 @@ func (dc *dummyCmd) Context() *kvrpcpb.Context {
 
 func (dc *dummyCmd) WillWrite(reader dbreader.DBReader) ([][]byte, error) {
 	return [][]byte{}, nil
+}
+
+func TestAcquireLatches(t *testing.T) {
+	seq := Sequential{
+		latches: make(map[string]*sync.WaitGroup),
+	}
+
+	// Acquiring a new latch is ok.
+	wg := seq.acquireLatches([][]byte{{}, {3}, {3, 0, 42}})
+	assert.Nil(t, wg)
+
+	// Can only acquire once.
+	wg = seq.acquireLatches([][]byte{{}})
+	assert.NotNil(t, wg)
+	wg = seq.acquireLatches([][]byte{{3, 0, 42}})
+	assert.NotNil(t, wg)
+
+	// Release then acquire is ok.
+	seq.releaseLatches([][]byte{{3}, {3, 0, 43}})
+	wg = seq.acquireLatches([][]byte{{3}})
+	assert.Nil(t, wg)
+	wg = seq.acquireLatches([][]byte{{3, 0, 42}})
+	assert.NotNil(t, wg)
 }
