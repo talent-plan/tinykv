@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/coocood/badger"
-	"github.com/coocood/badger/y"
+	"github.com/Connor1996/badger"
+	"github.com/Connor1996/badger/y"
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
@@ -228,6 +228,9 @@ func doSnapshot(engines *engine_util.Engines, mgr *snap.SnapManager, regionId ui
 	snapshotData := &rspb.RaftSnapshotData{Region: region}
 	snapshotStatics := snap.SnapStatistics{}
 	err = s.Build(txn, region, snapshotData, &snapshotStatics, mgr)
+	if snapshotData.Meta == nil {
+		panic(snapshotData)
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -1,8 +1,8 @@
 package meta
 
 import (
-	"github.com/coocood/badger"
-	"github.com/coocood/badger/y"
+	"github.com/Connor1996/badger"
+	"github.com/Connor1996/badger/y"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"

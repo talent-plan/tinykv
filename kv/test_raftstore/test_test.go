@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"math/rand"
-	"net/http"
 	_ "net/http/pprof"
 	"strconv"
 	"strings"
@@ -14,19 +13,9 @@ import (
 
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 )
-
-func init() {
-	go func() {
-		http.ListenAndServe("localhost:6060", nil)
-	}()
-	log.SetLevelByString("info")
-	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
-}
-
-// The tester generously allows solutions to complete elections in one second
-// (much more than the paper's range of timeouts).
-const electionTimeout = 100 * time.Millisecond
 
 // a client runs the function f and then signals it is done
 func run_client(t *testing.T, me int, ca chan bool, fn func(me int, t *testing.T)) {
@@ -106,7 +95,7 @@ func checkConcurrentAppends(t *testing.T, v string, counts []int) {
 }
 
 // repartition the servers periodically
-func partitioner(t *testing.T, cluster *Cluster, ch chan bool, done *int32, unreliable bool) {
+func partitioner(t *testing.T, cluster *Cluster, ch chan bool, done *int32, unreliable bool, electionTimeout time.Duration) {
 	defer func() { ch <- true }()
 	for atomic.LoadInt32(done) == 0 {
 		a := make([]int, cluster.count)
@@ -141,10 +130,9 @@ func partitioner(t *testing.T, cluster *Cluster, ch chan bool, done *int32, unre
 // particular key.  If unreliable is set, RPCs may fail.  If crash is set, the
 // servers crash after the period is over and restart.  If partitions is set,
 // the test repartitions the network concurrently with the clients and servers. If
-// maxraftstate is a positive number, the size of the state for Raft (i.e., log
-// size) shouldn't exceed 2*maxraftstate.
-func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash bool, partitions bool, maxraftstate int) {
-
+// maxraftlog is a positive number, the count of the persistent log for Raft
+// shouldn't exceed 2*maxraftstate.
+func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash bool, partitions bool, maxraftlog int) {
 	title := "Test: "
 	if unreliable {
 		// the network drops RPC requests and replies.
@@ -158,7 +146,7 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 		// the network may partition
 		title = title + "partitions, "
 	}
-	if maxraftstate != -1 {
+	if maxraftlog != -1 {
 		title = title + "snapshots, "
 	}
 	if nclients > 1 {
@@ -169,12 +157,15 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 	title = title + " (" + part + ")" // 3A or 3B
 
 	nservers := 5
-	cfg := config.NewDefaultConfig()
+	cfg := config.NewTestConfig()
+	if maxraftlog != -1 {
+		cfg.RaftLogGcCountLimit = uint64(maxraftlog)
+	}
 	cluster := NewTestCluster(nservers, cfg)
-
 	cluster.Start()
 	defer cluster.Shutdown()
 
+	electionTimeout := cfg.RaftBaseTickInterval * time.Duration(cfg.RaftElectionTimeoutTicks)
 	done_partitioner := int32(0)
 	done_clients := int32(0)
 	ch_partitioner := make(chan bool)
@@ -217,7 +208,7 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 		if partitions {
 			// Allow the clients to perform some operations without interruption
 			time.Sleep(300 * time.Millisecond)
-			go partitioner(t, cluster, ch_partitioner, &done_partitioner, unreliable)
+			go partitioner(t, cluster, ch_partitioner, &done_partitioner, unreliable, electionTimeout)
 		}
 		time.Sleep(1 * time.Second)
 		atomic.StoreInt32(&done_clients, 1)     // tell clients to quit
@@ -274,36 +265,44 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 			}
 		}
 
-		// if maxraftstate > 0 {
-		// 	// Check maximum after the servers have processed all client
-		// 	// requests and had time to checkpoint.
-		// 	if cfg.LogSize() > 2*maxraftstate {
-		// 		t.Fatalf("logs were not trimmed (%v > 2*%v)", cfg.LogSize(), maxraftstate)
-		// 	}
-		// }
+		if maxraftlog > 0 {
+			// Check maximum after the servers have processed all client
+			// requests and had time to checkpoint.
+			for _, engine := range cluster.engines {
+				state, err := meta.GetApplyState(engine.Kv, 1)
+				if err != nil {
+					panic(err)
+				}
+				truncatedIdx := state.TruncatedState.Index
+				appliedIdx := state.AppliedIndex
+				if appliedIdx-truncatedIdx > 2*uint64(maxraftlog) {
+					t.Fatalf("logs were not trimmed (%v - %v > 2*%v)", appliedIdx, truncatedIdx, maxraftlog)
+				}
+			}
+		}
 	}
 }
 
-// func TestBasic3A(t *testing.T) {
-// 	// Test: one client (3A) ...
-// 	GenericTest(t, "3A", 1, false, false, false, -1)
-// }
+func TestBasic3A(t *testing.T) {
+	// Test: one client (3A) ...
+	GenericTest(t, "3A", 1, false, false, false, -1)
+}
 
-// func TestConcurrent3A(t *testing.T) {
-// 	// Test: many clients (3A) ...
-// 	GenericTest(t, "3A", 5, false, false, false, -1)
-// }
+func TestConcurrent3A(t *testing.T) {
+	// Test: many clients (3A) ...
+	GenericTest(t, "3A", 5, false, false, false, -1)
+}
 
-// func TestUnreliable3A(t *testing.T) {
-// 	// Test: unreliable net, many clients (3A) ...
-// 	GenericTest(t, "3A", 5, true, false, false, -1)
-// }
+func TestUnreliable3A(t *testing.T) {
+	// Test: unreliable net, many clients (3A) ...
+	GenericTest(t, "3A", 5, true, false, false, -1)
+}
 
 // Submit a request in the minority partition and check that the requests
 // doesn't go through until the partition heals.  The leader in the original
 // network ends up in the minority partition.
 func TestOnePartition3A(t *testing.T) {
-	cfg := config.NewDefaultConfig()
+	cfg := config.NewTestConfig()
 	cluster := NewTestCluster(5, cfg)
 	cluster.Start()
 	defer cluster.Shutdown()
@@ -342,37 +341,125 @@ func TestOnePartition3A(t *testing.T) {
 	MustGetEqual(cluster.engines[1], []byte("k1"), []byte("changed"))
 }
 
-// func TestManyPartitionsOneClient3A(t *testing.T) {
-// 	// Test: partitions, one client (3A) ...
-// 	GenericTest(t, "3A", 1, false, false, true, -1)
-// }
+func TestManyPartitionsOneClient3A(t *testing.T) {
+	// Test: partitions, one client (3A) ...
+	GenericTest(t, "3A", 1, false, false, true, -1)
+}
 
-// func TestManyPartitionsManyClients3A(t *testing.T) {
-// 	// Test: partitions, many clients (3A) ...
-// 	GenericTest(t, "3A", 5, false, false, true, -1)
-// }
+func TestManyPartitionsManyClients3A(t *testing.T) {
+	// Test: partitions, many clients (3A) ...
+	GenericTest(t, "3A", 5, false, false, true, -1)
+}
 
-// func TestPersistOneClient3A(t *testing.T) {
-// 	// Test: restarts, one client (3A) ...
-// 	GenericTest(t, "3A", 1, false, true, false, -1)
-// }
+func TestPersistOneClient3A(t *testing.T) {
+	// Test: restarts, one client (3A) ...
+	GenericTest(t, "3A", 1, false, true, false, -1)
+}
 
-// func TestPersistConcurrent3A(t *testing.T) {
-// 	// Test: restarts, many clients (3A) ...
-// 	GenericTest(t, "3A", 5, false, true, false, -1)
-// }
+func TestPersistConcurrent3A(t *testing.T) {
+	// Test: restarts, many clients (3A) ...
+	GenericTest(t, "3A", 5, false, true, false, -1)
+}
 
-// func TestPersistConcurrentUnreliable3A(t *testing.T) {
-// 	// Test: unreliable net, restarts, many clients (3A) ...
-// 	GenericTest(t, "3A", 5, true, true, false, -1)
-// }
+func TestPersistConcurrentUnreliable3A(t *testing.T) {
+	// Test: unreliable net, restarts, many clients (3A) ...
+	GenericTest(t, "3A", 5, true, true, false, -1)
+}
 
-// func TestPersistPartition3A(t *testing.T) {
-// 	// Test: restarts, partitions, many clients (3A) ...
-// 	GenericTest(t, "3A", 5, false, true, true, -1)
-// }
+func TestPersistPartition3A(t *testing.T) {
+	// Test: restarts, partitions, many clients (3A) ...
+	GenericTest(t, "3A", 5, false, true, true, -1)
+}
 
 func TestPersistPartitionUnreliable3A(t *testing.T) {
 	// Test: unreliable net, restarts, partitions, many clients (3A) ...
 	GenericTest(t, "3A", 5, true, true, true, -1)
+}
+
+func TestOneSnapshot3B(t *testing.T) {
+	cfg := config.NewTestConfig()
+	cfg.RaftLogGcCountLimit = 10
+	cluster := NewTestCluster(3, cfg)
+	cluster.Start()
+	defer cluster.Shutdown()
+
+	cf := engine_util.CfLock
+	cluster.MustPutCF(cf, []byte("k1"), []byte("v1"))
+	cluster.MustPutCF(cf, []byte("k2"), []byte("v2"))
+
+	MustGetCfEqual(cluster.engines[1], cf, []byte("k1"), []byte("v1"))
+	MustGetCfEqual(cluster.engines[1], cf, []byte("k2"), []byte("v2"))
+
+	for _, engine := range cluster.engines {
+		state, err := meta.GetApplyState(engine.Kv, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if state.TruncatedState.Index != meta.RaftInitLogIndex ||
+			state.TruncatedState.Term != meta.RaftInitLogTerm {
+			t.Fatalf("unexpected truncated state %v", state.TruncatedState)
+		}
+	}
+
+	cluster.AddFilter(
+		&PartitionFilter{
+			s1: []uint64{1},
+			s2: []uint64{2, 3},
+		},
+	)
+
+	// write some data to trigger snapshot
+	for i := 100; i < 115; i++ {
+		cluster.MustPutCF(cf, []byte(fmt.Sprintf("k%d", i)), []byte(fmt.Sprintf("v%d", i)))
+	}
+	cluster.MustDeleteCF(cf, []byte("k2"))
+	time.Sleep(500 * time.Millisecond)
+	MustGetCfNone(cluster.engines[1], cf, []byte("k100"))
+	cluster.ClearFilters()
+
+	// Now snapshot must applied on
+	MustGetCfEqual(cluster.engines[1], cf, []byte("k1"), []byte("v1"))
+	MustGetCfEqual(cluster.engines[1], cf, []byte("k100"), []byte("v100"))
+	MustGetCfNone(cluster.engines[1], cf, []byte("k2"))
+
+	cluster.StopServer(1)
+	cluster.StartServer(1)
+
+	MustGetCfEqual(cluster.engines[1], cf, []byte("k1"), []byte("v1"))
+	for _, engine := range cluster.engines {
+		state, err := meta.GetApplyState(engine.Kv, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		truncatedIdx := state.TruncatedState.Index
+		appliedIdx := state.AppliedIndex
+		if appliedIdx-truncatedIdx > 2*uint64(cfg.RaftLogGcCountLimit) {
+			t.Fatalf("logs were not trimmed (%v - %v > 2*%v)", appliedIdx, truncatedIdx, cfg.RaftLogGcCountLimit)
+		}
+	}
+}
+
+func TestSnapshotRecover3B(t *testing.T) {
+	// Test: restarts, snapshots, one client (3B) ...
+	GenericTest(t, "3B", 1, false, true, false, 100)
+}
+
+func TestSnapshotRecoverManyClients3B(t *testing.T) {
+	// Test: restarts, snapshots, many clients (3B) ...
+	GenericTest(t, "3B", 20, false, true, false, 100)
+}
+
+func TestSnapshotUnreliable3B(t *testing.T) {
+	// Test: unreliable net, snapshots, many clients (3B) ...
+	GenericTest(t, "3B", 5, true, false, false, 100)
+}
+
+func TestSnapshotUnreliableRecover3B(t *testing.T) {
+	// Test: unreliable net, restarts, snapshots, many clients (3B) ...
+	GenericTest(t, "3B", 5, true, true, false, 100)
+}
+
+func TestSnapshotUnreliableRecoverConcurrentPartition3B(t *testing.T) {
+	// Test: unreliable net, restarts, partitions, snapshots, many clients (3B) ...
+	GenericTest(t, "3B", 5, true, true, true, 100)
 }

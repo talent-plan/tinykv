@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/coocood/badger"
+	"github.com/Connor1996/badger"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
@@ -114,8 +114,8 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 		peerCache:             make(map[uint64]*metapb.Peer),
 		PeerHeartbeats:        make(map[uint64]time.Time),
 		PeersStartPendingTime: make(map[uint64]time.Time),
-		Tag:                   tag,
-		LastApplyingIdx:       appliedIndex,
+		Tag:             tag,
+		LastApplyingIdx: appliedIndex,
 	}
 
 	// If this region has only one peer and I am the one, campaign directly.
@@ -283,7 +283,7 @@ func (p *Peer) Send(trans Transport, msgs []eraftpb.Message) {
 	for _, msg := range msgs {
 		err := p.sendRaftMessage(msg, trans)
 		if err != nil {
-			// log.Warnf("%v send message err: %v", p.Tag, err)
+			log.Warnf("%v send message err: %v", p.Tag, err)
 		}
 	}
 }

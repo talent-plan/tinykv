@@ -3,10 +3,12 @@ package test_raftstore
 import (
 	"bytes"
 	"encoding/hex"
-	"log"
+	"fmt"
+	"net/http"
 	"time"
 
-	"github.com/coocood/badger"
+	"github.com/Connor1996/badger"
+	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -103,8 +105,7 @@ func NewRegionLeaderCmd() *raft_cmdpb.StatusRequest {
 	return &cmd
 }
 
-// MustGet value is optional
-func MustGet(engine *engine_util.Engines, cf string, key []byte, value []byte) {
+func MustGetCf(engine *engine_util.Engines, cf string, key []byte, value []byte) {
 	for i := 0; i < 300; i++ {
 		val, err := engine_util.GetCF(engine.Kv, cf, key)
 		if err == nil && (value == nil || bytes.Compare(val, value) == 0) {
@@ -112,21 +113,41 @@ func MustGet(engine *engine_util.Engines, cf string, key []byte, value []byte) {
 		}
 		SleepMS(20)
 	}
-	log.Panicf("can't get value %s for key %s", hex.EncodeToString(value), hex.EncodeToString(key))
+	panic(fmt.Sprintf("can't get value %s for key %s", hex.EncodeToString(value), hex.EncodeToString(key)))
+}
+
+func MustGetCfEqual(engine *engine_util.Engines, cf string, key []byte, value []byte) {
+	MustGetCf(engine, cf, key, value)
 }
 
 func MustGetEqual(engine *engine_util.Engines, key []byte, value []byte) {
-	MustGet(engine, engine_util.CfDefault, key, value)
+	MustGetCf(engine, engine_util.CfDefault, key, value)
+}
+
+func MustGetCfNone(engine *engine_util.Engines, cf string, key []byte) {
+	var val []byte
+	var err error
+	for i := 0; i < 300; i++ {
+		val, err = engine_util.GetCF(engine.Kv, cf, key)
+		if err == badger.ErrKeyNotFound {
+			return
+		}
+		SleepMS(20)
+	}
+	panic(fmt.Sprintf("get value %s for key %s", hex.EncodeToString(val), hex.EncodeToString(key)))
 }
 
 func MustGetNone(engine *engine_util.Engines, key []byte) {
-	val, err := engine_util.GetCF(engine.Kv, engine_util.CfDefault, key)
-	if err != badger.ErrKeyNotFound {
-		log.Panicf("get value %s for key %s", hex.EncodeToString(val), hex.EncodeToString(key))
-	}
+	MustGetCfNone(engine, engine_util.CfDefault, key)
 }
 
 func NewTestCluster(count int, cfg *config.Config) *Cluster {
+	go func() {
+		http.ListenAndServe("localhost:6060", nil)
+	}()
+	log.SetLevelByString(cfg.LogLevel)
+	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
+
 	pdClient := NewMockPDClient(0)
 	simulator := NewNodeSimulator(pdClient)
 	return NewCluster(count, pdClient, simulator, cfg)

@@ -1,8 +1,9 @@
 package snap
 
 import (
-	"github.com/coocood/badger"
-	"github.com/coocood/badger/y"
+	"github.com/Connor1996/badger"
+	"github.com/Connor1996/badger/y"
+	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 )
@@ -43,16 +44,18 @@ func (b *snapBuilder) build() error {
 			if err != nil {
 				return err
 			}
-			cfKey := append([]byte(cf+"_"), key...)
+			cfKey := engine_util.KeyWithCF(cf, key)
 			if err := sstWriter.Add(cfKey, y.ValueStruct{
 				Value: value,
 			}); err != nil {
 				return err
 			}
+			log.Infof("snap write key: %v, value: %v\n", cfKey, value)
 			file.KVCount++
 			file.Size += uint64(len(cfKey) + len(value))
 		}
 		it.Close()
+		log.Infof("finish snap cf %s with count %d", cf, file.KVCount)
 		b.kvCount += file.KVCount
 		b.size += int(file.Size)
 	}

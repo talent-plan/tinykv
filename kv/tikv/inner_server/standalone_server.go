@@ -1,7 +1,7 @@
 package inner_server
 
 import (
-	"github.com/coocood/badger"
+	"github.com/Connor1996/badger"
 	kvConfig "github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"

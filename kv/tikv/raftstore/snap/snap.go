@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/coocood/badger"
-	"github.com/coocood/badger/table"
+	"github.com/Connor1996/badger"
+	"github.com/Connor1996/badger/table"
 
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/util"
@@ -56,7 +56,6 @@ const (
 	tmpFileSuffix       = ".tmp"
 	cloneFileSuffix     = ".clone"
 	metaFileSuffix      = ".meta"
-	snapshotVersion     = 2
 	deleteRetryMaxTime  = 6
 	deleteRetryDuration = 500 * time.Millisecond
 )
@@ -540,6 +539,9 @@ func (s *Snap) Build(dbSnap *badger.Txn, region *metapb.Region, snapData *rspb.R
 	if s.Exists() {
 		err := s.validate()
 		if err == nil {
+			// set snapshot meta data
+			snapData.FileSize = s.TotalSize()
+			snapData.Meta = s.MetaFile.Meta
 			return nil
 		}
 		log.Errorf("[region %d] file %s is corrupted, will rebuild: %v", region.Id, s.Path(), err)
@@ -569,6 +571,9 @@ func (s *Snap) Build(dbSnap *badger.Txn, region *metapb.Region, snapData *rspb.R
 	if err != nil {
 		return err
 	}
+	if snapshotMeta == nil {
+		panic("nil snap meta")
+	}
 	s.MetaFile.Meta = snapshotMeta
 	err = s.saveMetaFile()
 	if err != nil {
@@ -578,7 +583,6 @@ func (s *Snap) Build(dbSnap *badger.Txn, region *metapb.Region, snapData *rspb.R
 	stat.Size = totalSize
 	// set snapshot meta data
 	snapData.FileSize = totalSize
-	snapData.Version = snapshotVersion
 	snapData.Meta = s.MetaFile.Meta
 	return nil
 }
@@ -701,16 +705,17 @@ func (s *Snap) Apply(opts ApplyOptions) error {
 			continue
 		}
 		file, err := os.Open(cfFile.Path)
+		fmt.Println(cfFile.Path)
 		if err != nil {
 			log.Errorf("open ingest file %s failed: %s", cfFile.Path, err)
 			return err
 		}
 		externalFiles = append(externalFiles, file)
 	}
-
 	n, err := opts.DB.IngestExternalFiles(externalFiles)
 	if err != nil {
 		log.Errorf("ingest sst failed (first %d files succeeded): %s", n, err)
+		panic(externalFiles)
 		return err
 	}
 	log.Infof("apply snapshot ingested %d tables", n)
