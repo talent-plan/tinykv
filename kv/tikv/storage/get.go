@@ -1,4 +1,4 @@
-package commands
+package storage
 
 import (
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"

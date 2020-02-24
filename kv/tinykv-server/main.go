@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/storage"
 	"net"
 	_ "net/http/pprof"
 	"os"
@@ -10,14 +11,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/exec"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/interfaces"
-
 	"github.com/BurntSushi/toml"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
-	"github.com/pingcap-incubator/tinykv/kv/tikv"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 	"google.golang.org/grpc"
@@ -53,14 +50,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	var innerServer interfaces.InnerServer
+	var innerServer storage.InnerServer
 	if conf.Raft {
 		innerServer = setupRaftInnerServer(pdClient, conf)
 	} else {
 		innerServer = setupStandAloneInnerServer(pdClient, conf)
 	}
-	scheduler := exec.NewScheduler(innerServer)
-	tikvServer := tikv.NewServer(innerServer, scheduler)
+	tikvServer := storage.NewServer(innerServer)
 
 	var alivePolicy = keepalive.EnforcementPolicy{
 		MinTime:             2 * time.Second, // If a client pings more than once every 2 seconds, terminate the connection
@@ -99,7 +95,7 @@ func loadConfig() *config.Config {
 	return conf
 }
 
-func setupRaftInnerServer(pdClient pd.Client, conf *config.Config) interfaces.InnerServer {
+func setupRaftInnerServer(pdClient pd.Client, conf *config.Config) storage.InnerServer {
 	innerServer := inner_server.NewRaftInnerServer(conf)
 	if err := innerServer.Start(pdClient); err != nil {
 		log.Fatal(err)
@@ -108,7 +104,7 @@ func setupRaftInnerServer(pdClient pd.Client, conf *config.Config) interfaces.In
 	return innerServer
 }
 
-func setupStandAloneInnerServer(pdClient pd.Client, conf *config.Config) interfaces.InnerServer {
+func setupStandAloneInnerServer(pdClient pd.Client, conf *config.Config) storage.InnerServer {
 	innerServer := inner_server.NewStandAloneInnerServer(conf)
 	if err := innerServer.Start(pdClient); err != nil {
 		log.Fatal(err)

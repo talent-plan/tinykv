@@ -7,10 +7,7 @@ import (
 
 	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/tikv"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/exec"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/interfaces"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/stretchr/testify/assert"
 )
@@ -32,7 +29,7 @@ func Set(is *inner_server.StandAloneInnerServer, cf string, key []byte, value []
 	})
 }
 
-func Get(is *inner_server.StandAloneInnerServer, cf string, key []byte) ([]byte, error) {
+func get(is *inner_server.StandAloneInnerServer, cf string, key []byte) ([]byte, error) {
 	reader, err := is.Reader(nil)
 	if err != nil {
 		return nil, err
@@ -40,9 +37,8 @@ func Get(is *inner_server.StandAloneInnerServer, cf string, key []byte) ([]byte,
 	return reader.GetCF(cf, key)
 }
 
-func NewTestTiKVServer(innerServer interfaces.InnerServer) *tikv.Server {
-	sched := exec.NewScheduler(innerServer)
-	server := tikv.NewServer(innerServer, sched)
+func NewTestTiKVServer(innerServer InnerServer) *Server {
+	server := NewServer(innerServer)
 	return server
 }
 
@@ -108,7 +104,7 @@ func TestRawPutLab1(t *testing.T) {
 
 	_, err := server.RawPut(nil, req)
 
-	got, err := Get(is, cf, []byte{99})
+	got, err := get(is, cf, []byte{99})
 	assert.Nil(t, err)
 	assert.Equal(t, []byte{42}, got)
 }
@@ -180,7 +176,7 @@ func TestRawDeleteLab1(t *testing.T) {
 	_, err := server.RawDelete(nil, req)
 	assert.Nil(t, err)
 
-	_, err = Get(is, cf, []byte{99})
+	_, err = get(is, cf, []byte{99})
 	assert.Equal(t, err, badger.ErrKeyNotFound)
 }
 
