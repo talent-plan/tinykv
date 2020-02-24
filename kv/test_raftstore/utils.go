@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/Connor1996/badger"
@@ -142,12 +141,8 @@ func MustGetNone(engine *engine_util.Engines, key []byte) {
 }
 
 func NewTestCluster(count int, cfg *config.Config) *Cluster {
-	go func() {
-		http.ListenAndServe("localhost:6060", nil)
-	}()
 	log.SetLevelByString(cfg.LogLevel)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
-
 	pdClient := NewMockPDClient(0)
 	simulator := NewNodeSimulator(pdClient)
 	return NewCluster(count, pdClient, simulator, cfg)
