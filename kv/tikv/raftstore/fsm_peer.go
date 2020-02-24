@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/coocood/badger/y"
+	"github.com/Connor1996/badger/y"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
@@ -828,11 +828,15 @@ func (d *peerMsgHandler) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) (
 func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *message.Callback) {
 	resp, err := d.preProposeRaftCommand(msg)
 	if err != nil {
-		cb.Done(ErrResp(err))
+		if cb != nil {
+			cb.Done(ErrResp(err))
+		}
 		return
 	}
 	if resp != nil {
-		cb.Done(resp)
+		if cb != nil {
+			cb.Done(resp)
+		}
 		return
 	}
 

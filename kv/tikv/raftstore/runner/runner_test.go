@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coocood/badger"
+	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"

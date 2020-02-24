@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/coocood/badger"
-	"github.com/coocood/badger/y"
+	"github.com/Connor1996/badger"
+	"github.com/Connor1996/badger/y"
 	"github.com/golang/protobuf/proto"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
