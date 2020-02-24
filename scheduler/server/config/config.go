@@ -442,8 +442,6 @@ type ScheduleConfig struct {
 	EnableMakeUpReplica bool `toml:"enable-make-up-replica" json:"enable-make-up-replica,string"`
 	// EnableRemoveExtraReplica is the option to enable replica checker to remove extra replica.
 	EnableRemoveExtraReplica bool `toml:"enable-remove-extra-replica" json:"enable-remove-extra-replica,string"`
-	// EnableLocationReplacement is the option to enable replica checker to move replica to a better location.
-	EnableLocationReplacement bool `toml:"enable-location-replacement" json:"enable-location-replacement,string"`
 	// Schedulers support for loading customized schedulers
 	Schedulers SchedulerConfigs `toml:"schedulers,omitempty" json:"schedulers-v2"` // json v2 is for the sake of compatible upgrade
 
@@ -467,7 +465,6 @@ func (c *ScheduleConfig) Clone() *ScheduleConfig {
 		EnableReplaceOfflineReplica:  c.EnableReplaceOfflineReplica,
 		EnableMakeUpReplica:          c.EnableMakeUpReplica,
 		EnableRemoveExtraReplica:     c.EnableRemoveExtraReplica,
-		EnableLocationReplacement:    c.EnableLocationReplacement,
 		Schedulers:                   schedulers,
 	}
 }
@@ -512,9 +509,6 @@ func (c *ScheduleConfig) adjust(meta *configMetaData) error {
 	}
 	if !meta.IsDefined("enable-remove-extra-replica") {
 		c.EnableRemoveExtraReplica = true
-	}
-	if !meta.IsDefined("enable-location-replacement") {
-		c.EnableLocationReplacement = true
 	}
 	adjustSchedulers(&c.Schedulers, defaultSchedulers)
 
