@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"reflect"
@@ -75,9 +74,9 @@ func (lock *Lock) IsLockedFor(key []byte, txnStartTs uint64, resp interface{}) b
 }
 
 // AllLocksForTxn returns all locks for the current transaction.
-func AllLocksForTxn(txnTs uint64, reader dbreader.DBReader) ([]KlPair, error) {
+func AllLocksForTxn(txn *RoTxn) ([]KlPair, error) {
 	var result []KlPair
-	for iter := reader.IterCF(engine_util.CfLock); iter.Valid(); iter.Next() {
+	for iter := txn.Reader.IterCF(engine_util.CfLock); iter.Valid(); iter.Next() {
 		item := iter.Item()
 		val, err := item.Value()
 		if err != nil {
@@ -87,7 +86,7 @@ func AllLocksForTxn(txnTs uint64, reader dbreader.DBReader) ([]KlPair, error) {
 		if err != nil {
 			return nil, err
 		}
-		if lock.Ts == txnTs {
+		if lock.Ts == *txn.StartTS {
 			result = append(result, KlPair{item.Key(), lock})
 		}
 	}

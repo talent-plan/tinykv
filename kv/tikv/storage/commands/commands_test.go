@@ -34,7 +34,7 @@ type kv struct {
 func newBuilder(t *testing.T) testBuilder {
 	mem := inner_server.NewMemInnerServer()
 	sched := exec.NewSeqScheduler(mem)
-	sched.Validate = func(txn *kvstore.MvccTxn, keys [][]byte) {
+	sched.Latches.Validate = func(txn *kvstore.MvccTxn, keys [][]byte) {
 		keyMap := make(map[string]struct{})
 		for _, k := range keys {
 			keyMap[string(k)] = struct{}{}

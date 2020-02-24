@@ -2,7 +2,6 @@ package commands
 
 import (
 	"fmt"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"reflect"
@@ -22,7 +21,7 @@ func NewRollback(request *kvrpcpb.BatchRollbackRequest) Rollback {
 	}
 }
 
-func (r *Rollback) Execute(txn *kvstore.MvccTxn) (interface{}, error) {
+func (r *Rollback) PrepareWrites(txn *kvstore.MvccTxn) (interface{}, error) {
 	response := new(kvrpcpb.BatchRollbackResponse)
 	txn.StartTS = &r.request.StartVersion
 
@@ -80,6 +79,6 @@ func rollbackKey(key []byte, txn *kvstore.MvccTxn, response interface{}) (interf
 	return nil, nil
 }
 
-func (r *Rollback) WillWrite(reader dbreader.DBReader) ([][]byte, error) {
-	return r.request.Keys, nil
+func (r *Rollback) WillWrite() [][]byte {
+	return r.request.Keys
 }

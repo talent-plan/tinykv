@@ -2,7 +2,6 @@ package commands
 
 import (
 	"fmt"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"reflect"
 
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
@@ -23,7 +22,7 @@ func NewCommit(request *kvrpcpb.CommitRequest) Commit {
 	}
 }
 
-func (c *Commit) Execute(txn *kvstore.MvccTxn) (interface{}, error) {
+func (c *Commit) PrepareWrites(txn *kvstore.MvccTxn) (interface{}, error) {
 	commitTs := c.request.CommitVersion
 	startTs := c.request.StartVersion
 	if commitTs <= startTs {
@@ -80,6 +79,6 @@ func commitKey(key []byte, commitTs uint64, txn *kvstore.MvccTxn, response inter
 	return nil, nil
 }
 
-func (c *Commit) WillWrite(reader dbreader.DBReader) ([][]byte, error) {
-	return c.request.Keys, nil
+func (c *Commit) WillWrite() [][]byte {
+	return c.request.Keys
 }

@@ -11,7 +11,7 @@ import (
 // TestEmptyRollback tests a rollback with no keys.
 func TestEmptyRollback(t *testing.T) {
 	builder := newBuilder(t)
-	cmd := NewRollback(builder.rollbackRequest())
+	cmd := NewRollback(builder.rollbackRequest([][]byte{}...))
 	resp := builder.runOneCmd(&cmd).(*kvrpcpb.BatchRollbackResponse)
 
 	assert.Nil(t, resp.Error)

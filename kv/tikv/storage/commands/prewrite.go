@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
@@ -24,7 +23,7 @@ func NewPrewrite(request *kvrpcpb.PrewriteRequest) Prewrite {
 	}
 }
 
-func (p *Prewrite) Execute(txn *kvstore.MvccTxn) (interface{}, error) {
+func (p *Prewrite) PrepareWrites(txn *kvstore.MvccTxn) (interface{}, error) {
 	response := new(kvrpcpb.PrewriteResponse)
 	txn.StartTS = &p.request.StartVersion
 
@@ -89,10 +88,10 @@ func (p *Prewrite) prewriteMutation(txn *kvstore.MvccTxn, mut *kvrpcpb.Mutation)
 	return nil, nil
 }
 
-func (p *Prewrite) WillWrite(reader dbreader.DBReader) ([][]byte, error) {
-	var result [][]byte
+func (p *Prewrite) WillWrite() [][]byte {
+	result := [][]byte{}
 	for _, m := range p.request.Mutations {
 		result = append(result, m.Key)
 	}
-	return result, nil
+	return result
 }

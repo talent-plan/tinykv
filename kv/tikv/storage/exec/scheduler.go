@@ -1,10 +1,8 @@
 package exec
 
 import (
-	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/interfaces"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
-	"sync"
 )
 
 // Sequential is a Scheduler which executes all commands sequentially on a single thread. Since there is no concurrency,
@@ -12,13 +10,7 @@ import (
 type Sequential struct {
 	innerServer interfaces.InnerServer
 	queue       chan task
-	// Before modifying any property of a key, the thread must have the latch for that key. `latches` maps each latched
-	// key to a WaitGroup. Threads who find a key locked should wait on that WaitGroup.
-	latches map[string]*sync.WaitGroup
-	// Mutex to guard latches. A thread must hold this mutex while it makes any change to latches.
-	latchGuard sync.Mutex
-	// An optional validation function, only used for testing.
-	Validate func(txn *kvstore.MvccTxn, keys [][]byte)
+	Latches     *latches
 }
 
 // task is a task to be run by a scheduler.
@@ -29,13 +21,13 @@ type task struct {
 
 // NewSeqScheduler creates a new sequential scheduler.
 func NewSeqScheduler(innerServer interfaces.InnerServer) *Sequential {
-	sched := &Sequential{innerServer: innerServer, queue: make(chan task), latches: make(map[string]*sync.WaitGroup)}
-	go sched.handleTask()
+	sched := &Sequential{innerServer: innerServer, queue: make(chan task), Latches: newLatches()}
+	go sched.listenTasks()
 	return sched
 }
 
 // handleTask takes a task from Sequential's queue and executes it.
-func (seq *Sequential) handleTask() {
+func (seq *Sequential) listenTasks() {
 	for {
 		task := <-seq.queue
 
@@ -45,105 +37,69 @@ func (seq *Sequential) handleTask() {
 			return
 		}
 
-		// Get the data we need for execution.
-		ctxt := task.cmd.Context()
-		reader, err := seq.innerServer.Reader(ctxt)
-		if handleError(err, task, nil) {
-			continue
+		err := seq.handleTask(task)
+		if err != nil {
+			task.resultChannel <- interfaces.RespErr(err)
 		}
+		close(task.resultChannel)
+	}
+}
 
-		// Latch all keys required by the command. Make sure to call releaseLatches.
-		latches, err := task.cmd.WillWrite(reader)
-		if handleError(err, task, reader) {
-			continue
+func (seq *Sequential) handleTask(task task) error {
+	ctxt := task.cmd.Context()
+	var resp interface{}
+
+	latches := task.cmd.WillWrite()
+	if latches == nil {
+		// The command is readonly or requires access to the DB to determine the keys it will write.
+		reader, err := seq.innerServer.Reader(ctxt)
+		if err != nil {
+			return err
 		}
+		txn := kvstore.RoTxn{Reader: reader}
+		resp, latches, err = task.cmd.Read(&txn)
+		reader.Close()
+		if err != nil {
+			return err
+		}
+	}
+
+	if latches != nil {
+		// The command will write to the DB.
 		for {
-			wg := seq.acquireLatches(latches)
+			wg := seq.Latches.acquireLatches(latches)
 			if wg == nil {
 				break
 			}
 			wg.Wait()
 		}
+		defer seq.Latches.releaseLatches(latches)
+
+		reader, err := seq.innerServer.Reader(ctxt)
+		if err != nil {
+			return err
+		}
+		defer reader.Close()
 
 		// Build an mvcc transaction.
 		txn := kvstore.NewTxn(reader)
-		resp, err := task.cmd.Execute(&txn)
-		if handleError(err, task, reader) {
-			seq.releaseLatches(latches)
-			continue
+		resp, err = task.cmd.PrepareWrites(&txn)
+		if err != nil {
+			return err
 		}
 
-		if seq.Validate != nil {
-			seq.Validate(&txn, latches)
-		}
+		seq.Latches.validate(&txn, latches)
 
 		// Building the transaction succeeded without conflict, write all writes to backing storage.
 		err = seq.innerServer.Write(ctxt, txn.Writes)
-		seq.releaseLatches(latches)
-		if handleError(err, task, reader) {
-			continue
-		}
-
-		// Send response back to the gRPC thread.
-		task.resultChannel <- interfaces.RespOk(resp)
-
-		reader.Close()
-		close(task.resultChannel)
-	}
-}
-
-// acquireLatches locks all latches needed to execute txn.
-func (seq *Sequential) acquireLatches(keys [][]byte) *sync.WaitGroup {
-	seq.latchGuard.Lock()
-	defer seq.latchGuard.Unlock()
-
-	// Check none of the keys we want to write are locked.
-	for _, key := range keys {
-		if latchWg, ok := seq.latches[string(key)]; ok {
-			// Return a wait group to wait on.
-			return latchWg
+		if err != nil {
+			return err
 		}
 	}
 
-	// All latches are available, lock them all with a new wait group.
-	wg := new(sync.WaitGroup)
-	wg.Add(1)
-	for _, key := range keys {
-		seq.latches[string(key)] = wg
-	}
-
+	// Send response back to the gRPC thread.
+	task.resultChannel <- interfaces.RespOk(resp)
 	return nil
-}
-
-func (seq *Sequential) releaseLatches(keys [][]byte) {
-	seq.latchGuard.Lock()
-	defer seq.latchGuard.Unlock()
-
-	first := true
-	for _, key := range keys {
-		if first {
-			wg := seq.latches[string(key)]
-			wg.Done()
-			first = false
-		}
-		delete(seq.latches, string(key))
-	}
-}
-
-// Give the command in task an opportunity to handle err. Returns true if there was an error so the caller is done with
-// this command.
-func handleError(err error, task task, reader dbreader.DBReader) bool {
-	if err == nil {
-		return false
-	}
-
-	task.resultChannel <- interfaces.RespErr(err)
-
-	if reader != nil {
-		reader.Close()
-	}
-	close(task.resultChannel)
-	return true
 }
 
 func (seq *Sequential) Stop() {

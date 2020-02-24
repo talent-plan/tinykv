@@ -2,7 +2,6 @@ package commands
 
 import (
 	"github.com/coocood/badger"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
@@ -24,20 +23,20 @@ func NewRawGet(request *kvrpcpb.RawGetRequest) RawGet {
 	}
 }
 
-func (rg *RawGet) Execute(txn *kvstore.MvccTxn) (interface{}, error) {
+func (rg *RawGet) Read(txn *kvstore.RoTxn) (interface{}, [][]byte, error) {
 	response := new(kvrpcpb.RawGetResponse)
 	val, err := txn.Reader.GetCF(rg.request.Cf, rg.request.Key)
 	if err != nil {
 		if err == badger.ErrKeyNotFound {
 			response.NotFound = true
 		} else {
-			return regionError(err, response)
+			return regionErrorRo(err, response)
 		}
 	} else {
 		response.Value = val
 	}
 
-	return response, nil
+	return response, nil, nil
 }
 
 // RawPut implements the Command interface for raw put requests.
@@ -55,7 +54,7 @@ func NewRawPut(request *kvrpcpb.RawPutRequest) RawPut {
 	}
 }
 
-func (rp *RawPut) Execute(txn *kvstore.MvccTxn) (interface{}, error) {
+func (rp *RawPut) PrepareWrites(txn *kvstore.MvccTxn) (interface{}, error) {
 	txn.Writes = []inner_server.Modify{{
 		Type: inner_server.ModifyTypePut,
 		Data: inner_server.Put{
@@ -66,8 +65,8 @@ func (rp *RawPut) Execute(txn *kvstore.MvccTxn) (interface{}, error) {
 	return new(kvrpcpb.RawPutResponse), nil
 }
 
-func (rp *RawPut) WillWrite(reader dbreader.DBReader) ([][]byte, error) {
-	return [][]byte{rp.request.Key}, nil
+func (rp *RawPut) WillWrite() [][]byte {
+	return [][]byte{rp.request.Key}
 }
 
 // RawDelete implements the Command interface for raw delete requests.
@@ -85,7 +84,7 @@ func NewRawDelete(request *kvrpcpb.RawDeleteRequest) RawDelete {
 	}
 }
 
-func (rd *RawDelete) Execute(txn *kvstore.MvccTxn) (interface{}, error) {
+func (rd *RawDelete) PrepareWrites(txn *kvstore.MvccTxn) (interface{}, error) {
 	txn.Writes = []inner_server.Modify{{
 		Type: inner_server.ModifyTypeDelete,
 		Data: inner_server.Delete{
@@ -96,8 +95,8 @@ func (rd *RawDelete) Execute(txn *kvstore.MvccTxn) (interface{}, error) {
 	return new(kvrpcpb.RawDeleteResponse), nil
 }
 
-func (rd *RawDelete) WillWrite(reader dbreader.DBReader) ([][]byte, error) {
-	return [][]byte{rd.request.Key}, nil
+func (rd *RawDelete) WillWrite() [][]byte {
+	return [][]byte{rd.request.Key}
 }
 
 // RawScan implements the Command interface for raw scan requests.
@@ -116,7 +115,7 @@ func NewRawScan(request *kvrpcpb.RawScanRequest) RawScan {
 	}
 }
 
-func (rs *RawScan) Execute(txn *kvstore.MvccTxn) (interface{}, error) {
+func (rs *RawScan) Read(txn *kvstore.RoTxn) (interface{}, [][]byte, error) {
 	response := new(kvrpcpb.RawScanResponse)
 
 	it := txn.Reader.IterCF(rs.request.Cf)
@@ -126,7 +125,7 @@ func (rs *RawScan) Execute(txn *kvstore.MvccTxn) (interface{}, error) {
 		key := item.KeyCopy(nil)
 		value, err := item.ValueCopy(nil)
 		if err != nil {
-			return regionError(err, response)
+			return regionErrorRo(err, response)
 		}
 
 		response.Kvs = append(response.Kvs, &kvrpcpb.KvPair{
@@ -135,5 +134,5 @@ func (rs *RawScan) Execute(txn *kvstore.MvccTxn) (interface{}, error) {
 		})
 	}
 
-	return response, nil
+	return response, nil, nil
 }

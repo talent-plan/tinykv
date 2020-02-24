@@ -10,11 +10,11 @@ import (
 // Invariant: either the scanner is finished and can not be used, or it is ready to return a value immediately.
 type Scanner struct {
 	writeIter engine_util.DBIterator
-	txn       *MvccTxn
+	txn       *RoTxn
 }
 
 // NewScanner creates a new scanner ready to read from the snapshot in txn.
-func NewScanner(startKey []byte, txn *MvccTxn) *Scanner {
+func NewScanner(startKey []byte, txn *RoTxn) *Scanner {
 	writeIter := txn.Reader.IterCF(engine_util.CfWrite)
 	writeIter.Seek(EncodeKey(startKey, TsMax))
 	return &Scanner{

@@ -21,7 +21,7 @@ func NewScan(request *kvrpcpb.ScanRequest) Scan {
 	return result
 }
 
-func (s *Scan) Execute(txn *kvstore.MvccTxn) (interface{}, error) {
+func (s *Scan) Read(txn *kvstore.RoTxn) (interface{}, [][]byte, error) {
 	txn.StartTS = &s.request.Version
 	response := new(kvrpcpb.ScanResponse)
 
@@ -30,7 +30,7 @@ func (s *Scan) Execute(txn *kvstore.MvccTxn) (interface{}, error) {
 	for {
 		if limit == 0 {
 			// We've scanned up to the requested limit.
-			return response, nil
+			return response, nil, nil
 		}
 		limit -= 1
 
@@ -44,7 +44,7 @@ func (s *Scan) Execute(txn *kvstore.MvccTxn) (interface{}, error) {
 				continue
 			} else if e, ok := err.(error); ok {
 				// Any other kind of error, we can't handle so quit the scan.
-				return regionError(e, response)
+				return regionErrorRo(e, response)
 			} else {
 				// No way we should get here.
 				continue
@@ -52,7 +52,7 @@ func (s *Scan) Execute(txn *kvstore.MvccTxn) (interface{}, error) {
 		}
 		if key == nil {
 			// Reached the end of the DB
-			return response, nil
+			return response, nil, nil
 		}
 
 		pair := kvrpcpb.KvPair{}

@@ -20,7 +20,7 @@ func NewGet(request *kvrpcpb.GetRequest) Get {
 	}
 }
 
-func (g *Get) Execute(txn *kvstore.MvccTxn) (interface{}, error) {
+func (g *Get) Read(txn *kvstore.RoTxn) (interface{}, [][]byte, error) {
 	key := g.request.Key
 	txn.StartTS = &g.request.Version
 	response := new(kvrpcpb.GetResponse)
@@ -28,19 +28,19 @@ func (g *Get) Execute(txn *kvstore.MvccTxn) (interface{}, error) {
 	// Check for locks.
 	lock, err := txn.GetLock(key)
 	if err != nil {
-		return regionError(err, response)
+		return regionErrorRo(err, response)
 	}
 	if lock.IsLockedFor(key, *txn.StartTS, response) {
 		// Key is locked.
-		return response, nil
+		return response, nil, nil
 	}
 
 	// Search writes for a committed value.
 	value, err := txn.FindWrittenValue(key, *txn.StartTS)
 	if err != nil {
-		return regionError(err, response)
+		return regionErrorRo(err, response)
 	}
 
 	response.Value = value
-	return response, nil
+	return response, nil, nil
 }
