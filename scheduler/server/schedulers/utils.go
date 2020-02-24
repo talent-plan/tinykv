@@ -84,12 +84,8 @@ func shouldBalance(cluster opt.Cluster, source, target *core.StoreInfo, region *
 }
 
 func getTolerantResource(cluster opt.Cluster, region *core.RegionInfo, kind core.ScheduleKind) int64 {
-	if kind.Resource == core.LeaderKind && kind.Strategy == core.ByCount {
-		tolerantSizeRatio := cluster.GetTolerantSizeRatio()
-		if tolerantSizeRatio == 0 {
-			tolerantSizeRatio = leaderTolerantSizeRatio
-		}
-		leaderCount := int64(1.0 * tolerantSizeRatio)
+	if kind.Resource == core.LeaderKind {
+		leaderCount := int64(1.0 * leaderTolerantSizeRatio)
 		return leaderCount
 	}
 
@@ -102,8 +98,6 @@ func getTolerantResource(cluster opt.Cluster, region *core.RegionInfo, kind core
 }
 
 func adjustTolerantRatio(cluster opt.Cluster) float64 {
-	tolerantSizeRatio := cluster.GetTolerantSizeRatio()
-	if tolerantSizeRatio == 0 {
 		var maxRegionCount float64
 		stores := cluster.GetStores()
 		for _, store := range stores {
@@ -112,11 +106,10 @@ func adjustTolerantRatio(cluster opt.Cluster) float64 {
 				maxRegionCount = regionCount
 			}
 		}
-		tolerantSizeRatio = maxRegionCount * adjustRatio
+		tolerantSizeRatio := maxRegionCount * adjustRatio
 		if tolerantSizeRatio < minTolerantSizeRatio {
 			tolerantSizeRatio = minTolerantSizeRatio
 		}
-	}
 	return tolerantSizeRatio
 }
 

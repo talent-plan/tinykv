@@ -30,13 +30,10 @@ type Options interface {
 
 	GetMaxReplicas() int
 
-	GetTolerantSizeRatio() float64
-
 	IsRemoveDownReplicaEnabled() bool
 	IsReplaceOfflineReplicaEnabled() bool
 	IsMakeUpReplicaEnabled() bool
 	IsRemoveExtraReplicaEnabled() bool
-	GetLeaderScheduleStrategy() core.ScheduleStrategy
 }
 
 // Cluster provides an overview of a cluster's regions distribution.

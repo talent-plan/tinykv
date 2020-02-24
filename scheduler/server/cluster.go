@@ -936,11 +936,6 @@ func (c *RaftCluster) GetReplicaScheduleLimit() uint64 {
 	return c.opt.GetReplicaScheduleLimit()
 }
 
-// GetTolerantSizeRatio gets the tolerant size ratio.
-func (c *RaftCluster) GetTolerantSizeRatio() float64 {
-	return c.opt.GetTolerantSizeRatio()
-}
-
 // GetPatrolRegionInterval returns the interval of patroling region.
 func (c *RaftCluster) GetPatrolRegionInterval() time.Duration {
 	return c.opt.GetPatrolRegionInterval()
@@ -959,11 +954,6 @@ func (c *RaftCluster) GetMaxReplicas() int {
 // IsRemoveDownReplicaEnabled returns if remove down replica is enabled.
 func (c *RaftCluster) IsRemoveDownReplicaEnabled() bool {
 	return c.opt.IsRemoveDownReplicaEnabled()
-}
-
-// GetLeaderScheduleStrategy is to get leader schedule strategy.
-func (c *RaftCluster) GetLeaderScheduleStrategy() core.ScheduleStrategy {
-	return c.opt.GetLeaderScheduleStrategy()
 }
 
 // IsReplaceOfflineReplicaEnabled returns if replace offline replica is enabled.

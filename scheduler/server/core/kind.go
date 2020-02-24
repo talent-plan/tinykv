@@ -26,14 +26,12 @@ const (
 // ScheduleKind distinguishes resources and schedule strategy.
 type ScheduleKind struct {
 	Resource ResourceKind
-	Strategy ScheduleStrategy
 }
 
 // NewScheduleKind creates a schedule kind with resource kind and schedule strategy.
-func NewScheduleKind(Resource ResourceKind, Strategy ScheduleStrategy) ScheduleKind {
+func NewScheduleKind(Resource ResourceKind) ScheduleKind {
 	return ScheduleKind{
 		Resource: Resource,
-		Strategy: Strategy,
 	}
 }
 
@@ -55,38 +53,5 @@ func (k ResourceKind) String() string {
 		return "region"
 	default:
 		return "unknown"
-	}
-}
-
-// ScheduleStrategy distinguishes different kinds of schedule strategy
-type ScheduleStrategy int
-
-const (
-	// ByCount indicates that balance by count
-	ByCount ScheduleStrategy = iota
-	// BySize indicates that balance by size
-	BySize
-)
-
-func (k ScheduleStrategy) String() string {
-	switch k {
-	case ByCount:
-		return "count"
-	case BySize:
-		return "size"
-	default:
-		return "unknown"
-	}
-}
-
-// StringToScheduleStrategy creates a schedule strategy with string.
-func StringToScheduleStrategy(input string) ScheduleStrategy {
-	switch input {
-	case BySize.String():
-		return BySize
-	case ByCount.String():
-		return ByCount
-	default:
-		panic("invalid schedule strategy: " + input)
 	}
 }

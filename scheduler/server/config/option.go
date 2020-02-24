@@ -90,16 +90,6 @@ func (o *ScheduleOption) GetReplicaScheduleLimit() uint64 {
 	return o.Load().ReplicaScheduleLimit
 }
 
-// GetTolerantSizeRatio gets the tolerant size ratio.
-func (o *ScheduleOption) GetTolerantSizeRatio() float64 {
-	return o.Load().TolerantSizeRatio
-}
-
-// GetLeaderScheduleStrategy is to get leader schedule strategy.
-func (o *ScheduleOption) GetLeaderScheduleStrategy() core.ScheduleStrategy {
-	return core.StringToScheduleStrategy(o.Load().LeaderScheduleStrategy)
-}
-
 // IsRemoveDownReplicaEnabled returns if remove down replica is enabled.
 func (o *ScheduleOption) IsRemoveDownReplicaEnabled() bool {
 	return o.Load().EnableRemoveDownReplica

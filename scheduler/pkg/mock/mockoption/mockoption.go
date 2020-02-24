@@ -15,8 +15,6 @@ package mockoption
 
 import (
 	"time"
-
-	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 )
 
 const (
@@ -29,8 +27,6 @@ const (
 	defaultLeaderScheduleLimit         = 4
 	defaultRegionScheduleLimit         = 64
 	defaultReplicaScheduleLimit        = 64
-	defaultTolerantSizeRatio           = 2.5
-	defaultLeaderScheduleStrategy      = "count"
 )
 
 // ScheduleOptions is a mock of ScheduleOptions
@@ -45,12 +41,10 @@ type ScheduleOptions struct {
 	MaxMergeRegionKeys          uint64
 	MaxStoreDownTime            time.Duration
 	MaxReplicas                 int
-	TolerantSizeRatio           float64
 	EnableRemoveDownReplica     bool
 	EnableReplaceOfflineReplica bool
 	EnableMakeUpReplica         bool
 	EnableRemoveExtraReplica    bool
-	LeaderScheduleStrategy      string
 }
 
 // NewScheduleOptions creates a mock schedule option.
@@ -65,12 +59,10 @@ func NewScheduleOptions() *ScheduleOptions {
 	mso.MaxStoreDownTime = defaultMaxStoreDownTime
 	mso.MaxReplicas = defaultMaxReplicas
 	mso.MaxPendingPeerCount = defaultMaxPendingPeerCount
-	mso.TolerantSizeRatio = defaultTolerantSizeRatio
 	mso.EnableRemoveDownReplica = true
 	mso.EnableReplaceOfflineReplica = true
 	mso.EnableMakeUpReplica = true
 	mso.EnableRemoveExtraReplica = true
-	mso.LeaderScheduleStrategy = defaultLeaderScheduleStrategy
 	return mso
 }
 
@@ -109,11 +101,6 @@ func (mso *ScheduleOptions) GetMaxReplicas() int {
 	return mso.MaxReplicas
 }
 
-// GetTolerantSizeRatio mocks method
-func (mso *ScheduleOptions) GetTolerantSizeRatio() float64 {
-	return mso.TolerantSizeRatio
-}
-
 // SetMaxReplicas mocks method
 func (mso *ScheduleOptions) SetMaxReplicas(replicas int) {
 	mso.MaxReplicas = replicas
@@ -137,9 +124,4 @@ func (mso *ScheduleOptions) IsMakeUpReplicaEnabled() bool {
 // IsRemoveExtraReplicaEnabled mocks method.
 func (mso *ScheduleOptions) IsRemoveExtraReplicaEnabled() bool {
 	return mso.EnableRemoveExtraReplica
-}
-
-// GetLeaderScheduleStrategy is to get leader schedule strategy.
-func (mso *ScheduleOptions) GetLeaderScheduleStrategy() core.ScheduleStrategy {
-	return core.StringToScheduleStrategy(mso.LeaderScheduleStrategy)
 }

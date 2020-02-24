@@ -425,14 +425,10 @@ type ScheduleConfig struct {
 	MaxStoreDownTime typeutil.Duration `toml:"max-store-down-time,omitempty" json:"max-store-down-time"`
 	// LeaderScheduleLimit is the max coexist leader schedules.
 	LeaderScheduleLimit uint64 `toml:"leader-schedule-limit,omitempty" json:"leader-schedule-limit"`
-	// LeaderScheduleStrategy is the option to balance leader, there are some strategics supported: ["count", "size"], default: "count"
-	LeaderScheduleStrategy string `toml:"leader-schedule-strategy,omitempty" json:"leader-schedule-strategy,string"`
 	// RegionScheduleLimit is the max coexist region schedules.
 	RegionScheduleLimit uint64 `toml:"region-schedule-limit,omitempty" json:"region-schedule-limit"`
 	// ReplicaScheduleLimit is the max coexist replica schedules.
 	ReplicaScheduleLimit uint64 `toml:"replica-schedule-limit,omitempty" json:"replica-schedule-limit"`
-	// TolerantSizeRatio is the ratio of buffer size for balance scheduler.
-	TolerantSizeRatio float64 `toml:"tolerant-size-ratio,omitempty" json:"tolerant-size-ratio"`
 
 	// EnableRemoveDownReplica is the option to enable replica checker to remove down replica.
 	EnableRemoveDownReplica bool `toml:"enable-remove-down-replica" json:"enable-remove-down-replica,string"`
@@ -457,10 +453,8 @@ func (c *ScheduleConfig) Clone() *ScheduleConfig {
 		PatrolRegionInterval:        c.PatrolRegionInterval,
 		MaxStoreDownTime:            c.MaxStoreDownTime,
 		LeaderScheduleLimit:         c.LeaderScheduleLimit,
-		LeaderScheduleStrategy:      c.LeaderScheduleStrategy,
 		RegionScheduleLimit:         c.RegionScheduleLimit,
 		ReplicaScheduleLimit:        c.ReplicaScheduleLimit,
-		TolerantSizeRatio:           c.TolerantSizeRatio,
 		EnableRemoveDownReplica:     c.EnableRemoveDownReplica,
 		EnableReplaceOfflineReplica: c.EnableReplaceOfflineReplica,
 		EnableMakeUpReplica:         c.EnableMakeUpReplica,
@@ -476,8 +470,6 @@ const (
 	defaultLeaderScheduleLimit    = 4
 	defaultRegionScheduleLimit    = 2048
 	defaultReplicaScheduleLimit   = 64
-	defaultTolerantSizeRatio      = 0
-	defaultLeaderScheduleStrategy = "count"
 )
 
 func (c *ScheduleConfig) adjust(meta *configMetaData) error {
@@ -491,12 +483,6 @@ func (c *ScheduleConfig) adjust(meta *configMetaData) error {
 	}
 	if !meta.IsDefined("replica-schedule-limit") {
 		adjustUint64(&c.ReplicaScheduleLimit, defaultReplicaScheduleLimit)
-	}
-	if !meta.IsDefined("tolerant-size-ratio") {
-		adjustFloat64(&c.TolerantSizeRatio, defaultTolerantSizeRatio)
-	}
-	if !meta.IsDefined("leader-schedule-strategy") {
-		adjustString(&c.LeaderScheduleStrategy, defaultLeaderScheduleStrategy)
 	}
 	if !meta.IsDefined("enable-remove-down-replica") {
 		c.EnableRemoveDownReplica = true
@@ -517,9 +503,6 @@ func (c *ScheduleConfig) adjust(meta *configMetaData) error {
 
 // Validate is used to validate if some scheduling configurations are right.
 func (c *ScheduleConfig) Validate() error {
-	if c.TolerantSizeRatio < 0 {
-		return errors.New("tolerant-size-ratio should be nonnegative")
-	}
 	for _, scheduleConfig := range c.Schedulers {
 		if !schedule.IsSchedulerRegistered(scheduleConfig.Type) {
 			return errors.Errorf("create func of %v is not registered, maybe misspelled", scheduleConfig.Type)
