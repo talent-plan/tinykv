@@ -454,18 +454,18 @@ func (c *ScheduleConfig) Clone() *ScheduleConfig {
 	schedulers := make(SchedulerConfigs, len(c.Schedulers))
 	copy(schedulers, c.Schedulers)
 	return &ScheduleConfig{
-		PatrolRegionInterval:         c.PatrolRegionInterval,
-		MaxStoreDownTime:             c.MaxStoreDownTime,
-		LeaderScheduleLimit:          c.LeaderScheduleLimit,
-		LeaderScheduleStrategy:       c.LeaderScheduleStrategy,
-		RegionScheduleLimit:          c.RegionScheduleLimit,
-		ReplicaScheduleLimit:         c.ReplicaScheduleLimit,
-		TolerantSizeRatio:            c.TolerantSizeRatio,
-		EnableRemoveDownReplica:      c.EnableRemoveDownReplica,
-		EnableReplaceOfflineReplica:  c.EnableReplaceOfflineReplica,
-		EnableMakeUpReplica:          c.EnableMakeUpReplica,
-		EnableRemoveExtraReplica:     c.EnableRemoveExtraReplica,
-		Schedulers:                   schedulers,
+		PatrolRegionInterval:        c.PatrolRegionInterval,
+		MaxStoreDownTime:            c.MaxStoreDownTime,
+		LeaderScheduleLimit:         c.LeaderScheduleLimit,
+		LeaderScheduleStrategy:      c.LeaderScheduleStrategy,
+		RegionScheduleLimit:         c.RegionScheduleLimit,
+		ReplicaScheduleLimit:        c.ReplicaScheduleLimit,
+		TolerantSizeRatio:           c.TolerantSizeRatio,
+		EnableRemoveDownReplica:     c.EnableRemoveDownReplica,
+		EnableReplaceOfflineReplica: c.EnableReplaceOfflineReplica,
+		EnableMakeUpReplica:         c.EnableMakeUpReplica,
+		EnableRemoveExtraReplica:    c.EnableRemoveExtraReplica,
+		Schedulers:                  schedulers,
 	}
 }
 

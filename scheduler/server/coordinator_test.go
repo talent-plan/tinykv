@@ -35,7 +35,7 @@ import (
 	. "github.com/pingcap/check"
 )
 
-func  newTestScheduleConfig() (*config.ScheduleConfig, *config.ScheduleOption, error) {
+func newTestScheduleConfig() (*config.ScheduleConfig, *config.ScheduleOption, error) {
 	cfg := config.NewConfig()
 	cfg.Schedule.TolerantSizeRatio = 5
 	if err := cfg.Adjust(nil); err != nil {

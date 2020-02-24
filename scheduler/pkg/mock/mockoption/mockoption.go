@@ -38,25 +38,25 @@ const (
 // ScheduleOptions is a mock of ScheduleOptions
 // which implements Options interface
 type ScheduleOptions struct {
-	RegionScheduleLimit          uint64
-	LeaderScheduleLimit          uint64
-	ReplicaScheduleLimit         uint64
-	MergeScheduleLimit           uint64
-	MaxSnapshotCount             uint64
-	MaxPendingPeerCount          uint64
-	MaxMergeRegionSize           uint64
-	MaxMergeRegionKeys           uint64
-	SchedulerMaxWaitingOperator  uint64
-	EnableOneWayMerge            bool
-	EnableCrossTableMerge        bool
-	MaxStoreDownTime             time.Duration
-	MaxReplicas                  int
-	TolerantSizeRatio            float64
-	EnableRemoveDownReplica      bool
-	EnableReplaceOfflineReplica  bool
-	EnableMakeUpReplica          bool
-	EnableRemoveExtraReplica     bool
-	LeaderScheduleStrategy       string
+	RegionScheduleLimit         uint64
+	LeaderScheduleLimit         uint64
+	ReplicaScheduleLimit        uint64
+	MergeScheduleLimit          uint64
+	MaxSnapshotCount            uint64
+	MaxPendingPeerCount         uint64
+	MaxMergeRegionSize          uint64
+	MaxMergeRegionKeys          uint64
+	SchedulerMaxWaitingOperator uint64
+	EnableOneWayMerge           bool
+	EnableCrossTableMerge       bool
+	MaxStoreDownTime            time.Duration
+	MaxReplicas                 int
+	TolerantSizeRatio           float64
+	EnableRemoveDownReplica     bool
+	EnableReplaceOfflineReplica bool
+	EnableMakeUpReplica         bool
+	EnableRemoveExtraReplica    bool
+	LeaderScheduleStrategy      string
 }
 
 // NewScheduleOptions creates a mock schedule option.
