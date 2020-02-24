@@ -29,9 +29,7 @@ const (
 	defaultLeaderScheduleLimit         = 4
 	defaultRegionScheduleLimit         = 64
 	defaultReplicaScheduleLimit        = 64
-	defaultMergeScheduleLimit          = 8
 	defaultTolerantSizeRatio           = 2.5
-	defaultSchedulerMaxWaitingOperator = 3
 	defaultLeaderScheduleStrategy      = "count"
 )
 
@@ -41,14 +39,10 @@ type ScheduleOptions struct {
 	RegionScheduleLimit         uint64
 	LeaderScheduleLimit         uint64
 	ReplicaScheduleLimit        uint64
-	MergeScheduleLimit          uint64
 	MaxSnapshotCount            uint64
 	MaxPendingPeerCount         uint64
 	MaxMergeRegionSize          uint64
 	MaxMergeRegionKeys          uint64
-	SchedulerMaxWaitingOperator uint64
-	EnableOneWayMerge           bool
-	EnableCrossTableMerge       bool
 	MaxStoreDownTime            time.Duration
 	MaxReplicas                 int
 	TolerantSizeRatio           float64
@@ -65,11 +59,9 @@ func NewScheduleOptions() *ScheduleOptions {
 	mso.RegionScheduleLimit = defaultRegionScheduleLimit
 	mso.LeaderScheduleLimit = defaultLeaderScheduleLimit
 	mso.ReplicaScheduleLimit = defaultReplicaScheduleLimit
-	mso.MergeScheduleLimit = defaultMergeScheduleLimit
 	mso.MaxSnapshotCount = defaultMaxSnapshotCount
 	mso.MaxMergeRegionSize = defaultMaxMergeRegionSize
 	mso.MaxMergeRegionKeys = defaultMaxMergeRegionKeys
-	mso.SchedulerMaxWaitingOperator = defaultSchedulerMaxWaitingOperator
 	mso.MaxStoreDownTime = defaultMaxStoreDownTime
 	mso.MaxReplicas = defaultMaxReplicas
 	mso.MaxPendingPeerCount = defaultMaxPendingPeerCount
@@ -97,11 +89,6 @@ func (mso *ScheduleOptions) GetReplicaScheduleLimit() uint64 {
 	return mso.ReplicaScheduleLimit
 }
 
-// GetMergeScheduleLimit mocks method
-func (mso *ScheduleOptions) GetMergeScheduleLimit() uint64 {
-	return mso.MergeScheduleLimit
-}
-
 // GetMaxMergeRegionSize mocks method
 func (mso *ScheduleOptions) GetMaxMergeRegionSize() uint64 {
 	return mso.MaxMergeRegionSize
@@ -110,16 +97,6 @@ func (mso *ScheduleOptions) GetMaxMergeRegionSize() uint64 {
 // GetMaxMergeRegionKeys mocks method
 func (mso *ScheduleOptions) GetMaxMergeRegionKeys() uint64 {
 	return mso.MaxMergeRegionKeys
-}
-
-// IsOneWayMergeEnabled mocks method
-func (mso *ScheduleOptions) IsOneWayMergeEnabled() bool {
-	return mso.EnableOneWayMerge
-}
-
-// IsCrossTableMergeEnabled mocks method
-func (mso *ScheduleOptions) IsCrossTableMergeEnabled() bool {
-	return mso.EnableCrossTableMerge
 }
 
 // GetMaxStoreDownTime mocks method
@@ -135,11 +112,6 @@ func (mso *ScheduleOptions) GetMaxReplicas() int {
 // GetTolerantSizeRatio mocks method
 func (mso *ScheduleOptions) GetTolerantSizeRatio() float64 {
 	return mso.TolerantSizeRatio
-}
-
-// GetSchedulerMaxWaitingOperator mocks method.
-func (mso *ScheduleOptions) GetSchedulerMaxWaitingOperator() uint64 {
-	return mso.SchedulerMaxWaitingOperator
 }
 
 // SetMaxReplicas mocks method
