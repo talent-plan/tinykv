@@ -90,16 +90,6 @@ func (o *ScheduleOption) GetReplicaScheduleLimit() uint64 {
 	return o.Load().ReplicaScheduleLimit
 }
 
-// IsRemoveDownReplicaEnabled returns if remove down replica is enabled.
-func (o *ScheduleOption) IsRemoveDownReplicaEnabled() bool {
-	return o.Load().EnableRemoveDownReplica
-}
-
-// IsReplaceOfflineReplicaEnabled returns if replace offline replica is enabled.
-func (o *ScheduleOption) IsReplaceOfflineReplicaEnabled() bool {
-	return o.Load().EnableReplaceOfflineReplica
-}
-
 // IsMakeUpReplicaEnabled returns if make up replica is enabled.
 func (o *ScheduleOption) IsMakeUpReplicaEnabled() bool {
 	return o.Load().EnableMakeUpReplica

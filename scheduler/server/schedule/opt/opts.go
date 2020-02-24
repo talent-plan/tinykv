@@ -30,8 +30,6 @@ type Options interface {
 
 	GetMaxReplicas() int
 
-	IsRemoveDownReplicaEnabled() bool
-	IsReplaceOfflineReplicaEnabled() bool
 	IsMakeUpReplicaEnabled() bool
 	IsRemoveExtraReplicaEnabled() bool
 }

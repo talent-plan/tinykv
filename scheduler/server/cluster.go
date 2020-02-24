@@ -951,16 +951,6 @@ func (c *RaftCluster) GetMaxReplicas() int {
 	return c.opt.GetMaxReplicas()
 }
 
-// IsRemoveDownReplicaEnabled returns if remove down replica is enabled.
-func (c *RaftCluster) IsRemoveDownReplicaEnabled() bool {
-	return c.opt.IsRemoveDownReplicaEnabled()
-}
-
-// IsReplaceOfflineReplicaEnabled returns if replace offline replica is enabled.
-func (c *RaftCluster) IsReplaceOfflineReplicaEnabled() bool {
-	return c.opt.IsReplaceOfflineReplicaEnabled()
-}
-
 // IsMakeUpReplicaEnabled returns if make up replica is enabled.
 func (c *RaftCluster) IsMakeUpReplicaEnabled() bool {
 	return c.opt.IsMakeUpReplicaEnabled()

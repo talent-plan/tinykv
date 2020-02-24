@@ -41,8 +41,6 @@ type ScheduleOptions struct {
 	MaxMergeRegionKeys          uint64
 	MaxStoreDownTime            time.Duration
 	MaxReplicas                 int
-	EnableRemoveDownReplica     bool
-	EnableReplaceOfflineReplica bool
 	EnableMakeUpReplica         bool
 	EnableRemoveExtraReplica    bool
 }
@@ -59,8 +57,6 @@ func NewScheduleOptions() *ScheduleOptions {
 	mso.MaxStoreDownTime = defaultMaxStoreDownTime
 	mso.MaxReplicas = defaultMaxReplicas
 	mso.MaxPendingPeerCount = defaultMaxPendingPeerCount
-	mso.EnableRemoveDownReplica = true
-	mso.EnableReplaceOfflineReplica = true
 	mso.EnableMakeUpReplica = true
 	mso.EnableRemoveExtraReplica = true
 	return mso
@@ -104,16 +100,6 @@ func (mso *ScheduleOptions) GetMaxReplicas() int {
 // SetMaxReplicas mocks method
 func (mso *ScheduleOptions) SetMaxReplicas(replicas int) {
 	mso.MaxReplicas = replicas
-}
-
-// IsRemoveDownReplicaEnabled mocks method.
-func (mso *ScheduleOptions) IsRemoveDownReplicaEnabled() bool {
-	return mso.EnableRemoveDownReplica
-}
-
-// IsReplaceOfflineReplicaEnabled mocks method.
-func (mso *ScheduleOptions) IsReplaceOfflineReplicaEnabled() bool {
-	return mso.EnableReplaceOfflineReplica
 }
 
 // IsMakeUpReplicaEnabled mocks method.

@@ -151,10 +151,6 @@ func (r *ReplicaChecker) selectWorstPeer(region *core.RegionInfo) *metapb.Peer {
 }
 
 func (r *ReplicaChecker) checkDownPeer(region *core.RegionInfo) *operator.Operator {
-	if !r.cluster.IsRemoveDownReplicaEnabled() {
-		return nil
-	}
-
 	for _, stats := range region.GetDownPeers() {
 		peer := stats.GetPeer()
 		if peer == nil {
@@ -179,10 +175,6 @@ func (r *ReplicaChecker) checkDownPeer(region *core.RegionInfo) *operator.Operat
 }
 
 func (r *ReplicaChecker) checkOfflinePeer(region *core.RegionInfo) *operator.Operator {
-	if !r.cluster.IsReplaceOfflineReplicaEnabled() {
-		return nil
-	}
-
 	// just skip learner
 	if len(region.GetLearners()) != 0 {
 		return nil
