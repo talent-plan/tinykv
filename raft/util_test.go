@@ -15,15 +15,10 @@
 package raft
 
 import (
-	"strings"
 	"testing"
 
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
-
-var testFormatter EntryFormatter = func(data []byte) string {
-	return strings.ToUpper(string(data))
-}
 
 func TestIsLocalMsg(t *testing.T) {
 	tests := []struct {

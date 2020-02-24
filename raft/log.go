@@ -15,7 +15,6 @@
 package raft
 
 import (
-	"fmt"
 	"log"
 
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
@@ -92,10 +91,6 @@ func newLog(storage Storage, logger Logger) *RaftLog {
 	log.applied = firstIndex - 1
 
 	return log
-}
-
-func (l *RaftLog) String() string {
-	return fmt.Sprintf("committed=%d, applied=%d, offset=%d, len(Entries)=%d", l.committed, l.applied, l.offset, len(l.entries))
 }
 
 // maybeAppend returns (0, false) if the entries cannot be appended. Otherwise,

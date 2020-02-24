@@ -30,6 +30,21 @@ func (s *ignoreSizeHintMemStorage) Entries(lo, hi uint64, maxSize uint64) ([]pb.
 	return s.MemoryStorage.Entries(lo, hi)
 }
 
+// appliedCursor extracts from the Ready the highest index the client has
+// applied (once the Ready is confirmed via Advance). If no information is
+// contained in the Ready, returns zero.
+func appliedCursor(rd *Ready) uint64 {
+	if n := len(rd.CommittedEntries); n > 0 {
+		return rd.CommittedEntries[n-1].Index
+	}
+	if !IsEmptySnap(&rd.Snapshot) {
+		if index := rd.Snapshot.Metadata.Index; index > 0 {
+			return index
+		}
+	}
+	return 0
+}
+
 // TestRawNodeStep ensures that RawNode.Step ignore local message.
 func TestRawNodeStep(t *testing.T) {
 	for i, msgn := range pb.MessageType_name {
@@ -68,7 +83,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 	rd := rawNode.Ready()
 	s.Append(rd.Entries)
 	rawNode.Advance(rd)
-	if idx := rd.appliedCursor(); idx > 0 {
+	if idx := appliedCursor(&rd); idx > 0 {
 		rawNode.AdvanceApply(idx)
 	}
 
@@ -99,7 +114,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 			proposed = true
 		}
 		rawNode.Advance(rd)
-		if idx := rd.appliedCursor(); idx > 0 {
+		if idx := appliedCursor(&rd); idx > 0 {
 			rawNode.AdvanceApply(idx)
 		}
 
@@ -143,7 +158,7 @@ func TestRawNodeProposeAddDuplicateNode(t *testing.T) {
 	rd := rawNode.Ready()
 	s.Append(rd.Entries)
 	rawNode.Advance(rd)
-	if idx := rd.appliedCursor(); idx > 0 {
+	if idx := appliedCursor(&rd); idx > 0 {
 		rawNode.AdvanceApply(idx)
 	}
 
@@ -153,13 +168,13 @@ func TestRawNodeProposeAddDuplicateNode(t *testing.T) {
 		s.Append(rd.Entries)
 		if rd.SoftState.Lead == rawNode.Raft.id {
 			rawNode.Advance(rd)
-			if idx := rd.appliedCursor(); idx > 0 {
+			if idx := appliedCursor(&rd); idx > 0 {
 				rawNode.AdvanceApply(idx)
 			}
 			break
 		}
 		rawNode.Advance(rd)
-		if idx := rd.appliedCursor(); idx > 0 {
+		if idx := appliedCursor(&rd); idx > 0 {
 			rawNode.AdvanceApply(idx)
 		}
 	}
@@ -176,7 +191,7 @@ func TestRawNodeProposeAddDuplicateNode(t *testing.T) {
 			}
 		}
 		rawNode.Advance(rd)
-		if idx := rd.appliedCursor(); idx > 0 {
+		if idx := appliedCursor(&rd); idx > 0 {
 			rawNode.AdvanceApply(idx)
 		}
 	}
@@ -258,13 +273,13 @@ func TestRawNodeStart(t *testing.T) {
 	} else {
 		storage.Append(rd.Entries)
 		rawNode.Advance(rd)
-		if idx := rd.appliedCursor(); idx > 0 {
+		if idx := appliedCursor(&rd); idx > 0 {
 			rawNode.AdvanceApply(idx)
 		}
 	}
 	storage.Append(rd.Entries)
 	rawNode.Advance(rd)
-	if idx := rd.appliedCursor(); idx > 0 {
+	if idx := appliedCursor(&rd); idx > 0 {
 		rawNode.AdvanceApply(idx)
 	}
 
@@ -272,7 +287,7 @@ func TestRawNodeStart(t *testing.T) {
 	rd = rawNode.Ready()
 	storage.Append(rd.Entries)
 	rawNode.Advance(rd)
-	if idx := rd.appliedCursor(); idx > 0 {
+	if idx := appliedCursor(&rd); idx > 0 {
 		rawNode.AdvanceApply(idx)
 	}
 
@@ -282,7 +297,7 @@ func TestRawNodeStart(t *testing.T) {
 	} else {
 		storage.Append(rd.Entries)
 		rawNode.Advance(rd)
-		if idx := rd.appliedCursor(); idx > 0 {
+		if idx := appliedCursor(&rd); idx > 0 {
 			rawNode.AdvanceApply(idx)
 		}
 	}
@@ -317,7 +332,7 @@ func TestRawNodeRestart(t *testing.T) {
 		t.Errorf("g = %+v,\n             w   %+v", rd, want)
 	}
 	rawNode.Advance(rd)
-	if idx := rd.appliedCursor(); idx > 0 {
+	if idx := appliedCursor(&rd); idx > 0 {
 		rawNode.AdvanceApply(idx)
 	}
 	if rawNode.HasReady() {
@@ -356,7 +371,7 @@ func TestRawNodeRestartFromSnapshot(t *testing.T) {
 		t.Errorf("g = %+v,\n             w   %+v", rd, want)
 	} else {
 		rawNode.Advance(rd)
-		if idx := rd.appliedCursor(); idx > 0 {
+		if idx := appliedCursor(&rd); idx > 0 {
 			rawNode.AdvanceApply(idx)
 		}
 	}

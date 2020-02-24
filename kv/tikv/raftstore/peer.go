@@ -428,7 +428,7 @@ func (p *Peer) HandleRaftReadyAppend(trans Transport, applyMsgs *applyMsgs, kvWB
 		return nil
 	}
 
-	if !p.RaftGroup.HasReadySince(&p.LastApplyingIdx) {
+	if !p.RaftGroup.HasReadySince(p.LastApplyingIdx) {
 		return nil
 	}
 
