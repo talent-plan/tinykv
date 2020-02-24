@@ -173,7 +173,7 @@ func (p *Peer) MaybeDestroy() *DestroyPeerJob {
 			log.Infof("%v stale peer %v is applying snapshot", p.Tag, p.Meta.Id)
 			return nil
 		}
-		// There is no tasks in apply/local read worker.
+		// There is no tasks in apply worker.
 		asyncRemove = false
 	} else {
 		asyncRemove = initialized
@@ -205,7 +205,6 @@ func (p *Peer) Destroy(engine *engine_util.Engines, keepData bool) error {
 	}
 	WritePeerState(kvWB, region, rspb.PeerState_Tombstone)
 	// write kv rocksdb first in case of restart happen between two write
-	// Todo: sync = ctx.cfg.sync_log
 	if err := kvWB.WriteToDB(engine.Kv); err != nil {
 		return err
 	}
@@ -789,7 +788,7 @@ func (p *Peer) ProposeConfChange(cfg *config.Config, req *raft_cmdpb.RaftCmdRequ
 
 	changePeer := GetChangePeerCmd(req)
 	var cc eraftpb.ConfChange
-	cc.ChangeType = eraftpb.ConfChangeType(int32(changePeer.ChangeType))
+	cc.ChangeType = changePeer.ChangeType
 	cc.NodeId = changePeer.Peer.Id
 	cc.Context = data
 

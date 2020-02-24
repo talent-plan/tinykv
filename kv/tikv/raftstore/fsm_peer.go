@@ -295,7 +295,7 @@ func (d *peerMsgHandler) onRaftBaseTick() {
 func (d *peerMsgHandler) onApplyResult(res *applyTaskRes) {
 	if res.destroyPeerID != 0 {
 		y.Assert(res.destroyPeerID == d.peerID())
-		d.destroyPeer(false)
+		d.destroyPeer()
 	} else {
 		log.Debugf("%s async apply finished %v", d.tag(), res)
 		res.execResults = d.onReadyResult(res.execResults)
@@ -555,20 +555,18 @@ func (d *peerMsgHandler) handleDestroyPeer(job *DestroyPeerJob) bool {
 		log.Infof("[region %d] %d is destroyed asynchronously", job.RegionId, job.Peer.Id)
 		return false
 	}
-	d.destroyPeer(false)
+	d.destroyPeer()
 	return true
 }
 
-func (d *peerMsgHandler) destroyPeer(mergeByTarget bool) {
-	log.Infof("%s starts destroy [merged_by_target: %v]", d.tag(), mergeByTarget)
+func (d *peerMsgHandler) destroyPeer() {
+	log.Infof("%s starts destroy", d.tag())
 	regionID := d.regionID()
 	// We can't destroy a peer which is applying snapshot.
 	y.Assert(!d.peer.IsApplyingSnapshot())
 	d.ctx.storeMetaLock.Lock()
 	defer func() {
 		d.ctx.storeMetaLock.Unlock()
-		// send messages out of store meta lock.
-		d.ctx.applyMsgs.appendMsg(regionID, message.NewPeerMsg(message.MsgTypeApplyDestroy, regionID, nil))
 	}()
 	meta := d.ctx.storeMeta
 	isInitialized := d.peer.isInitialized()
@@ -634,7 +632,7 @@ func (d *peerMsgHandler) onReadyChangePeer(cp changePeer) {
 	// We only care remove itself now.
 	if changeType == eraftpb.ConfChangeType_RemoveNode && cp.peer.StoreId == d.storeID() {
 		if myPeerID == peerID {
-			d.destroyPeer(false)
+			d.destroyPeer()
 		} else {
 			panic(fmt.Sprintf("%s trying to remove unknown peer %s", d.tag(), cp.peer))
 		}

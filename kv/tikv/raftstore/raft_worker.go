@@ -73,6 +73,9 @@ func (rw *raftWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
 		batch := &applyBatch{}
 		for _, msg := range msgs {
 			peerState := rw.getPeerState(peerStateMap, msg.RegionID)
+			if peerState == nil {
+				continue
+			}
 			newRaftMsgHandler(peerState.peer, rw.raftCtx).HandleMsgs(msg)
 		}
 		for _, peerState := range peerStateMap {
@@ -93,6 +96,9 @@ func (rw *raftWorker) getPeerState(peersMap map[uint64]*peerState, regionID uint
 	peer, ok := peersMap[regionID]
 	if !ok {
 		peer = rw.pr.get(regionID)
+		if peer == nil {
+			return nil
+		}
 		peersMap[regionID] = peer
 	}
 	return peer
