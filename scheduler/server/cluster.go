@@ -941,11 +941,6 @@ func (c *RaftCluster) GetReplicaScheduleLimit() uint64 {
 	return c.opt.GetReplicaScheduleLimit()
 }
 
-// GetStoreBalanceRate returns the balance rate of a store.
-func (c *RaftCluster) GetStoreBalanceRate() float64 {
-	return c.opt.GetStoreBalanceRate()
-}
-
 // GetTolerantSizeRatio gets the tolerant size ratio.
 func (c *RaftCluster) GetTolerantSizeRatio() float64 {
 	return c.opt.GetTolerantSizeRatio()

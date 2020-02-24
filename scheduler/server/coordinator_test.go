@@ -38,7 +38,6 @@ import (
 func newTestScheduleConfig() (*config.ScheduleConfig, *config.ScheduleOption, error) {
 	cfg := config.NewConfig()
 	cfg.Schedule.TolerantSizeRatio = 5
-	cfg.Schedule.StoreBalanceRate = 60
 	if err := cfg.Adjust(nil); err != nil {
 		return nil, nil, err
 	}

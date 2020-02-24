@@ -26,9 +26,6 @@ type Options interface {
 	GetRegionScheduleLimit() uint64
 	GetReplicaScheduleLimit() uint64
 
-	// store limit
-	GetStoreBalanceRate() float64
-
 	GetMaxStoreDownTime() time.Duration
 
 	GetMaxReplicas() int

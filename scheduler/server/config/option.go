@@ -90,11 +90,6 @@ func (o *ScheduleOption) GetReplicaScheduleLimit() uint64 {
 	return o.Load().ReplicaScheduleLimit
 }
 
-// GetStoreBalanceRate returns the balance rate of a store.
-func (o *ScheduleOption) GetStoreBalanceRate() float64 {
-	return o.Load().StoreBalanceRate
-}
-
 // GetTolerantSizeRatio gets the tolerant size ratio.
 func (o *ScheduleOption) GetTolerantSizeRatio() float64 {
 	return o.Load().TolerantSizeRatio

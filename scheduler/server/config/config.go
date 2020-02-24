@@ -431,8 +431,6 @@ type ScheduleConfig struct {
 	RegionScheduleLimit uint64 `toml:"region-schedule-limit,omitempty" json:"region-schedule-limit"`
 	// ReplicaScheduleLimit is the max coexist replica schedules.
 	ReplicaScheduleLimit uint64 `toml:"replica-schedule-limit,omitempty" json:"replica-schedule-limit"`
-	// StoreBalanceRate is the maximum of balance rate for each store.
-	StoreBalanceRate float64 `toml:"store-balance-rate,omitempty" json:"store-balance-rate"`
 	// TolerantSizeRatio is the ratio of buffer size for balance scheduler.
 	TolerantSizeRatio float64 `toml:"tolerant-size-ratio,omitempty" json:"tolerant-size-ratio"`
 	// WARN: DisableLearner is deprecated.
@@ -487,7 +485,6 @@ func (c *ScheduleConfig) Clone() *ScheduleConfig {
 		LeaderScheduleStrategy:       c.LeaderScheduleStrategy,
 		RegionScheduleLimit:          c.RegionScheduleLimit,
 		ReplicaScheduleLimit:         c.ReplicaScheduleLimit,
-		StoreBalanceRate:             c.StoreBalanceRate,
 		TolerantSizeRatio:            c.TolerantSizeRatio,
 		DisableLearner:               c.DisableLearner,
 		DisableRemoveDownReplica:     c.DisableRemoveDownReplica,
@@ -511,7 +508,6 @@ const (
 	defaultLeaderScheduleLimit    = 4
 	defaultRegionScheduleLimit    = 2048
 	defaultReplicaScheduleLimit   = 64
-	defaultStoreBalanceRate       = 15
 	defaultTolerantSizeRatio      = 0
 	defaultLeaderScheduleStrategy = "count"
 )
@@ -534,7 +530,6 @@ func (c *ScheduleConfig) adjust(meta *configMetaData) error {
 	if !meta.IsDefined("leader-schedule-strategy") {
 		adjustString(&c.LeaderScheduleStrategy, defaultLeaderScheduleStrategy)
 	}
-	adjustFloat64(&c.StoreBalanceRate, defaultStoreBalanceRate)
 	adjustSchedulers(&c.Schedulers, defaultSchedulers)
 
 	for k, b := range c.migrateConfigurationMap() {
