@@ -93,23 +93,24 @@ func getTolerantResource(cluster opt.Cluster, region *core.RegionInfo, kind core
 	if regionSize < cluster.GetAverageRegionSize() {
 		regionSize = cluster.GetAverageRegionSize()
 	}
-	regionSize = int64(float64(regionSize) * adjustTolerantRatio(cluster))
+	regionSize = int64(float64(regionSize) * getTolerantRatio(cluster))
 	return regionSize
 }
 
-func adjustTolerantRatio(cluster opt.Cluster) float64 {
-		var maxRegionCount float64
-		stores := cluster.GetStores()
-		for _, store := range stores {
-			regionCount := float64(cluster.GetStoreRegionCount(store.GetID()))
-			if maxRegionCount < regionCount {
-				maxRegionCount = regionCount
-			}
+func getTolerantRatio(cluster opt.Cluster) float64 {
+	var maxRegionCount float64
+	stores := cluster.GetStores()
+	for _, store := range stores {
+		regionCount := float64(cluster.GetStoreRegionCount(store.GetID()))
+		if maxRegionCount < regionCount {
+			maxRegionCount = regionCount
 		}
-		tolerantSizeRatio := maxRegionCount * adjustRatio
-		if tolerantSizeRatio < minTolerantSizeRatio {
-			tolerantSizeRatio = minTolerantSizeRatio
-		}
+	}
+	tolerantSizeRatio := maxRegionCount * adjustRatio
+	if tolerantSizeRatio < minTolerantSizeRatio {
+		tolerantSizeRatio = minTolerantSizeRatio
+	}
+
 	return tolerantSizeRatio
 }
 
