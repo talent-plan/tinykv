@@ -228,9 +228,6 @@ func doSnapshot(engines *engine_util.Engines, mgr *snap.SnapManager, regionId ui
 	snapshotData := &rspb.RaftSnapshotData{Region: region}
 	snapshotStatics := snap.SnapStatistics{}
 	err = s.Build(txn, region, snapshotData, &snapshotStatics, mgr)
-	if snapshotData.Meta == nil {
-		panic(snapshotData)
-	}
 	if err != nil {
 		return nil, err
 	}

@@ -217,15 +217,11 @@ func (sm *SnapManager) GetSnapshotForSending(snapKey SnapKey) (Snapshot, error) 
 }
 
 func (sm *SnapManager) GetSnapshotForReceiving(snapKey SnapKey, data []byte) (Snapshot, error) {
-	if data == nil {
-		panic("empty data")
-	}
 	snapshotData := new(rspb.RaftSnapshotData)
 	err := snapshotData.Unmarshal(data)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	log.Infof("snap for receiving: %+v", snapshotData)
 	return NewSnapForReceiving(sm.base, snapKey, snapshotData.Meta, sm.snapSize, sm)
 }
 

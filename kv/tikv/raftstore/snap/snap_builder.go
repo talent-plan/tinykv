@@ -3,7 +3,6 @@ package snap
 import (
 	"github.com/Connor1996/badger"
 	"github.com/Connor1996/badger/y"
-	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 )
@@ -50,12 +49,10 @@ func (b *snapBuilder) build() error {
 			}); err != nil {
 				return err
 			}
-			log.Infof("snap write key: %v, value: %v\n", cfKey, value)
 			file.KVCount++
 			file.Size += uint64(len(cfKey) + len(value))
 		}
 		it.Close()
-		log.Infof("finish snap cf %s with count %d", cf, file.KVCount)
 		b.kvCount += file.KVCount
 		b.size += int(file.Size)
 	}

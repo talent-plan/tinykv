@@ -571,9 +571,6 @@ func (s *Snap) Build(dbSnap *badger.Txn, region *metapb.Region, snapData *rspb.R
 	if err != nil {
 		return err
 	}
-	if snapshotMeta == nil {
-		panic("nil snap meta")
-	}
 	s.MetaFile.Meta = snapshotMeta
 	err = s.saveMetaFile()
 	if err != nil {
@@ -705,7 +702,6 @@ func (s *Snap) Apply(opts ApplyOptions) error {
 			continue
 		}
 		file, err := os.Open(cfFile.Path)
-		fmt.Println(cfFile.Path)
 		if err != nil {
 			log.Errorf("open ingest file %s failed: %s", cfFile.Path, err)
 			return err
@@ -715,7 +711,6 @@ func (s *Snap) Apply(opts ApplyOptions) error {
 	n, err := opts.DB.IngestExternalFiles(externalFiles)
 	if err != nil {
 		log.Errorf("ingest sst failed (first %d files succeeded): %s", n, err)
-		panic(externalFiles)
 		return err
 	}
 	log.Infof("apply snapshot ingested %d tables", n)
