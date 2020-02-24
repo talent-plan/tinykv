@@ -65,7 +65,7 @@ func NewDefaultConfig() *Config {
 		PDAddr:                   "127.0.0.1:2379",
 		StoreAddr:                "127.0.0.1:20160",
 		LogLevel:                 "info",
-		RaftBaseTickInterval:     10 * time.Millisecond,
+		RaftBaseTickInterval:     1 * time.Second,
 		RaftHeartbeatTicks:       2,
 		RaftElectionTimeoutTicks: 10,
 		RaftLogGCTickInterval:    10 * time.Second,
@@ -74,6 +74,24 @@ func NewDefaultConfig() *Config {
 		SplitRegionCheckTickInterval: 10 * time.Second,
 		PdHeartbeatTickInterval:      100 * time.Millisecond,
 		PdStoreHeartbeatTickInterval: 10 * time.Second,
+		RegionMaxSize:                144 * MB,
+		RegionSplitSize:              96 * MB,
+		DBPath:                       "/tmp/badger",
+	}
+}
+
+func NewTestConfig() *Config {
+	return &Config{
+		LogLevel:                 "info",
+		RaftBaseTickInterval:     10 * time.Millisecond,
+		RaftHeartbeatTicks:       2,
+		RaftElectionTimeoutTicks: 10,
+		RaftLogGCTickInterval:    50 * time.Millisecond,
+		// Assume the average size of entries is 1k.
+		RaftLogGcCountLimit:          128000,
+		SplitRegionCheckTickInterval: 100 * time.Millisecond,
+		PdHeartbeatTickInterval:      100 * time.Millisecond,
+		PdStoreHeartbeatTickInterval: 500 * time.Millisecond,
 		RegionMaxSize:                144 * MB,
 		RegionSplitSize:              96 * MB,
 		DBPath:                       "/tmp/badger",

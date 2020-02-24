@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/coocood/badger/y"
+	"github.com/Connor1996/badger/y"
 	"github.com/petar/GoLLRB/llrb"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
