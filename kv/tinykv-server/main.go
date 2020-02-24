@@ -59,7 +59,7 @@ func main() {
 	} else {
 		innerServer = setupStandAloneInnerServer(pdClient, conf)
 	}
-	scheduler := exec.NewSeqScheduler(innerServer)
+	scheduler := exec.NewScheduler(innerServer)
 	tikvServer := tikv.NewServer(innerServer, scheduler)
 
 	var alivePolicy = keepalive.EnforcementPolicy{
@@ -82,10 +82,6 @@ func main() {
 	handleSignal(grpcServer)
 
 	err = grpcServer.Serve(l)
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = tikvServer.Stop()
 	if err != nil {
 		log.Fatal(err)
 	}

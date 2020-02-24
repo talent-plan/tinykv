@@ -2,10 +2,8 @@ package tikv
 
 import (
 	"context"
-	"sync/atomic"
-	"time"
-
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/commands"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/exec"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/interfaces"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/coprocessor"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
@@ -17,26 +15,15 @@ var _ tikvpb.TikvServer = new(Server)
 // Server is a TinyKV server, it 'faces outwards', sending and receiving messages from clients such as TinySQL.
 type Server struct {
 	innerServer interfaces.InnerServer
-	scheduler   interfaces.Scheduler
+	scheduler   *exec.Scheduler
 	refCount    int32
 	stopped     int32
 }
 
-func NewServer(innerServer interfaces.InnerServer, scheduler interfaces.Scheduler) *Server {
+func NewServer(innerServer interfaces.InnerServer, scheduler *exec.Scheduler) *Server {
 	return &Server{
 		innerServer: innerServer,
 		scheduler:   scheduler,
-	}
-}
-
-func (svr *Server) Stop() error {
-	atomic.StoreInt32(&svr.stopped, 1)
-	for {
-		if atomic.LoadInt32(&svr.refCount) == 0 {
-			svr.scheduler.Stop()
-			return svr.innerServer.Stop()
-		}
-		time.Sleep(time.Millisecond * 10)
 	}
 }
 
@@ -45,69 +32,69 @@ func (svr *Server) Stop() error {
 // Transactional API.
 func (svr *Server) KvGet(ctx context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb.GetResponse, error) {
 	cmd := commands.NewGet(req)
-	resp := <-svr.scheduler.Run(&cmd)
-	return resp.Response.(*kvrpcpb.GetResponse), resp.Err
+	resp, err := svr.scheduler.Run(&cmd)
+	return resp.(*kvrpcpb.GetResponse), err
 }
 
 func (svr *Server) KvScan(ctx context.Context, req *kvrpcpb.ScanRequest) (*kvrpcpb.ScanResponse, error) {
 	cmd := commands.NewScan(req)
-	resp := <-svr.scheduler.Run(&cmd)
-	return resp.Response.(*kvrpcpb.ScanResponse), resp.Err
+	resp, err := svr.scheduler.Run(&cmd)
+	return resp.(*kvrpcpb.ScanResponse), err
 }
 
 func (svr *Server) KvPrewrite(ctx context.Context, req *kvrpcpb.PrewriteRequest) (*kvrpcpb.PrewriteResponse, error) {
 	cmd := commands.NewPrewrite(req)
-	resp := <-svr.scheduler.Run(&cmd)
-	return resp.Response.(*kvrpcpb.PrewriteResponse), resp.Err
+	resp, err := svr.scheduler.Run(&cmd)
+	return resp.(*kvrpcpb.PrewriteResponse), err
 }
 
 func (svr *Server) KvCommit(ctx context.Context, req *kvrpcpb.CommitRequest) (*kvrpcpb.CommitResponse, error) {
 	cmd := commands.NewCommit(req)
-	resp := <-svr.scheduler.Run(&cmd)
-	return resp.Response.(*kvrpcpb.CommitResponse), resp.Err
+	resp, err := svr.scheduler.Run(&cmd)
+	return resp.(*kvrpcpb.CommitResponse), err
 }
 
 func (svr *Server) KvCheckTxnStatus(ctx context.Context, req *kvrpcpb.CheckTxnStatusRequest) (*kvrpcpb.CheckTxnStatusResponse, error) {
 	cmd := commands.NewCheckTxnStatus(req)
-	resp := <-svr.scheduler.Run(&cmd)
-	return resp.Response.(*kvrpcpb.CheckTxnStatusResponse), resp.Err
+	resp, err := svr.scheduler.Run(&cmd)
+	return resp.(*kvrpcpb.CheckTxnStatusResponse), err
 }
 
 func (svr *Server) KvBatchRollback(ctx context.Context, req *kvrpcpb.BatchRollbackRequest) (*kvrpcpb.BatchRollbackResponse, error) {
 	cmd := commands.NewRollback(req)
-	resp := <-svr.scheduler.Run(&cmd)
-	return resp.Response.(*kvrpcpb.BatchRollbackResponse), resp.Err
+	resp, err := svr.scheduler.Run(&cmd)
+	return resp.(*kvrpcpb.BatchRollbackResponse), err
 }
 
 func (svr *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRequest) (*kvrpcpb.ResolveLockResponse, error) {
 	cmd := commands.NewResolveLock(req)
-	resp := <-svr.scheduler.Run(&cmd)
-	return resp.Response.(*kvrpcpb.ResolveLockResponse), resp.Err
+	resp, err := svr.scheduler.Run(&cmd)
+	return resp.(*kvrpcpb.ResolveLockResponse), err
 }
 
 // Raw API.
 func (svr *Server) RawGet(ctx context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
 	cmd := commands.NewRawGet(req)
-	resp := <-svr.scheduler.Run(&cmd)
-	return resp.Response.(*kvrpcpb.RawGetResponse), resp.Err
+	resp, err := svr.scheduler.Run(&cmd)
+	return resp.(*kvrpcpb.RawGetResponse), err
 }
 
 func (svr *Server) RawPut(ctx context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
 	cmd := commands.NewRawPut(req)
-	resp := <-svr.scheduler.Run(&cmd)
-	return resp.Response.(*kvrpcpb.RawPutResponse), resp.Err
+	resp, err := svr.scheduler.Run(&cmd)
+	return resp.(*kvrpcpb.RawPutResponse), err
 }
 
 func (svr *Server) RawDelete(ctx context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
 	cmd := commands.NewRawDelete(req)
-	resp := <-svr.scheduler.Run(&cmd)
-	return resp.Response.(*kvrpcpb.RawDeleteResponse), resp.Err
+	resp, err := svr.scheduler.Run(&cmd)
+	return resp.(*kvrpcpb.RawDeleteResponse), err
 }
 
 func (svr *Server) RawScan(ctx context.Context, req *kvrpcpb.RawScanRequest) (*kvrpcpb.RawScanResponse, error) {
 	cmd := commands.NewRawScan(req)
-	resp := <-svr.scheduler.Run(&cmd)
-	return resp.Response.(*kvrpcpb.RawScanResponse), resp.Err
+	resp, err := svr.scheduler.Run(&cmd)
+	return resp.(*kvrpcpb.RawScanResponse), err
 }
 
 // Raft commands (tikv <-> tikv); these are trivially forwarded to innerServer.

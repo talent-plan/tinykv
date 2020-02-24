@@ -41,7 +41,7 @@ func Get(is *inner_server.StandAloneInnerServer, cf string, key []byte) ([]byte,
 }
 
 func NewTestTiKVServer(innerServer interfaces.InnerServer) *tikv.Server {
-	sched := exec.NewSeqScheduler(innerServer)
+	sched := exec.NewScheduler(innerServer)
 	server := tikv.NewServer(innerServer, sched)
 	return server
 }
@@ -63,7 +63,6 @@ func TestRawGetLab1(t *testing.T) {
 	conf := newTestConfig()
 	is := inner_server.NewStandAloneInnerServer(conf)
 	server := NewTestTiKVServer(is)
-	defer server.Stop()
 	defer cleanUpTestData(conf)
 
 	cf := "TestRawGet"
@@ -82,7 +81,6 @@ func TestRawGetNotFoundLab1(t *testing.T) {
 	conf := newTestConfig()
 	is := inner_server.NewStandAloneInnerServer(conf)
 	server := NewTestTiKVServer(is)
-	defer server.Stop()
 	defer cleanUpTestData(conf)
 
 	cf := "TestRawGetNotFound"
@@ -99,7 +97,6 @@ func TestRawPutLab1(t *testing.T) {
 	conf := newTestConfig()
 	is := inner_server.NewStandAloneInnerServer(conf)
 	server := NewTestTiKVServer(is)
-	defer server.Stop()
 	defer cleanUpTestData(conf)
 
 	cf := "TestRawPut"
@@ -121,7 +118,6 @@ func TestRawGetAfterRawPutLab1(t *testing.T) {
 	is := inner_server.NewStandAloneInnerServer(conf)
 	server := NewTestTiKVServer(is)
 	defer cleanUpTestData(conf)
-	defer server.Stop()
 
 	cf := "TestRawGetAfterRawPut"
 	put := &kvrpcpb.RawPutRequest{
@@ -147,7 +143,6 @@ func TestRawGetAfterRawDeleteLab1(t *testing.T) {
 	is := inner_server.NewStandAloneInnerServer(conf)
 	server := NewTestTiKVServer(is)
 	defer cleanUpTestData(conf)
-	defer server.Stop()
 
 	cf := "TestRawGetAfterRawDelete"
 	assert.Nil(t, Set(is, cf, []byte{99}, []byte{42}))
@@ -173,7 +168,6 @@ func TestRawDeleteLab1(t *testing.T) {
 	conf := newTestConfig()
 	is := inner_server.NewStandAloneInnerServer(conf)
 	server := NewTestTiKVServer(is)
-	defer server.Stop()
 	defer cleanUpTestData(conf)
 
 	cf := "TestRawDelete"
@@ -194,7 +188,6 @@ func TestRawScanLab1(t *testing.T) {
 	conf := newTestConfig()
 	is := inner_server.NewStandAloneInnerServer(conf)
 	server := NewTestTiKVServer(is)
-	defer server.Stop()
 	defer cleanUpTestData(conf)
 
 	cf := "TestRawScan"
@@ -227,7 +220,6 @@ func TestRawScanAfterRawPutLab1(t *testing.T) {
 	is := inner_server.NewStandAloneInnerServer(conf)
 	server := NewTestTiKVServer(is)
 	defer cleanUpTestData(conf)
-	defer server.Stop()
 
 	cf := "TestRawScanAfterRawPut"
 	assert.Nil(t, Set(is, cf, []byte{1}, []byte{233, 1}))
@@ -266,7 +258,6 @@ func TestRawScanAfterRawDeleteLab1(t *testing.T) {
 	is := inner_server.NewStandAloneInnerServer(conf)
 	server := NewTestTiKVServer(is)
 	defer cleanUpTestData(conf)
-	defer server.Stop()
 
 	cf := "TestRawScanAfterRawDelete"
 	assert.Nil(t, Set(is, cf, []byte{1}, []byte{233, 1}))
