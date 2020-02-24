@@ -10,7 +10,7 @@ import (
 
 func TestEmptyCommit(t *testing.T) {
 	builder := newBuilder(t)
-	cmd := NewCommit(builder.commitRequest())
+	cmd := NewCommit(builder.commitRequest([][]byte{}...))
 	resp := builder.runOneCmd(&cmd).(*kvrpcpb.CommitResponse)
 
 	assert.Nil(t, resp.Error)

@@ -23,3 +23,23 @@ type Modify struct {
 	Type ModifyType
 	Data interface{}
 }
+
+func (m *Modify) Key() []byte {
+	switch m.Type {
+	case ModifyTypePut:
+		return m.Data.(Put).Key
+	case ModifyTypeDelete:
+		return m.Data.(Delete).Key
+	}
+	return nil
+}
+
+func (m *Modify) Cf() string {
+	switch m.Type {
+	case ModifyTypePut:
+		return m.Data.(Put).Cf
+	case ModifyTypeDelete:
+		return m.Data.(Delete).Cf
+	}
+	return ""
+}

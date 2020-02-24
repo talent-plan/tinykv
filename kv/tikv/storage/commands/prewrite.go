@@ -10,77 +10,51 @@ import (
 // transactions (complete or in-progress) then success is returned to the client. If all a client's prewrites succeed,
 // then it will send a commit message. I.e., prewrite is the first phase in a two phase commit.
 type Prewrite struct {
+	CommandBase
 	request *kvrpcpb.PrewriteRequest
 }
 
 func NewPrewrite(request *kvrpcpb.PrewriteRequest) Prewrite {
-	return Prewrite{request}
+	return Prewrite{
+		CommandBase: CommandBase{
+			context: request.Context,
+		},
+		request: request,
+	}
 }
 
-func (p *Prewrite) BuildTxn(txn *kvstore.MvccTxn) error {
+func (p *Prewrite) PrepareWrites(txn *kvstore.MvccTxn) (interface{}, error) {
+	response := new(kvrpcpb.PrewriteResponse)
 	txn.StartTS = &p.request.StartVersion
 
-	var locks []kvrpcpb.LockInfo
 	// Prewrite all mutations in the request.
 	for _, m := range p.request.Mutations {
-		lockErr, err := p.prewriteMutation(txn, m)
-		if lockErr != nil {
-			locks = append(locks, *lockErr)
+		keyError, err := p.prewriteMutation(txn, m)
+		if keyError != nil {
+			response.Errors = append(response.Errors, keyError)
 		} else if err != nil {
-			return err
+			return regionError(err, response)
 		}
 	}
 
-	// If no keys were locked, then the prewrite succeeded.
-	if len(locks) == 0 {
-		return nil
-	}
-
-	// If any keys were locked, we'll return this to the client.
-	return &kvstore.LockedError{Info: locks}
+	return response, nil
 }
 
-func (p *Prewrite) Context() *kvrpcpb.Context {
-	return p.request.Context
-}
-
-func (p *Prewrite) Response() interface{} {
-	return &kvrpcpb.PrewriteResponse{}
-}
-
-func (p *Prewrite) HandleError(err error) interface{} {
-	if err == nil {
-		return nil
-	}
-
-	if regionErr := extractRegionError(err); regionErr != nil {
-		resp := kvrpcpb.PrewriteResponse{}
-		resp.RegionError = regionErr
-		return &resp
-	}
-
-	if e, ok := err.(KeyError); ok {
-		resp := kvrpcpb.PrewriteResponse{}
-		resp.Errors = e.KeyErrors()
-		return &resp
-	}
-
-	return nil
-}
-
-// prewriteMutation prewrites mut to txn. It returns (nil, nil) on success, (lock, nil) if the key in mut is already
-// locked, and (nil, err) if an error occurs.
-func (p *Prewrite) prewriteMutation(txn *kvstore.MvccTxn, mut *kvrpcpb.Mutation) (*kvrpcpb.LockInfo, error) {
+// prewriteMutation prewrites mut to txn. It returns (nil, nil) on success, (err, nil) if the key in mut is already
+// locked or there is any other key error, and (nil, err) if an internal error occurs.
+func (p *Prewrite) prewriteMutation(txn *kvstore.MvccTxn, mut *kvrpcpb.Mutation) (*kvrpcpb.KeyError, error) {
 	key := mut.Key
 	// Check for write conflicts.
 	if write, writeCommitTS, err := txn.SeekWrite(key, kvstore.TsMax); write != nil && err == nil {
 		if writeCommitTS >= *txn.StartTS {
-			return nil, &WriteConflict{
-				startTS:    *txn.StartTS,
-				conflictTS: write.StartTS,
-				key:        key,
-				primary:    p.request.PrimaryLock,
+			keyError := new(kvrpcpb.KeyError)
+			keyError.Conflict = &kvrpcpb.WriteConflict{
+				StartTs:    *txn.StartTS,
+				ConflictTs: write.StartTS,
+				Key:        key,
+				Primary:    p.request.PrimaryLock,
 			}
+			return keyError, nil
 		}
 	} else if err != nil {
 		return nil, err
@@ -92,7 +66,9 @@ func (p *Prewrite) prewriteMutation(txn *kvstore.MvccTxn, mut *kvrpcpb.Mutation)
 	} else if existingLock != nil {
 		if existingLock.Ts != *txn.StartTS {
 			// Key is locked by someone else.
-			return existingLock.Info(key), nil
+			keyError := new(kvrpcpb.KeyError)
+			keyError.Locked = existingLock.Info(key)
+			return keyError, nil
 		} else {
 			// Key is locked by us
 			return nil, nil
@@ -110,4 +86,12 @@ func (p *Prewrite) prewriteMutation(txn *kvstore.MvccTxn, mut *kvrpcpb.Mutation)
 	txn.PutValue(key, mut.Value)
 
 	return nil, nil
+}
+
+func (p *Prewrite) WillWrite() [][]byte {
+	result := [][]byte{}
+	for _, m := range p.request.Mutations {
+		result = append(result, m.Key)
+	}
+	return result
 }

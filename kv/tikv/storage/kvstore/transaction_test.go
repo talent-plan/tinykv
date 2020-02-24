@@ -20,9 +20,9 @@ func TestEncodeKey(t *testing.T) {
 }
 
 func TestDecodeKey(t *testing.T) {
-	assert.Equal(t, []byte{}, decodeUserKey(EncodeKey([]byte{}, 0)))
-	assert.Equal(t, []byte{42}, decodeUserKey(EncodeKey([]byte{42}, 0)))
-	assert.Equal(t, []byte{42, 0, 5}, decodeUserKey(EncodeKey([]byte{42, 0, 5}, 0)))
-	assert.Equal(t, []byte{42}, decodeUserKey(EncodeKey([]byte{42}, 2342342355436234)))
-	assert.Equal(t, []byte{42, 0, 5}, decodeUserKey(EncodeKey([]byte{42, 0, 5}, 234234)))
+	assert.Equal(t, []byte{}, DecodeUserKey(EncodeKey([]byte{}, 0)))
+	assert.Equal(t, []byte{42}, DecodeUserKey(EncodeKey([]byte{42}, 0)))
+	assert.Equal(t, []byte{42, 0, 5}, DecodeUserKey(EncodeKey([]byte{42, 0, 5}, 0)))
+	assert.Equal(t, []byte{42}, DecodeUserKey(EncodeKey([]byte{42}, 2342342355436234)))
+	assert.Equal(t, []byte{42, 0, 5}, DecodeUserKey(EncodeKey([]byte{42, 0, 5}, 234234)))
 }

@@ -6,65 +6,59 @@ import (
 )
 
 type ResolveLock struct {
-	request *kvrpcpb.ResolveLockRequest
+	CommandBase
+	request  *kvrpcpb.ResolveLockRequest
+	keyLocks []kvstore.KlPair
 }
 
 func NewResolveLock(request *kvrpcpb.ResolveLockRequest) ResolveLock {
-	return ResolveLock{request: request}
+	return ResolveLock{
+		CommandBase: CommandBase{
+			context: request.Context,
+		},
+		request: request,
+	}
 }
 
-func (c *ResolveLock) BuildTxn(txn *kvstore.MvccTxn) error {
+func (rl *ResolveLock) PrepareWrites(txn *kvstore.MvccTxn) (interface{}, error) {
 	// A map from start timestamps to commit timestamps which tells us whether a transaction (identified by start ts)
 	// has been committed (and if so, then its commit ts) or rolled back (in which case the commit ts is 0).
-	txn.StartTS = &c.request.StartVersion
-	commitTs := c.request.CommitVersion
+	txn.StartTS = &rl.request.StartVersion
+	commitTs := rl.request.CommitVersion
+	response := new(kvrpcpb.ResolveLockResponse)
 
-	// Find all locks where the lock's transaction (start ts) is in txnStatus.
-	keyLocks, err := txn.AllLocksForTxn()
-	if err != nil {
-		return err
-	}
-	for _, kl := range keyLocks {
+	for _, kl := range rl.keyLocks {
 		if commitTs == 0 {
-			err := rollbackKey(kl.Key, txn)
-			if err != nil {
-				return err
+			resp, err := rollbackKey(kl.Key, txn, response)
+			if resp != nil || err != nil {
+				return resp, err
 			}
 		} else {
-			err := commitKey(kl.Key, commitTs, txn)
-			if err != nil {
-				return err
+			resp, err := commitKey(kl.Key, commitTs, txn, response)
+			if resp != nil || err != nil {
+				return resp, err
 			}
 		}
 	}
 
+	return response, nil
+}
+
+func (rl *ResolveLock) WillWrite() [][]byte {
 	return nil
 }
 
-func (c *ResolveLock) Context() *kvrpcpb.Context {
-	return c.request.Context
-}
-
-func (c *ResolveLock) Response() interface{} {
-	return &kvrpcpb.ResolveLockResponse{}
-}
-
-func (c *ResolveLock) HandleError(err error) interface{} {
-	if err == nil {
-		return nil
+func (rl *ResolveLock) Read(txn *kvstore.RoTxn) (interface{}, [][]byte, error) {
+	// Find all locks where the lock's transaction (start ts) is in txnStatus.
+	txn.StartTS = &rl.request.StartVersion
+	keyLocks, err := kvstore.AllLocksForTxn(txn)
+	if err != nil {
+		return nil, nil, err
 	}
-
-	if regionErr := extractRegionError(err); regionErr != nil {
-		var resp kvrpcpb.ResolveLockResponse
-		resp.RegionError = regionErr
-		return &resp
+	rl.keyLocks = keyLocks
+	keys := [][]byte{}
+	for _, kl := range keyLocks {
+		keys = append(keys, kl.Key)
 	}
-
-	if e, ok := err.(KeyError); ok {
-		var resp kvrpcpb.ResolveLockResponse
-		resp.Error = e.KeyErrors()[0]
-		return &resp
-	}
-
-	return nil
+	return nil, keys, nil
 }
