@@ -5,7 +5,7 @@ import (
 	"io/ioutil"
 	"testing"
 
-	"github.com/coocood/badger"
+	"github.com/Connor1996/badger"
 	"github.com/stretchr/testify/require"
 )
 

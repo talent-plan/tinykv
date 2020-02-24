@@ -3,7 +3,7 @@ package util
 import (
 	"io/ioutil"
 
-	"github.com/coocood/badger"
+	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 )
 

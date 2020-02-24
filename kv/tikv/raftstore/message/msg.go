@@ -3,7 +3,7 @@ package message
 import (
 	"time"
 
-	"github.com/coocood/badger"
+	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	"github.com/pingcap-incubator/tinykv/raft"

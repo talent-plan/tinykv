@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coocood/badger"
+	"github.com/Connor1996/badger"
 	"github.com/golang/protobuf/proto"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
