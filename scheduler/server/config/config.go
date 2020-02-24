@@ -433,29 +433,6 @@ type ScheduleConfig struct {
 	ReplicaScheduleLimit uint64 `toml:"replica-schedule-limit,omitempty" json:"replica-schedule-limit"`
 	// TolerantSizeRatio is the ratio of buffer size for balance scheduler.
 	TolerantSizeRatio float64 `toml:"tolerant-size-ratio,omitempty" json:"tolerant-size-ratio"`
-	// WARN: DisableLearner is deprecated.
-	// DisableLearner is the option to disable using AddLearnerNode instead of AddNode.
-	DisableLearner bool `toml:"disable-raft-learner" json:"disable-raft-learner,string,omitempty"`
-	// DisableRemoveDownReplica is the option to prevent replica checker from
-	// removing down replicas.
-	// WARN: DisableRemoveDownReplica is deprecated.
-	DisableRemoveDownReplica bool `toml:"disable-remove-down-replica" json:"disable-remove-down-replica,string,omitempty"`
-	// DisableReplaceOfflineReplica is the option to prevent replica checker from
-	// replacing offline replicas.
-	// WARN: DisableReplaceOfflineReplica is deprecated.
-	DisableReplaceOfflineReplica bool `toml:"disable-replace-offline-replica" json:"disable-replace-offline-replica,string,omitempty"`
-	// DisableMakeUpReplica is the option to prevent replica checker from making up
-	// replicas when replica count is less than expected.
-	// WARN: DisableMakeUpReplica is deprecated.
-	DisableMakeUpReplica bool `toml:"disable-make-up-replica" json:"disable-make-up-replica,string,omitempty"`
-	// DisableRemoveExtraReplica is the option to prevent replica checker from
-	// removing extra replicas.
-	// WARN: DisableRemoveExtraReplica is deprecated.
-	DisableRemoveExtraReplica bool `toml:"disable-remove-extra-replica" json:"disable-remove-extra-replica,string,omitempty"`
-	// DisableLocationReplacement is the option to prevent replica checker from
-	// moving replica to a better location.
-	// WARN: DisableLocationReplacement is deprecated.
-	DisableLocationReplacement bool `toml:"disable-location-replacement" json:"disable-location-replacement,string,omitempty"`
 
 	// EnableRemoveDownReplica is the option to enable replica checker to remove down replica.
 	EnableRemoveDownReplica bool `toml:"enable-remove-down-replica" json:"enable-remove-down-replica,string"`
@@ -486,12 +463,6 @@ func (c *ScheduleConfig) Clone() *ScheduleConfig {
 		RegionScheduleLimit:          c.RegionScheduleLimit,
 		ReplicaScheduleLimit:         c.ReplicaScheduleLimit,
 		TolerantSizeRatio:            c.TolerantSizeRatio,
-		DisableLearner:               c.DisableLearner,
-		DisableRemoveDownReplica:     c.DisableRemoveDownReplica,
-		DisableReplaceOfflineReplica: c.DisableReplaceOfflineReplica,
-		DisableMakeUpReplica:         c.DisableMakeUpReplica,
-		DisableRemoveExtraReplica:    c.DisableRemoveExtraReplica,
-		DisableLocationReplacement:   c.DisableLocationReplacement,
 		EnableRemoveDownReplica:      c.EnableRemoveDownReplica,
 		EnableReplaceOfflineReplica:  c.EnableReplaceOfflineReplica,
 		EnableMakeUpReplica:          c.EnableMakeUpReplica,
@@ -530,58 +501,24 @@ func (c *ScheduleConfig) adjust(meta *configMetaData) error {
 	if !meta.IsDefined("leader-schedule-strategy") {
 		adjustString(&c.LeaderScheduleStrategy, defaultLeaderScheduleStrategy)
 	}
+	if !meta.IsDefined("enable-remove-down-replica") {
+		c.EnableRemoveDownReplica = true
+	}
+	if !meta.IsDefined("enable-replace-offline-replica") {
+		c.EnableReplaceOfflineReplica = true
+	}
+	if !meta.IsDefined("enable-make-up-replica") {
+		c.EnableMakeUpReplica = true
+	}
+	if !meta.IsDefined("enable-remove-extra-replica") {
+		c.EnableRemoveExtraReplica = true
+	}
+	if !meta.IsDefined("enable-location-replacement") {
+		c.EnableLocationReplacement = true
+	}
 	adjustSchedulers(&c.Schedulers, defaultSchedulers)
 
-	for k, b := range c.migrateConfigurationMap() {
-		v, err := c.parseDeprecatedFlag(meta, k, *b[0], *b[1])
-		if err != nil {
-			return err
-		}
-		*b[0], *b[1] = false, v // reset old flag false to make it ignored when marshal to JSON
-	}
-
 	return c.Validate()
-}
-
-func (c *ScheduleConfig) migrateConfigurationMap() map[string][2]*bool {
-	return map[string][2]*bool{
-		"remove-down-replica":     {&c.DisableRemoveDownReplica, &c.EnableRemoveDownReplica},
-		"replace-offline-replica": {&c.DisableReplaceOfflineReplica, &c.EnableReplaceOfflineReplica},
-		"make-up-replica":         {&c.DisableMakeUpReplica, &c.EnableMakeUpReplica},
-		"remove-extra-replica":    {&c.DisableRemoveExtraReplica, &c.EnableRemoveExtraReplica},
-		"location-replacement":    {&c.DisableLocationReplacement, &c.EnableLocationReplacement},
-	}
-}
-
-// revive:disable-next-line:flag-parameter
-func (c *ScheduleConfig) parseDeprecatedFlag(meta *configMetaData, name string, old, new bool) (bool, error) {
-	oldName, newName := "disable-"+name, "enable-"+name
-	defineOld, defineNew := meta.IsDefined(oldName), meta.IsDefined(newName)
-	switch {
-	case defineNew && defineOld:
-		if new == old {
-			return false, errors.Errorf("config item %s and %s(deprecated) are conflict", newName, oldName)
-		}
-		return new, nil
-	case defineNew && !defineOld:
-		return new, nil
-	case !defineNew && defineOld:
-		return !old, nil // use !disable-*
-	case !defineNew && !defineOld:
-		return true, nil // use default value true
-	}
-	return false, nil // unreachable.
-}
-
-// MigrateDeprecatedFlags updates new flags according to deprecated flags.
-func (c *ScheduleConfig) MigrateDeprecatedFlags() {
-	c.DisableLearner = false
-	for _, b := range c.migrateConfigurationMap() {
-		// If old=false (previously disabled), set both old and new to false.
-		if *b[0] {
-			*b[0], *b[1] = false, false
-		}
-	}
 }
 
 // Validate is used to validate if some scheduling configurations are right.
@@ -593,29 +530,6 @@ func (c *ScheduleConfig) Validate() error {
 		if !schedule.IsSchedulerRegistered(scheduleConfig.Type) {
 			return errors.Errorf("create func of %v is not registered, maybe misspelled", scheduleConfig.Type)
 		}
-	}
-	return nil
-}
-
-// Deprecated is used to find if there is an option has beed deprecated.
-func (c *ScheduleConfig) Deprecated() error {
-	if c.DisableLearner {
-		return errors.New("disable-raft-learner has already been deprecated")
-	}
-	if c.DisableRemoveDownReplica {
-		return errors.New("disable-remove-down-replica has already been deprecated")
-	}
-	if c.DisableReplaceOfflineReplica {
-		return errors.New("disable-replace-offline-replica has already been deprecated")
-	}
-	if c.DisableMakeUpReplica {
-		return errors.New("disable-make-up-replica has already been deprecated")
-	}
-	if c.DisableRemoveExtraReplica {
-		return errors.New("disable-remove-extra-replica has already been deprecated")
-	}
-	if c.DisableLocationReplacement {
-		return errors.New("disable-location-replacement has already been deprecated")
 	}
 	return nil
 }

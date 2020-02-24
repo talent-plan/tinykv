@@ -56,10 +56,6 @@ type ScheduleOptions struct {
 	EnableReplaceOfflineReplica  bool
 	EnableMakeUpReplica          bool
 	EnableRemoveExtraReplica     bool
-	DisableRemoveDownReplica     bool
-	DisableReplaceOfflineReplica bool
-	DisableMakeUpReplica         bool
-	DisableRemoveExtraReplica    bool
 	LeaderScheduleStrategy       string
 }
 
