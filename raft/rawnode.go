@@ -27,6 +27,13 @@ var ErrStepLocalMsg = errors.New("raft: cannot step raft local message")
 // but there is no peer found in raft.Prs for that node.
 var ErrStepPeerNotFound = errors.New("raft: cannot step as peer not found")
 
+type SnapshotStatus int
+
+const (
+	SnapshotFinish  SnapshotStatus = 1
+	SnapshotFailure SnapshotStatus = 2
+)
+
 // SoftState provides state that is useful for logging and debugging.
 // The state is volatile and does not need to be persisted to the WAL.
 type SoftState struct {
@@ -300,27 +307,16 @@ func (rn *RawNode) AdvanceApply(applied uint64) {
 	rn.commitApply(applied)
 }
 
-// Status returns the current status of the given group.
-func (rn *RawNode) Status() *Status {
-	status := getStatus(rn.Raft)
-	return &status
-}
-
-// StatusWithoutProgress returns a Status without populating the Progress field
-// (and returns the Status as a value to avoid forcing it onto the heap). This
-// is more performant if the Progress is not required. See WithProgress for an
-// allocation-free way to introspect the Progress.
-func (rn *RawNode) StatusWithoutProgress() Status {
-	return getStatusWithoutProgress(rn.Raft)
-}
-
-// WithProgress is a helper to introspect the Progress for this node and its
-// peers.
-func (rn *RawNode) WithProgress(visitor func(id uint64, pr Progress)) {
-	for id, pr := range rn.Raft.Prs {
-		pr := *pr
-		visitor(id, pr)
+// GetProgress return the the Progress of this node and its peers, if this
+// node is leader.
+func (rn *RawNode) GetProgress() map[uint64]Progress {
+	prs := make(map[uint64]Progress)
+	if rn.Raft.State == StateLeader {
+		for id, p := range rn.Raft.Prs {
+			prs[id] = *p
+		}
 	}
+	return prs
 }
 
 // ReportSnapshot reports the status of the sent snapshot.

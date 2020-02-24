@@ -16,7 +16,6 @@ package raft
 
 import (
 	"bytes"
-	"fmt"
 	"reflect"
 	"testing"
 
@@ -363,90 +362,5 @@ func TestRawNodeRestartFromSnapshot(t *testing.T) {
 	}
 	if rawNode.HasReady() {
 		t.Errorf("unexpected Ready: %+v", rawNode.HasReady())
-	}
-}
-
-// TestNodeAdvance from node_test.go has no equivalent in rawNode because there is
-// no dependency check between Ready() and Advance()
-
-func TestRawNodeStatus(t *testing.T) {
-	storage := NewMemoryStorage()
-	rawNode, err := NewRawNode(newTestConfig(1, []uint64{1}, 10, 1, storage))
-	if err != nil {
-		t.Fatal(err)
-	}
-	status := rawNode.Status()
-	if status == nil {
-		t.Errorf("expected status struct, got nil")
-	}
-}
-
-func BenchmarkStatusProgress(b *testing.B) {
-	setup := func(members int) *RawNode {
-		peers := make([]uint64, members)
-		for i := range peers {
-			peers[i] = uint64(i + 1)
-		}
-		cfg := newTestConfig(1, peers, 3, 1, NewMemoryStorage())
-		cfg.Logger = discardLogger
-		r := newRaft(cfg)
-		r.becomeFollower(1, 1)
-		r.becomeCandidate()
-		r.becomeLeader()
-		return &RawNode{Raft: r}
-	}
-
-	for _, members := range []int{1, 3, 5, 100} {
-		b.Run(fmt.Sprintf("members=%d", members), func(b *testing.B) {
-			// NB: call getStatus through rn.Status because that incurs an additional
-			// allocation.
-			rn := setup(members)
-
-			b.Run("Status", func(b *testing.B) {
-				b.ReportAllocs()
-				for i := 0; i < b.N; i++ {
-					_ = rn.Status()
-				}
-			})
-
-			b.Run("Status-example", func(b *testing.B) {
-				b.ReportAllocs()
-				for i := 0; i < b.N; i++ {
-					s := rn.Status()
-					var n uint64
-					for _, pr := range s.Progress {
-						n += pr.Match
-					}
-					_ = n
-				}
-			})
-
-			b.Run("StatusWithoutProgress", func(b *testing.B) {
-				b.ReportAllocs()
-				for i := 0; i < b.N; i++ {
-					_ = rn.StatusWithoutProgress()
-				}
-			})
-
-			b.Run("WithProgress", func(b *testing.B) {
-				b.ReportAllocs()
-				visit := func(uint64, Progress) {}
-
-				for i := 0; i < b.N; i++ {
-					rn.WithProgress(visit)
-				}
-			})
-			b.Run("WithProgress-example", func(b *testing.B) {
-				b.ReportAllocs()
-				for i := 0; i < b.N; i++ {
-					var n uint64
-					visit := func(_ uint64, pr Progress) {
-						n += pr.Match
-					}
-					rn.WithProgress(visit)
-					_ = n
-				}
-			})
-		})
 	}
 }
