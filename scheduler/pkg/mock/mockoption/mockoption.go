@@ -34,7 +34,6 @@ const (
 	defaultTolerantSizeRatio           = 2.5
 	defaultSchedulerMaxWaitingOperator = 3
 	defaultLeaderScheduleStrategy      = "count"
-	defaultKeyType                     = "table"
 )
 
 // ScheduleOptions is a mock of ScheduleOptions
@@ -52,7 +51,6 @@ type ScheduleOptions struct {
 	SchedulerMaxWaitingOperator  uint64
 	EnableOneWayMerge            bool
 	EnableCrossTableMerge        bool
-	KeyType                      string
 	MaxStoreDownTime             time.Duration
 	MaxReplicas                  int
 	TolerantSizeRatio            float64
@@ -88,7 +86,6 @@ func NewScheduleOptions() *ScheduleOptions {
 	mso.EnableMakeUpReplica = true
 	mso.EnableRemoveExtraReplica = true
 	mso.LeaderScheduleStrategy = defaultLeaderScheduleStrategy
-	mso.KeyType = defaultKeyType
 	return mso
 }
 
@@ -185,9 +182,4 @@ func (mso *ScheduleOptions) IsRemoveExtraReplicaEnabled() bool {
 // GetLeaderScheduleStrategy is to get leader schedule strategy.
 func (mso *ScheduleOptions) GetLeaderScheduleStrategy() core.ScheduleStrategy {
 	return core.StringToScheduleStrategy(mso.LeaderScheduleStrategy)
-}
-
-// GetKeyType is to get key type.
-func (mso *ScheduleOptions) GetKeyType() core.KeyType {
-	return core.StringToKeyType(mso.KeyType)
 }

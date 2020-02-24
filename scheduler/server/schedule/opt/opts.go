@@ -40,7 +40,6 @@ type Options interface {
 	IsMakeUpReplicaEnabled() bool
 	IsRemoveExtraReplicaEnabled() bool
 	GetLeaderScheduleStrategy() core.ScheduleStrategy
-	GetKeyType() core.KeyType
 }
 
 // Cluster provides an overview of a cluster's regions distribution.

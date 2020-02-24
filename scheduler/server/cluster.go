@@ -976,11 +976,6 @@ func (c *RaftCluster) GetLeaderScheduleStrategy() core.ScheduleStrategy {
 	return c.opt.GetLeaderScheduleStrategy()
 }
 
-// GetKeyType is to get key type.
-func (c *RaftCluster) GetKeyType() core.KeyType {
-	return c.opt.GetKeyType()
-}
-
 // IsReplaceOfflineReplicaEnabled returns if replace offline replica is enabled.
 func (c *RaftCluster) IsReplaceOfflineReplicaEnabled() bool {
 	return c.opt.IsReplaceOfflineReplicaEnabled()

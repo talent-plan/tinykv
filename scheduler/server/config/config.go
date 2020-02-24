@@ -171,7 +171,6 @@ const (
 	defaultLeaderPriorityCheckInterval = time.Minute
 
 	defaultMaxResetTsGap = 24 * time.Hour
-	defaultKeyType       = "table"
 
 	defaultEnableGRPCGateway = true
 )
@@ -701,17 +700,11 @@ func (s SecurityConfig) ToTLSConfig() (*tls.Config, error) {
 type PDServerConfig struct {
 	// MaxResetTSGap is the max gap to reset the tso.
 	MaxResetTSGap time.Duration `toml:"max-reset-ts-gap" json:"max-reset-ts-gap"`
-	// KeyType is option to specify the type of keys.
-	// There are some types supported: ["table", "raw", "txn"], default: "table"
-	KeyType string `toml:"key-type" json:"key-type"`
 }
 
 func (c *PDServerConfig) adjust(meta *configMetaData) error {
 	if !meta.IsDefined("max-reset-ts-gap") {
 		c.MaxResetTSGap = defaultMaxResetTsGap
-	}
-	if !meta.IsDefined("key-type") {
-		c.KeyType = defaultKeyType
 	}
 	return nil
 }

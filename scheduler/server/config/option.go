@@ -105,11 +105,6 @@ func (o *ScheduleOption) GetLeaderScheduleStrategy() core.ScheduleStrategy {
 	return core.StringToScheduleStrategy(o.Load().LeaderScheduleStrategy)
 }
 
-// GetKeyType is to get key type.
-func (o *ScheduleOption) GetKeyType() core.KeyType {
-	return core.StringToKeyType(o.LoadPDServerConfig().KeyType)
-}
-
 // IsRemoveDownReplicaEnabled returns if remove down replica is enabled.
 func (o *ScheduleOption) IsRemoveDownReplicaEnabled() bool {
 	return o.Load().EnableRemoveDownReplica
