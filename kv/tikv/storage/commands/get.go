@@ -6,67 +6,41 @@ import (
 )
 
 type Get struct {
-	request  *kvrpcpb.GetRequest
-	response kvrpcpb.GetResponse
+	ReadOnly
+	CommandBase
+	request *kvrpcpb.GetRequest
 }
 
 func NewGet(request *kvrpcpb.GetRequest) Get {
 	return Get{
-		request,
-		kvrpcpb.GetResponse{},
+		CommandBase: CommandBase{
+			context: request.Context,
+		},
+		request: request,
 	}
 }
 
-func (g *Get) BuildTxn(txn *kvstore.MvccTxn) error {
+func (g *Get) Read(txn *kvstore.RoTxn) (interface{}, [][]byte, error) {
 	key := g.request.Key
 	txn.StartTS = &g.request.Version
+	response := new(kvrpcpb.GetResponse)
 
 	// Check for locks.
 	lock, err := txn.GetLock(key)
 	if err != nil {
-		return err
+		return regionErrorRo(err, response)
 	}
-	if lock.IsLockedFor(key, *txn.StartTS) {
+	if lock.IsLockedFor(key, *txn.StartTS, response) {
 		// Key is locked.
-		return &kvstore.LockedError{Info: []kvrpcpb.LockInfo{*lock.Info(key)}}
+		return response, nil, nil
 	}
 
 	// Search writes for a committed value.
 	value, err := txn.FindWrittenValue(key, *txn.StartTS)
 	if err != nil {
-		return err
+		return regionErrorRo(err, response)
 	}
 
-	// If we got this far, then we found a valid value and it was not locked, so lets add it to the response.
-	g.response.Value = value
-	return nil
-}
-
-func (g *Get) Context() *kvrpcpb.Context {
-	return g.request.Context
-}
-
-func (g *Get) Response() interface{} {
-	return &g.response
-}
-
-func (g *Get) HandleError(err error) interface{} {
-	if err == nil {
-		return nil
-	}
-
-	if regionErr := extractRegionError(err); regionErr != nil {
-		g.response.RegionError = regionErr
-		return &g.response
-	}
-
-	if e, ok := err.(KeyError); ok {
-		keyErrs := e.KeyErrors()
-		if len(keyErrs) > 0 {
-			g.response.Error = keyErrs[0]
-			return &g.response
-		}
-	}
-
-	return nil
+	response.Value = value
+	return response, nil, nil
 }

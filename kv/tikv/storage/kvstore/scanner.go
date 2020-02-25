@@ -10,11 +10,11 @@ import (
 // Invariant: either the scanner is finished and can not be used, or it is ready to return a value immediately.
 type Scanner struct {
 	writeIter engine_util.DBIterator
-	txn       *MvccTxn
+	txn       *RoTxn
 }
 
 // NewScanner creates a new scanner ready to read from the snapshot in txn.
-func NewScanner(startKey []byte, txn *MvccTxn) *Scanner {
+func NewScanner(startKey []byte, txn *RoTxn) *Scanner {
 	writeIter := txn.Reader.IterCF(engine_util.CfWrite)
 	writeIter.Seek(EncodeKey(startKey, TsMax))
 	return &Scanner{
@@ -24,7 +24,7 @@ func NewScanner(startKey []byte, txn *MvccTxn) *Scanner {
 }
 
 // Next returns the next key/value pair from the scanner. If the scanner is exhausted, then it will return `nil, nil, nil`.
-func (scan *Scanner) Next() ([]byte, []byte, error) {
+func (scan *Scanner) Next() ([]byte, []byte, interface{}) {
 	// Search for the next relevant key/value.
 	for {
 		if !scan.writeIter.Valid() {
@@ -33,7 +33,7 @@ func (scan *Scanner) Next() ([]byte, []byte, error) {
 		}
 
 		item := scan.writeIter.Item()
-		userKey := decodeUserKey(item.Key())
+		userKey := DecodeUserKey(item.Key())
 		commitTs := decodeTimestamp(item.Key())
 
 		if commitTs >= *scan.txn.StartTS {
@@ -48,7 +48,9 @@ func (scan *Scanner) Next() ([]byte, []byte, error) {
 		}
 		if lock != nil && lock.Ts < *scan.txn.StartTS {
 			// The key is currently locked.
-			return nil, nil, &LockedError{Info: []kvrpcpb.LockInfo{*lock.Info(userKey)}}
+			keyError := new(kvrpcpb.KeyError)
+			keyError.Locked = lock.Info(userKey)
+			return nil, nil, keyError
 		}
 
 		writeValue, err := item.Value()
