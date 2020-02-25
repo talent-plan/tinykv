@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
@@ -91,71 +92,117 @@ func (server *Server) Run(cmd Command) (interface{}, error) {
 // The below functions are Server's gRPC API (implements TikvServer).
 
 // Transactional API.
-func (server *Server) KvGet(ctx context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb.GetResponse, error) {
+func (server *Server) KvGet(_ context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb.GetResponse, error) {
 	cmd := NewGet(req)
 	resp, err := server.Run(&cmd)
 	return resp.(*kvrpcpb.GetResponse), err
 }
 
-func (server *Server) KvScan(ctx context.Context, req *kvrpcpb.ScanRequest) (*kvrpcpb.ScanResponse, error) {
+func (server *Server) KvScan(_ context.Context, req *kvrpcpb.ScanRequest) (*kvrpcpb.ScanResponse, error) {
 	cmd := NewScan(req)
 	resp, err := server.Run(&cmd)
 	return resp.(*kvrpcpb.ScanResponse), err
 }
 
-func (server *Server) KvPrewrite(ctx context.Context, req *kvrpcpb.PrewriteRequest) (*kvrpcpb.PrewriteResponse, error) {
+func (server *Server) KvPrewrite(_ context.Context, req *kvrpcpb.PrewriteRequest) (*kvrpcpb.PrewriteResponse, error) {
 	cmd := NewPrewrite(req)
 	resp, err := server.Run(&cmd)
 	return resp.(*kvrpcpb.PrewriteResponse), err
 }
 
-func (server *Server) KvCommit(ctx context.Context, req *kvrpcpb.CommitRequest) (*kvrpcpb.CommitResponse, error) {
+func (server *Server) KvCommit(_ context.Context, req *kvrpcpb.CommitRequest) (*kvrpcpb.CommitResponse, error) {
 	cmd := NewCommit(req)
 	resp, err := server.Run(&cmd)
 	return resp.(*kvrpcpb.CommitResponse), err
 }
 
-func (server *Server) KvCheckTxnStatus(ctx context.Context, req *kvrpcpb.CheckTxnStatusRequest) (*kvrpcpb.CheckTxnStatusResponse, error) {
+func (server *Server) KvCheckTxnStatus(_ context.Context, req *kvrpcpb.CheckTxnStatusRequest) (*kvrpcpb.CheckTxnStatusResponse, error) {
 	cmd := NewCheckTxnStatus(req)
 	resp, err := server.Run(&cmd)
 	return resp.(*kvrpcpb.CheckTxnStatusResponse), err
 }
 
-func (server *Server) KvBatchRollback(ctx context.Context, req *kvrpcpb.BatchRollbackRequest) (*kvrpcpb.BatchRollbackResponse, error) {
+func (server *Server) KvBatchRollback(_ context.Context, req *kvrpcpb.BatchRollbackRequest) (*kvrpcpb.BatchRollbackResponse, error) {
 	cmd := NewRollback(req)
 	resp, err := server.Run(&cmd)
 	return resp.(*kvrpcpb.BatchRollbackResponse), err
 }
 
-func (server *Server) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRequest) (*kvrpcpb.ResolveLockResponse, error) {
+func (server *Server) KvResolveLock(_ context.Context, req *kvrpcpb.ResolveLockRequest) (*kvrpcpb.ResolveLockResponse, error) {
 	cmd := NewResolveLock(req)
 	resp, err := server.Run(&cmd)
 	return resp.(*kvrpcpb.ResolveLockResponse), err
 }
 
 // Raw API.
-func (server *Server) RawGet(ctx context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
-	cmd := NewRawGet(req)
-	resp, err := server.Run(&cmd)
-	return resp.(*kvrpcpb.RawGetResponse), err
+func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
+	response := new(kvrpcpb.RawGetResponse)
+	reader, err := server.innerServer.Reader(req.Context)
+	if err != nil {
+		response.Error = err.Error()
+	} else {
+		val, err := reader.GetCF(req.Cf, req.Key)
+		if err != nil {
+			if err == badger.ErrKeyNotFound {
+				response.NotFound = true
+			} else {
+				rawRegionError(err, response)
+			}
+		} else {
+			response.Value = val
+		}
+	}
+
+	return response, nil
 }
 
-func (server *Server) RawPut(ctx context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
-	cmd := NewRawPut(req)
-	resp, err := server.Run(&cmd)
-	return resp.(*kvrpcpb.RawPutResponse), err
+func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
+	server.innerServer.Write(req.Context, []inner_server.Modify{{
+		Type: inner_server.ModifyTypePut,
+		Data: inner_server.Put{
+			Key:   req.Key,
+			Value: req.Value,
+			Cf:    req.Cf,
+		}}})
+	return new(kvrpcpb.RawPutResponse), nil
 }
 
-func (server *Server) RawDelete(ctx context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
-	cmd := NewRawDelete(req)
-	resp, err := server.Run(&cmd)
-	return resp.(*kvrpcpb.RawDeleteResponse), err
+func (server *Server) RawDelete(_ context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
+	server.innerServer.Write(req.Context, []inner_server.Modify{{
+		Type: inner_server.ModifyTypeDelete,
+		Data: inner_server.Delete{
+			Key: req.Key,
+			Cf:  req.Cf,
+		}}})
+	return new(kvrpcpb.RawDeleteResponse), nil
 }
 
-func (server *Server) RawScan(ctx context.Context, req *kvrpcpb.RawScanRequest) (*kvrpcpb.RawScanResponse, error) {
-	cmd := NewRawScan(req)
-	resp, err := server.Run(&cmd)
-	return resp.(*kvrpcpb.RawScanResponse), err
+func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*kvrpcpb.RawScanResponse, error) {
+	response := new(kvrpcpb.RawScanResponse)
+
+	reader, err := server.innerServer.Reader(req.Context)
+	if err != nil {
+		response.Error = err.Error()
+	} else {
+		it := reader.IterCF(req.Cf)
+		defer it.Close()
+		for it.Seek(req.StartKey); it.Valid() && len(response.Kvs) < int(req.Limit); it.Next() {
+			item := it.Item()
+			key := item.KeyCopy(nil)
+			value, err := item.ValueCopy(nil)
+			if err != nil {
+				rawRegionError(err, response)
+				break
+			} else {
+				response.Kvs = append(response.Kvs, &kvrpcpb.KvPair{
+					Key:   key,
+					Value: value,
+				})
+			}
+		}
+	}
+
+	return response, nil
 }
 
 // Raft commands (tikv <-> tikv); these are trivially forwarded to innerServer.
@@ -168,6 +215,6 @@ func (server *Server) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
 }
 
 // SQL push down commands.
-func (server *Server) Coprocessor(ctx context.Context, req *coprocessor.Request) (*coprocessor.Response, error) {
+func (server *Server) Coprocessor(_ context.Context, req *coprocessor.Request) (*coprocessor.Response, error) {
 	return &coprocessor.Response{}, nil
 }
