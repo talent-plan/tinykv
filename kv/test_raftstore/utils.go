@@ -18,10 +18,11 @@ func SleepMS(ms int64) {
 	time.Sleep(time.Duration(ms) * time.Millisecond)
 }
 
-func NewPeer(storeID, peerID uint64) metapb.Peer {
-	peer := metapb.Peer{}
-	peer.StoreId = storeID
-	peer.Id = peerID
+func NewPeer(storeID, peerID uint64) *metapb.Peer {
+	peer := &metapb.Peer{
+		StoreId: storeID,
+		Id:      peerID,
+	}
 	return peer
 }
 
@@ -143,7 +144,7 @@ func MustGetNone(engine *engine_util.Engines, key []byte) {
 func NewTestCluster(count int, cfg *config.Config) *Cluster {
 	log.SetLevelByString(cfg.LogLevel)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
-	pdClient := NewMockPDClient(0)
+	pdClient := NewMockPDClient(0, uint64(count)+1)
 	simulator := NewNodeSimulator(pdClient)
 	return NewCluster(count, pdClient, simulator, cfg)
 }

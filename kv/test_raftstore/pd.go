@@ -3,6 +3,7 @@ package test_raftstore
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/google/btree"
@@ -46,16 +47,16 @@ type Operator struct {
 }
 
 type OpAddPeer struct {
-	peer    metapb.Peer
+	peer    *metapb.Peer
 	pending bool
 }
 
 type OpRemovePeer struct {
-	peer metapb.Peer
+	peer *metapb.Peer
 }
 
 type OpTransferLeader struct {
-	peer metapb.Peer
+	peer *metapb.Peer
 }
 
 type Store struct {
@@ -89,7 +90,7 @@ type MockPDClient struct {
 	bootstrapped bool
 }
 
-func NewMockPDClient(clusterID uint64) *MockPDClient {
+func NewMockPDClient(clusterID uint64, baseID uint64) *MockPDClient {
 	return &MockPDClient{
 		clusterID: clusterID,
 		meta: metapb.Cluster{
@@ -98,6 +99,7 @@ func NewMockPDClient(clusterID uint64) *MockPDClient {
 		stores:       make(map[uint64]*Store),
 		regionsRange: btree.New(2),
 		regionsKey:   make(map[uint64][]byte),
+		baseID:       baseID,
 		operators:    make(map[uint64]*Operator),
 		leaders:      make(map[uint64]*metapb.Peer),
 		pendingPeers: make(map[uint64]*metapb.Peer),
@@ -348,9 +350,10 @@ func (m *MockPDClient) handleHeartbeatConfVersion(region *metapb.Region) error {
 		// So scheduler and TinyKV can't have same peer count and can only have
 		// only one different peer.
 		if searchRegionPeerLen > regionPeerLen {
-			if regionPeerLen-searchRegionPeerLen != 1 {
+			if searchRegionPeerLen-regionPeerLen != 1 {
 				panic("should only one conf change")
 			}
+			fmt.Println(searchRegion, region)
 			if len(GetDiffPeers(searchRegion, region)) != 1 {
 				panic("should only one different peer")
 			}
@@ -426,19 +429,19 @@ func (m *MockPDClient) makeRegionHeartbeatResponse(op *Operator, resp *pdpb.Regi
 		if !add.pending {
 			resp.ChangePeer = &pdpb.ChangePeer{
 				ChangeType: eraftpb.ConfChangeType_AddNode,
-				Peer:       &add.peer,
+				Peer:       add.peer,
 			}
 		}
 	case OperatorTypeRemovePeer:
 		remove := op.Data.(OpRemovePeer)
 		resp.ChangePeer = &pdpb.ChangePeer{
 			ChangeType: eraftpb.ConfChangeType_RemoveNode,
-			Peer:       &remove.peer,
+			Peer:       remove.peer,
 		}
 	case OperatorTypeTransferLeader:
 		transfer := op.Data.(OpTransferLeader)
 		resp.TransferLeader = &pdpb.TransferLeader{
-			Peer: &transfer.peer,
+			Peer: transfer.peer,
 		}
 	}
 }
@@ -488,32 +491,43 @@ func (m *MockPDClient) removeRegionLocked(region *metapb.Region) {
 }
 
 // Extra API for tests
-func (m *MockPDClient) AddPeer(regionID uint64, peer metapb.Peer) {
+func (m *MockPDClient) AddPeer(regionID uint64, peer *metapb.Peer) {
 	m.scheduleOperator(regionID, &Operator{
 		Type: OperatorTypeAddPeer,
-		Data: &OpAddPeer{
+		Data: OpAddPeer{
 			peer:    peer,
 			pending: false,
 		},
 	})
 }
 
-func (m *MockPDClient) RemovePeer(regionID uint64, peer metapb.Peer) {
+func (m *MockPDClient) RemovePeer(regionID uint64, peer *metapb.Peer) {
 	m.scheduleOperator(regionID, &Operator{
 		Type: OperatorTypeRemovePeer,
-		Data: &OpRemovePeer{
+		Data: OpRemovePeer{
 			peer: peer,
 		},
 	})
 }
 
-func (m *MockPDClient) TransferLeader(regionID uint64, peer metapb.Peer) {
+func (m *MockPDClient) TransferLeader(regionID uint64, peer *metapb.Peer) {
 	m.scheduleOperator(regionID, &Operator{
 		Type: OperatorTypeTransferLeader,
-		Data: &OpTransferLeader{
+		Data: OpTransferLeader{
 			peer: peer,
 		},
 	})
+}
+
+func (m *MockPDClient) getRandomRegion() *metapb.Region {
+	m.RLock()
+	defer m.RUnlock()
+
+	for regionID := range m.leaders {
+		region, _, _ := m.getRegionByIDLocked(regionID)
+		return region
+	}
+	return nil
 }
 
 func (m *MockPDClient) scheduleOperator(regionID uint64, op *Operator) {
@@ -528,32 +542,27 @@ func MustSamePeers(left *metapb.Region, right *metapb.Region) {
 		panic("unmatched peers length")
 	}
 	for _, p := range left.GetPeers() {
-		found := false
-		for _, p1 := range right.GetPeers() {
-			if p.GetStoreId() == p1.GetStoreId() {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if FindPeer(right, p.GetStoreId()) == nil {
 			panic("not found the peer")
 		}
 	}
 }
 
 func GetDiffPeers(left *metapb.Region, right *metapb.Region) []*metapb.Peer {
-	peers := make([]*metapb.Peer, 1)
+	peers := make([]*metapb.Peer, 0, 1)
 	for _, p := range left.GetPeers() {
-		found := false
-		for _, p1 := range right.GetPeers() {
-			if p.GetStoreId() == p1.GetStoreId() {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if FindPeer(right, p.GetStoreId()) == nil {
 			peers = append(peers, p)
 		}
 	}
 	return peers
+}
+
+func FindPeer(region *metapb.Region, storeID uint64) *metapb.Peer {
+	for _, p := range region.GetPeers() {
+		if p.GetStoreId() == storeID {
+			return p
+		}
+	}
+	return nil
 }

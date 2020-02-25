@@ -65,11 +65,6 @@ type changePeer struct {
 	region     *metapb.Region
 }
 
-type keyRange struct {
-	startKey []byte
-	endKey   []byte
-}
-
 type apply struct {
 	regionId uint64
 	term     uint64
@@ -328,7 +323,7 @@ type applier struct {
 	tag    string
 
 	/// If the applier should be stopped from polling.
-	/// A applier can be stopped in conf change, merge or requested by destroy message.
+	/// A applier can be stopped in conf change or requested by destroy message.
 	stopped bool
 	/// Set to true when removing itself because of `ConfChangeType::RemoveNode`, and then
 	/// any following committed logs in same Ready should be applied failed.
@@ -445,7 +440,9 @@ func (a *applier) handleRaftEntryConfChange(aCtx *applyContext, entry *eraftpb.E
 	switch result.tp {
 	case applyResultTypeNone:
 		// If failed, tell Raft that the `ConfChange` was aborted.
-		return applyResult{tp: applyResultTypeExecResult, data: &execResultChangePeer{}}
+		return applyResult{tp: applyResultTypeExecResult, data: &execResultChangePeer{cp: changePeer{
+			confChange: new(eraftpb.ConfChange),
+		}}}
 	case applyResultTypeExecResult:
 		cp := result.data.(*execResultChangePeer)
 		cp.cp.confChange = confChange
@@ -529,6 +526,7 @@ func (a *applier) applyRaftCmd(aCtx *applyContext, index, term uint64,
 			txn = nil
 		}
 		resp = ErrResp(err)
+		applyResult.tp = applyResultTypeNone
 	}
 	a.applyState = aCtx.execCtx.applyState
 	aCtx.execCtx = nil

@@ -65,6 +65,7 @@ func InitRaftLocalState(raftEngine *badger.DB, region *metapb.Region) (*rspb.Raf
 	}
 	if err == badger.ErrKeyNotFound {
 		raftState = new(rspb.RaftLocalState)
+		raftState.HardState = new(eraftpb.HardState)
 		if len(region.Peers) > 0 {
 			// new split region
 			raftState.LastIndex = RaftInitLogIndex
@@ -85,6 +86,8 @@ func InitApplyState(kvEngine *badger.DB, region *metapb.Region) (*rspb.RaftApply
 		return nil, err
 	}
 	if err == badger.ErrKeyNotFound {
+		applyState = new(rspb.RaftApplyState)
+		applyState.TruncatedState = new(rspb.RaftTruncatedState)
 		if len(region.Peers) > 0 {
 			applyState.AppliedIndex = RaftInitLogIndex
 			applyState.TruncatedState.Index = RaftInitLogIndex
