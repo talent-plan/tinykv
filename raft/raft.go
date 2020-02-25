@@ -177,20 +177,6 @@ type Raft struct {
 	// be proposed if the leader's applied index is greater than this
 	// value.
 	PendingConfIndex uint64
-	// The last `BeginMembershipChange` entry. Once we make this change we exit the joint state.
-	//
-	// This is different than `pending_conf_index` since it is more specific, and also exact.
-	// While `pending_conf_index` is conservatively set at times to ensure safety in the
-	// one-by-one change method, in joint consensus based changes we track the state exactly. The
-	// index here **must** only be set when a `BeginMembershipChange` is present at that index.
-	//
-	// # Caveats
-	//
-	// It is important that whenever this is set that `pending_conf_index` is also set to the
-	// value if it is greater than the existing value.
-	//
-	// **Use `Raft::set_pending_membership_change()` to change this value.**
-	pendingMembershipChange *pb.ConfChange
 
 	// number of ticks since it reached last electionTimeout when it is leader
 	// or candidate.
@@ -896,7 +882,7 @@ func (r *Raft) restoreNode(nodes []uint64) {
 }
 
 func (r *Raft) hasPendingConf() bool {
-	return r.PendingConfIndex > r.RaftLog.applied || r.pendingMembershipChange != nil
+	return r.PendingConfIndex > r.RaftLog.applied
 }
 
 // promotable indicates whether state machine can be promoted to Leader,
