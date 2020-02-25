@@ -18,29 +18,29 @@ import (
 )
 
 const (
-	defaultMaxReplicas                 = 3
-	defaultMaxSnapshotCount            = 3
-	defaultMaxPendingPeerCount         = 16
-	defaultMaxMergeRegionSize          = 0
-	defaultMaxMergeRegionKeys          = 0
-	defaultMaxStoreDownTime            = 30 * time.Minute
-	defaultLeaderScheduleLimit         = 4
-	defaultRegionScheduleLimit         = 64
-	defaultReplicaScheduleLimit        = 64
+	defaultMaxReplicas          = 3
+	defaultMaxSnapshotCount     = 3
+	defaultMaxPendingPeerCount  = 16
+	defaultMaxMergeRegionSize   = 0
+	defaultMaxMergeRegionKeys   = 0
+	defaultMaxStoreDownTime     = 30 * time.Minute
+	defaultLeaderScheduleLimit  = 4
+	defaultRegionScheduleLimit  = 64
+	defaultReplicaScheduleLimit = 64
 )
 
 // ScheduleOptions is a mock of ScheduleOptions
 // which implements Options interface
 type ScheduleOptions struct {
-	RegionScheduleLimit         uint64
-	LeaderScheduleLimit         uint64
-	ReplicaScheduleLimit        uint64
-	MaxSnapshotCount            uint64
-	MaxPendingPeerCount         uint64
-	MaxMergeRegionSize          uint64
-	MaxMergeRegionKeys          uint64
-	MaxStoreDownTime            time.Duration
-	MaxReplicas                 int
+	RegionScheduleLimit  uint64
+	LeaderScheduleLimit  uint64
+	ReplicaScheduleLimit uint64
+	MaxSnapshotCount     uint64
+	MaxPendingPeerCount  uint64
+	MaxMergeRegionSize   uint64
+	MaxMergeRegionKeys   uint64
+	MaxStoreDownTime     time.Duration
+	MaxReplicas          int
 }
 
 // NewScheduleOptions creates a mock schedule option.

@@ -442,22 +442,22 @@ func (c *ScheduleConfig) Clone() *ScheduleConfig {
 	schedulers := make(SchedulerConfigs, len(c.Schedulers))
 	copy(schedulers, c.Schedulers)
 	return &ScheduleConfig{
-		PatrolRegionInterval:        c.PatrolRegionInterval,
-		MaxStoreDownTime:            c.MaxStoreDownTime,
-		LeaderScheduleLimit:         c.LeaderScheduleLimit,
-		RegionScheduleLimit:         c.RegionScheduleLimit,
-		ReplicaScheduleLimit:        c.ReplicaScheduleLimit,
-		Schedulers:                  schedulers,
+		PatrolRegionInterval: c.PatrolRegionInterval,
+		MaxStoreDownTime:     c.MaxStoreDownTime,
+		LeaderScheduleLimit:  c.LeaderScheduleLimit,
+		RegionScheduleLimit:  c.RegionScheduleLimit,
+		ReplicaScheduleLimit: c.ReplicaScheduleLimit,
+		Schedulers:           schedulers,
 	}
 }
 
 const (
-	defaultMaxReplicas            = 3
-	defaultPatrolRegionInterval   = 100 * time.Millisecond
-	defaultMaxStoreDownTime       = 30 * time.Minute
-	defaultLeaderScheduleLimit    = 4
-	defaultRegionScheduleLimit    = 2048
-	defaultReplicaScheduleLimit   = 64
+	defaultMaxReplicas          = 3
+	defaultPatrolRegionInterval = 100 * time.Millisecond
+	defaultMaxStoreDownTime     = 30 * time.Minute
+	defaultLeaderScheduleLimit  = 4
+	defaultRegionScheduleLimit  = 2048
+	defaultReplicaScheduleLimit = 64
 )
 
 func (c *ScheduleConfig) adjust(meta *configMetaData) error {
