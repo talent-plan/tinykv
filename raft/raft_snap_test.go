@@ -68,7 +68,6 @@ func TestSnapshotSucceedViaAppResp(t *testing.T) {
 			if msg.From != from.id || msg.To != to.id || msg.MsgType != typ {
 				continue
 			}
-			t.Log(DescribeMessage(msg, func([]byte) string { return "" }))
 			if err := to.Step(msg); err != nil {
 				t.Fatalf("%v: %s", msg, err)
 			}
@@ -90,7 +89,7 @@ func TestSnapshotSucceedViaAppResp(t *testing.T) {
 	n2 := newTestRaft(2, []uint64{1, 2, 3}, 10, 1, s2)
 
 	// Let the leader probe the follower.
-	if !n1.maybeSendAppend(2, true /* sendIfEmpty */) {
+	if !n1.sendAppend(2) {
 		t.Fatalf("expected message to be sent")
 	}
 	if msg := mustSend(n1, n2, pb.MessageType_MsgAppend); len(msg.Entries) > 0 {

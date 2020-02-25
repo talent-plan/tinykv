@@ -14,7 +14,6 @@ import (
 	"github.com/Connor1996/badger"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
@@ -32,7 +31,7 @@ type Simulator interface {
 }
 
 type Cluster struct {
-	pdClient  pd.Client
+	pdClient  *MockPDClient
 	count     int
 	engines   map[uint64]*engine_util.Engines
 	snapPaths map[uint64]string
@@ -41,7 +40,7 @@ type Cluster struct {
 	cfg       *config.Config
 }
 
-func NewCluster(count int, pdClient pd.Client, simulator Simulator, cfg *config.Config) *Cluster {
+func NewCluster(count int, pdClient *MockPDClient, simulator Simulator, cfg *config.Config) *Cluster {
 	return &Cluster{
 		count:     count,
 		pdClient:  pdClient,
@@ -100,7 +99,7 @@ func (c *Cluster) Start() {
 
 	for storeID, engine := range c.engines {
 		peer := NewPeer(storeID, storeID)
-		firstRegion.Peers = append(firstRegion.Peers, &peer)
+		firstRegion.Peers = append(firstRegion.Peers, peer)
 		err := raftstore.BootstrapStore(engine, clusterID, storeID)
 		if err != nil {
 			panic(err)
@@ -149,6 +148,34 @@ func (c *Cluster) Shutdown() {
 	}
 }
 
+func (c *Cluster) AddFilter(filter Filter) {
+	c.simulator.AddFilter(filter)
+}
+
+func (c *Cluster) ClearFilters() {
+	c.simulator.ClearFilters()
+}
+
+func (c *Cluster) StopServer(storeID uint64) {
+	c.simulator.StopStore(storeID)
+}
+
+func (c *Cluster) StartServer(storeID uint64) {
+	engine := c.engines[storeID]
+	err := c.simulator.RunStore(c.cfg, engine, context.TODO())
+	if err != nil {
+		panic(err)
+	}
+}
+
+func (c *Cluster) AllocPeer(storeID uint64) *metapb.Peer {
+	id, err := c.pdClient.AllocID(context.TODO())
+	if err != nil {
+		panic(err)
+	}
+	return NewPeer(storeID, id)
+}
+
 func (c *Cluster) Request(key []byte, reqs []*raft_cmdpb.Request, timeout time.Duration) (*raft_cmdpb.RaftCmdResponse, *badger.Txn) {
 	startTime := time.Now()
 	for i := 0; i < 10 || time.Now().Sub(startTime) < timeout; i++ {
@@ -161,7 +188,7 @@ func (c *Cluster) Request(key []byte, reqs []*raft_cmdpb.Request, timeout time.D
 			SleepMS(100)
 			continue
 		}
-		if resp.Header.Error != nil && resp.Header.Error.GetEpochNotMatch() != nil {
+		if resp.Header.Error != nil {
 			SleepMS(100)
 			continue
 		}
@@ -232,31 +259,6 @@ func (c *Cluster) LeaderOfRegion(regionID uint64) *metapb.Peer {
 	return nil
 }
 
-func (c *Cluster) QueryLeader(storeID, regionID uint64, timeout time.Duration) *metapb.Peer {
-	// To get region leader, we don't care real peer id, so use 0 instead.
-	peer := NewPeer(storeID, 0)
-	findLeader := NewStatusRequest(regionID, &peer, NewRegionLeaderCmd())
-	resp, _ := c.CallCommand(findLeader, timeout)
-	if resp == nil {
-		panic(fmt.Sprintf("fail to get leader of region %d on store %d", regionID, storeID))
-	}
-	regionLeader := resp.StatusResponse.RegionLeader
-	if regionLeader != nil && c.ValidLeaderID(regionID, regionLeader.Leader.StoreId) {
-		return regionLeader.Leader
-	}
-	return nil
-}
-
-func (c *Cluster) ValidLeaderID(regionID, leaderID uint64) bool {
-	storeIds := c.GetStoreIdsOfRegion(regionID)
-	for _, storeID := range storeIds {
-		if leaderID == storeID {
-			return true
-		}
-	}
-	return false
-}
-
 func (c *Cluster) GetRegion(key []byte) *metapb.Region {
 	for i := 0; i < 100; i++ {
 		region, _, _ := c.pdClient.GetRegion(context.TODO(), key)
@@ -268,6 +270,10 @@ func (c *Cluster) GetRegion(key []byte) *metapb.Region {
 		SleepMS(20)
 	}
 	panic(fmt.Sprintf("find no region for %s", hex.EncodeToString(key)))
+}
+
+func (c *Cluster) GetRandomRegion() *metapb.Region {
+	return c.pdClient.getRandomRegion()
 }
 
 func (c *Cluster) GetStoreIdsOfRegion(regionID uint64) []uint64 {
@@ -410,22 +416,48 @@ func (c *Cluster) MustTransferLeader(regionID uint64, leader *metapb.Peer) {
 	}
 }
 
-func (c *Cluster) AddFilter(filter Filter) {
-	c.simulator.AddFilter(filter)
+func (c *Cluster) MustAddPeer(regionID uint64, peer *metapb.Peer) {
+	c.pdClient.AddPeer(regionID, peer)
+	c.MustHavePeer(regionID, peer)
 }
 
-func (c *Cluster) ClearFilters() {
-	c.simulator.ClearFilters()
+func (c *Cluster) MustRemovePeer(regionID uint64, peer *metapb.Peer) {
+	c.pdClient.RemovePeer(regionID, peer)
+	c.MustNonePeer(regionID, peer)
 }
 
-func (c *Cluster) StopServer(storeID uint64) {
-	c.simulator.StopStore(storeID)
+func (c *Cluster) MustHavePeer(regionID uint64, peer *metapb.Peer) {
+	for i := 0; i < 500; i++ {
+		region, _, err := c.pdClient.GetRegionByID(context.TODO(), regionID)
+		if err != nil {
+			panic(err)
+		}
+		if region != nil {
+			if p := FindPeer(region, peer.GetStoreId()); p != nil {
+				if p.GetId() == peer.GetId() {
+					return
+				}
+			}
+		}
+		SleepMS(10)
+	}
 }
 
-func (c *Cluster) StartServer(storeID uint64) {
-	engine := c.engines[storeID]
-	err := c.simulator.RunStore(c.cfg, engine, context.TODO())
-	if err != nil {
-		panic(err)
+func (c *Cluster) MustNonePeer(regionID uint64, peer *metapb.Peer) {
+	for i := 0; i < 500; i++ {
+		region, _, err := c.pdClient.GetRegionByID(context.TODO(), regionID)
+		if err != nil {
+			panic(err)
+		}
+		if region != nil {
+			if p := FindPeer(region, peer.GetStoreId()); p != nil {
+				if p.GetId() != peer.GetId() {
+					return
+				}
+			} else {
+				return
+			}
+		}
+		SleepMS(10)
 	}
 }

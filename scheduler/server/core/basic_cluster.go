@@ -116,13 +116,6 @@ func (bc *BasicCluster) GetLeaderStore(region *RegionInfo) *StoreInfo {
 	return bc.Stores.GetStore(region.GetLeader().GetStoreId())
 }
 
-// GetAdjacentRegions returns region's info that is adjacent with specific region.
-func (bc *BasicCluster) GetAdjacentRegions(region *RegionInfo) (*RegionInfo, *RegionInfo) {
-	bc.RLock()
-	defer bc.RUnlock()
-	return bc.Regions.GetAdjacentRegions(region)
-}
-
 // BlockStore stops balancer from selecting the store.
 func (bc *BasicCluster) BlockStore(storeID uint64) error {
 	bc.Lock()
@@ -314,7 +307,6 @@ type RegionSetInformer interface {
 	GetAverageRegionSize() int64
 	GetStoreRegionCount(storeID uint64) int
 	GetRegion(id uint64) *RegionInfo
-	GetAdjacentRegions(region *RegionInfo) (*RegionInfo, *RegionInfo)
 	ScanRegions(startKey, endKey []byte, limit int) []*RegionInfo
 }
 

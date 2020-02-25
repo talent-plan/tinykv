@@ -266,8 +266,6 @@ func (r *Raft) GetSnap() *pb.Snapshot {
 	return r.RaftLog.pending_snapshot
 }
 
-func (r *Raft) hasLeader() bool { return r.Lead != None }
-
 func (r *Raft) softState() *SoftState {
 	return &SoftState{Lead: r.Lead, RaftState: r.State}
 }
@@ -322,26 +320,14 @@ func (r *Raft) getProgress(id uint64) *Progress {
 }
 
 // sendAppend sends an append RPC with new entries (if any) and the
-// current commit index to the given peer.
-func (r *Raft) sendAppend(to uint64) {
-	r.maybeSendAppend(to, true)
-}
-
-// maybeSendAppend sends an append RPC with new entries to the given peer,
-// if necessary. Returns true if a message was sent. The sendIfEmpty
-// argument controls whether messages with no entries will be sent
-// ("empty" messages are useful to convey updated Commit indexes, but
-// are undesirable when we're sending multiple messages in a batch).
-func (r *Raft) maybeSendAppend(to uint64, sendIfEmpty bool) bool {
+// current commit index to the given peer. Returns true if a message was sent.
+func (r *Raft) sendAppend(to uint64) bool {
 	pr := r.getProgress(to)
 	m := pb.Message{}
 	m.To = to
 
 	term, errt := r.RaftLog.Term(pr.Next - 1)
 	ents, erre := r.RaftLog.Entries(pr.Next)
-	if len(ents) == 0 && !sendIfEmpty {
-		return false
-	}
 
 	if errt != nil || erre != nil { // send snapshot if we failed to get term or entries
 		m.MsgType = pb.MessageType_MsgSnapshot
@@ -929,7 +915,7 @@ func (r *Raft) addNode(id uint64) {
 }
 
 func (r *Raft) removeNode(id uint64) {
-	r.delProgress(id)
+	delete(r.Prs, id)
 
 	// do not try to commit or abort transferring if there is no nodes in the cluster.
 	if len(r.Prs) == 0 {
@@ -950,10 +936,6 @@ func (r *Raft) removeNode(id uint64) {
 func (r *Raft) setProgress(id, match, next uint64) {
 	r.Prs[id] = &Progress{Next: next, Match: match}
 	return
-}
-
-func (r *Raft) delProgress(id uint64) {
-	delete(r.Prs, id)
 }
 
 func (r *Raft) loadState(state pb.HardState) {
