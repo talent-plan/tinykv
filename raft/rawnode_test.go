@@ -16,7 +16,6 @@ package raft
 
 import (
 	"bytes"
-	"fmt"
 	"reflect"
 	"testing"
 
@@ -29,6 +28,21 @@ type ignoreSizeHintMemStorage struct {
 
 func (s *ignoreSizeHintMemStorage) Entries(lo, hi uint64, maxSize uint64) ([]pb.Entry, error) {
 	return s.MemoryStorage.Entries(lo, hi)
+}
+
+// appliedCursor extracts from the Ready the highest index the client has
+// applied (once the Ready is confirmed via Advance). If no information is
+// contained in the Ready, returns zero.
+func appliedCursor(rd *Ready) uint64 {
+	if n := len(rd.CommittedEntries); n > 0 {
+		return rd.CommittedEntries[n-1].Index
+	}
+	if !IsEmptySnap(&rd.Snapshot) {
+		if index := rd.Snapshot.Metadata.Index; index > 0 {
+			return index
+		}
+	}
+	return 0
 }
 
 // TestRawNodeStep ensures that RawNode.Step ignore local message.
@@ -69,7 +83,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 	rd := rawNode.Ready()
 	s.Append(rd.Entries)
 	rawNode.Advance(rd)
-	if idx := rd.appliedCursor(); idx > 0 {
+	if idx := appliedCursor(&rd); idx > 0 {
 		rawNode.AdvanceApply(idx)
 	}
 
@@ -100,7 +114,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 			proposed = true
 		}
 		rawNode.Advance(rd)
-		if idx := rd.appliedCursor(); idx > 0 {
+		if idx := appliedCursor(&rd); idx > 0 {
 			rawNode.AdvanceApply(idx)
 		}
 
@@ -144,7 +158,7 @@ func TestRawNodeProposeAddDuplicateNode(t *testing.T) {
 	rd := rawNode.Ready()
 	s.Append(rd.Entries)
 	rawNode.Advance(rd)
-	if idx := rd.appliedCursor(); idx > 0 {
+	if idx := appliedCursor(&rd); idx > 0 {
 		rawNode.AdvanceApply(idx)
 	}
 
@@ -154,13 +168,13 @@ func TestRawNodeProposeAddDuplicateNode(t *testing.T) {
 		s.Append(rd.Entries)
 		if rd.SoftState.Lead == rawNode.Raft.id {
 			rawNode.Advance(rd)
-			if idx := rd.appliedCursor(); idx > 0 {
+			if idx := appliedCursor(&rd); idx > 0 {
 				rawNode.AdvanceApply(idx)
 			}
 			break
 		}
 		rawNode.Advance(rd)
-		if idx := rd.appliedCursor(); idx > 0 {
+		if idx := appliedCursor(&rd); idx > 0 {
 			rawNode.AdvanceApply(idx)
 		}
 	}
@@ -177,7 +191,7 @@ func TestRawNodeProposeAddDuplicateNode(t *testing.T) {
 			}
 		}
 		rawNode.Advance(rd)
-		if idx := rd.appliedCursor(); idx > 0 {
+		if idx := appliedCursor(&rd); idx > 0 {
 			rawNode.AdvanceApply(idx)
 		}
 	}
@@ -259,13 +273,13 @@ func TestRawNodeStart(t *testing.T) {
 	} else {
 		storage.Append(rd.Entries)
 		rawNode.Advance(rd)
-		if idx := rd.appliedCursor(); idx > 0 {
+		if idx := appliedCursor(&rd); idx > 0 {
 			rawNode.AdvanceApply(idx)
 		}
 	}
 	storage.Append(rd.Entries)
 	rawNode.Advance(rd)
-	if idx := rd.appliedCursor(); idx > 0 {
+	if idx := appliedCursor(&rd); idx > 0 {
 		rawNode.AdvanceApply(idx)
 	}
 
@@ -273,7 +287,7 @@ func TestRawNodeStart(t *testing.T) {
 	rd = rawNode.Ready()
 	storage.Append(rd.Entries)
 	rawNode.Advance(rd)
-	if idx := rd.appliedCursor(); idx > 0 {
+	if idx := appliedCursor(&rd); idx > 0 {
 		rawNode.AdvanceApply(idx)
 	}
 
@@ -283,7 +297,7 @@ func TestRawNodeStart(t *testing.T) {
 	} else {
 		storage.Append(rd.Entries)
 		rawNode.Advance(rd)
-		if idx := rd.appliedCursor(); idx > 0 {
+		if idx := appliedCursor(&rd); idx > 0 {
 			rawNode.AdvanceApply(idx)
 		}
 	}
@@ -318,7 +332,7 @@ func TestRawNodeRestart(t *testing.T) {
 		t.Errorf("g = %+v,\n             w   %+v", rd, want)
 	}
 	rawNode.Advance(rd)
-	if idx := rd.appliedCursor(); idx > 0 {
+	if idx := appliedCursor(&rd); idx > 0 {
 		rawNode.AdvanceApply(idx)
 	}
 	if rawNode.HasReady() {
@@ -357,96 +371,11 @@ func TestRawNodeRestartFromSnapshot(t *testing.T) {
 		t.Errorf("g = %+v,\n             w   %+v", rd, want)
 	} else {
 		rawNode.Advance(rd)
-		if idx := rd.appliedCursor(); idx > 0 {
+		if idx := appliedCursor(&rd); idx > 0 {
 			rawNode.AdvanceApply(idx)
 		}
 	}
 	if rawNode.HasReady() {
 		t.Errorf("unexpected Ready: %+v", rawNode.HasReady())
-	}
-}
-
-// TestNodeAdvance from node_test.go has no equivalent in rawNode because there is
-// no dependency check between Ready() and Advance()
-
-func TestRawNodeStatus(t *testing.T) {
-	storage := NewMemoryStorage()
-	rawNode, err := NewRawNode(newTestConfig(1, []uint64{1}, 10, 1, storage))
-	if err != nil {
-		t.Fatal(err)
-	}
-	status := rawNode.Status()
-	if status == nil {
-		t.Errorf("expected status struct, got nil")
-	}
-}
-
-func BenchmarkStatusProgress(b *testing.B) {
-	setup := func(members int) *RawNode {
-		peers := make([]uint64, members)
-		for i := range peers {
-			peers[i] = uint64(i + 1)
-		}
-		cfg := newTestConfig(1, peers, 3, 1, NewMemoryStorage())
-		cfg.Logger = discardLogger
-		r := newRaft(cfg)
-		r.becomeFollower(1, 1)
-		r.becomeCandidate()
-		r.becomeLeader()
-		return &RawNode{Raft: r}
-	}
-
-	for _, members := range []int{1, 3, 5, 100} {
-		b.Run(fmt.Sprintf("members=%d", members), func(b *testing.B) {
-			// NB: call getStatus through rn.Status because that incurs an additional
-			// allocation.
-			rn := setup(members)
-
-			b.Run("Status", func(b *testing.B) {
-				b.ReportAllocs()
-				for i := 0; i < b.N; i++ {
-					_ = rn.Status()
-				}
-			})
-
-			b.Run("Status-example", func(b *testing.B) {
-				b.ReportAllocs()
-				for i := 0; i < b.N; i++ {
-					s := rn.Status()
-					var n uint64
-					for _, pr := range s.Progress {
-						n += pr.Match
-					}
-					_ = n
-				}
-			})
-
-			b.Run("StatusWithoutProgress", func(b *testing.B) {
-				b.ReportAllocs()
-				for i := 0; i < b.N; i++ {
-					_ = rn.StatusWithoutProgress()
-				}
-			})
-
-			b.Run("WithProgress", func(b *testing.B) {
-				b.ReportAllocs()
-				visit := func(uint64, Progress) {}
-
-				for i := 0; i < b.N; i++ {
-					rn.WithProgress(visit)
-				}
-			})
-			b.Run("WithProgress-example", func(b *testing.B) {
-				b.ReportAllocs()
-				for i := 0; i < b.N; i++ {
-					var n uint64
-					visit := func(_ uint64, pr Progress) {
-						n += pr.Match
-					}
-					rn.WithProgress(visit)
-					_ = n
-				}
-			})
-		})
 	}
 }

@@ -15,15 +15,8 @@
 package raft
 
 import (
-	"bytes"
-	"fmt"
-
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
-
-func (st StateType) MarshalJSON() ([]byte, error) {
-	return []byte(fmt.Sprintf("%q", st.String())), nil
-}
 
 // uint64Slice implements sort interface
 type uint64Slice []uint64
@@ -54,65 +47,6 @@ func IsResponseMsg(msgt pb.MessageType) bool {
 	return msgt == pb.MessageType_MsgAppendResponse || msgt == pb.MessageType_MsgRequestVoteResponse || msgt == pb.MessageType_MsgHeartbeatResponse
 }
 
-// EntryFormatter can be implemented by the application to provide human-readable formatting
-// of entry data. Nil is a valid EntryFormatter and will use a default format.
-type EntryFormatter func([]byte) string
-
-// DescribeMessage returns a concise human-readable description of a
-// Message for debugging.
-func DescribeMessage(m pb.Message, f EntryFormatter) string {
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "%x->%x %v Term:%d Log:%d/%d", m.From, m.To, m.MsgType, m.Term, m.LogTerm, m.Index)
-	if m.Reject {
-		fmt.Fprintf(&buf, " Rejected (Hint: %d)", m.RejectHint)
-	}
-	if m.Commit != 0 {
-		fmt.Fprintf(&buf, " Commit:%d", m.Commit)
-	}
-	if len(m.Entries) > 0 {
-		fmt.Fprintf(&buf, " Entries:[")
-		for i, e := range m.Entries {
-			if i != 0 {
-				buf.WriteString(", ")
-			}
-			buf.WriteString(DescribeEntry(*e, f))
-		}
-		fmt.Fprintf(&buf, "]")
-	}
-	if !IsEmptySnap(m.Snapshot) {
-		fmt.Fprintf(&buf, " Snapshot:%v", m.Snapshot)
-	}
-	return buf.String()
-}
-
-// PayloadSize is the size of the payload of this Entry. Notably, it does not
-// depend on its Index or Term.
-func PayloadSize(e *pb.Entry) int {
-	return len(e.Data)
-}
-
-// DescribeEntry returns a concise human-readable description of an
-// Entry for debugging.
-func DescribeEntry(e pb.Entry, f EntryFormatter) string {
-	var formatted string
-	if e.EntryType == pb.EntryType_EntryNormal && f != nil {
-		formatted = f(e.Data)
-	} else {
-		formatted = fmt.Sprintf("%q", e.Data)
-	}
-	return fmt.Sprintf("%d/%d %s %s", e.Term, e.Index, e.EntryType, formatted)
-}
-
-// DescribeEntries calls DescribeEntry for each Entry, adding a newline to
-// each.
-func DescribeEntries(ents []pb.Entry, f EntryFormatter) string {
-	var buf bytes.Buffer
-	for _, e := range ents {
-		_, _ = buf.WriteString(DescribeEntry(e, f) + "\n")
-	}
-	return buf.String()
-}
-
 func isHardStateEqual(a, b pb.HardState) bool {
 	return a.Term == b.Term && a.Vote == b.Vote && a.Commit == b.Commit
 }
@@ -128,4 +62,12 @@ func IsEmptySnap(sp *pb.Snapshot) bool {
 		return true
 	}
 	return sp.Metadata.Index == 0
+}
+
+func hardStateIsEmpty(hs *pb.HardState) bool {
+	return hs.Commit == 0 && hs.Term == 0 && hs.Vote == 0
+}
+
+func hardStateEqual(l, r *pb.HardState) bool {
+	return l.Commit == r.Commit && l.Term == r.Term && l.Vote == r.Vote
 }

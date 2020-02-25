@@ -90,46 +90,6 @@ func (o *ScheduleOption) GetReplicaScheduleLimit() uint64 {
 	return o.Load().ReplicaScheduleLimit
 }
 
-// GetStoreBalanceRate returns the balance rate of a store.
-func (o *ScheduleOption) GetStoreBalanceRate() float64 {
-	return o.Load().StoreBalanceRate
-}
-
-// GetTolerantSizeRatio gets the tolerant size ratio.
-func (o *ScheduleOption) GetTolerantSizeRatio() float64 {
-	return o.Load().TolerantSizeRatio
-}
-
-// GetLeaderScheduleStrategy is to get leader schedule strategy.
-func (o *ScheduleOption) GetLeaderScheduleStrategy() core.ScheduleStrategy {
-	return core.StringToScheduleStrategy(o.Load().LeaderScheduleStrategy)
-}
-
-// GetKeyType is to get key type.
-func (o *ScheduleOption) GetKeyType() core.KeyType {
-	return core.StringToKeyType(o.LoadPDServerConfig().KeyType)
-}
-
-// IsRemoveDownReplicaEnabled returns if remove down replica is enabled.
-func (o *ScheduleOption) IsRemoveDownReplicaEnabled() bool {
-	return o.Load().EnableRemoveDownReplica
-}
-
-// IsReplaceOfflineReplicaEnabled returns if replace offline replica is enabled.
-func (o *ScheduleOption) IsReplaceOfflineReplicaEnabled() bool {
-	return o.Load().EnableReplaceOfflineReplica
-}
-
-// IsMakeUpReplicaEnabled returns if make up replica is enabled.
-func (o *ScheduleOption) IsMakeUpReplicaEnabled() bool {
-	return o.Load().EnableMakeUpReplica
-}
-
-// IsRemoveExtraReplicaEnabled returns if remove extra replica is enabled.
-func (o *ScheduleOption) IsRemoveExtraReplicaEnabled() bool {
-	return o.Load().EnableRemoveExtraReplica
-}
-
 // GetSchedulers gets the scheduler configurations.
 func (o *ScheduleOption) GetSchedulers() SchedulerConfigs {
 	return o.Load().Schedulers

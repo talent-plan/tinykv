@@ -16,7 +16,6 @@ package raft
 
 import (
 	"errors"
-
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
@@ -26,6 +25,13 @@ var ErrStepLocalMsg = errors.New("raft: cannot step raft local message")
 // ErrStepPeerNotFound is returned when try to step a response message
 // but there is no peer found in raft.Prs for that node.
 var ErrStepPeerNotFound = errors.New("raft: cannot step as peer not found")
+
+type SnapshotStatus int
+
+const (
+	SnapshotFinish  SnapshotStatus = 1
+	SnapshotFailure SnapshotStatus = 2
+)
 
 // SoftState provides state that is useful for logging and debugging.
 // The state is volatile and does not need to be persisted to the WAL.
@@ -71,27 +77,6 @@ type Ready struct {
 	Messages []pb.Message
 }
 
-func (rd Ready) containsUpdates() bool {
-	return rd.SoftState != nil || !IsEmptyHardState(rd.HardState) ||
-		!IsEmptySnap(&rd.Snapshot) || len(rd.Entries) > 0 ||
-		len(rd.CommittedEntries) > 0 || len(rd.Messages) > 0
-}
-
-// appliedCursor extracts from the Ready the highest index the client has
-// applied (once the Ready is confirmed via Advance). If no information is
-// contained in the Ready, returns zero.
-func (rd Ready) appliedCursor() uint64 {
-	if n := len(rd.CommittedEntries); n > 0 {
-		return rd.CommittedEntries[n-1].Index
-	}
-	if !IsEmptySnap(&rd.Snapshot) {
-		if index := rd.Snapshot.Metadata.Index; index > 0 {
-			return index
-		}
-	}
-	return 0
-}
-
 func newReady(r *Raft, prevSoftSt *SoftState, prevHardSt pb.HardState, sinceIdx *uint64) Ready {
 	rd := Ready{
 		Entries: r.RaftLog.unstableEntries(),
@@ -124,40 +109,6 @@ type RawNode struct {
 	Raft       *Raft
 	prevSoftSt *SoftState
 	prevHardSt pb.HardState
-}
-
-func (rn *RawNode) newReady() Ready {
-	return newReady(rn.Raft, rn.prevSoftSt, rn.prevHardSt, nil)
-}
-
-func (rn *RawNode) commitReady(rd Ready) {
-	if rd.SoftState != nil {
-		rn.prevSoftSt = rd.SoftState
-	}
-	if !IsEmptyHardState(rd.HardState) {
-		rn.prevHardSt = rd.HardState
-	}
-
-	// If entries were applied (or a snapshot), update our cursor for
-	// the next Ready. Note that if the current HardState contains a
-	// new Commit index, this does not mean that we're also applying
-	// all of the new entries due to commit pagination by size.
-	// Note: Not compatible with tikv implementation.
-	// if index := rd.appliedCursor(); index > 0 {
-	//	rn.Raft.RaftLog.appliedTo(index)
-	//}
-
-	if len(rd.Entries) > 0 {
-		e := rd.Entries[len(rd.Entries)-1]
-		rn.Raft.RaftLog.stableTo(e.Index, e.Term)
-	}
-	if !IsEmptySnap(&rd.Snapshot) {
-		rn.Raft.RaftLog.stableSnapTo(rd.Snapshot.Metadata.Index)
-	}
-}
-
-func (rn *RawNode) commitApply(applied uint64) {
-	rn.Raft.RaftLog.appliedTo(applied)
 }
 
 // NewRawNode returns a new RawNode given configuration and a list of raft peers.
@@ -266,13 +217,16 @@ func (rn *RawNode) Step(m pb.Message) error {
 
 // Ready returns the current point-in-time state of this RawNode.
 func (rn *RawNode) Ready() Ready {
-	rd := rn.newReady()
+	rd := newReady(rn.Raft, rn.prevSoftSt, rn.prevHardSt, nil)
 	rn.Raft.msgs = nil
 	return rd
 }
 
+func (rn *RawNode) ReadySince(appliedIdx uint64) Ready {
+	return newReady(rn.Raft, rn.prevSoftSt, rn.prevHardSt, &appliedIdx)
+}
+
 // HasReady called when RawNode user need to check if any Ready pending.
-// Checking logic in this method should be consistent with Ready.containsUpdates().
 func (rn *RawNode) HasReady() bool {
 	r := rn.Raft
 	if !r.softState().equal(rn.prevSoftSt) {
@@ -281,7 +235,7 @@ func (rn *RawNode) HasReady() bool {
 	if hardSt := r.hardState(); !IsEmptyHardState(hardSt) && !isHardStateEqual(hardSt, rn.prevHardSt) {
 		return true
 	}
-	if r.RaftLog.pending_snapshot != nil && !IsEmptySnap(r.RaftLog.pending_snapshot) {
+	if snap := rn.GetSnap(); snap != nil && !IsEmptySnap(snap) {
 		return true
 	}
 	if len(r.msgs) > 0 || len(r.RaftLog.unstableEntries()) > 0 || r.RaftLog.hasNextEnts() {
@@ -290,37 +244,61 @@ func (rn *RawNode) HasReady() bool {
 	return false
 }
 
+// HasReadySince called when RawNode user need to check if any Ready pending since appliedIdx.
+func (rn *RawNode) HasReadySince(appliedIdx uint64) bool {
+	r := rn.Raft
+	if !r.softState().equal(rn.prevSoftSt) {
+		return true
+	}
+	if hardSt := r.hardState(); !IsEmptyHardState(hardSt) && !isHardStateEqual(hardSt, rn.prevHardSt) {
+		return true
+	}
+	if snap := rn.GetSnap(); snap != nil && !IsEmptySnap(snap) {
+		return true
+	}
+	if len(r.msgs) > 0 || len(r.RaftLog.unstableEntries()) > 0 || r.RaftLog.hasNextEntsSince(appliedIdx) {
+		return true
+	}
+	return false
+}
+
 // Advance notifies the RawNode that the application has applied and saved progress in the
 // last Ready results.
 func (rn *RawNode) Advance(rd Ready) {
-	rn.commitReady(rd)
+	if rd.SoftState != nil {
+		rn.prevSoftSt = rd.SoftState
+	}
+	if !IsEmptyHardState(rd.HardState) {
+		rn.prevHardSt = rd.HardState
+	}
+
+	if len(rd.Entries) > 0 {
+		e := rd.Entries[len(rd.Entries)-1]
+		rn.Raft.RaftLog.stableTo(e.Index, e.Term)
+	}
+	if !IsEmptySnap(&rd.Snapshot) {
+		rn.Raft.RaftLog.stableSnapTo(rd.Snapshot.Metadata.Index)
+	}
 }
 
 func (rn *RawNode) AdvanceApply(applied uint64) {
-	rn.commitApply(applied)
+	rn.Raft.RaftLog.appliedTo(applied)
 }
 
-// Status returns the current status of the given group.
-func (rn *RawNode) Status() *Status {
-	status := getStatus(rn.Raft)
-	return &status
-}
-
-// StatusWithoutProgress returns a Status without populating the Progress field
-// (and returns the Status as a value to avoid forcing it onto the heap). This
-// is more performant if the Progress is not required. See WithProgress for an
-// allocation-free way to introspect the Progress.
-func (rn *RawNode) StatusWithoutProgress() Status {
-	return getStatusWithoutProgress(rn.Raft)
-}
-
-// WithProgress is a helper to introspect the Progress for this node and its
-// peers.
-func (rn *RawNode) WithProgress(visitor func(id uint64, pr Progress)) {
-	for id, pr := range rn.Raft.Prs {
-		pr := *pr
-		visitor(id, pr)
+// GetProgress return the the Progress of this node and its peers, if this
+// node is leader.
+func (rn *RawNode) GetProgress() map[uint64]Progress {
+	prs := make(map[uint64]Progress)
+	if rn.Raft.State == StateLeader {
+		for id, p := range rn.Raft.Prs {
+			prs[id] = *p
+		}
 	}
+	return prs
+}
+
+func (rn *RawNode) GetSnap() *pb.Snapshot {
+	return rn.Raft.GetSnap()
 }
 
 // ReportSnapshot reports the status of the sent snapshot.
@@ -333,46 +311,4 @@ func (rn *RawNode) ReportSnapshot(id uint64, status SnapshotStatus) {
 // TransferLeader tries to transfer leadership to the given transferee.
 func (rn *RawNode) TransferLeader(transferee uint64) {
 	_ = rn.Raft.Step(pb.Message{MsgType: pb.MessageType_MsgTransferLeader, From: transferee})
-}
-
-func (rn *RawNode) GetSnap() *pb.Snapshot {
-	return rn.Raft.GetSnap()
-}
-
-func (rn *RawNode) ReadySince(appliedIdx uint64) Ready {
-	return newReady(rn.Raft, rn.prevSoftSt, rn.prevHardSt, &appliedIdx)
-}
-
-func hardStateIsEmpty(hs *pb.HardState) bool {
-	return hs.Commit == 0 && hs.Term == 0 && hs.Vote == 0
-}
-
-func hardStateEqual(l, r *pb.HardState) bool {
-	return l.Commit == r.Commit && l.Term == r.Term && l.Vote == r.Vote
-}
-
-func (rn *RawNode) HasReadySince(appliedIdx *uint64) bool {
-	if len(rn.Raft.msgs) != 0 || rn.Raft.RaftLog.unstableEntries() != nil {
-		return true
-	}
-	if snap := rn.GetSnap(); snap != nil && !IsEmptySnap(snap) {
-		return true
-	}
-	hasUnappliedEntries := false
-	if appliedIdx != nil {
-		hasUnappliedEntries = rn.Raft.RaftLog.hasNextEntsSince(*appliedIdx)
-	} else {
-		hasUnappliedEntries = rn.Raft.RaftLog.hasNextEnts()
-	}
-	if hasUnappliedEntries {
-		return true
-	}
-	if rn.Raft.softState() != rn.prevSoftSt {
-		return true
-	}
-	hs := rn.Raft.hardState()
-	if hardStateIsEmpty(&hs) && !hardStateEqual(&hs, &rn.prevHardSt) {
-		return true
-	}
-	return false
 }

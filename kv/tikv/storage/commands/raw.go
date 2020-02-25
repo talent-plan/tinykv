@@ -9,59 +9,52 @@ import (
 
 // RawGet implements the Command interface for raw get requests.
 type RawGet struct {
-	request  *kvrpcpb.RawGetRequest
-	response kvrpcpb.RawGetResponse
+	ReadOnly
+	CommandBase
+	request *kvrpcpb.RawGetRequest
 }
 
 func NewRawGet(request *kvrpcpb.RawGetRequest) RawGet {
-	return RawGet{request, kvrpcpb.RawGetResponse{}}
+	return RawGet{
+		CommandBase: CommandBase{
+			context: request.Context,
+		},
+		request: request,
+	}
 }
 
-func (rg *RawGet) BuildTxn(txn *kvstore.MvccTxn) error {
+func (rg *RawGet) Read(txn *kvstore.RoTxn) (interface{}, [][]byte, error) {
+	response := new(kvrpcpb.RawGetResponse)
 	val, err := txn.Reader.GetCF(rg.request.Cf, rg.request.Key)
 	if err != nil {
 		if err == badger.ErrKeyNotFound {
-			rg.response.NotFound = true
+			response.NotFound = true
 		} else {
-			return err
+			return regionErrorRo(err, response)
 		}
 	} else {
-		rg.response.Value = val
-	}
-	return nil
-}
-
-func (rg *RawGet) Context() *kvrpcpb.Context {
-	return rg.request.Context
-}
-
-func (rg *RawGet) Response() interface{} {
-	return &rg.response
-}
-
-func (rg *RawGet) HandleError(err error) interface{} {
-	if err == nil {
-		return nil
+		response.Value = val
 	}
 
-	if regionErr := extractRegionError(err); regionErr != nil {
-		rg.response.RegionError = regionErr
-		return &rg.response
-	}
-
-	return nil
+	return response, nil, nil
 }
 
 // RawPut implements the Command interface for raw put requests.
 type RawPut struct {
+	CommandBase
 	request *kvrpcpb.RawPutRequest
 }
 
 func NewRawPut(request *kvrpcpb.RawPutRequest) RawPut {
-	return RawPut{request}
+	return RawPut{
+		CommandBase: CommandBase{
+			context: request.Context,
+		},
+		request: request,
+	}
 }
 
-func (rp *RawPut) BuildTxn(txn *kvstore.MvccTxn) error {
+func (rp *RawPut) PrepareWrites(txn *kvstore.MvccTxn) (interface{}, error) {
 	txn.Writes = []inner_server.Modify{{
 		Type: inner_server.ModifyTypePut,
 		Data: inner_server.Put{
@@ -69,41 +62,29 @@ func (rp *RawPut) BuildTxn(txn *kvstore.MvccTxn) error {
 			Value: rp.request.Value,
 			Cf:    rp.request.Cf,
 		}}}
-	return nil
+	return new(kvrpcpb.RawPutResponse), nil
 }
 
-func (rp *RawPut) Context() *kvrpcpb.Context {
-	return rp.request.Context
-}
-
-func (rp *RawPut) Response() interface{} {
-	return &kvrpcpb.RawPutResponse{}
-}
-
-func (rp *RawPut) HandleError(err error) interface{} {
-	if err == nil {
-		return nil
-	}
-
-	if regionErr := extractRegionError(err); regionErr != nil {
-		resp := kvrpcpb.RawPutResponse{}
-		resp.RegionError = regionErr
-		return &resp
-	}
-
-	return nil
+func (rp *RawPut) WillWrite() [][]byte {
+	return [][]byte{rp.request.Key}
 }
 
 // RawDelete implements the Command interface for raw delete requests.
 type RawDelete struct {
+	CommandBase
 	request *kvrpcpb.RawDeleteRequest
 }
 
 func NewRawDelete(request *kvrpcpb.RawDeleteRequest) RawDelete {
-	return RawDelete{request}
+	return RawDelete{
+		CommandBase: CommandBase{
+			context: request.Context,
+		},
+		request: request,
+	}
 }
 
-func (rd *RawDelete) BuildTxn(txn *kvstore.MvccTxn) error {
+func (rd *RawDelete) PrepareWrites(txn *kvstore.MvccTxn) (interface{}, error) {
 	txn.Writes = []inner_server.Modify{{
 		Type: inner_server.ModifyTypeDelete,
 		Data: inner_server.Delete{
@@ -111,81 +92,47 @@ func (rd *RawDelete) BuildTxn(txn *kvstore.MvccTxn) error {
 			Cf:  rd.request.Cf,
 		}}}
 
-	return nil
+	return new(kvrpcpb.RawDeleteResponse), nil
 }
 
-func (rd *RawDelete) Context() *kvrpcpb.Context {
-	return rd.request.Context
-}
-
-func (rd *RawDelete) Response() interface{} {
-	return &kvrpcpb.RawDeleteResponse{}
-}
-
-func (rd *RawDelete) HandleError(err error) interface{} {
-	if err == nil {
-		return nil
-	}
-
-	if regionErr := extractRegionError(err); regionErr != nil {
-		resp := kvrpcpb.RawDeleteResponse{}
-		resp.RegionError = regionErr
-		return &resp
-	}
-
-	return nil
+func (rd *RawDelete) WillWrite() [][]byte {
+	return [][]byte{rd.request.Key}
 }
 
 // RawScan implements the Command interface for raw scan requests.
 type RawScan struct {
-	request  *kvrpcpb.RawScanRequest
-	response kvrpcpb.RawScanResponse
+	ReadOnly
+	CommandBase
+	request *kvrpcpb.RawScanRequest
 }
 
 func NewRawScan(request *kvrpcpb.RawScanRequest) RawScan {
-	return RawScan{request, kvrpcpb.RawScanResponse{}}
+	return RawScan{
+		CommandBase: CommandBase{
+			context: request.Context,
+		},
+		request: request,
+	}
 }
 
-func (rs *RawScan) BuildTxn(txn *kvstore.MvccTxn) error {
-	pairs := make([]*kvrpcpb.KvPair, 0)
+func (rs *RawScan) Read(txn *kvstore.RoTxn) (interface{}, [][]byte, error) {
+	response := new(kvrpcpb.RawScanResponse)
 
 	it := txn.Reader.IterCF(rs.request.Cf)
 	defer it.Close()
-	for it.Seek(rs.request.StartKey); it.Valid() && len(pairs) < int(rs.request.Limit); it.Next() {
+	for it.Seek(rs.request.StartKey); it.Valid() && len(response.Kvs) < int(rs.request.Limit); it.Next() {
 		item := it.Item()
 		key := item.KeyCopy(nil)
 		value, err := item.ValueCopy(nil)
 		if err != nil {
-			return err
+			return regionErrorRo(err, response)
 		}
 
-		pairs = append(pairs, &kvrpcpb.KvPair{
+		response.Kvs = append(response.Kvs, &kvrpcpb.KvPair{
 			Key:   key,
 			Value: value,
 		})
 	}
-	rs.response.Kvs = pairs
 
-	return nil
-}
-
-func (rs *RawScan) Context() *kvrpcpb.Context {
-	return rs.request.Context
-}
-
-func (rs *RawScan) Response() interface{} {
-	return &rs.response
-}
-
-func (rs *RawScan) HandleError(err error) interface{} {
-	if err == nil {
-		return nil
-	}
-
-	if regionErr := extractRegionError(err); regionErr != nil {
-		rs.response.RegionError = regionErr
-		return &rs.response
-	}
-
-	return nil
+	return response, nil, nil
 }

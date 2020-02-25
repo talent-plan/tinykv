@@ -266,14 +266,6 @@ func (s *TestServer) GetRegionInfoByID(regionID uint64) *core.RegionInfo {
 	return s.server.GetRaftCluster().GetRegion(regionID)
 }
 
-// GetAdjacentRegions returns regions' information that are adjacent with the specific region ID.
-func (s *TestServer) GetAdjacentRegions(region *core.RegionInfo) []*core.RegionInfo {
-	s.RLock()
-	defer s.RUnlock()
-	left, right := s.server.GetRaftCluster().GetAdjacentRegions(region)
-	return []*core.RegionInfo{left, right}
-}
-
 // GetStoreRegions returns all regions' information with a given storeID.
 func (s *TestServer) GetStoreRegions(storeID uint64) []*core.RegionInfo {
 	s.RLock()

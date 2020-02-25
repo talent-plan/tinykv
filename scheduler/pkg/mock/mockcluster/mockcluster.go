@@ -319,11 +319,6 @@ func (mc *Cluster) GetReplicaScheduleLimit() uint64 {
 	return mc.ScheduleOptions.GetReplicaScheduleLimit()
 }
 
-// GetMergeScheduleLimit mocks method.
-func (mc *Cluster) GetMergeScheduleLimit() uint64 {
-	return mc.ScheduleOptions.GetMergeScheduleLimit()
-}
-
 // GetMaxReplicas mocks method.
 func (mc *Cluster) GetMaxReplicas() int {
 	return mc.ScheduleOptions.GetMaxReplicas()

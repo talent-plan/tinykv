@@ -43,7 +43,6 @@ type testBalanceSpeedCase struct {
 	targetCount    uint64
 	regionSize     int64
 	expectedResult bool
-	kind           core.ScheduleStrategy
 }
 
 func (s *testBalanceSpeedSuite) TestShouldBalance(c *C) {
@@ -52,52 +51,27 @@ func (s *testBalanceSpeedSuite) TestShouldBalance(c *C) {
 		// size = count * 10
 
 		// target size is zero
-		{2, 0, 1, true, core.BySize},
-		{2, 0, 10, true, core.BySize},
+		{2, 0, 1, true},
+		{2, 0, 10, true},
 		// all in high space stage
-		{10, 5, 1, true, core.BySize},
-		{10, 5, 20, true, core.BySize},
-		{10, 10, 1, false, core.BySize},
-		{10, 10, 20, false, core.BySize},
+		{10, 5, 1, true},
+		{10, 5, 20, true},
+		{10, 10, 1, false},
+		{10, 10, 20, false},
 		// all in transition stage
-		{70, 50, 1, true, core.BySize},
-		{70, 50, 50, true, core.BySize},
-		{70, 70, 1, false, core.BySize},
+		{70, 50, 1, true},
+		{70, 50, 50, true},
+		{70, 70, 1, false},
 		// all in low space stage
-		{90, 80, 1, true, core.BySize},
-		{90, 80, 50, true, core.BySize},
-		{90, 90, 1, false, core.BySize},
+		{90, 80, 1, true},
+		{90, 80, 50, true},
+		{90, 90, 1, false},
 		// one in high space stage, other in transition stage
-		{65, 55, 5, true, core.BySize},
-		{65, 50, 50, true, core.BySize},
+		{65, 55, 5, true},
+		{65, 50, 50, true},
 		// one in transition space stage, other in low space stage
-		{80, 70, 5, true, core.BySize},
-		{80, 70, 50, true, core.BySize},
-
-		// default leader tolerant ratio is 5, when schedule by count
-		// target size is zero
-		{2, 0, 1, true, core.ByCount},
-		{2, 0, 10, true, core.ByCount},
-		// all in high space stage
-		{10, 5, 1, true, core.ByCount},
-		{10, 5, 20, true, core.ByCount},
-		{10, 6, 20, true, core.ByCount},
-		{10, 10, 1, false, core.ByCount},
-		{10, 10, 20, false, core.ByCount},
-		// all in transition stage
-		{70, 50, 1, true, core.ByCount},
-		{70, 50, 50, true, core.ByCount},
-		{70, 70, 1, false, core.ByCount},
-		// all in low space stage
-		{90, 80, 1, true, core.ByCount},
-		{90, 80, 50, true, core.ByCount},
-		{90, 90, 1, false, core.ByCount},
-		// one in high space stage, other in transition stage
-		{65, 55, 5, true, core.ByCount},
-		{65, 50, 50, true, core.ByCount},
-		// one in transition space stage, other in low space stage
-		{80, 70, 5, true, core.ByCount},
-		{80, 70, 50, true, core.ByCount},
+		{80, 70, 5, true},
+		{80, 70, 50, true},
 	}
 
 	opt := mockoption.NewScheduleOptions()
@@ -106,16 +80,14 @@ func (s *testBalanceSpeedSuite) TestShouldBalance(c *C) {
 	tc.AddLeaderRegion(1, 1, 2)
 
 	for _, t := range tests {
-		if t.kind.String() == core.BySize.String() {
-			tc.AddRegionStore(1, int(t.sourceCount))
-			tc.AddRegionStore(2, int(t.targetCount))
-			source := tc.GetStore(1)
-			target := tc.GetStore(2)
-			region := tc.GetRegion(1).Clone(core.SetApproximateSize(t.regionSize))
-			tc.PutRegion(region)
-			kind := core.NewScheduleKind(core.RegionKind, t.kind)
-			c.Assert(shouldBalance(tc, source, target, region, kind, ""), Equals, t.expectedResult)
-		}
+		tc.AddRegionStore(1, int(t.sourceCount))
+		tc.AddRegionStore(2, int(t.targetCount))
+		source := tc.GetStore(1)
+		target := tc.GetStore(2)
+		region := tc.GetRegion(1).Clone(core.SetApproximateSize(t.regionSize))
+		tc.PutRegion(region)
+		kind := core.NewScheduleKind(core.RegionKind)
+		c.Assert(shouldBalance(tc, source, target, region, kind, ""), Equals, t.expectedResult)
 	}
 }
 
@@ -190,9 +162,9 @@ func (s *testBalanceLeaderSchedulerSuite) TestBalanceLimit(c *C) {
 	c.Check(s.schedule(), IsNil)
 
 	// Stores:     1    2    3    4
-	// Leaders:    7    8    9   16
+	// Leaders:    7    8    9   18
 	// Region1:    F    F    F    L
-	s.tc.UpdateLeaderCount(4, 16)
+	s.tc.UpdateLeaderCount(4, 18)
 	c.Check(s.schedule(), NotNil)
 }
 
@@ -206,10 +178,7 @@ func (s *testBalanceLeaderSchedulerSuite) TestBalanceLeaderScheduleStrategy(c *C
 	s.tc.AddLeaderStore(3, 10, 100)
 	s.tc.AddLeaderStore(4, 10, 100)
 	s.tc.AddLeaderRegion(1, 1, 2, 3, 4)
-	c.Assert(s.tc.LeaderScheduleStrategy, Equals, core.ByCount.String()) // default by count
 	c.Check(s.schedule(), IsNil)
-	s.tc.LeaderScheduleStrategy = core.BySize.String()
-	c.Check(s.schedule(), NotNil)
 }
 
 func (s *testBalanceSpeedSuite) TestTolerantRatio(c *C) {
@@ -220,23 +189,14 @@ func (s *testBalanceSpeedSuite) TestTolerantRatio(c *C) {
 	regionSize := int64(96 * 1024)
 	region := tc.GetRegion(1).Clone(core.SetApproximateSize(regionSize))
 
-	tc.TolerantSizeRatio = 0
-	c.Assert(getTolerantResource(tc, region, core.ScheduleKind{Resource: core.LeaderKind, Strategy: core.ByCount}), Equals, int64(leaderTolerantSizeRatio))
-	c.Assert(getTolerantResource(tc, region, core.ScheduleKind{Resource: core.LeaderKind, Strategy: core.BySize}), Equals, int64(adjustTolerantRatio(tc)*float64(regionSize)))
-	c.Assert(getTolerantResource(tc, region, core.ScheduleKind{Resource: core.RegionKind, Strategy: core.ByCount}), Equals, int64(adjustTolerantRatio(tc)*float64(regionSize)))
-	c.Assert(getTolerantResource(tc, region, core.ScheduleKind{Resource: core.RegionKind, Strategy: core.BySize}), Equals, int64(adjustTolerantRatio(tc)*float64(regionSize)))
-
-	tc.TolerantSizeRatio = 10
-	c.Assert(getTolerantResource(tc, region, core.ScheduleKind{Resource: core.LeaderKind, Strategy: core.ByCount}), Equals, int64(tc.TolerantSizeRatio))
-	c.Assert(getTolerantResource(tc, region, core.ScheduleKind{Resource: core.LeaderKind, Strategy: core.BySize}), Equals, int64(adjustTolerantRatio(tc)*float64(regionSize)))
-	c.Assert(getTolerantResource(tc, region, core.ScheduleKind{Resource: core.RegionKind, Strategy: core.ByCount}), Equals, int64(adjustTolerantRatio(tc)*float64(regionSize)))
-	c.Assert(getTolerantResource(tc, region, core.ScheduleKind{Resource: core.RegionKind, Strategy: core.BySize}), Equals, int64(adjustTolerantRatio(tc)*float64(regionSize)))
+	c.Assert(getTolerantResource(tc, region, core.ScheduleKind{Resource: core.LeaderKind}), Equals, int64(leaderTolerantSizeRatio))
+	c.Assert(getTolerantResource(tc, region, core.ScheduleKind{Resource: core.RegionKind}), Equals, int64(getTolerantRatio(tc)*float64(regionSize)))
 }
 
 func (s *testBalanceLeaderSchedulerSuite) TestBalanceLeaderTolerantRatio(c *C) {
 	// default leader tolerant ratio is 5, when schedule by count
 	// Stores:			1		2    	3    	4
-	// Leader Count:		14->15		10    	10    	10
+	// Leader Count:		14->21		10    	10    	10
 	// Leader Size :		100		100    	100    	100
 	// Region1:			L		F   	F    	F
 	s.tc.AddLeaderStore(1, 14, 100)
@@ -244,14 +204,12 @@ func (s *testBalanceLeaderSchedulerSuite) TestBalanceLeaderTolerantRatio(c *C) {
 	s.tc.AddLeaderStore(3, 10, 100)
 	s.tc.AddLeaderStore(4, 10, 100)
 	s.tc.AddLeaderRegion(1, 1, 2, 3, 4)
-	c.Assert(s.tc.LeaderScheduleStrategy, Equals, core.ByCount.String()) // default by count
 	c.Check(s.schedule(), IsNil)
 	c.Assert(s.tc.GetStore(1).GetLeaderCount(), Equals, 14)
-	s.tc.AddLeaderStore(1, 15, 100)
-	c.Assert(s.tc.GetStore(1).GetLeaderCount(), Equals, 15)
+	s.tc.AddLeaderStore(1, 21, 100)
+	c.Assert(s.tc.GetStore(1).GetLeaderCount(), Equals, 21)
+
 	c.Check(s.schedule(), NotNil)
-	s.tc.TolerantSizeRatio = 6 // (15-10)<6
-	c.Check(s.schedule(), IsNil)
 }
 
 func (s *testBalanceLeaderSchedulerSuite) TestBalanceFilter(c *C) {
@@ -289,21 +247,20 @@ func (s *testBalanceLeaderSchedulerSuite) TestBalanceFilter(c *C) {
 
 func (s *testBalanceLeaderSchedulerSuite) TestLeaderWeight(c *C) {
 	// Stores:	1	2	3	4
-	// Leaders:    10      10      10      10
+	// Leaders:    16      16      16      16->48
 	// Weight:    0.5     0.9       1       2
 	// Region1:     L       F       F       F
-
-	s.tc.AddLeaderStore(1, 10)
-	s.tc.AddLeaderStore(2, 10)
-	s.tc.AddLeaderStore(3, 10)
-	s.tc.AddLeaderStore(4, 10)
+	s.tc.AddLeaderStore(1, 16)
+	s.tc.AddLeaderStore(2, 16)
+	s.tc.AddLeaderStore(3, 16)
+	s.tc.AddLeaderStore(4, 16)
 	s.tc.UpdateStoreLeaderWeight(1, 0.5)
 	s.tc.UpdateStoreLeaderWeight(2, 0.9)
 	s.tc.UpdateStoreLeaderWeight(3, 1)
 	s.tc.UpdateStoreLeaderWeight(4, 2)
 	s.tc.AddLeaderRegion(1, 1, 2, 3, 4)
 	testutil.CheckTransferLeader(c, s.schedule(), operator.OpBalance, 1, 4)
-	s.tc.UpdateLeaderCount(4, 30)
+	s.tc.UpdateLeaderCount(4, 48)
 	testutil.CheckTransferLeader(c, s.schedule(), operator.OpBalance, 1, 3)
 }
 
@@ -515,28 +472,28 @@ func (s *testBalanceRegionSchedulerSuite) TestReplicas5(c *C) {
 //|    11     |       1      |        4       |       5        |
 // and the space of last store 5 if very small, about 5 * regionsize
 // the source region is more likely distributed in store[1, 2, 3].
-func (s *testBalanceRegionSchedulerSuite) TestBalance1(c *C) {
-	opt := mockoption.NewScheduleOptions()
-	tc := mockcluster.NewCluster(opt)
-	oc := schedule.NewOperatorController(s.ctx, nil, nil)
-
-	opt.TolerantSizeRatio = 1
-
-	sb, err := schedule.CreateScheduler("balance-region", oc, core.NewStorage(kv.NewMemoryKV()), nil)
-	c.Assert(err, IsNil)
-
-	tc.AddRegionStore(1, 11)
-	tc.AddRegionStore(2, 9)
-	tc.AddRegionStore(3, 6)
-	tc.AddRegionStore(4, 5)
-	tc.AddRegionStore(5, 2)
-	tc.AddLeaderRegion(1, 1, 2, 3)
-	tc.AddLeaderRegion(2, 1, 2, 3)
-
-	c.Assert(sb.Schedule(tc), NotNil)
-	// if the space of store 5 is normal, we can balance region to store 5
-	testutil.CheckTransferPeer(c, sb.Schedule(tc), operator.OpBalance, 1, 5)
-}
+//func (s *testBalanceRegionSchedulerSuite) TestBalance1(c *C) {
+//	opt := mockoption.NewScheduleOptions()
+//	tc := mockcluster.NewCluster(opt)
+//	oc := schedule.NewOperatorController(s.ctx, nil, nil)
+//
+//	opt.TolerantSizeRatio = 1
+//
+//	sb, err := schedule.CreateScheduler("balance-region", oc, core.NewStorage(kv.NewMemoryKV()), nil)
+//	c.Assert(err, IsNil)
+//
+//	tc.AddRegionStore(1, 11)
+//	tc.AddRegionStore(2, 9)
+//	tc.AddRegionStore(3, 6)
+//	tc.AddRegionStore(4, 5)
+//	tc.AddRegionStore(5, 2)
+//	tc.AddLeaderRegion(1, 1, 2, 3)
+//	tc.AddLeaderRegion(2, 1, 2, 3)
+//
+//	c.Assert(sb.Schedule(tc), NotNil)
+//	// if the space of store 5 is normal, we can balance region to store 5
+//	testutil.CheckTransferPeer(c, sb.Schedule(tc), operator.OpBalance, 1, 5)
+//}
 
 func (s *testBalanceRegionSchedulerSuite) TestStoreWeight(c *C) {
 	opt := mockoption.NewScheduleOptions()
@@ -616,11 +573,6 @@ func (s *testReplicaCheckerSuite) TestBasic(c *C) {
 	region := tc.GetRegion(1)
 	testutil.CheckAddPeer(c, rc.Check(region), operator.OpReplica, 4)
 
-	// Disable make up replica feature.
-	opt.EnableMakeUpReplica = false
-	c.Assert(rc.Check(region), IsNil)
-	opt.EnableMakeUpReplica = true
-
 	// Test healthFilter.
 	// If store 4 is down, we add to store 3.
 	tc.SetStoreDown(4)
@@ -637,11 +589,6 @@ func (s *testReplicaCheckerSuite) TestBasic(c *C) {
 	peer3, _ := tc.AllocPeer(3)
 	region = region.Clone(core.WithAddPeer(peer3))
 	testutil.CheckRemovePeer(c, rc.Check(region), 1)
-
-	// Disable remove extra replica feature.
-	opt.EnableRemoveExtraReplica = false
-	c.Assert(rc.Check(region), IsNil)
-	opt.EnableRemoveExtraReplica = true
 
 	region = region.Clone(core.WithRemoveStorePeer(1))
 
@@ -753,10 +700,5 @@ func (s *testReplicaCheckerSuite) TestOpts(c *C) {
 		},
 	}))
 	tc.SetStoreOffline(2)
-	// RemoveDownReplica has higher priority than replaceOfflineReplica.
 	testutil.CheckTransferPeer(c, rc.Check(region), operator.OpReplica, 1, 4)
-	opt.EnableRemoveDownReplica = false
-	testutil.CheckTransferPeer(c, rc.Check(region), operator.OpReplica, 2, 4)
-	opt.EnableReplaceOfflineReplica = false
-	c.Assert(rc.Check(region), IsNil)
 }
