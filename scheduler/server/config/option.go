@@ -90,16 +90,6 @@ func (o *ScheduleOption) GetReplicaScheduleLimit() uint64 {
 	return o.Load().ReplicaScheduleLimit
 }
 
-// IsMakeUpReplicaEnabled returns if make up replica is enabled.
-func (o *ScheduleOption) IsMakeUpReplicaEnabled() bool {
-	return o.Load().EnableMakeUpReplica
-}
-
-// IsRemoveExtraReplicaEnabled returns if remove extra replica is enabled.
-func (o *ScheduleOption) IsRemoveExtraReplicaEnabled() bool {
-	return o.Load().EnableRemoveExtraReplica
-}
-
 // GetSchedulers gets the scheduler configurations.
 func (o *ScheduleOption) GetSchedulers() SchedulerConfigs {
 	return o.Load().Schedulers

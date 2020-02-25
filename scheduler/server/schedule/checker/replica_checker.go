@@ -72,7 +72,7 @@ func (r *ReplicaChecker) Check(region *core.RegionInfo) *operator.Operator {
 		return op
 	}
 
-	if len(region.GetPeers()) < r.cluster.GetMaxReplicas() && r.cluster.IsMakeUpReplicaEnabled() {
+	if len(region.GetPeers()) < r.cluster.GetMaxReplicas() {
 		log.Debug("region has fewer than max replicas", zap.Uint64("region-id", region.GetID()), zap.Int("peers", len(region.GetPeers())))
 		newPeer := r.selectBestPeerToAddReplica(region)
 		if newPeer == nil {
@@ -83,7 +83,7 @@ func (r *ReplicaChecker) Check(region *core.RegionInfo) *operator.Operator {
 
 	// when add learner peer, the number of peer will exceed max replicas for a while,
 	// just comparing the the number of voters to avoid too many cancel add operator log.
-	if len(region.GetVoters()) > r.cluster.GetMaxReplicas() && r.cluster.IsRemoveExtraReplicaEnabled() {
+	if len(region.GetVoters()) > r.cluster.GetMaxReplicas() {
 		log.Debug("region has more than max replicas", zap.Uint64("region-id", region.GetID()), zap.Int("peers", len(region.GetPeers())))
 		oldPeer := r.selectWorstPeer(region)
 		if oldPeer == nil {

@@ -430,10 +430,6 @@ type ScheduleConfig struct {
 	// ReplicaScheduleLimit is the max coexist replica schedules.
 	ReplicaScheduleLimit uint64 `toml:"replica-schedule-limit,omitempty" json:"replica-schedule-limit"`
 
-	// EnableMakeUpReplica is the option to enable replica checker to make up replica.
-	EnableMakeUpReplica bool `toml:"enable-make-up-replica" json:"enable-make-up-replica,string"`
-	// EnableRemoveExtraReplica is the option to enable replica checker to remove extra replica.
-	EnableRemoveExtraReplica bool `toml:"enable-remove-extra-replica" json:"enable-remove-extra-replica,string"`
 	// Schedulers support for loading customized schedulers
 	Schedulers SchedulerConfigs `toml:"schedulers,omitempty" json:"schedulers-v2"` // json v2 is for the sake of compatible upgrade
 
@@ -451,8 +447,6 @@ func (c *ScheduleConfig) Clone() *ScheduleConfig {
 		LeaderScheduleLimit:         c.LeaderScheduleLimit,
 		RegionScheduleLimit:         c.RegionScheduleLimit,
 		ReplicaScheduleLimit:        c.ReplicaScheduleLimit,
-		EnableMakeUpReplica:         c.EnableMakeUpReplica,
-		EnableRemoveExtraReplica:    c.EnableRemoveExtraReplica,
 		Schedulers:                  schedulers,
 	}
 }
@@ -477,12 +471,6 @@ func (c *ScheduleConfig) adjust(meta *configMetaData) error {
 	}
 	if !meta.IsDefined("replica-schedule-limit") {
 		adjustUint64(&c.ReplicaScheduleLimit, defaultReplicaScheduleLimit)
-	}
-	if !meta.IsDefined("enable-make-up-replica") {
-		c.EnableMakeUpReplica = true
-	}
-	if !meta.IsDefined("enable-remove-extra-replica") {
-		c.EnableRemoveExtraReplica = true
 	}
 	adjustSchedulers(&c.Schedulers, defaultSchedulers)
 

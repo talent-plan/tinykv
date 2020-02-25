@@ -951,16 +951,6 @@ func (c *RaftCluster) GetMaxReplicas() int {
 	return c.opt.GetMaxReplicas()
 }
 
-// IsMakeUpReplicaEnabled returns if make up replica is enabled.
-func (c *RaftCluster) IsMakeUpReplicaEnabled() bool {
-	return c.opt.IsMakeUpReplicaEnabled()
-}
-
-// IsRemoveExtraReplicaEnabled returns if remove extra replica is enabled.
-func (c *RaftCluster) IsRemoveExtraReplicaEnabled() bool {
-	return c.opt.IsRemoveExtraReplicaEnabled()
-}
-
 // isPrepared if the cluster information is collected
 func (c *RaftCluster) isPrepared() bool {
 	c.RLock()

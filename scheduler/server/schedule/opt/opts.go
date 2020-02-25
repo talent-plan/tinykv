@@ -29,9 +29,6 @@ type Options interface {
 	GetMaxStoreDownTime() time.Duration
 
 	GetMaxReplicas() int
-
-	IsMakeUpReplicaEnabled() bool
-	IsRemoveExtraReplicaEnabled() bool
 }
 
 // Cluster provides an overview of a cluster's regions distribution.
