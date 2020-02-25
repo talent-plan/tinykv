@@ -625,11 +625,6 @@ func (c *RaftCluster) GetStore(storeID uint64) *core.StoreInfo {
 	return c.core.GetStore(storeID)
 }
 
-// GetAdjacentRegions returns regions' information that are adjacent with the specific region ID.
-func (c *RaftCluster) GetAdjacentRegions(region *core.RegionInfo) (*core.RegionInfo, *core.RegionInfo) {
-	return c.core.GetAdjacentRegions(region)
-}
-
 func (c *RaftCluster) putStore(store *metapb.Store) error {
 	c.Lock()
 	defer c.Unlock()
@@ -941,16 +936,6 @@ func (c *RaftCluster) GetReplicaScheduleLimit() uint64 {
 	return c.opt.GetReplicaScheduleLimit()
 }
 
-// GetStoreBalanceRate returns the balance rate of a store.
-func (c *RaftCluster) GetStoreBalanceRate() float64 {
-	return c.opt.GetStoreBalanceRate()
-}
-
-// GetTolerantSizeRatio gets the tolerant size ratio.
-func (c *RaftCluster) GetTolerantSizeRatio() float64 {
-	return c.opt.GetTolerantSizeRatio()
-}
-
 // GetPatrolRegionInterval returns the interval of patroling region.
 func (c *RaftCluster) GetPatrolRegionInterval() time.Duration {
 	return c.opt.GetPatrolRegionInterval()
@@ -964,36 +949,6 @@ func (c *RaftCluster) GetMaxStoreDownTime() time.Duration {
 // GetMaxReplicas returns the number of replicas.
 func (c *RaftCluster) GetMaxReplicas() int {
 	return c.opt.GetMaxReplicas()
-}
-
-// IsRemoveDownReplicaEnabled returns if remove down replica is enabled.
-func (c *RaftCluster) IsRemoveDownReplicaEnabled() bool {
-	return c.opt.IsRemoveDownReplicaEnabled()
-}
-
-// GetLeaderScheduleStrategy is to get leader schedule strategy.
-func (c *RaftCluster) GetLeaderScheduleStrategy() core.ScheduleStrategy {
-	return c.opt.GetLeaderScheduleStrategy()
-}
-
-// GetKeyType is to get key type.
-func (c *RaftCluster) GetKeyType() core.KeyType {
-	return c.opt.GetKeyType()
-}
-
-// IsReplaceOfflineReplicaEnabled returns if replace offline replica is enabled.
-func (c *RaftCluster) IsReplaceOfflineReplicaEnabled() bool {
-	return c.opt.IsReplaceOfflineReplicaEnabled()
-}
-
-// IsMakeUpReplicaEnabled returns if make up replica is enabled.
-func (c *RaftCluster) IsMakeUpReplicaEnabled() bool {
-	return c.opt.IsMakeUpReplicaEnabled()
-}
-
-// IsRemoveExtraReplicaEnabled returns if remove extra replica is enabled.
-func (c *RaftCluster) IsRemoveExtraReplicaEnabled() bool {
-	return c.opt.IsRemoveExtraReplicaEnabled()
 }
 
 // isPrepared if the cluster information is collected

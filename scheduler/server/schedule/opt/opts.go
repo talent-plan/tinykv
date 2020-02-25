@@ -26,21 +26,9 @@ type Options interface {
 	GetRegionScheduleLimit() uint64
 	GetReplicaScheduleLimit() uint64
 
-	// store limit
-	GetStoreBalanceRate() float64
-
 	GetMaxStoreDownTime() time.Duration
 
 	GetMaxReplicas() int
-
-	GetTolerantSizeRatio() float64
-
-	IsRemoveDownReplicaEnabled() bool
-	IsReplaceOfflineReplicaEnabled() bool
-	IsMakeUpReplicaEnabled() bool
-	IsRemoveExtraReplicaEnabled() bool
-	GetLeaderScheduleStrategy() core.ScheduleStrategy
-	GetKeyType() core.KeyType
 }
 
 // Cluster provides an overview of a cluster's regions distribution.

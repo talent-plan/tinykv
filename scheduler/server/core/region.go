@@ -726,26 +726,6 @@ func (r *RegionsInfo) ScanRange(startKey, endKey []byte, limit int) []*RegionInf
 	return res
 }
 
-// ScanRangeWithIterator scans from the first region containing or behind start key,
-// until iterator returns false.
-func (r *RegionsInfo) ScanRangeWithIterator(startKey []byte, iterator func(region *RegionInfo) bool) {
-	r.tree.scanRange(startKey, iterator)
-}
-
-// GetAdjacentRegions returns region's info that is adjacent with specific region
-func (r *RegionsInfo) GetAdjacentRegions(region *RegionInfo) (*RegionInfo, *RegionInfo) {
-	p, n := r.tree.getAdjacentRegions(region)
-	var prev, next *RegionInfo
-	// check key to avoid key range hole
-	if p != nil && bytes.Equal(p.region.GetEndKey(), region.GetStartKey()) {
-		prev = r.GetRegion(p.region.GetID())
-	}
-	if n != nil && bytes.Equal(region.GetEndKey(), n.region.GetStartKey()) {
-		next = r.GetRegion(n.region.GetID())
-	}
-	return prev, next
-}
-
 // GetAverageRegionSize returns the average region approximate size.
 func (r *RegionsInfo) GetAverageRegionSize() int64 {
 	if r.regions.Len() == 0 {
