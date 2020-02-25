@@ -250,10 +250,6 @@ func (p *Peer) PeerId() uint64 {
 	return p.Meta.GetId()
 }
 
-func (p *Peer) GetRaftStatus() *raft.Status {
-	return p.RaftGroup.Status()
-}
-
 func (p *Peer) LeaderId() uint64 {
 	return p.RaftGroup.Raft.Lead
 }
@@ -341,10 +337,8 @@ func (p *Peer) CollectDownPeers(maxDuration time.Duration) []*pdpb.PeerStats {
 /// Collects all pending peers and update `peers_start_pending_time`.
 func (p *Peer) CollectPendingPeers() []*metapb.Peer {
 	pendingPeers := make([]*metapb.Peer, 0, len(p.Region().GetPeers()))
-	status := p.RaftGroup.Status()
 	truncatedIdx := p.Store().truncatedIndex()
-
-	for id, progress := range status.Progress {
+	for id, progress := range p.RaftGroup.GetProgress() {
 		if id == p.Meta.GetId() {
 			continue
 		}
@@ -434,7 +428,7 @@ func (p *Peer) HandleRaftReadyAppend(trans Transport, applyMsgs *applyMsgs, kvWB
 		return nil
 	}
 
-	if !p.RaftGroup.HasReadySince(&p.LastApplyingIdx) {
+	if !p.RaftGroup.HasReadySince(p.LastApplyingIdx) {
 		return nil
 	}
 
@@ -692,27 +686,27 @@ func (p *Peer) checkConfChange(cfg *config.Config, cmd *raft_cmdpb.RaftCmdReques
 	changeType := changePeer.GetChangeType()
 	peer := changePeer.GetPeer()
 
-	status := p.RaftGroup.Status()
-	total := len(status.Progress)
-	if total == 1 {
+	progress := p.RaftGroup.GetProgress()
+	total := len(progress)
+	if total <= 1 {
 		// It's always safe if there is only one node in the cluster.
 		return nil
 	}
 
 	switch changeType {
 	case eraftpb.ConfChangeType_AddNode:
-		status.Progress[peer.Id] = raft.Progress{}
+		progress[peer.Id] = raft.Progress{}
 	case eraftpb.ConfChangeType_RemoveNode:
-		if _, ok := status.Progress[peer.Id]; ok {
-			delete(status.Progress, peer.Id)
+		if _, ok := progress[peer.Id]; ok {
+			delete(progress, peer.Id)
 		} else {
 			// It's always safe to remove a not existing node.
 			return nil
 		}
 	}
 
-	healthy := p.countHealthyNode(status.Progress)
-	quorumAfterChange := Quorum(len(status.Progress))
+	healthy := p.countHealthyNode(progress)
+	quorumAfterChange := Quorum(len(progress))
 	if healthy >= quorumAfterChange {
 		return nil
 	}
