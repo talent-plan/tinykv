@@ -456,11 +456,3 @@ func (o *OperatorRecords) Put(op *operator.Operator, status pdpb.OperatorStatus)
 	}
 	o.ttl.Put(id, record)
 }
-
-// GetLeaderScheduleStrategy is to get leader schedule strategy
-func (oc *OperatorController) GetLeaderScheduleStrategy() core.ScheduleStrategy {
-	if oc.cluster == nil {
-		return core.ByCount
-	}
-	return oc.cluster.GetLeaderScheduleStrategy()
-}
