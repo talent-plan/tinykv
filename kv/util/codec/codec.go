@@ -1,6 +1,9 @@
 package codec
 
-import "github.com/pingcap/errors"
+import (
+	"fmt"
+	"github.com/pingcap/errors"
+)
 
 const (
 	encGroupSize = 8
@@ -50,7 +53,7 @@ func DecodeBytes(b []byte) ([]byte, []byte, error) {
 	data := make([]byte, 0, len(b))
 	for {
 		if len(b) < encGroupSize+1 {
-			return nil, nil, errors.New("insufficient bytes to decode value")
+			return nil, nil, fmt.Errorf("insufficient bytes to decode value: %d", len(b))
 		}
 
 		groupBytes := b[:encGroupSize+1]

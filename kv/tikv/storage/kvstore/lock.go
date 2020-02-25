@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
+	"reflect"
 )
 
 const TsMax uint64 = ^uint64(0)
@@ -55,29 +57,45 @@ func ParseLock(input []byte) (*Lock, error) {
 }
 
 // IsLockedFor checks if lock locks key at txnStartTs.
-func (lock *Lock) IsLockedFor(key []byte, txnStartTs uint64) bool {
+func (lock *Lock) IsLockedFor(key []byte, txnStartTs uint64, resp interface{}) bool {
 	if lock == nil {
 		return false
 	}
 	if txnStartTs == TsMax && bytes.Compare(key, lock.Primary) != 0 {
 		return false
 	}
-	return lock.Ts <= txnStartTs
+	if lock.Ts <= txnStartTs {
+		err := &kvrpcpb.KeyError{Locked: lock.Info(key)}
+		respValue := reflect.ValueOf(resp)
+		reflect.Indirect(respValue).FieldByName("Error").Set(reflect.ValueOf(err))
+		return true
+	}
+	return false
 }
 
-// LockedError occurs when a key or keys are locked. The protobuf representation of the locked keys is stored as Info.
-type LockedError struct {
-	Info []kvrpcpb.LockInfo
+// AllLocksForTxn returns all locks for the current transaction.
+func AllLocksForTxn(txn *RoTxn) ([]KlPair, error) {
+	var result []KlPair
+	for iter := txn.Reader.IterCF(engine_util.CfLock); iter.Valid(); iter.Next() {
+		item := iter.Item()
+		val, err := item.Value()
+		if err != nil {
+			return nil, err
+		}
+		lock, err := ParseLock(val)
+		if err != nil {
+			return nil, err
+		}
+		if lock.Ts == *txn.StartTS {
+			result = append(result, KlPair{item.Key(), lock})
+		}
+	}
+	return result, nil
 }
 
-func (err *LockedError) Error() string {
-	return fmt.Sprintf("storage: %d keys are locked", len(err.Info))
-}
-
-// KeyErrors converts a LockedError to an array of KeyErrors for sending to the client.
-func (err *LockedError) KeyErrors() []*kvrpcpb.KeyError {
+func LockedError(info ...kvrpcpb.LockInfo) []*kvrpcpb.KeyError {
 	var result []*kvrpcpb.KeyError
-	for _, i := range err.Info {
+	for _, i := range info {
 		var ke kvrpcpb.KeyError
 		ke.Locked = &i
 		result = append(result, &ke)

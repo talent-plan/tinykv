@@ -1,7 +1,6 @@
 package exec
 
 import (
-	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/interfaces"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 )
@@ -11,6 +10,7 @@ import (
 type Sequential struct {
 	innerServer interfaces.InnerServer
 	queue       chan task
+	Latches     *latches
 }
 
 // task is a task to be run by a scheduler.
@@ -21,13 +21,13 @@ type task struct {
 
 // NewSeqScheduler creates a new sequential scheduler.
 func NewSeqScheduler(innerServer interfaces.InnerServer) *Sequential {
-	sched := &Sequential{innerServer, make(chan task)}
-	go sched.handleTask()
+	sched := &Sequential{innerServer: innerServer, queue: make(chan task), Latches: newLatches()}
+	go sched.listenTasks()
 	return sched
 }
 
 // handleTask takes a task from Sequential's queue and executes it.
-func (seq *Sequential) handleTask() {
+func (seq *Sequential) listenTasks() {
 	for {
 		task := <-seq.queue
 
@@ -37,53 +37,69 @@ func (seq *Sequential) handleTask() {
 			return
 		}
 
-		// Get the data we need for execution.
-		ctxt := task.cmd.Context()
-		reader, err := seq.innerServer.Reader(ctxt)
-		if handleError(err, task, nil) {
-			continue
+		err := seq.handleTask(task)
+		if err != nil {
+			task.resultChannel <- interfaces.RespErr(err)
 		}
-
-		// Build an mvcc transaction.
-		txn := kvstore.NewTxn(reader)
-		err = task.cmd.BuildTxn(&txn)
-		if handleError(err, task, reader) {
-			continue
-		}
-
-		// Building the transaction succeeded without conflict, write all its writes to backing storage (note that if
-		// using the transactional API these are prewrites, no committed writes).
-		err = seq.innerServer.Write(ctxt, txn.Writes)
-		if handleError(err, task, reader) {
-			continue
-		}
-
-		// Send response back to the gRPC thread.
-		task.resultChannel <- interfaces.RespOk(task.cmd.Response())
-
-		reader.Close()
 		close(task.resultChannel)
 	}
 }
 
-// Give the command in task an opportunity to handle err. Returns true if there was an error so the caller is done with
-// this command.
-func handleError(err error, task task, reader dbreader.DBReader) bool {
-	if err == nil {
-		return false
-	}
+func (seq *Sequential) handleTask(task task) error {
+	ctxt := task.cmd.Context()
+	var resp interface{}
 
-	if resp := task.cmd.HandleError(err); resp != nil {
-		task.resultChannel <- interfaces.RespOk(resp)
-	} else {
-		task.resultChannel <- interfaces.RespErr(err)
-	}
-
-	if reader != nil {
+	latches := task.cmd.WillWrite()
+	if latches == nil {
+		// The command is readonly or requires access to the DB to determine the keys it will write.
+		reader, err := seq.innerServer.Reader(ctxt)
+		if err != nil {
+			return err
+		}
+		txn := kvstore.RoTxn{Reader: reader}
+		resp, latches, err = task.cmd.Read(&txn)
 		reader.Close()
+		if err != nil {
+			return err
+		}
 	}
-	close(task.resultChannel)
-	return true
+
+	if latches != nil {
+		// The command will write to the DB.
+		for {
+			wg := seq.Latches.acquireLatches(latches)
+			if wg == nil {
+				break
+			}
+			wg.Wait()
+		}
+		defer seq.Latches.releaseLatches(latches)
+
+		reader, err := seq.innerServer.Reader(ctxt)
+		if err != nil {
+			return err
+		}
+		defer reader.Close()
+
+		// Build an mvcc transaction.
+		txn := kvstore.NewTxn(reader)
+		resp, err = task.cmd.PrepareWrites(&txn)
+		if err != nil {
+			return err
+		}
+
+		seq.Latches.validate(&txn, latches)
+
+		// Building the transaction succeeded without conflict, write all writes to backing storage.
+		err = seq.innerServer.Write(ctxt, txn.Writes)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Send response back to the gRPC thread.
+	task.resultChannel <- interfaces.RespOk(resp)
+	return nil
 }
 
 func (seq *Sequential) Stop() {

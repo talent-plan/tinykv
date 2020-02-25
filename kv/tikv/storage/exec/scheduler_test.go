@@ -6,7 +6,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/stretchr/testify/assert"
-
 	"testing"
 )
 
@@ -30,18 +29,18 @@ type dummyCmd struct {
 	id int
 }
 
-func (dc *dummyCmd) BuildTxn(txn *kvstore.MvccTxn) error {
-	return nil
+func (dc *dummyCmd) PrepareWrites(txn *kvstore.MvccTxn) (interface{}, error) {
+	return nil, nil
 }
 
 func (dc *dummyCmd) Context() *kvrpcpb.Context {
 	return nil
 }
 
-func (dc *dummyCmd) Response() interface{} {
-	return dc.id
+func (dc *dummyCmd) Read(txn *kvstore.RoTxn) (interface{}, [][]byte, error) {
+	return dc.id, nil, nil
 }
 
-func (dc *dummyCmd) HandleError(err error) interface{} {
+func (dc *dummyCmd) WillWrite() [][]byte {
 	return nil
 }

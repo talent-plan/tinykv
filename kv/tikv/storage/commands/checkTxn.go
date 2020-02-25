@@ -7,20 +7,27 @@ import (
 )
 
 type CheckTxnStatus struct {
-	request  *kvrpcpb.CheckTxnStatusRequest
-	response kvrpcpb.CheckTxnStatusResponse
+	CommandBase
+	request *kvrpcpb.CheckTxnStatusRequest
 }
 
 func NewCheckTxnStatus(request *kvrpcpb.CheckTxnStatusRequest) CheckTxnStatus {
-	return CheckTxnStatus{request: request}
+	return CheckTxnStatus{
+		CommandBase: CommandBase{
+			context: request.Context,
+		},
+		request: request,
+	}
 }
 
-func (c *CheckTxnStatus) BuildTxn(txn *kvstore.MvccTxn) error {
+func (c *CheckTxnStatus) PrepareWrites(txn *kvstore.MvccTxn) (interface{}, error) {
 	txn.StartTS = &c.request.LockTs
 	key := c.request.PrimaryKey
+	response := new(kvrpcpb.CheckTxnStatusResponse)
+
 	lock, err := txn.GetLock(key)
 	if err != nil {
-		return err
+		return regionError(err, response)
 	}
 	if lock != nil && lock.Ts == *txn.StartTS {
 		if physical(lock.Ts)+lock.Ttl < physical(c.request.CurrentTs) {
@@ -31,67 +38,45 @@ func (c *CheckTxnStatus) BuildTxn(txn *kvstore.MvccTxn) error {
 			}
 			txn.PutWrite(key, &write, *txn.StartTS)
 			txn.DeleteLock(key)
-			c.response.Action = kvrpcpb.Action_TTLExpireRollback
+			response.Action = kvrpcpb.Action_TTLExpireRollback
 		} else {
 			// Lock has not expired, leave it alone.
-			c.response.Action = kvrpcpb.Action_NoAction
-			c.response.LockTtl = lock.Ttl
+			response.Action = kvrpcpb.Action_NoAction
+			response.LockTtl = lock.Ttl
 		}
 
-		return nil
+		return response, nil
 	}
 
 	existingWrite, commitTs, err := txn.FindWrite(key, *txn.StartTS)
 	if err != nil {
-		return err
+		return regionError(err, response)
 	}
 	if existingWrite == nil {
 		// The lock never existed, roll it back.
 		write := kvstore.Write{StartTS: *txn.StartTS, Kind: kvstore.WriteKindRollback}
 		txn.PutWrite(key, &write, *txn.StartTS)
-		c.response.Action = kvrpcpb.Action_LockNotExistRollback
+		response.Action = kvrpcpb.Action_LockNotExistRollback
 
-		return nil
+		return response, nil
 	}
 
 	if existingWrite.Kind == kvstore.WriteKindRollback {
 		// The key has already been rolled back, so nothing to do.
-		c.response.Action = kvrpcpb.Action_NoAction
-		return nil
+		response.Action = kvrpcpb.Action_NoAction
+		return response, nil
 	}
 
 	// The key has already been committed.
-	c.response.CommitVersion = commitTs
-	c.response.Action = kvrpcpb.Action_NoAction
-	return nil
-}
-
-func (c *CheckTxnStatus) Context() *kvrpcpb.Context {
-	return c.request.Context
-}
-
-func (c *CheckTxnStatus) Response() interface{} {
-	return &c.response
-}
-
-func (c *CheckTxnStatus) HandleError(err error) interface{} {
-	if err == nil {
-		return nil
-	}
-
-	if regionErr := extractRegionError(err); regionErr != nil {
-		c.response.RegionError = regionErr
-		return &c.response
-	}
-
-	if e, ok := err.(KeyError); ok {
-		c.response.Error = e.KeyErrors()[0]
-		return &c.response
-	}
-
-	return nil
+	response.CommitVersion = commitTs
+	response.Action = kvrpcpb.Action_NoAction
+	return response, nil
 }
 
 func physical(ts uint64) uint64 {
 	return ts >> tsoutil.PhysicalShiftBits
+}
+
+func (c *CheckTxnStatus) WillWrite() [][]byte {
+	return [][]byte{c.request.PrimaryKey}
 }
