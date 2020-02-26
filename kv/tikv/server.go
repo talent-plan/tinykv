@@ -84,9 +84,7 @@ func (server *Server) KvResolveLock(_ context.Context, req *kvrpcpb.ResolveLockR
 func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
 	response := new(kvrpcpb.RawGetResponse)
 	reader, err := server.innerServer.Reader(req.Context)
-	if err != nil {
-		response.Error = err.Error()
-	} else {
+	if !rawRegionError(err, response) {
 		val, err := reader.GetCF(req.Cf, req.Key)
 		if err != nil {
 			if err == badger.ErrKeyNotFound {
@@ -103,33 +101,35 @@ func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kv
 }
 
 func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
-	server.innerServer.Write(req.Context, []inner_server.Modify{{
+	response := new(kvrpcpb.RawPutResponse)
+	err := server.innerServer.Write(req.Context, []inner_server.Modify{{
 		Type: inner_server.ModifyTypePut,
 		Data: inner_server.Put{
 			Key:   req.Key,
 			Value: req.Value,
 			Cf:    req.Cf,
 		}}})
-	return new(kvrpcpb.RawPutResponse), nil
+	rawRegionError(err, response)
+	return response, nil
 }
 
 func (server *Server) RawDelete(_ context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
-	server.innerServer.Write(req.Context, []inner_server.Modify{{
+	response := new(kvrpcpb.RawDeleteResponse)
+	err := server.innerServer.Write(req.Context, []inner_server.Modify{{
 		Type: inner_server.ModifyTypeDelete,
 		Data: inner_server.Delete{
 			Key: req.Key,
 			Cf:  req.Cf,
 		}}})
-	return new(kvrpcpb.RawDeleteResponse), nil
+	rawRegionError(err, response)
+	return response, nil
 }
 
 func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*kvrpcpb.RawScanResponse, error) {
 	response := new(kvrpcpb.RawScanResponse)
 
 	reader, err := server.innerServer.Reader(req.Context)
-	if err != nil {
-		response.Error = err.Error()
-	} else {
+	if !rawRegionError(err, response) {
 		it := reader.IterCF(req.Cf)
 		defer it.Close()
 		for it.Seek(req.StartKey); it.Valid() && len(response.Kvs) < int(req.Limit); it.Next() {
@@ -166,12 +166,17 @@ func (server *Server) Coprocessor(_ context.Context, req *coprocessor.Request) (
 }
 
 // rawRegionError assigns region errors to a RegionError field, and other errors to the Error field,
-// of resp.
-func rawRegionError(err error, resp interface{}) {
+// of resp. This is only a valid way to handle errors for the raw commands. Returns true if err is
+// non-nil, false otherwise.
+func rawRegionError(err error, resp interface{}) bool {
+	if err == nil {
+		return false
+	}
 	respValue := reflect.ValueOf(resp)
 	if regionErr, ok := err.(*inner_server.RegionError); ok {
 		respValue.FieldByName("RegionError").Set(reflect.ValueOf(regionErr.RequestErr))
 	} else {
 		respValue.FieldByName("Error").Set(reflect.ValueOf(err.Error()))
 	}
+	return true
 }
