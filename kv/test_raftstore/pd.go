@@ -67,7 +67,7 @@ type Store struct {
 
 func NewStore(store *metapb.Store) *Store {
 	return &Store{
-		store: *store,
+		store:                    *store,
 		heartbeatResponseHandler: nil,
 	}
 }
