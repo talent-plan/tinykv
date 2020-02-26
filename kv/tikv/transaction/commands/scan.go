@@ -1,7 +1,7 @@
-package storage
+package commands
 
 import (
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/transaction/mvcc"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
 
@@ -21,11 +21,11 @@ func NewScan(request *kvrpcpb.ScanRequest) Scan {
 	return result
 }
 
-func (s *Scan) Read(txn *kvstore.RoTxn) (interface{}, [][]byte, error) {
+func (s *Scan) Read(txn *mvcc.RoTxn) (interface{}, [][]byte, error) {
 	txn.StartTS = &s.request.Version
 	response := new(kvrpcpb.ScanResponse)
 
-	scanner := kvstore.NewScanner(s.request.StartKey, txn)
+	scanner := mvcc.NewScanner(s.request.StartKey, txn)
 	limit := s.request.Limit
 	for {
 		if limit == 0 {

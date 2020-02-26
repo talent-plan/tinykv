@@ -1,11 +1,12 @@
-package storage
+package commands
 
 import (
 	"encoding/binary"
+	"testing"
+
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 // TestCheckTxnStatusTtlExpired checks that if there is a lock and its ttl has expired, then it is rolled back.
@@ -18,7 +19,6 @@ func TestCheckTxnStatusTtlExpired(t *testing.T) {
 	})
 	resp := builder.runOneCmd(&cmd).(*kvrpcpb.CheckTxnStatusResponse)
 
-	assert.Nil(t, resp.Error)
 	assert.Nil(t, resp.RegionError)
 	assert.Equal(t, kvrpcpb.Action_TTLExpireRollback, resp.Action)
 	builder.assertLens(0, 0, 1)
@@ -37,7 +37,6 @@ func TestCheckTxnStatusTtlNotExpired(t *testing.T) {
 	})
 	resp := builder.runOneCmd(&cmd).(*kvrpcpb.CheckTxnStatusResponse)
 
-	assert.Nil(t, resp.Error)
 	assert.Nil(t, resp.RegionError)
 	assert.Equal(t, kvrpcpb.Action_NoAction, resp.Action)
 	builder.assertLens(1, 1, 0)
@@ -58,7 +57,6 @@ func TestCheckTxnStatusRolledBack(t *testing.T) {
 	})
 	resp := builder.runOneCmd(&cmd).(*kvrpcpb.CheckTxnStatusResponse)
 
-	assert.Nil(t, resp.Error)
 	assert.Nil(t, resp.RegionError)
 	assert.Equal(t, kvrpcpb.Action_NoAction, resp.Action)
 	assert.Equal(t, uint64(0), resp.CommitVersion)
@@ -80,7 +78,6 @@ func TestCheckTxnStatusCommitted(t *testing.T) {
 	})
 	resp := builder.runOneCmd(&cmd).(*kvrpcpb.CheckTxnStatusResponse)
 
-	assert.Nil(t, resp.Error)
 	assert.Nil(t, resp.RegionError)
 	assert.Equal(t, kvrpcpb.Action_NoAction, resp.Action)
 	assert.Equal(t, binary.BigEndian.Uint64([]byte{0, 0, 5, 0, 0, 0, 0, builder.ts()}), resp.CommitVersion)
@@ -97,7 +94,6 @@ func TestCheckTxnStatusNoLockNoWrite(t *testing.T) {
 	cmd := NewCheckTxnStatus(builder.checkTxnStatusRequest([]byte{3}))
 	resp := builder.runOneCmd(&cmd).(*kvrpcpb.CheckTxnStatusResponse)
 
-	assert.Nil(t, resp.Error)
 	assert.Nil(t, resp.RegionError)
 	assert.Equal(t, kvrpcpb.Action_LockNotExistRollback, resp.Action)
 	builder.assertLens(0, 0, 1)

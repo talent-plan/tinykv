@@ -1,7 +1,7 @@
-package storage
+package commands
 
 import (
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/transaction/mvcc"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
 
@@ -23,7 +23,7 @@ func NewPrewrite(request *kvrpcpb.PrewriteRequest) Prewrite {
 	}
 }
 
-func (p *Prewrite) PrepareWrites(txn *kvstore.MvccTxn) (interface{}, error) {
+func (p *Prewrite) PrepareWrites(txn *mvcc.MvccTxn) (interface{}, error) {
 	response := new(kvrpcpb.PrewriteResponse)
 	txn.StartTS = &p.request.StartVersion
 
@@ -42,10 +42,10 @@ func (p *Prewrite) PrepareWrites(txn *kvstore.MvccTxn) (interface{}, error) {
 
 // prewriteMutation prewrites mut to txn. It returns (nil, nil) on success, (err, nil) if the key in mut is already
 // locked or there is any other key error, and (nil, err) if an internal error occurs.
-func (p *Prewrite) prewriteMutation(txn *kvstore.MvccTxn, mut *kvrpcpb.Mutation) (*kvrpcpb.KeyError, error) {
+func (p *Prewrite) prewriteMutation(txn *mvcc.MvccTxn, mut *kvrpcpb.Mutation) (*kvrpcpb.KeyError, error) {
 	key := mut.Key
 	// Check for write conflicts.
-	if write, writeCommitTS, err := txn.SeekWrite(key, kvstore.TsMax); write != nil && err == nil {
+	if write, writeCommitTS, err := txn.SeekWrite(key, mvcc.TsMax); write != nil && err == nil {
 		if writeCommitTS >= *txn.StartTS {
 			keyError := new(kvrpcpb.KeyError)
 			keyError.Conflict = &kvrpcpb.WriteConflict{
@@ -76,10 +76,10 @@ func (p *Prewrite) prewriteMutation(txn *kvstore.MvccTxn, mut *kvrpcpb.Mutation)
 	}
 
 	// Write a lock and value.
-	lock := kvstore.Lock{
+	lock := mvcc.Lock{
 		Primary: p.request.PrimaryLock,
 		Ts:      *txn.StartTS,
-		Kind:    kvstore.WriteKindFromProto(mut.Op),
+		Kind:    mvcc.WriteKindFromProto(mut.Op),
 		Ttl:     p.request.LockTtl,
 	}
 	txn.PutLock(key, &lock)

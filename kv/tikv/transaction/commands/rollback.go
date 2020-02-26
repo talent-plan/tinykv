@@ -1,10 +1,11 @@
-package storage
+package commands
 
 import (
 	"fmt"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"reflect"
+
+	"github.com/pingcap-incubator/tinykv/kv/tikv/transaction/mvcc"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
 
 type Rollback struct {
@@ -21,7 +22,7 @@ func NewRollback(request *kvrpcpb.BatchRollbackRequest) Rollback {
 	}
 }
 
-func (r *Rollback) PrepareWrites(txn *kvstore.MvccTxn) (interface{}, error) {
+func (r *Rollback) PrepareWrites(txn *mvcc.MvccTxn) (interface{}, error) {
 	response := new(kvrpcpb.BatchRollbackResponse)
 	txn.StartTS = &r.request.StartVersion
 
@@ -34,7 +35,7 @@ func (r *Rollback) PrepareWrites(txn *kvstore.MvccTxn) (interface{}, error) {
 	return response, nil
 }
 
-func rollbackKey(key []byte, txn *kvstore.MvccTxn, response interface{}) (interface{}, error) {
+func rollbackKey(key []byte, txn *mvcc.MvccTxn, response interface{}) (interface{}, error) {
 	lock, err := txn.GetLock(key)
 	if err != nil {
 		return regionError(err, response)
@@ -48,12 +49,12 @@ func rollbackKey(key []byte, txn *kvstore.MvccTxn, response interface{}) (interf
 		}
 		if existingWrite == nil {
 			// There is no write either, presumably the prewrite was lost. We insert a rollback write anyway.
-			write := kvstore.Write{StartTS: *txn.StartTS, Kind: kvstore.WriteKindRollback}
+			write := mvcc.Write{StartTS: *txn.StartTS, Kind: mvcc.WriteKindRollback}
 			txn.PutWrite(key, &write, *txn.StartTS)
 
 			return nil, nil
 		} else {
-			if existingWrite.Kind == kvstore.WriteKindRollback {
+			if existingWrite.Kind == mvcc.WriteKindRollback {
 				// The key has already been rolled back, so nothing to do.
 				return nil, nil
 			}
@@ -68,11 +69,11 @@ func rollbackKey(key []byte, txn *kvstore.MvccTxn, response interface{}) (interf
 		}
 	}
 
-	if lock.Kind == kvstore.WriteKindPut {
+	if lock.Kind == mvcc.WriteKindPut {
 		txn.DeleteValue(key)
 	}
 
-	write := kvstore.Write{StartTS: *txn.StartTS, Kind: kvstore.WriteKindRollback}
+	write := mvcc.Write{StartTS: *txn.StartTS, Kind: mvcc.WriteKindRollback}
 	txn.PutWrite(key, &write, *txn.StartTS)
 	txn.DeleteLock(key)
 

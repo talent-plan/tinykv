@@ -1,14 +1,14 @@
-package storage
+package commands
 
 import (
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/transaction/mvcc"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
 
 type ResolveLock struct {
 	CommandBase
 	request  *kvrpcpb.ResolveLockRequest
-	keyLocks []kvstore.KlPair
+	keyLocks []mvcc.KlPair
 }
 
 func NewResolveLock(request *kvrpcpb.ResolveLockRequest) ResolveLock {
@@ -20,7 +20,7 @@ func NewResolveLock(request *kvrpcpb.ResolveLockRequest) ResolveLock {
 	}
 }
 
-func (rl *ResolveLock) PrepareWrites(txn *kvstore.MvccTxn) (interface{}, error) {
+func (rl *ResolveLock) PrepareWrites(txn *mvcc.MvccTxn) (interface{}, error) {
 	// A map from start timestamps to commit timestamps which tells us whether a transaction (identified by start ts)
 	// has been committed (and if so, then its commit ts) or rolled back (in which case the commit ts is 0).
 	txn.StartTS = &rl.request.StartVersion
@@ -48,10 +48,10 @@ func (rl *ResolveLock) WillWrite() [][]byte {
 	return nil
 }
 
-func (rl *ResolveLock) Read(txn *kvstore.RoTxn) (interface{}, [][]byte, error) {
+func (rl *ResolveLock) Read(txn *mvcc.RoTxn) (interface{}, [][]byte, error) {
 	// Find all locks where the lock's transaction (start ts) is in txnStatus.
 	txn.StartTS = &rl.request.StartVersion
-	keyLocks, err := kvstore.AllLocksForTxn(txn)
+	keyLocks, err := mvcc.AllLocksForTxn(txn)
 	if err != nil {
 		return nil, nil, err
 	}

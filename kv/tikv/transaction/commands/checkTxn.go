@@ -1,7 +1,7 @@
-package storage
+package commands
 
 import (
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/transaction/mvcc"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/tsoutil"
 )
@@ -20,7 +20,7 @@ func NewCheckTxnStatus(request *kvrpcpb.CheckTxnStatusRequest) CheckTxnStatus {
 	}
 }
 
-func (c *CheckTxnStatus) PrepareWrites(txn *kvstore.MvccTxn) (interface{}, error) {
+func (c *CheckTxnStatus) PrepareWrites(txn *mvcc.MvccTxn) (interface{}, error) {
 	txn.StartTS = &c.request.LockTs
 	key := c.request.PrimaryKey
 	response := new(kvrpcpb.CheckTxnStatusResponse)
@@ -32,8 +32,8 @@ func (c *CheckTxnStatus) PrepareWrites(txn *kvstore.MvccTxn) (interface{}, error
 	if lock != nil && lock.Ts == *txn.StartTS {
 		if physical(lock.Ts)+lock.Ttl < physical(c.request.CurrentTs) {
 			// Lock has expired, roll it back.
-			write := kvstore.Write{StartTS: *txn.StartTS, Kind: kvstore.WriteKindRollback}
-			if lock.Kind == kvstore.WriteKindPut {
+			write := mvcc.Write{StartTS: *txn.StartTS, Kind: mvcc.WriteKindRollback}
+			if lock.Kind == mvcc.WriteKindPut {
 				txn.DeleteValue(key)
 			}
 			txn.PutWrite(key, &write, *txn.StartTS)
@@ -54,14 +54,14 @@ func (c *CheckTxnStatus) PrepareWrites(txn *kvstore.MvccTxn) (interface{}, error
 	}
 	if existingWrite == nil {
 		// The lock never existed, roll it back.
-		write := kvstore.Write{StartTS: *txn.StartTS, Kind: kvstore.WriteKindRollback}
+		write := mvcc.Write{StartTS: *txn.StartTS, Kind: mvcc.WriteKindRollback}
 		txn.PutWrite(key, &write, *txn.StartTS)
 		response.Action = kvrpcpb.Action_LockNotExistRollback
 
 		return response, nil
 	}
 
-	if existingWrite.Kind == kvstore.WriteKindRollback {
+	if existingWrite.Kind == mvcc.WriteKindRollback {
 		// The key has already been rolled back, so nothing to do.
 		response.Action = kvrpcpb.Action_NoAction
 		return response, nil
