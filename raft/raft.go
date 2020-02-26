@@ -29,14 +29,30 @@ import (
 // None is a placeholder node ID used when there is no leader.
 const None uint64 = 0
 
-// Possible values for StateType.
+// StateType represents the role of a node in a cluster.
+type StateType uint64
+
 const (
 	StateFollower StateType = iota
 	StateCandidate
 	StateLeader
 )
 
-// Possible values for CampaignType
+var stmap = [...]string{
+	"StateFollower",
+	"StateCandidate",
+	"StateLeader",
+}
+
+func (st StateType) String() string {
+	return stmap[uint64(st)]
+}
+
+// CampaignType represents the type of campaigning
+// the reason we use the type of string instead of uint64
+// is because it's simpler to compare and fill in raft entries
+type CampaignType string
+
 const (
 	// campaignElection represents a normal (time-based) election
 	campaignElection CampaignType = "CampaignElection"
@@ -48,6 +64,7 @@ const (
 // so that the proposer can be notified and fail fast.
 var ErrProposalDropped = errors.New("raft proposal dropped")
 
+// TODO: Delete Start
 // lockedRand is a small wrapper around rand.Rand to provide
 // synchronization among multiple raft groups. Only the methods needed
 // by the code are exposed (e.g. Intn).
@@ -67,23 +84,7 @@ var globalRand = &lockedRand{
 	rand: rand.New(rand.NewSource(time.Now().UnixNano())),
 }
 
-// CampaignType represents the type of campaigning
-// the reason we use the type of string instead of uint64
-// is because it's simpler to compare and fill in raft entries
-type CampaignType string
-
-// StateType represents the role of a node in a cluster.
-type StateType uint64
-
-var stmap = [...]string{
-	"StateFollower",
-	"StateCandidate",
-	"StateLeader",
-}
-
-func (st StateType) String() string {
-	return stmap[uint64(st)]
-}
+// TODO: Delete End
 
 // Config contains the parameters to start a raft.
 type Config struct {
@@ -178,6 +179,19 @@ type Raft struct {
 	// value.
 	PendingConfIndex uint64
 
+	heartbeatTimeout int
+	electionTimeout  int
+	// randomizedElectionTimeout is a random number between
+	// [electiontimeout, 2 * electiontimeout - 1]. It gets reset
+	// when raft changes its state to follower or candidate.
+	randomizedElectionTimeout int
+
+	step stepFunc
+
+	logger Logger
+
+	// Your Code Here 2A
+	// TODO: Delete Start
 	// number of ticks since it reached last electionTimeout when it is leader
 	// or candidate.
 	// number of ticks since it reached last electionTimeout or received a
@@ -187,18 +201,7 @@ type Raft struct {
 	// number of ticks since it reached last heartbeatTimeout.
 	// only leader keeps heartbeatElapsed.
 	heartbeatElapsed int
-
-	heartbeatTimeout int
-	electionTimeout  int
-	// randomizedElectionTimeout is a random number between
-	// [electiontimeout, 2 * electiontimeout - 1]. It gets reset
-	// when raft changes its state to follower or candidate.
-	randomizedElectionTimeout int
-
-	tick func()
-	step stepFunc
-
-	logger Logger
+	// TODO: Delete End
 }
 
 func newRaft(c *Config) *Raft {
@@ -210,6 +213,8 @@ func newRaft(c *Config) *Raft {
 	if err != nil {
 		panic(err)
 	}
+	// Your Code Here 2A
+	// TODO: Delete Start
 	peers := c.peers
 	if len(cs.Nodes) > 0 {
 		if len(peers) > 0 {
@@ -239,42 +244,43 @@ func newRaft(c *Config) *Raft {
 	r.becomeFollower(r.Term, None)
 
 	var nodesStrs []string
-	for _, n := range r.nodes() {
+	for _, n := range nodes(r) {
 		nodesStrs = append(nodesStrs, fmt.Sprintf("%x", n))
 	}
 
 	r.logger.Infof("newRaft %x [peers: [%s], term: %d, commit: %d, applied: %d, lastindex: %d, lastterm: %d]",
 		r.id, strings.Join(nodesStrs, ","), r.Term, r.RaftLog.committed, r.RaftLog.applied, r.RaftLog.LastIndex(), r.RaftLog.lastTerm())
 	return r
+	// TODO: Delete End
 }
 
+// TODO: Delete method
 func (r *Raft) GetSnap() *pb.Snapshot {
 	return r.RaftLog.pending_snapshot
 }
 
 func (r *Raft) softState() *SoftState {
+	// Your Code Here 2C
+	// TODO: Delete Start
 	return &SoftState{Lead: r.Lead, RaftState: r.State}
+	// TODO: Delete End
 }
 
 func (r *Raft) hardState() pb.HardState {
+	// Your Code Here 2C
+	// TODO: Delete Start
 	return pb.HardState{
 		Term:   r.Term,
 		Vote:   r.Vote,
 		Commit: r.RaftLog.committed,
 	}
+	// TODO: Delete End
 }
 
+// TODO: Delete method
 func (r *Raft) quorum() int { return len(r.Prs)/2 + 1 }
 
-func (r *Raft) nodes() []uint64 {
-	nodes := make([]uint64, 0, len(r.Prs))
-	for id := range r.Prs {
-		nodes = append(nodes, id)
-	}
-	sort.Sort(uint64Slice(nodes))
-	return nodes
-}
-
+// TODO: Delete method
 // send persists state to stable storage and then sends to its mailbox.
 func (r *Raft) send(m pb.Message) {
 	m.From = r.id
@@ -301,6 +307,7 @@ func (r *Raft) send(m pb.Message) {
 	r.msgs = append(r.msgs, m)
 }
 
+// TODO: Delete method
 func (r *Raft) getProgress(id uint64) *Progress {
 	return r.Prs[id]
 }
@@ -308,6 +315,8 @@ func (r *Raft) getProgress(id uint64) *Progress {
 // sendAppend sends an append RPC with new entries (if any) and the
 // current commit index to the given peer. Returns true if a message was sent.
 func (r *Raft) sendAppend(to uint64) bool {
+	// Your Code Here 2B
+	// TODO: Delete Start
 	pr := r.getProgress(to)
 	m := pb.Message{}
 	m.To = to
@@ -347,10 +356,13 @@ func (r *Raft) sendAppend(to uint64) bool {
 	}
 	r.send(m)
 	return true
+	// TODO: Delete End
 }
 
 // sendHeartbeat sends a heartbeat RPC to the given peer.
 func (r *Raft) sendHeartbeat(to uint64) {
+	// Your Code Here 2A
+	// TODO: Delete Start
 	// Attach the commit as min(to.matched, r.committed).
 	// When the leader sends out heartbeat message,
 	// the receiver(follower) might not be matched with the leader
@@ -365,14 +377,17 @@ func (r *Raft) sendHeartbeat(to uint64) {
 	}
 
 	r.send(m)
+	// TODO: Delete End
 }
 
+// TODO: Delete method
 func (r *Raft) forEachProgress(f func(id uint64, pr *Progress)) {
 	for id, pr := range r.Prs {
 		f(id, pr)
 	}
 }
 
+// TODO: Delete method
 // bcastAppend sends RPC, with entries to all peers that are not up-to-date
 // according to the progress recorded in r.Prs.
 func (r *Raft) bcastAppend() {
@@ -385,6 +400,7 @@ func (r *Raft) bcastAppend() {
 	})
 }
 
+// TODO: Delete method
 // bcastHeartbeat sends RPC, without entries to all the peers.
 func (r *Raft) bcastHeartbeat() {
 	r.forEachProgress(func(id uint64, _ *Progress) {
@@ -395,6 +411,7 @@ func (r *Raft) bcastHeartbeat() {
 	})
 }
 
+// TODO: Delete method
 // maybeCommit attempts to advance the commit index. Returns true if
 // the commit index changed (in which case the caller should call
 // r.bcastAppend).
@@ -410,6 +427,7 @@ func (r *Raft) maybeCommit() bool {
 	return r.RaftLog.maybeCommit(mci, r.Term)
 }
 
+// TODO: Delete method
 func (r *Raft) reset(term uint64) {
 	if r.Term != term {
 		r.Term = term
@@ -434,6 +452,7 @@ func (r *Raft) reset(term uint64) {
 	r.PendingConfIndex = 0
 }
 
+// TODO: Delete method
 func (r *Raft) appendEntry(es ...pb.Entry) {
 	li := r.RaftLog.LastIndex()
 	for i := range es {
@@ -447,6 +466,19 @@ func (r *Raft) appendEntry(es ...pb.Entry) {
 	r.maybeCommit()
 }
 
+func (r *Raft) tick() {
+	// Your Code Here 2A
+	// TODO: Delete Start
+	switch r.State {
+	case StateFollower, StateCandidate:
+		r.tickElection()
+	case StateLeader:
+		r.tickHeartbeat()
+	}
+	// TODO: Delete End
+}
+
+// TODO: Delete method
 // tickElection is run by followers and candidates after r.electionTimeout.
 func (r *Raft) tickElection() {
 	r.electionElapsed++
@@ -457,6 +489,7 @@ func (r *Raft) tickElection() {
 	}
 }
 
+// TODO: Delete method
 // tickHeartbeat is run by leaders to send a MessageType_MsgBeat after r.heartbeatTimeout.
 func (r *Raft) tickHeartbeat() {
 	r.heartbeatElapsed++
@@ -481,35 +514,32 @@ func (r *Raft) tickHeartbeat() {
 }
 
 func (r *Raft) becomeFollower(term uint64, lead uint64) {
+	// Your Code Here 2A
+	// TODO: Delete Start
 	r.step = stepFollower
 	r.reset(term)
-	r.tick = r.tickElection
 	r.Lead = lead
 	r.State = StateFollower
 	r.logger.Infof("%x became follower at term %d", r.id, r.Term)
+	// TODO: Delete End
 }
 
 func (r *Raft) becomeCandidate() {
-	// TODO(xiangli) remove the panic when the raft implementation is stable
-	if r.State == StateLeader {
-		panic("invalid transition [leader -> candidate]")
-	}
+	// Your Code Here 2A
+	// TODO: Delete Start
 	r.step = stepCandidate
 	r.reset(r.Term + 1)
-	r.tick = r.tickElection
 	r.Vote = r.id
 	r.State = StateCandidate
 	r.logger.Infof("%x became candidate at term %d", r.id, r.Term)
+	// TODO: Delete End
 }
 
 func (r *Raft) becomeLeader() {
-	// TODO(xiangli) remove the panic when the raft implementation is stable
-	if r.State == StateFollower {
-		panic("invalid transition [follower -> leader]")
-	}
+	// Your Code Here 2A
+	// TODO: Delete Start
 	r.step = stepLeader
 	r.reset(r.Term)
-	r.tick = r.tickHeartbeat
 	r.Lead = r.id
 	r.State = StateLeader
 
@@ -519,12 +549,14 @@ func (r *Raft) becomeLeader() {
 	// pending log entries, and scanning the entire tail of the log
 	// could be expensive.
 	r.PendingConfIndex = r.RaftLog.LastIndex()
+	// TODO: Delete End
 
 	emptyEnt := pb.Entry{Data: nil}
 	r.appendEntry(emptyEnt)
 	r.logger.Infof("%x became leader at term %d", r.id, r.Term)
 }
 
+// TODO: Delete method
 func (r *Raft) campaign(t CampaignType) {
 	r.becomeCandidate()
 	voteMsg := pb.MessageType_MsgRequestVote
@@ -551,6 +583,7 @@ func (r *Raft) campaign(t CampaignType) {
 	}
 }
 
+// TODO: Delete method
 func (r *Raft) poll(id uint64, t pb.MessageType, v bool) (granted int) {
 	if v {
 		r.logger.Infof("%x received %s from %x at term %d", r.id, t, id, r.Term)
@@ -569,6 +602,8 @@ func (r *Raft) poll(id uint64, t pb.MessageType, v bool) (granted int) {
 }
 
 func (r *Raft) Step(m pb.Message) error {
+	// Your Code Here 2A
+	// TODO: Delete Start
 	// Handle the message term, which may result in our stepping down to a follower.
 	switch {
 	case m.Term == 0:
@@ -630,14 +665,23 @@ func (r *Raft) Step(m pb.Message) error {
 			return err
 		}
 	}
+	// TODO: Delete End
 	return nil
 }
 
 type stepFunc func(r *Raft, m pb.Message) error
 
 func stepLeader(r *Raft, m pb.Message) error {
-	// These message types do not require any progress for m.From.
+	// Your Code Here 2A
+	// TODO: Delete Start
+	pr := r.getProgress(m.From)
+	if pr == nil && m.MsgType != pb.MessageType_MsgBeat && m.MsgType != pb.MessageType_MsgPropose {
+		r.logger.Debugf("%x no progress available for %x", r.id, m.From)
+		return nil
+	}
+	// TODO: Delete End
 	switch m.MsgType {
+	// TODO: Delete Start
 	case pb.MessageType_MsgBeat:
 		r.bcastHeartbeat()
 		return nil
@@ -676,15 +720,6 @@ func stepLeader(r *Raft, m pb.Message) error {
 		r.appendEntry(es...)
 		r.bcastAppend()
 		return nil
-	}
-
-	// All other message types require a progress for m.From (pr).
-	pr := r.getProgress(m.From)
-	if pr == nil {
-		r.logger.Debugf("%x no progress available for %x", r.id, m.From)
-		return nil
-	}
-	switch m.MsgType {
 	case pb.MessageType_MsgAppendResponse:
 		if m.Reject {
 			r.logger.Debugf("%x received MessageType_MsgAppend rejection(lastindex: %d) from %x for index %d",
@@ -737,12 +772,15 @@ func stepLeader(r *Raft, m pb.Message) error {
 		} else {
 			r.sendAppend(leadTransferee)
 		}
+		// TODO: Delete End
 	}
 	return nil
 }
 
 func stepCandidate(r *Raft, m pb.Message) error {
+	// Your Code Here 2A
 	switch m.MsgType {
+	// TODO: Delete Start
 	case pb.MessageType_MsgPropose:
 		r.logger.Infof("%x no leader at term %d; dropping proposal", r.id, r.Term)
 		return ErrProposalDropped
@@ -768,19 +806,18 @@ func stepCandidate(r *Raft, m pb.Message) error {
 		}
 	case pb.MessageType_MsgTimeoutNow:
 		r.logger.Debugf("%x [term %d state %v] ignored MessageType_MsgTimeoutNow from %x", r.id, r.Term, r.State, m.From)
+		// TODO: Delete End
 	}
 	return nil
 }
 
 func stepFollower(r *Raft, m pb.Message) error {
+	// Your Code Here 2A
 	switch m.MsgType {
+	// TODO: Delete Start
 	case pb.MessageType_MsgPropose:
-		if r.Lead == None {
-			r.logger.Infof("%x no leader at term %d; dropping proposal", r.id, r.Term)
-			return ErrProposalDropped
-		}
-		m.To = r.Lead
-		r.send(m)
+		r.logger.Infof("%x is no leader at term %d; dropping proposal", r.id, r.Term)
+		return ErrProposalDropped
 	case pb.MessageType_MsgAppend:
 		r.electionElapsed = 0
 		r.Lead = m.From
@@ -807,11 +844,14 @@ func stepFollower(r *Raft, m pb.Message) error {
 		} else {
 			r.logger.Infof("%x received MessageType_MsgTimeoutNow from %x but is not promotable", r.id, m.From)
 		}
+		// TODO: Delete End
 	}
 	return nil
 }
 
 func (r *Raft) handleAppendEntries(m pb.Message) {
+	// Your Code Here 2B
+	// TODO: Delete Start
 	if m.Index < r.RaftLog.committed {
 		r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, Index: r.RaftLog.committed})
 		return
@@ -828,14 +868,20 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 			r.id, r.RaftLog.zeroTermOnRangeErr(r.RaftLog.Term(m.Index)), m.Index, m.LogTerm, m.Index, m.From)
 		r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, Index: m.Index, Reject: true, RejectHint: r.RaftLog.LastIndex()})
 	}
+	// TODO: Delete End
 }
 
 func (r *Raft) handleHeartbeat(m pb.Message) {
+	// Your Code Here 2A
+	// TODO: Delete Start
 	r.RaftLog.commitTo(m.Commit)
 	r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgHeartbeatResponse, Context: m.Context})
+	// TODO: Delete End
 }
 
 func (r *Raft) handleSnapshot(m pb.Message) {
+	// Your Code Here 2B
+	// TODO: Delete Start
 	sindex, sterm := m.Snapshot.Metadata.Index, m.Snapshot.Metadata.Term
 	if r.restore(*m.Snapshot) {
 		r.logger.Infof("%x [commit: %d] restored snapshot [index: %d, term: %d]",
@@ -846,8 +892,10 @@ func (r *Raft) handleSnapshot(m pb.Message) {
 			r.id, r.RaftLog.committed, sindex, sterm)
 		r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, Index: r.RaftLog.committed})
 	}
+	// TODO: Delete End
 }
 
+// TODO: Delete method
 // restore recovers the state machine from a snapshot. It restores the log and the
 // configuration of state machine.
 func (r *Raft) restore(s pb.Snapshot) bool {
@@ -870,6 +918,7 @@ func (r *Raft) restore(s pb.Snapshot) bool {
 	return true
 }
 
+// TODO: Delete method
 func (r *Raft) restoreNode(nodes []uint64) {
 	for _, n := range nodes {
 		match, next := uint64(0), r.RaftLog.LastIndex()+1
@@ -881,10 +930,7 @@ func (r *Raft) restoreNode(nodes []uint64) {
 	}
 }
 
-func (r *Raft) hasPendingConf() bool {
-	return r.PendingConfIndex > r.RaftLog.applied
-}
-
+// TODO: Delete method
 // promotable indicates whether state machine can be promoted to Leader,
 // which is true when its own id is in progress list.
 func (r *Raft) promotable() bool {
@@ -893,14 +939,19 @@ func (r *Raft) promotable() bool {
 }
 
 func (r *Raft) addNode(id uint64) {
+	// Your Code Here 3A
+	// TODO: Delete Start
 	if r.getProgress(id) == nil {
 		r.setProgress(id, 0, r.RaftLog.LastIndex()+1)
 	} else {
 		return
 	}
+	// TODO: Delete End
 }
 
 func (r *Raft) removeNode(id uint64) {
+	// Your Code Here 3A
+	// TODO: Delete Start
 	delete(r.Prs, id)
 
 	// do not try to commit or abort transferring if there is no nodes in the cluster.
@@ -917,13 +968,16 @@ func (r *Raft) removeNode(id uint64) {
 	if r.State == StateLeader && r.leadTransferee == id {
 		r.abortLeaderTransfer()
 	}
+	// TODO: Delete End
 }
 
+// TODO: Delete method
 func (r *Raft) setProgress(id, match, next uint64) {
 	r.Prs[id] = &Progress{Next: next, Match: match}
 	return
 }
 
+// TODO: Delete method
 func (r *Raft) loadState(state pb.HardState) {
 	if state.Commit < r.RaftLog.committed || state.Commit > r.RaftLog.LastIndex() {
 		r.logger.Panicf("%x state.commit %d is out of range [%d, %d]", r.id, state.Commit, r.RaftLog.committed, r.RaftLog.LastIndex())
@@ -933,6 +987,7 @@ func (r *Raft) loadState(state pb.HardState) {
 	r.Vote = state.Vote
 }
 
+// TODO: Delete method
 // pastElectionTimeout returns true iff r.electionElapsed is greater
 // than or equal to the randomized election timeout in
 // [electiontimeout, 2 * electiontimeout - 1].
@@ -940,18 +995,22 @@ func (r *Raft) pastElectionTimeout() bool {
 	return r.electionElapsed >= r.randomizedElectionTimeout
 }
 
+// TODO: Delete method
 func (r *Raft) resetRandomizedElectionTimeout() {
 	r.randomizedElectionTimeout = r.electionTimeout + globalRand.Intn(r.electionTimeout)
 }
 
+// TODO: Delete method
 func (r *Raft) sendTimeoutNow(to uint64) {
 	r.send(pb.Message{To: to, MsgType: pb.MessageType_MsgTimeoutNow})
 }
 
+// TODO: Delete method
 func (r *Raft) abortLeaderTransfer() {
 	r.leadTransferee = None
 }
 
+// TODO: Delete method
 func numOfPendingConf(ents []pb.Entry) int {
 	n := 0
 	for i := range ents {
