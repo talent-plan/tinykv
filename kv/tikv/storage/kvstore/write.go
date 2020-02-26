@@ -63,6 +63,8 @@ func WriteKindFromProto(op kvrpcpb.Op) WriteKind {
 		return WriteKindDelete
 	case kvrpcpb.Op_Rollback:
 		return WriteKindRollback
+	case kvrpcpb.Op_Lock:
+		panic("not supported yet")
 	}
 
 	return -1

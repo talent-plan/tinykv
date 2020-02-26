@@ -99,6 +99,7 @@ enum Op {
     Put = 0;
     Del = 1;
     Rollback = 2;
+    Lock = 3; // needed by TinySQL, but won't supported by TinyKV temporarily.
 }
 
 message Mutation {
