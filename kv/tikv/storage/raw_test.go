@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"context"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
 	"testing"
 
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
@@ -9,60 +11,64 @@ import (
 )
 
 func TestGet(t *testing.T) {
-	builder := newBuilder(t)
-	builder.mem.Set(engine_util.CfDefault, []byte{99}, []byte{42})
+	mem := inner_server.NewMemInnerServer()
+	server := NewServer(mem)
+	mem.Set(engine_util.CfDefault, []byte{99}, []byte{42})
 
 	var req kvrpcpb.RawGetRequest
 	req.Key = []byte{99}
 	req.Cf = engine_util.CfDefault
-	get := NewRawGet(&req)
-	resp := builder.runOneCmd(&get).(*kvrpcpb.RawGetResponse)
 
+	resp, err := server.RawGet(context.Background(), &req)
+	assert.Nil(t, err)
 	assert.Equal(t, []byte{42}, resp.Value)
 }
 
 func TestPut(t *testing.T) {
-	builder := newBuilder(t)
+	mem := inner_server.NewMemInnerServer()
+	server := NewServer(mem)
 
 	var req kvrpcpb.RawPutRequest
 	req.Key = []byte{99}
 	req.Value = []byte{42}
 	req.Cf = engine_util.CfDefault
-	put := NewRawPut(&req)
-	builder.runCommands(&put)
 
-	assert.Equal(t, 1, builder.mem.Len(engine_util.CfDefault))
-	assert.Equal(t, []byte{42}, builder.mem.Get(engine_util.CfDefault, []byte{99}))
+	_, err := server.RawPut(context.Background(), &req)
+	assert.Nil(t, err)
+	assert.Equal(t, 1, mem.Len(engine_util.CfDefault))
+	assert.Equal(t, []byte{42}, mem.Get(engine_util.CfDefault, []byte{99}))
 }
 
 func TestDelete(t *testing.T) {
-	builder := newBuilder(t)
-	builder.mem.Set(engine_util.CfDefault, []byte{99}, []byte{42})
+	mem := inner_server.NewMemInnerServer()
+	server := NewServer(mem)
+	mem.Set(engine_util.CfDefault, []byte{99}, []byte{42})
 
 	var req kvrpcpb.RawDeleteRequest
 	req.Key = []byte{99}
 	req.Cf = engine_util.CfDefault
-	del := NewRawDelete(&req)
-	builder.runCommands(&del)
 
-	assert.Equal(t, 0, builder.mem.Len(engine_util.CfDefault))
+	_, err := server.RawDelete(context.Background(), &req)
+	assert.Nil(t, err)
+	assert.Equal(t, 0, mem.Len(engine_util.CfDefault))
 }
 
 func TestScan(t *testing.T) {
-	builder := newBuilder(t)
-	builder.mem.Set(engine_util.CfDefault, []byte{99}, []byte{42})
-	builder.mem.Set(engine_util.CfDefault, []byte{101}, []byte{42, 2})
-	builder.mem.Set(engine_util.CfDefault, []byte{102}, []byte{42, 3})
-	builder.mem.Set(engine_util.CfDefault, []byte{105}, []byte{42, 4})
-	builder.mem.Set(engine_util.CfDefault, []byte{255}, []byte{42, 5})
+	mem := inner_server.NewMemInnerServer()
+	server := NewServer(mem)
+	mem.Set(engine_util.CfDefault, []byte{99}, []byte{42})
+	mem.Set(engine_util.CfDefault, []byte{101}, []byte{42, 2})
+	mem.Set(engine_util.CfDefault, []byte{102}, []byte{42, 3})
+	mem.Set(engine_util.CfDefault, []byte{105}, []byte{42, 4})
+	mem.Set(engine_util.CfDefault, []byte{255}, []byte{42, 5})
 
 	var req kvrpcpb.RawScanRequest
 	req.StartKey = []byte{101}
 	req.Limit = 3
 	req.Cf = engine_util.CfDefault
-	get := NewRawScan(&req)
 
-	resp := builder.runOneCmd(&get).(*kvrpcpb.RawScanResponse)
+	resp, err := server.RawScan(context.Background(), &req)
+	assert.Nil(t, err)
 	assert.Equal(t, 3, len(resp.Kvs))
 	expectedKeys := [][]byte{{101}, {102}, {105}}
 	for i, kv := range resp.Kvs {

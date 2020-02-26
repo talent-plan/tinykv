@@ -53,6 +53,15 @@ func regionError(err error, resp interface{}) (interface{}, error) {
 	return nil, err
 }
 
+func rawRegionError(err error, resp interface{}) {
+	respValue := reflect.ValueOf(resp)
+	if regionErr, ok := err.(*inner_server.RegionError); ok {
+		respValue.FieldByName("RegionError").Set(reflect.ValueOf(regionErr.RequestErr))
+	} else {
+		respValue.FieldByName("Error").Set(reflect.ValueOf(err.Error()))
+	}
+}
+
 // regionErrorRo is a convenience version of regionError to match the return type of Read.
 func regionErrorRo(err error, resp interface{}) (interface{}, [][]byte, error) {
 	resp, err = regionError(err, resp)
