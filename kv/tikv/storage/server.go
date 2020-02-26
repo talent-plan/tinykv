@@ -39,6 +39,7 @@ func NewServer(innerServer InnerServer) *Server {
 	}
 }
 
+// Run runs a transactional command.
 func (server *Server) Run(cmd Command) (interface{}, error) {
 	ctxt := cmd.Context()
 	var resp interface{}
@@ -134,7 +135,9 @@ func (server *Server) KvResolveLock(_ context.Context, req *kvrpcpb.ResolveLockR
 	return resp.(*kvrpcpb.ResolveLockResponse), err
 }
 
-// Raw API.
+// Raw API. These commands are handled inline rather than by using Run and am implementation of the Commands interface.
+// This is because these commands are fairly straightforward and do not share a lot of code with the transactional
+// commands.
 func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
 	response := new(kvrpcpb.RawGetResponse)
 	reader, err := server.innerServer.Reader(req.Context)

@@ -13,8 +13,12 @@ import (
 // testBuilder is a helper type for running command tests.
 type testBuilder struct {
 	t      *testing.T
+	// A server object used for its Run function and for access to its latches. Note that we don't use the gRPC handlers
+	// for any transactional command tests.
 	server *Server
+	// mem will always be the backing store for server.
 	mem    *inner_server.MemInnerServer
+	// Keep track of timestamps.
 	prevTs uint64
 }
 
