@@ -1,6 +1,6 @@
-package storage
+package transaction
 
-// The storage package implements TinyKV's 'transaction' layer. This takes incoming requests from the tikv/server.go as
+// The transaction package implements TinyKV's 'transaction' layer. This takes incoming requests from the tikv/server.go as
 // input and turns them into reads and writes of the underlying key/value store (defined by InnerServer in tikv/server.go).
 // The InnerServer handles communicating with other nodes and writing data to disk. The transaction layer must
 // translate high-level TinyKV commands into low-level raw key/value commands, schedule this processing to run efficiently,
@@ -19,5 +19,5 @@ package storage
 // underlying storage (or equivalently, you can think of every key having its own latch). TODO explain latching in more detail.
 //
 // Within this package, `commands` contains code to lower TinySQL requests to mvcc transactions. `exec` contains
-// code to handle scheduling and running commands. `kvstore` contains code for interacting with the underlying storage
+// code to handle scheduling and running commands. `mvcc` contains code for interacting with the underlying storage
 // (InnerServer).

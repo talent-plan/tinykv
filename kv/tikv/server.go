@@ -1,38 +1,27 @@
-package storage
+package tikv
 
 import (
 	"context"
+	"reflect"
+
 	"github.com/Connor1996/badger"
-	"github.com/pingcap-incubator/tinykv/kv/pd"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/latches"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/transaction/commands"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/transaction/latches"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/coprocessor"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 )
 
-// InnerServer represents the internal-facing server part of TinyKV, it handles sending and receiving from other
-// TinyKV nodes. As part of that responsibility, it also reads and writes data to disk (or semi-permanent memory).
-type InnerServer interface {
-	Start(pdClient pd.Client) error
-	Stop() error
-	Write(ctx *kvrpcpb.Context, batch []inner_server.Modify) error
-	Reader(ctx *kvrpcpb.Context) (dbreader.DBReader, error)
-	Raft(stream tikvpb.Tikv_RaftServer) error
-	Snapshot(stream tikvpb.Tikv_SnapshotServer) error
-}
-
 var _ tikvpb.TikvServer = new(Server)
 
 // Server is a TinyKV server, it 'faces outwards', sending and receiving messages from clients such as TinySQL.
 type Server struct {
-	innerServer InnerServer
+	innerServer inner_server.InnerServer
 	Latches     *latches.Latches
 }
 
-func NewServer(innerServer InnerServer) *Server {
+func NewServer(innerServer inner_server.InnerServer) *Server {
 	return &Server{
 		innerServer: innerServer,
 		Latches:     latches.NewLatches(),
@@ -40,97 +29,51 @@ func NewServer(innerServer InnerServer) *Server {
 }
 
 // Run runs a transactional command.
-func (server *Server) Run(cmd Command) (interface{}, error) {
-	ctxt := cmd.Context()
-	var resp interface{}
-
-	latches := cmd.WillWrite()
-	if latches == nil {
-		// The command is readonly or requires access to the DB to determine the keys it will write.
-		reader, err := server.innerServer.Reader(ctxt)
-		if err != nil {
-			return nil, err
-		}
-		txn := kvstore.RoTxn{Reader: reader}
-		resp, latches, err = cmd.Read(&txn)
-		reader.Close()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if latches != nil {
-		// The command will write to the DB.
-
-		server.Latches.WaitForLatches(latches)
-		defer server.Latches.ReleaseLatches(latches)
-
-		reader, err := server.innerServer.Reader(ctxt)
-		if err != nil {
-			return nil, err
-		}
-		defer reader.Close()
-
-		// Build an mvcc transaction.
-		txn := kvstore.NewTxn(reader)
-		resp, err = cmd.PrepareWrites(&txn)
-		if err != nil {
-			return nil, err
-		}
-
-		server.Latches.Validate(&txn, latches)
-
-		// Building the transaction succeeded without conflict, write all writes to backing storage.
-		err = server.innerServer.Write(ctxt, txn.Writes)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return resp, nil
+func (server *Server) Run(cmd commands.Command) (interface{}, error) {
+	return commands.RunCommand(cmd, server.innerServer, server.Latches)
 }
 
 // The below functions are Server's gRPC API (implements TikvServer).
 
 // Transactional API.
 func (server *Server) KvGet(_ context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb.GetResponse, error) {
-	cmd := NewGet(req)
+	cmd := commands.NewGet(req)
 	resp, err := server.Run(&cmd)
 	return resp.(*kvrpcpb.GetResponse), err
 }
 
 func (server *Server) KvScan(_ context.Context, req *kvrpcpb.ScanRequest) (*kvrpcpb.ScanResponse, error) {
-	cmd := NewScan(req)
+	cmd := commands.NewScan(req)
 	resp, err := server.Run(&cmd)
 	return resp.(*kvrpcpb.ScanResponse), err
 }
 
 func (server *Server) KvPrewrite(_ context.Context, req *kvrpcpb.PrewriteRequest) (*kvrpcpb.PrewriteResponse, error) {
-	cmd := NewPrewrite(req)
+	cmd := commands.NewPrewrite(req)
 	resp, err := server.Run(&cmd)
 	return resp.(*kvrpcpb.PrewriteResponse), err
 }
 
 func (server *Server) KvCommit(_ context.Context, req *kvrpcpb.CommitRequest) (*kvrpcpb.CommitResponse, error) {
-	cmd := NewCommit(req)
+	cmd := commands.NewCommit(req)
 	resp, err := server.Run(&cmd)
 	return resp.(*kvrpcpb.CommitResponse), err
 }
 
 func (server *Server) KvCheckTxnStatus(_ context.Context, req *kvrpcpb.CheckTxnStatusRequest) (*kvrpcpb.CheckTxnStatusResponse, error) {
-	cmd := NewCheckTxnStatus(req)
+	cmd := commands.NewCheckTxnStatus(req)
 	resp, err := server.Run(&cmd)
 	return resp.(*kvrpcpb.CheckTxnStatusResponse), err
 }
 
 func (server *Server) KvBatchRollback(_ context.Context, req *kvrpcpb.BatchRollbackRequest) (*kvrpcpb.BatchRollbackResponse, error) {
-	cmd := NewRollback(req)
+	cmd := commands.NewRollback(req)
 	resp, err := server.Run(&cmd)
 	return resp.(*kvrpcpb.BatchRollbackResponse), err
 }
 
 func (server *Server) KvResolveLock(_ context.Context, req *kvrpcpb.ResolveLockRequest) (*kvrpcpb.ResolveLockResponse, error) {
-	cmd := NewResolveLock(req)
+	cmd := commands.NewResolveLock(req)
 	resp, err := server.Run(&cmd)
 	return resp.(*kvrpcpb.ResolveLockResponse), err
 }
@@ -220,4 +163,15 @@ func (server *Server) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
 // SQL push down commands.
 func (server *Server) Coprocessor(_ context.Context, req *coprocessor.Request) (*coprocessor.Response, error) {
 	return &coprocessor.Response{}, nil
+}
+
+// rawRegionError assigns region errors to a RegionError field, and other errors to the Error field,
+// of resp.
+func rawRegionError(err error, resp interface{}) {
+	respValue := reflect.ValueOf(resp)
+	if regionErr, ok := err.(*inner_server.RegionError); ok {
+		respValue.FieldByName("RegionError").Set(reflect.ValueOf(regionErr.RequestErr))
+	} else {
+		respValue.FieldByName("Error").Set(reflect.ValueOf(err.Error()))
+	}
 }

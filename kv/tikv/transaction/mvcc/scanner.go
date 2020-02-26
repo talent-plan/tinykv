@@ -1,4 +1,4 @@
-package kvstore
+package mvcc
 
 import (
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"

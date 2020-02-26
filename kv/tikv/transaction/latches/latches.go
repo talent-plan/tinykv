@@ -1,8 +1,9 @@
 package latches
 
 import (
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 	"sync"
+
+	"github.com/pingcap-incubator/tinykv/kv/tikv/transaction/mvcc"
 )
 
 type Latches struct {
@@ -12,7 +13,7 @@ type Latches struct {
 	// Mutex to guard latchMap. A thread must hold this mutex while it makes any change to latchMap.
 	latchGuard sync.Mutex
 	// An optional validation function, only used for testing.
-	Validation func(txn *kvstore.MvccTxn, keys [][]byte)
+	Validation func(txn *mvcc.MvccTxn, keys [][]byte)
 }
 
 // NewLatches creates a new Latches object for managing a databases latches. There should only be one such object, shared
@@ -78,7 +79,7 @@ func (l *Latches) WaitForLatches(keysToLatch [][]byte) {
 }
 
 // Validate calls the function in Validation, if it exists.
-func (l *Latches) Validate(txn *kvstore.MvccTxn, latched [][]byte) {
+func (l *Latches) Validate(txn *mvcc.MvccTxn, latched [][]byte) {
 	if l.Validation != nil {
 		l.Validation(txn, latched)
 	}

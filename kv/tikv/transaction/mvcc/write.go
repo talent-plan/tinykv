@@ -1,4 +1,4 @@
-package kvstore
+package mvcc
 
 import (
 	"encoding/binary"
@@ -26,7 +26,7 @@ func ParseWrite(value []byte) (*Write, error) {
 		return nil, nil
 	}
 	if len(value) != 9 {
-		return nil, fmt.Errorf("kvstore/write/ParseWrite: value is incorrect length, expected 9, found %d", len(value))
+		return nil, fmt.Errorf("mvcc/write/ParseWrite: value is incorrect length, expected 9, found %d", len(value))
 	}
 	kind := value[0]
 	startTs := binary.BigEndian.Uint64(value[1:])

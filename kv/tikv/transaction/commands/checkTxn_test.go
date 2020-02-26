@@ -1,11 +1,12 @@
-package storage
+package commands
 
 import (
 	"encoding/binary"
+	"testing"
+
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 // TestCheckTxnStatusTtlExpired checks that if there is a lock and its ttl has expired, then it is rolled back.
