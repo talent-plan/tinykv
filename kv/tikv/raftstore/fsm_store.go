@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/Connor1996/badger"
-	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/util/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/lockstore"
 	"github.com/pingcap-incubator/tinykv/kv/pd"

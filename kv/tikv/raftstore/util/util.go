@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/golang/protobuf/proto"
-	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/util/log"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"

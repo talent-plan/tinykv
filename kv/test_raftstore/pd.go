@@ -7,8 +7,8 @@ import (
 	"sync"
 
 	"github.com/google/btree"
-	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"
+	"github.com/pingcap-incubator/tinykv/kv/util/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"

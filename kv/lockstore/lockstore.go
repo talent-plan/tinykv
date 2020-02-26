@@ -8,7 +8,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/util/log"
 )
 
 // MemStore is a skiplist variant used to store lock.

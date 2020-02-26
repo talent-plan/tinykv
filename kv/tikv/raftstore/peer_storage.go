@@ -9,7 +9,7 @@ import (
 	"github.com/Connor1996/badger"
 	"github.com/Connor1996/badger/y"
 	"github.com/golang/protobuf/proto"
-	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/util/log"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/runner"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"

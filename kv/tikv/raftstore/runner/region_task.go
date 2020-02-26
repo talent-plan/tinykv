@@ -9,7 +9,7 @@ import (
 	"github.com/Connor1996/badger"
 	"github.com/Connor1996/badger/y"
 	"github.com/juju/errors"
-	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/util/log"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"

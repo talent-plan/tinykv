@@ -7,7 +7,7 @@ import (
 
 	"github.com/Connor1996/badger"
 	"github.com/Connor1996/badger/y"
-	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/util/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"

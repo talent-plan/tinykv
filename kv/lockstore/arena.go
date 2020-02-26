@@ -4,7 +4,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/util/log"
 )
 
 type arenaAddr uint64

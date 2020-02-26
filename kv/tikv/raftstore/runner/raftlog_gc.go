@@ -2,7 +2,7 @@ package runner
 
 import (
 	"github.com/Connor1996/badger"
-	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/util/log"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"

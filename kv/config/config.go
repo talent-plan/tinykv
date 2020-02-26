@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/util/log"
 )
 
 type Config struct {

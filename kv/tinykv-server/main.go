@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/util/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"

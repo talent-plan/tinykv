@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/kv/util/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
