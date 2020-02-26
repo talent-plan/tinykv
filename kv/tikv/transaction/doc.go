@@ -18,6 +18,5 @@ package transaction
 // *Latches* are used to implement mvcc transactions and are not visible to the client. They are stored outside the
 // underlying storage (or equivalently, you can think of every key having its own latch). TODO explain latching in more detail.
 //
-// Within this package, `commands` contains code to lower TinySQL requests to mvcc transactions. `exec` contains
-// code to handle scheduling and running commands. `mvcc` contains code for interacting with the underlying storage
+// Within this package, `commands` contains code to lower TinySQL requests to mvcc transactions. `mvcc` contains code for interacting with the underlying storage
 // (InnerServer).

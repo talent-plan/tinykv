@@ -10,7 +10,6 @@ import (
 )
 
 // Command is an abstraction which covers the process from receiving a request from gRPC to returning a response.
-// That process is driven by a Scheduler.
 type Command interface {
 	Context() *kvrpcpb.Context
 	// WillWrite returns a list of all keys that might be written by this command. Return nil if the command is readonly.
