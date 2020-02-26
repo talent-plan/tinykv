@@ -7,10 +7,7 @@ import (
 
 	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/tikv"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/exec"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/interfaces"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/stretchr/testify/assert"
 )
@@ -32,7 +29,7 @@ func Set(is *inner_server.StandAloneInnerServer, cf string, key []byte, value []
 	})
 }
 
-func Get(is *inner_server.StandAloneInnerServer, cf string, key []byte) ([]byte, error) {
+func get(is *inner_server.StandAloneInnerServer, cf string, key []byte) ([]byte, error) {
 	reader, err := is.Reader(nil)
 	if err != nil {
 		return nil, err
@@ -40,9 +37,8 @@ func Get(is *inner_server.StandAloneInnerServer, cf string, key []byte) ([]byte,
 	return reader.GetCF(cf, key)
 }
 
-func NewTestTiKVServer(innerServer interfaces.InnerServer) *tikv.Server {
-	sched := exec.NewSeqScheduler(innerServer)
-	server := tikv.NewServer(innerServer, sched)
+func NewTestTiKVServer(innerServer InnerServer) *Server {
+	server := NewServer(innerServer)
 	return server
 }
 
@@ -63,7 +59,6 @@ func TestRawGetLab1(t *testing.T) {
 	conf := newTestConfig()
 	is := inner_server.NewStandAloneInnerServer(conf)
 	server := NewTestTiKVServer(is)
-	defer server.Stop()
 	defer cleanUpTestData(conf)
 
 	cf := "TestRawGet"
@@ -82,7 +77,6 @@ func TestRawGetNotFoundLab1(t *testing.T) {
 	conf := newTestConfig()
 	is := inner_server.NewStandAloneInnerServer(conf)
 	server := NewTestTiKVServer(is)
-	defer server.Stop()
 	defer cleanUpTestData(conf)
 
 	cf := "TestRawGetNotFound"
@@ -99,7 +93,6 @@ func TestRawPutLab1(t *testing.T) {
 	conf := newTestConfig()
 	is := inner_server.NewStandAloneInnerServer(conf)
 	server := NewTestTiKVServer(is)
-	defer server.Stop()
 	defer cleanUpTestData(conf)
 
 	cf := "TestRawPut"
@@ -111,7 +104,7 @@ func TestRawPutLab1(t *testing.T) {
 
 	_, err := server.RawPut(nil, req)
 
-	got, err := Get(is, cf, []byte{99})
+	got, err := get(is, cf, []byte{99})
 	assert.Nil(t, err)
 	assert.Equal(t, []byte{42}, got)
 }
@@ -121,7 +114,6 @@ func TestRawGetAfterRawPutLab1(t *testing.T) {
 	is := inner_server.NewStandAloneInnerServer(conf)
 	server := NewTestTiKVServer(is)
 	defer cleanUpTestData(conf)
-	defer server.Stop()
 
 	cf := "TestRawGetAfterRawPut"
 	put := &kvrpcpb.RawPutRequest{
@@ -147,7 +139,6 @@ func TestRawGetAfterRawDeleteLab1(t *testing.T) {
 	is := inner_server.NewStandAloneInnerServer(conf)
 	server := NewTestTiKVServer(is)
 	defer cleanUpTestData(conf)
-	defer server.Stop()
 
 	cf := "TestRawGetAfterRawDelete"
 	assert.Nil(t, Set(is, cf, []byte{99}, []byte{42}))
@@ -173,7 +164,6 @@ func TestRawDeleteLab1(t *testing.T) {
 	conf := newTestConfig()
 	is := inner_server.NewStandAloneInnerServer(conf)
 	server := NewTestTiKVServer(is)
-	defer server.Stop()
 	defer cleanUpTestData(conf)
 
 	cf := "TestRawDelete"
@@ -186,7 +176,7 @@ func TestRawDeleteLab1(t *testing.T) {
 	_, err := server.RawDelete(nil, req)
 	assert.Nil(t, err)
 
-	_, err = Get(is, cf, []byte{99})
+	_, err = get(is, cf, []byte{99})
 	assert.Equal(t, err, badger.ErrKeyNotFound)
 }
 
@@ -194,7 +184,6 @@ func TestRawScanLab1(t *testing.T) {
 	conf := newTestConfig()
 	is := inner_server.NewStandAloneInnerServer(conf)
 	server := NewTestTiKVServer(is)
-	defer server.Stop()
 	defer cleanUpTestData(conf)
 
 	cf := "TestRawScan"
@@ -227,7 +216,6 @@ func TestRawScanAfterRawPutLab1(t *testing.T) {
 	is := inner_server.NewStandAloneInnerServer(conf)
 	server := NewTestTiKVServer(is)
 	defer cleanUpTestData(conf)
-	defer server.Stop()
 
 	cf := "TestRawScanAfterRawPut"
 	assert.Nil(t, Set(is, cf, []byte{1}, []byte{233, 1}))
@@ -266,7 +254,6 @@ func TestRawScanAfterRawDeleteLab1(t *testing.T) {
 	is := inner_server.NewStandAloneInnerServer(conf)
 	server := NewTestTiKVServer(is)
 	defer cleanUpTestData(conf)
-	defer server.Stop()
 
 	cf := "TestRawScanAfterRawDelete"
 	assert.Nil(t, Set(is, cf, []byte{1}, []byte{233, 1}))

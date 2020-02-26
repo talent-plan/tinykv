@@ -1,4 +1,4 @@
-package commands
+package storage
 
 import (
 	"github.com/Connor1996/badger"

@@ -1,11 +1,9 @@
-package commands
+package storage
 
 // This file contains utility code for testing commands.
 
 import (
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/exec"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/interfaces"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/stretchr/testify/assert"
@@ -15,7 +13,7 @@ import (
 // testBuilder is a helper type for running command tests.
 type testBuilder struct {
 	t      *testing.T
-	sched  interfaces.Scheduler
+	server *Server
 	mem    *inner_server.MemInnerServer
 	prevTs uint64
 }
@@ -33,8 +31,8 @@ type kv struct {
 
 func newBuilder(t *testing.T) testBuilder {
 	mem := inner_server.NewMemInnerServer()
-	sched := exec.NewSeqScheduler(mem)
-	sched.Latches.Validate = func(txn *kvstore.MvccTxn, keys [][]byte) {
+	server := NewServer(mem)
+	server.Latches.Validation = func(txn *kvstore.MvccTxn, keys [][]byte) {
 		keyMap := make(map[string]struct{})
 		for _, k := range keys {
 			keyMap[string(k)] = struct{}{}
@@ -56,7 +54,7 @@ func newBuilder(t *testing.T) testBuilder {
 			}
 		}
 	}
-	return testBuilder{t, sched, mem, 99}
+	return testBuilder{t, server, mem, 99}
 }
 
 // init sets values in the test's DB.
@@ -77,20 +75,18 @@ func (builder *testBuilder) init(values []kv) {
 	}
 }
 
-func (builder *testBuilder) runCommands(cmds ...interfaces.Command) []interface{} {
+func (builder *testBuilder) runCommands(cmds ...Command) []interface{} {
 	var result []interface{}
 	for _, c := range cmds {
-		ch := builder.sched.Run(c)
-		r := <-ch
-		assert.Nil(builder.t, r.Err)
-		result = append(result, r.Response)
+		resp, err := builder.server.Run(c)
+		assert.Nil(builder.t, err)
+		result = append(result, resp)
 	}
-	builder.sched.Stop()
 	return result
 }
 
 // runOneCmd is like runCommands but only runs a single command.
-func (builder *testBuilder) runOneCmd(cmd interfaces.Command) interface{} {
+func (builder *testBuilder) runOneCmd(cmd Command) interface{} {
 	return builder.runCommands(cmd)[0]
 }
 
