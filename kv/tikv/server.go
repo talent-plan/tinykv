@@ -130,8 +130,11 @@ func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*
 
 	reader, err := server.innerServer.Reader(req.Context)
 	if !rawRegionError(err, response) {
+		// To scan, we need to get an iterator for the underlying storage.
 		it := reader.IterCF(req.Cf)
 		defer it.Close()
+		// Initialize the iterator. Termination condition is that the iterator is still valid (i.e.
+		// we have not reached the end of the DB) and we haven't exceeded the client-specified limit.
 		for it.Seek(req.StartKey); it.Valid() && len(response.Kvs) < int(req.Limit); it.Next() {
 			item := it.Item()
 			key := item.KeyCopy(nil)
