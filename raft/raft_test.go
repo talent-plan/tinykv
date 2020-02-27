@@ -29,10 +29,10 @@ import (
 func nextEnts(r *Raft, s *MemoryStorage) (ents []pb.Entry) {
 	// Transfer all unstable entries to "stable" storage.
 	s.Append(r.RaftLog.unstableEntries())
-	r.RaftLog.stableTo(r.RaftLog.LastIndex(), r.RaftLog.lastTerm())
+	r.RaftLog.stabled = r.RaftLog.LastIndex()
 
 	ents = r.RaftLog.nextEnts()
-	r.RaftLog.appliedTo(r.RaftLog.committed)
+	r.RaftLog.applied = r.RaftLog.committed
 	return ents
 }
 
@@ -866,7 +866,7 @@ func TestHandleHeartbeat(t *testing.T) {
 		storage.Append([]pb.Entry{{Index: 1, Term: 1}, {Index: 2, Term: 2}, {Index: 3, Term: 3}})
 		sm := newTestRaft(1, []uint64{1, 2}, 5, 1, storage)
 		sm.becomeFollower(2, 2)
-		sm.RaftLog.commitTo(commit)
+		sm.RaftLog.committed = commit
 		sm.handleHeartbeat(tt.m)
 		if sm.RaftLog.committed != tt.wCommit {
 			t.Errorf("#%d: committed = %d, want %d", i, sm.RaftLog.committed, tt.wCommit)
@@ -888,7 +888,7 @@ func TestHandleHeartbeatResp(t *testing.T) {
 	sm := newTestRaft(1, []uint64{1, 2}, 5, 1, storage)
 	sm.becomeCandidate()
 	sm.becomeLeader()
-	sm.RaftLog.commitTo(sm.RaftLog.LastIndex())
+	sm.RaftLog.committed = sm.RaftLog.LastIndex()
 
 	// A heartbeat response from a node that is behind; re-send MessageType_MsgAppend
 	sm.Step(pb.Message{From: 2, MsgType: pb.MessageType_MsgHeartbeatResponse})
@@ -991,7 +991,11 @@ func TestRecvMessageType_MsgRequestVote(t *testing.T) {
 		// what the recipient node does when receiving a message with a
 		// different term number, so we simply initialize both term numbers to
 		// be the same.
-		term := max(sm.RaftLog.lastTerm(), tt.logTerm)
+		lterm, err := sm.RaftLog.Term(sm.RaftLog.LastIndex())
+		if err != nil {
+			t.Fatalf("unexpected error %v", err)
+		}
+		term := max(lterm, tt.logTerm)
 		sm.Term = term
 		sm.Step(pb.Message{MsgType: msgType, Term: term, From: 2, Index: tt.index, LogTerm: tt.logTerm})
 
@@ -1440,8 +1444,9 @@ func TestLeaderIncreaseNext(t *testing.T) {
 	// previous entries + noop entry + propose + 1
 	wnext := uint64(len(previousEnts)) + 1 + 1 + 1
 
-	sm := newTestRaft(1, []uint64{1, 2}, 10, 1, NewMemoryStorage())
-	sm.RaftLog.append(previousEnts...)
+	storage := NewMemoryStorage()
+	storage.Append(previousEnts)
+	sm := newTestRaft(1, []uint64{1, 2}, 10, 1, storage)
 	nt := newNetwork(sm, nil, nil)
 	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 
@@ -1488,9 +1493,9 @@ func TestRestoreIgnoreSnapshot(t *testing.T) {
 	previousEnts := []pb.Entry{{Term: 1, Index: 1}, {Term: 1, Index: 2}, {Term: 1, Index: 3}}
 	commit := uint64(1)
 	storage := NewMemoryStorage()
+	storage.Append(previousEnts)
 	sm := newTestRaft(1, []uint64{1, 2}, 10, 1, storage)
-	sm.RaftLog.append(previousEnts...)
-	sm.RaftLog.commitTo(commit)
+	sm.RaftLog.committed = commit
 
 	s := pb.Snapshot{
 		Metadata: &pb.SnapshotMetadata{
@@ -1535,7 +1540,7 @@ func TestProvideSnap(t *testing.T) {
 	sm.becomeLeader()
 
 	// force set the next of node 2, so that node 2 needs a snapshot
-	sm.Prs[2].Next = sm.RaftLog.firstIndex()
+	sm.Prs[2].Next = 0
 	sm.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgAppendResponse, Index: sm.Prs[2].Next - 1, Reject: true})
 
 	msgs := sm.readMessages()
