@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestGetValue getting a value works in the simple case.
-func TestGetValue(t *testing.T) {
+// TestGetValue4A getting a value works in the simple case.
+func TestGetValue4A(t *testing.T) {
 	builder := newBuilder(t)
 	builder.init([]kv{
 		{cf: engine_util.CfDefault, key: []byte{99}, ts: 50, value: []byte{42}},
@@ -28,8 +28,8 @@ func TestGetValue(t *testing.T) {
 	assert.Equal(t, []byte{42}, resp.Value)
 }
 
-// TestGetValueTs getting a value works with different timestamps.
-func TestGetValueTs(t *testing.T) {
+// TestGetValueTs4A getting a value works with different timestamps.
+func TestGetValueTs4A(t *testing.T) {
 	builder := newBuilder(t)
 	builder.init([]kv{
 		{cf: engine_util.CfDefault, key: []byte{99}, ts: 50, value: []byte{42}},
@@ -64,8 +64,8 @@ func TestGetValueTs(t *testing.T) {
 	assert.Equal(t, []byte{42}, resp2.Value)
 }
 
-// TestGetEmpty tests that get on an empty DB.
-func TestGetEmpty(t *testing.T) {
+// TestGetEmpty4A tests that get on an empty DB.
+func TestGetEmpty4A(t *testing.T) {
 	builder := newBuilder(t)
 
 	var req kvrpcpb.GetRequest
@@ -79,8 +79,8 @@ func TestGetEmpty(t *testing.T) {
 	assert.Equal(t, []byte(nil), resp.Value)
 }
 
-// TestGetNone tests that getting a missing key works.
-func TestGetNone(t *testing.T) {
+// TestGetNone4A tests that getting a missing key works.
+func TestGetNone4A(t *testing.T) {
 	builder := newBuilder(t)
 	builder.init([]kv{
 		{cf: engine_util.CfDefault, key: []byte{99}, ts: 50, value: []byte{42}},
@@ -100,8 +100,8 @@ func TestGetNone(t *testing.T) {
 	assert.Equal(t, []byte(nil), resp.Value)
 }
 
-// TestGetVersions tests we get the correct value when there are multiple versions.
-func TestGetVersions(t *testing.T) {
+// TestGetVersions4A tests we get the correct value when there are multiple versions.
+func TestGetVersions4A(t *testing.T) {
 	builder := newBuilder(t)
 	builder.init([]kv{
 		{cf: engine_util.CfDefault, key: []byte{99}, ts: 50, value: []byte{42}},
@@ -165,8 +165,8 @@ func TestGetVersions(t *testing.T) {
 	assert.Equal(t, []byte{43}, resp5.Value)
 }
 
-// TestGetDeleted tests we get the correct value when there are multiple versions, including a deletion.
-func TestGetDeleted(t *testing.T) {
+// TestGetDeleted4A tests we get the correct value when there are multiple versions, including a deletion.
+func TestGetDeleted4A(t *testing.T) {
 	builder := newBuilder(t)
 	builder.init([]kv{
 		{cf: engine_util.CfDefault, key: []byte{99}, ts: 50, value: []byte{42}},
@@ -230,8 +230,8 @@ func TestGetDeleted(t *testing.T) {
 	assert.Equal(t, []byte{44}, resp5.Value)
 }
 
-// TestGetLocked tests getting a value when it is locked by another transaction.
-func TestGetLocked(t *testing.T) {
+// TestGetLocked4A tests getting a value when it is locked by another transaction.
+func TestGetLocked4A(t *testing.T) {
 	builder := newBuilder(t)
 	builder.init([]kv{
 		{cf: engine_util.CfDefault, key: []byte{99}, ts: 50, value: []byte{42}},

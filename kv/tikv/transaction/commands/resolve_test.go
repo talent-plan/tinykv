@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestEmptyResolve tests a completely empty resolve request.
-func TestEmptyResolve(t *testing.T) {
+// TestEmptyResolve4B tests a completely empty resolve request.
+func TestEmptyResolve4B(t *testing.T) {
 	builder := newBuilder(t)
 	cmd := NewResolveLock(resolveRequest(0, 0))
 	resp := builder.runOneCmd(&cmd).(*kvrpcpb.ResolveLockResponse)
@@ -19,8 +19,8 @@ func TestEmptyResolve(t *testing.T) {
 	builder.assertLens(0, 0, 0)
 }
 
-// TestResolveCommit should commit all keys in the specified transaction.
-func TestResolveCommit(t *testing.T) {
+// TestResolveCommit4B should commit all keys in the specified transaction.
+func TestResolveCommit4B(t *testing.T) {
 	builder := newBuilder(t)
 	cmd := NewResolveLock(resolveRequest(100, 120))
 	builder.init([]kv{
@@ -46,8 +46,8 @@ func TestResolveCommit(t *testing.T) {
 	})
 }
 
-// TestResolveRollback should rollback all keys in the specified transaction.
-func TestResolveRollback(t *testing.T) {
+// TestResolveRollback4B should rollback all keys in the specified transaction.
+func TestResolveRollback4B(t *testing.T) {
 	builder := newBuilder(t)
 	cmd := NewResolveLock(resolveRequest(100, 0))
 	builder.init([]kv{
@@ -71,8 +71,8 @@ func TestResolveRollback(t *testing.T) {
 	})
 }
 
-// TestResolveCommitWritten tests a resolve where the matched keys are already committed or rolled back.
-func TestResolveCommitWritten(t *testing.T) {
+// TestResolveCommitWritten4B tests a resolve where the matched keys are already committed or rolled back.
+func TestResolveCommitWritten4B(t *testing.T) {
 	builder := newBuilder(t)
 	cmd := NewResolveLock(resolveRequest(100, 120))
 	builder.init([]kv{
@@ -98,8 +98,8 @@ func TestResolveCommitWritten(t *testing.T) {
 	})
 }
 
-// TestResolveRollbackWritten tests a rollback resolve where data has already been committed or rolled back.
-func TestResolveRollbackWritten(t *testing.T) {
+// TestResolveRollbackWritten4B tests a rollback resolve where data has already been committed or rolled back.
+func TestResolveRollbackWritten4B(t *testing.T) {
 	builder := newBuilder(t)
 	cmd := NewResolveLock(resolveRequest(100, 0))
 	builder.init([]kv{

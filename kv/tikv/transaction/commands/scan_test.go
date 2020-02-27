@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestScanEmpty tests a scan after the end of the DB.
-func TestScanEmpty(t *testing.T) {
+// TestScanEmpty4B tests a scan after the end of the DB.
+func TestScanEmpty4B(t *testing.T) {
 	builder := builderForScan(t)
 
 	cmd := NewScan(builder.scanRequest([]byte{200}, 10000))
@@ -18,8 +18,8 @@ func TestScanEmpty(t *testing.T) {
 	assert.Empty(t, resp.Pairs)
 }
 
-// TestScanLimitZero tests we get nothing if limit is 0.
-func TestScanLimitZero(t *testing.T) {
+// TestScanLimitZero4B tests we get nothing if limit is 0.
+func TestScanLimitZero4B(t *testing.T) {
 	builder := builderForScan(t)
 
 	cmd := NewScan(builder.scanRequest([]byte{3}, 0))
@@ -28,8 +28,8 @@ func TestScanLimitZero(t *testing.T) {
 	assert.Empty(t, resp.Pairs)
 }
 
-// TestScanAll start at the beginning of the DB and read all pairs, respecting the timestamp.
-func TestScanAll(t *testing.T) {
+// TestScanAll4B start at the beginning of the DB and read all pairs, respecting the timestamp.
+func TestScanAll4B(t *testing.T) {
 	builder := builderForScan(t)
 
 	cmd := NewScan(builder.scanRequest([]byte{0}, 10000))
@@ -43,8 +43,8 @@ func TestScanAll(t *testing.T) {
 	assert.Equal(t, []byte{54}, resp.Pairs[10].Value)
 }
 
-// TestScanLimit tests that scan takes the limit into account.
-func TestScanLimit(t *testing.T) {
+// TestScanLimit4B tests that scan takes the limit into account.
+func TestScanLimit4B(t *testing.T) {
 	builder := builderForScan(t)
 
 	cmd := NewScan(builder.scanRequest([]byte{2}, 6))
@@ -58,8 +58,8 @@ func TestScanLimit(t *testing.T) {
 	assert.Equal(t, []byte{52}, resp.Pairs[5].Value)
 }
 
-// TestScanDeleted scan over a value which is deleted then replaced.
-func TestScanDeleted(t *testing.T) {
+// TestScanDeleted4B scan over a value which is deleted then replaced.
+func TestScanDeleted4B(t *testing.T) {
 	builder := builderForScan(t)
 
 	req1 := builder.scanRequest([]byte{100}, 10000)

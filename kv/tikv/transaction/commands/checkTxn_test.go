@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestCheckTxnStatusTtlExpired checks that if there is a lock and its ttl has expired, then it is rolled back.
-func TestCheckTxnStatusTtlExpired(t *testing.T) {
+// TestCheckTxnStatusTtlExpired4B checks that if there is a lock and its ttl has expired, then it is rolled back.
+func TestCheckTxnStatusTtlExpired4B(t *testing.T) {
 	builder := newBuilder(t)
 	cmd := NewCheckTxnStatus(builder.checkTxnStatusRequest([]byte{3}))
 	builder.init([]kv{
@@ -27,8 +27,8 @@ func TestCheckTxnStatusTtlExpired(t *testing.T) {
 	})
 }
 
-// TestCheckTxnStatusTtlNotExpired checks that if there is a lock and its ttl has not expired, then nothing changes.
-func TestCheckTxnStatusTtlNotExpired(t *testing.T) {
+// TestCheckTxnStatusTtlNotExpired4B checks that if there is a lock and its ttl has not expired, then nothing changes.
+func TestCheckTxnStatusTtlNotExpired4B(t *testing.T) {
 	builder := newBuilder(t)
 	cmd := NewCheckTxnStatus(builder.checkTxnStatusRequest([]byte{3}))
 	builder.init([]kv{
@@ -46,8 +46,8 @@ func TestCheckTxnStatusTtlNotExpired(t *testing.T) {
 	})
 }
 
-// TestCheckTxnStatusRolledBack tests checking a key which has already been rolled back..
-func TestCheckTxnStatusRolledBack(t *testing.T) {
+// TestCheckTxnStatusRolledBack4B tests checking a key which has already been rolled back..
+func TestCheckTxnStatusRolledBack4B(t *testing.T) {
 	builder := newBuilder(t)
 	cmd := NewCheckTxnStatus(builder.checkTxnStatusRequest([]byte{3}))
 	builder.init([]kv{
@@ -68,8 +68,8 @@ func TestCheckTxnStatusRolledBack(t *testing.T) {
 	})
 }
 
-// TestCheckTxnStatusCommitted tests checking a key which has already been committed.
-func TestCheckTxnStatusCommitted(t *testing.T) {
+// TestCheckTxnStatusCommitted4B tests checking a key which has already been committed.
+func TestCheckTxnStatusCommitted4B(t *testing.T) {
 	builder := newBuilder(t)
 	cmd := NewCheckTxnStatus(builder.checkTxnStatusRequest([]byte{3}))
 	builder.init([]kv{
@@ -88,8 +88,8 @@ func TestCheckTxnStatusCommitted(t *testing.T) {
 	})
 }
 
-// TestCheckTxnStatusNoLockNoWrite checks if there is no data for the key, then we get the right response.
-func TestCheckTxnStatusNoLockNoWrite(t *testing.T) {
+// TestCheckTxnStatusNoLockNoWrite4B checks if there is no data for the key, then we get the right response.
+func TestCheckTxnStatusNoLockNoWrite4B(t *testing.T) {
 	builder := newBuilder(t)
 	cmd := NewCheckTxnStatus(builder.checkTxnStatusRequest([]byte{3}))
 	resp := builder.runOneCmd(&cmd).(*kvrpcpb.CheckTxnStatusResponse)

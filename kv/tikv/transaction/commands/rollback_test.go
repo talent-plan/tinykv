@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestEmptyRollback tests a rollback with no keys.
-func TestEmptyRollback(t *testing.T) {
+// TestEmptyRollback4B tests a rollback with no keys.
+func TestEmptyRollback4B(t *testing.T) {
 	builder := newBuilder(t)
 	cmd := NewRollback(builder.rollbackRequest([][]byte{}...))
 	resp := builder.runOneCmd(&cmd).(*kvrpcpb.BatchRollbackResponse)
@@ -19,8 +19,8 @@ func TestEmptyRollback(t *testing.T) {
 	builder.assertLens(0, 0, 0)
 }
 
-// TestRollback tests a successful rollback.
-func TestRollback(t *testing.T) {
+// TestRollback4B tests a successful rollback.
+func TestRollback4B(t *testing.T) {
 	builder := newBuilder(t)
 	cmd := NewRollback(builder.rollbackRequest([]byte{3}))
 
@@ -39,8 +39,8 @@ func TestRollback(t *testing.T) {
 	})
 }
 
-// TestRollbackDuplicateKeys tests a rollback which rolls back multiple keys, including one duplicated key.
-func TestRollbackDuplicateKeys(t *testing.T) {
+// TestRollbackDuplicateKeys4B tests a rollback which rolls back multiple keys, including one duplicated key.
+func TestRollbackDuplicateKeys4B(t *testing.T) {
 	builder := newBuilder(t)
 	cmd := NewRollback(builder.rollbackRequest([]byte{3}, []byte{15}, []byte{3}))
 
@@ -61,8 +61,8 @@ func TestRollbackDuplicateKeys(t *testing.T) {
 	})
 }
 
-// TestRollbackMissingPrewrite tests trying to roll back a missing prewrite.
-func TestRollbackMissingPrewrite(t *testing.T) {
+// TestRollbackMissingPrewrite4B tests trying to roll back a missing prewrite.
+func TestRollbackMissingPrewrite4B(t *testing.T) {
 	builder := newBuilder(t)
 	cmd := NewRollback(builder.rollbackRequest([]byte{3}))
 	resp := builder.runOneCmd(&cmd).(*kvrpcpb.BatchRollbackResponse)
@@ -75,8 +75,8 @@ func TestRollbackMissingPrewrite(t *testing.T) {
 	})
 }
 
-// TestRollbackCommitted tests trying to roll back a transaction which is already committed.
-func TestRollbackCommitted(t *testing.T) {
+// TestRollbackCommitted4B tests trying to roll back a transaction which is already committed.
+func TestRollbackCommitted4B(t *testing.T) {
 	builder := newBuilder(t)
 	cmd := NewRollback(builder.rollbackRequest([]byte{3}))
 
@@ -95,8 +95,8 @@ func TestRollbackCommitted(t *testing.T) {
 	})
 }
 
-// TestRollbackDuplicate tests trying to roll back a transaction which has already been rolled back.
-func TestRollbackDuplicate(t *testing.T) {
+// TestRollbackDuplicate4B tests trying to roll back a transaction which has already been rolled back.
+func TestRollbackDuplicate4B(t *testing.T) {
 	builder := newBuilder(t)
 	cmd := NewRollback(builder.rollbackRequest([]byte{3}))
 
@@ -113,8 +113,8 @@ func TestRollbackDuplicate(t *testing.T) {
 	})
 }
 
-// TestRollbackOtherTxn tests trying to roll back the wrong transaction.
-func TestRollbackOtherTxn(t *testing.T) {
+// TestRollbackOtherTxn4B tests trying to roll back the wrong transaction.
+func TestRollbackOtherTxn4B(t *testing.T) {
 	builder := newBuilder(t)
 	cmd := NewRollback(builder.rollbackRequest([]byte{3}))
 
