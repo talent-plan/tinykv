@@ -6,6 +6,19 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/tikv/transaction/mvcc"
 )
 
+// Latching provides atomicity of TinyKV commands. This should not be confused with SQL transactions which provide atomicity
+// for multiple TinyKV commands. For example, consider two commit commands, these write to multiple keys/CFs so if they race,
+// then it is possible for inconsistent data to be written. By latching the keys each command might write, we ensure that the
+// two commands will not race to write the same keys.
+//
+// A latch is a per-key lock. There is only one latch per user key, not one per CF or one for each encoded key. Latches are
+// only needed for writing. Only one thread can hold a latch at a time and all keys that a command might write must be locked
+// at once.
+//
+// Latching is implemented using a single map which maps keys to a Go WaitGroup. Access to this map is guarded by a mutex
+// to ensure that latching is atomic and consistent. Since the mutex is a global lock, it would cause intolerable contention
+// in a real system.
+
 type Latches struct {
 	// Before modifying any property of a key, the thread must have the latch for that key. `Latches` maps each latched
 	// key to a WaitGroup. Threads who find a key locked should wait on that WaitGroup.

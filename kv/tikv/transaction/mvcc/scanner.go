@@ -7,7 +7,7 @@ import (
 
 // Scanner is used for reading multiple sequential key/value pairs from the storage layer. It is aware of the implementation
 // of the storage layer and returns results suitable for users.
-// Invariant: either the scanner is finished and can not be used, or it is ready to return a value immediately.
+// Invariant: either the scanner is finished and cannot be used, or it is ready to return a value immediately.
 type Scanner struct {
 	writeIter engine_util.DBIterator
 	txn       *RoTxn
