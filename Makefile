@@ -16,7 +16,6 @@ TEST_LDFLAGS        := ""
 
 PACKAGE_LIST        := go list ./...| grep -vE "cmd"
 PACKAGES            := $$($(PACKAGE_LIST))
-PACKAGE_DIRECTORIES := $(PACKAGE_LIST) | sed 's|github.com/pingcap/$(PROJECT)/||'
 
 # Targets
 .PHONY: clean test proto kv scheduler dev

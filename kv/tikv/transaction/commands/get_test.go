@@ -1,9 +1,9 @@
-package storage
+package commands
 
 import (
 	"testing"
 
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/transaction/mvcc"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/stretchr/testify/assert"
@@ -19,7 +19,7 @@ func TestGetValue(t *testing.T) {
 
 	var req kvrpcpb.GetRequest
 	req.Key = []byte{99}
-	req.Version = kvstore.TsMax
+	req.Version = mvcc.TsMax
 	cmd := NewGet(&req)
 	resp := builder.runOneCmd(&cmd).(*kvrpcpb.GetResponse)
 
@@ -70,7 +70,7 @@ func TestGetEmpty(t *testing.T) {
 
 	var req kvrpcpb.GetRequest
 	req.Key = []byte{100}
-	req.Version = kvstore.TsMax
+	req.Version = mvcc.TsMax
 	cmd := NewGet(&req)
 	resp := builder.runOneCmd(&cmd).(*kvrpcpb.GetResponse)
 
@@ -91,7 +91,7 @@ func TestGetNone(t *testing.T) {
 
 	var req kvrpcpb.GetRequest
 	req.Key = []byte{100}
-	req.Version = kvstore.TsMax
+	req.Version = mvcc.TsMax
 	cmd := NewGet(&req)
 
 	resp := builder.runOneCmd(&cmd).(*kvrpcpb.GetResponse)
