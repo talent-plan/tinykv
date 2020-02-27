@@ -158,12 +158,16 @@ type Raft struct {
 	// the log
 	RaftLog *RaftLog
 
+	// log replication progress of each peers
 	Prs map[uint64]*Progress
 
+	// this peer's role
 	State StateType
 
+	// votes records
 	votes map[uint64]bool
 
+	// msgs need to send
 	msgs []pb.Message
 
 	// the leader id
@@ -179,13 +183,15 @@ type Raft struct {
 	// value.
 	PendingConfIndex uint64
 
+	// heartbeat interval
 	heartbeatTimeout int
-	electionTimeout  int
+	// baseline of election interval
+	electionTimeout int
 	// randomizedElectionTimeout is a random number between
-	// [electiontimeout, 2 * electiontimeout - 1]. It gets reset
-	// when raft changes its state to follower or candidate.
+	// [electiontimeout, 2 * electiontimeout - 1].
 	randomizedElectionTimeout int
 
+	// function for this peer to handle messages
 	step stepFunc
 
 	logger Logger
@@ -204,6 +210,7 @@ type Raft struct {
 	// TODO: Delete End
 }
 
+// newRaft return a raft peer with the given config
 func newRaft(c *Config) *Raft {
 	if err := c.validate(); err != nil {
 		panic(err.Error())
@@ -259,6 +266,7 @@ func (r *Raft) GetSnap() *pb.Snapshot {
 	return r.RaftLog.pending_snapshot
 }
 
+// softState return the softState of this peer
 func (r *Raft) softState() *SoftState {
 	// Your Code Here 2C
 	// TODO: Delete Start
@@ -266,6 +274,7 @@ func (r *Raft) softState() *SoftState {
 	// TODO: Delete End
 }
 
+// hardState return the hardState of this peer
 func (r *Raft) hardState() pb.HardState {
 	// Your Code Here 2C
 	// TODO: Delete Start
@@ -466,6 +475,7 @@ func (r *Raft) appendEntry(es ...pb.Entry) {
 	r.maybeCommit()
 }
 
+// tick advances the internal logical clock by a single tick.
 func (r *Raft) tick() {
 	// Your Code Here 2A
 	// TODO: Delete Start
@@ -513,6 +523,7 @@ func (r *Raft) tickHeartbeat() {
 	}
 }
 
+// becomeFollower transform this peer's state to Follower
 func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	// Your Code Here 2A
 	// TODO: Delete Start
@@ -524,6 +535,7 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	// TODO: Delete End
 }
 
+// becomeCandidate transform this peer's state to candidate
 func (r *Raft) becomeCandidate() {
 	// Your Code Here 2A
 	// TODO: Delete Start
@@ -535,6 +547,7 @@ func (r *Raft) becomeCandidate() {
 	// TODO: Delete End
 }
 
+// becomeLeader transform this peer's state to leader
 func (r *Raft) becomeLeader() {
 	// Your Code Here 2A
 	// TODO: Delete Start
@@ -601,6 +614,7 @@ func (r *Raft) poll(id uint64, t pb.MessageType, v bool) (granted int) {
 	return granted
 }
 
+// Step the entrance of handle message
 func (r *Raft) Step(m pb.Message) error {
 	// Your Code Here 2A
 	// TODO: Delete Start
@@ -671,6 +685,7 @@ func (r *Raft) Step(m pb.Message) error {
 
 type stepFunc func(r *Raft, m pb.Message) error
 
+// stepLeader handle leader's message
 func stepLeader(r *Raft, m pb.Message) error {
 	// Your Code Here 2A
 	// TODO: Delete Start
@@ -777,6 +792,7 @@ func stepLeader(r *Raft, m pb.Message) error {
 	return nil
 }
 
+// stepCandidate handle candidate's message
 func stepCandidate(r *Raft, m pb.Message) error {
 	// Your Code Here 2A
 	switch m.MsgType {
@@ -811,6 +827,7 @@ func stepCandidate(r *Raft, m pb.Message) error {
 	return nil
 }
 
+// stepFollower handle follower's message
 func stepFollower(r *Raft, m pb.Message) error {
 	// Your Code Here 2A
 	switch m.MsgType {
@@ -849,6 +866,7 @@ func stepFollower(r *Raft, m pb.Message) error {
 	return nil
 }
 
+// handleAppendEntries handle AppendEntries RPC request
 func (r *Raft) handleAppendEntries(m pb.Message) {
 	// Your Code Here 2B
 	// TODO: Delete Start
@@ -871,6 +889,7 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 	// TODO: Delete End
 }
 
+// handleHeartbeat handle Heartbeat RPC request
 func (r *Raft) handleHeartbeat(m pb.Message) {
 	// Your Code Here 2A
 	// TODO: Delete Start
@@ -879,6 +898,7 @@ func (r *Raft) handleHeartbeat(m pb.Message) {
 	// TODO: Delete End
 }
 
+// handleSnapshot handle Snapshot RPC request
 func (r *Raft) handleSnapshot(m pb.Message) {
 	// Your Code Here 2B
 	// TODO: Delete Start
@@ -938,6 +958,7 @@ func (r *Raft) promotable() bool {
 	return ok
 }
 
+// addNode add a new node to raft group
 func (r *Raft) addNode(id uint64) {
 	// Your Code Here 3A
 	// TODO: Delete Start
@@ -949,6 +970,7 @@ func (r *Raft) addNode(id uint64) {
 	// TODO: Delete End
 }
 
+// removeNode remove a node from raft group
 func (r *Raft) removeNode(id uint64) {
 	// Your Code Here 3A
 	// TODO: Delete Start
