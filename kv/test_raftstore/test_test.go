@@ -183,8 +183,8 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 		cfg.RaftLogGcCountLimit = uint64(maxraftlog)
 	}
 	if split {
-		cfg.RegionMaxSize = 1234
-		cfg.RegionSplitSize = 1024
+		cfg.RegionMaxSize = 800
+		cfg.RegionSplitSize = 500
 	}
 	cluster := NewTestCluster(nservers, cfg)
 	cluster.Start()
