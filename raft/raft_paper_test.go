@@ -92,7 +92,7 @@ func TestLeaderBcastBeat2A(t *testing.T) {
 	r.becomeCandidate()
 	r.becomeLeader()
 
-	r.Step(pb.Message{MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{&pb.Entry{}}})
+	r.Step(pb.Message{MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{}}})
 	r.readMessages() // clear message
 
 	for i := 0; i < hi; i++ {

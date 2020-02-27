@@ -1098,7 +1098,7 @@ func TestBcastBeat2B(t *testing.T) {
 
 	sm.becomeCandidate()
 	sm.becomeLeader()
-	sm.Step(pb.Message{MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{&pb.Entry{}}})
+	sm.Step(pb.Message{MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{}}})
 	sm.readMessages() // clear message
 	// slow follower
 	sm.Prs[2].Match, sm.Prs[2].Next = 5, 6
