@@ -1,4 +1,4 @@
-package storage
+package tikv
 
 import (
 	"os"
@@ -37,7 +37,7 @@ func get(is *inner_server.StandAloneInnerServer, cf string, key []byte) ([]byte,
 	return reader.GetCF(cf, key)
 }
 
-func NewTestTiKVServer(innerServer InnerServer) *Server {
+func NewTestTiKVServer(innerServer inner_server.InnerServer) *Server {
 	server := NewServer(innerServer)
 	return server
 }

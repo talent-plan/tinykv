@@ -1,12 +1,13 @@
-package kvstore
+package mvcc
 
 import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"reflect"
+
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
-	"reflect"
 )
 
 const TsMax uint64 = ^uint64(0)
@@ -44,7 +45,7 @@ func (lock *Lock) ToBytes() []byte {
 // ParseLock attempts to parse a byte string into a Lock object.
 func ParseLock(input []byte) (*Lock, error) {
 	if len(input) <= 16 {
-		return nil, fmt.Errorf("kvstore: error parsing lock, not enough input, found %d bytes", len(input))
+		return nil, fmt.Errorf("mvcc: error parsing lock, not enough input, found %d bytes", len(input))
 	}
 
 	primaryLen := len(input) - 17

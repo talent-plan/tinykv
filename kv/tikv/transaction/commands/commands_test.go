@@ -1,20 +1,24 @@
-package storage
+package commands
 
 // This file contains utility code for testing commands.
 
 import (
+	"testing"
+
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/transaction/latches"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/transaction/mvcc"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 // testBuilder is a helper type for running command tests.
 type testBuilder struct {
-	t      *testing.T
-	server *Server
-	mem    *inner_server.MemInnerServer
+	t *testing.T
+	// mem will always be the backing store for server.
+	mem     *inner_server.MemInnerServer
+	latches *latches.Latches
+	// Keep track of timestamps.
 	prevTs uint64
 }
 
@@ -31,8 +35,8 @@ type kv struct {
 
 func newBuilder(t *testing.T) testBuilder {
 	mem := inner_server.NewMemInnerServer()
-	server := NewServer(mem)
-	server.Latches.Validation = func(txn *kvstore.MvccTxn, keys [][]byte) {
+	latches := latches.NewLatches()
+	latches.Validation = func(txn *mvcc.MvccTxn, keys [][]byte) {
 		keyMap := make(map[string]struct{})
 		for _, k := range keys {
 			keyMap[string(k)] = struct{}{}
@@ -44,9 +48,9 @@ func newBuilder(t *testing.T) testBuilder {
 			if len(key) > 8 {
 				switch wr.Cf() {
 				case engine_util.CfDefault:
-					key = kvstore.DecodeUserKey(wr.Key())
+					key = mvcc.DecodeUserKey(wr.Key())
 				case engine_util.CfWrite:
-					key = kvstore.DecodeUserKey(wr.Key())
+					key = mvcc.DecodeUserKey(wr.Key())
 				}
 			}
 			if _, ok := keyMap[string(key)]; !ok {
@@ -54,7 +58,7 @@ func newBuilder(t *testing.T) testBuilder {
 			}
 		}
 	}
-	return testBuilder{t, server, mem, 99}
+	return testBuilder{t, mem, latches, 99}
 }
 
 // init sets values in the test's DB.
@@ -66,9 +70,9 @@ func (builder *testBuilder) init(values []kv) {
 		}
 		switch kv.cf {
 		case engine_util.CfDefault:
-			builder.mem.Set(kv.cf, kvstore.EncodeKey(kv.key, ts), kv.value)
+			builder.mem.Set(kv.cf, mvcc.EncodeKey(kv.key, ts), kv.value)
 		case engine_util.CfWrite:
-			builder.mem.Set(kv.cf, kvstore.EncodeKey(kv.key, ts), kv.value)
+			builder.mem.Set(kv.cf, mvcc.EncodeKey(kv.key, ts), kv.value)
 		case engine_util.CfLock:
 			builder.mem.Set(kv.cf, kv.key, kv.value)
 		}
@@ -78,7 +82,7 @@ func (builder *testBuilder) init(values []kv) {
 func (builder *testBuilder) runCommands(cmds ...Command) []interface{} {
 	var result []interface{}
 	for _, c := range cmds {
-		resp, err := builder.server.Run(c)
+		resp, err := RunCommand(c, builder.mem, builder.latches)
 		assert.Nil(builder.t, err)
 		result = append(result, resp)
 	}
@@ -110,9 +114,9 @@ func (builder *testBuilder) assert(kvs []kv) {
 		}
 		switch kv.cf {
 		case engine_util.CfDefault:
-			key = kvstore.EncodeKey(kv.key, ts)
+			key = mvcc.EncodeKey(kv.key, ts)
 		case engine_util.CfWrite:
-			key = kvstore.EncodeKey(kv.key, ts)
+			key = mvcc.EncodeKey(kv.key, ts)
 		case engine_util.CfLock:
 			key = kv.key
 		}

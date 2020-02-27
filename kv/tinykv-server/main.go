@@ -2,7 +2,7 @@ package main
 
 import (
 	"flag"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage"
+	"github.com/pingcap-incubator/tinykv/kv/tikv"
 	"net"
 	_ "net/http/pprof"
 	"os"
@@ -50,13 +50,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	var innerServer storage.InnerServer
+	var innerServer inner_server.InnerServer
 	if conf.Raft {
 		innerServer = setupRaftInnerServer(pdClient, conf)
 	} else {
 		innerServer = setupStandAloneInnerServer(pdClient, conf)
 	}
-	tikvServer := storage.NewServer(innerServer)
+	tikvServer := tikv.NewServer(innerServer)
 
 	var alivePolicy = keepalive.EnforcementPolicy{
 		MinTime:             2 * time.Second, // If a client pings more than once every 2 seconds, terminate the connection
@@ -95,7 +95,7 @@ func loadConfig() *config.Config {
 	return conf
 }
 
-func setupRaftInnerServer(pdClient pd.Client, conf *config.Config) storage.InnerServer {
+func setupRaftInnerServer(pdClient pd.Client, conf *config.Config) inner_server.InnerServer {
 	innerServer := inner_server.NewRaftInnerServer(conf)
 	if err := innerServer.Start(pdClient); err != nil {
 		log.Fatal(err)
@@ -104,7 +104,7 @@ func setupRaftInnerServer(pdClient pd.Client, conf *config.Config) storage.Inner
 	return innerServer
 }
 
-func setupStandAloneInnerServer(pdClient pd.Client, conf *config.Config) storage.InnerServer {
+func setupStandAloneInnerServer(pdClient pd.Client, conf *config.Config) inner_server.InnerServer {
 	innerServer := inner_server.NewStandAloneInnerServer(conf)
 	if err := innerServer.Start(pdClient); err != nil {
 		log.Fatal(err)
