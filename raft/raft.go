@@ -1020,3 +1020,41 @@ func numOfPendingConf(ents []pb.Entry) int {
 	}
 	return n
 }
+
+// Progress represents a follower’s progress in the view of the leader. Leader maintains
+// progresses of all followers, and sends entries to the follower based on its progress.
+type Progress struct {
+	Match, Next uint64
+}
+
+// TODO: Delete Start
+// maybeUpdate returns false if the given n index comes from an outdated message.
+// Otherwise it updates the progress and returns true.
+func (pr *Progress) maybeUpdate(n uint64) bool {
+	var updated bool
+	if pr.Match < n {
+		pr.Match = n
+		updated = true
+	}
+	if pr.Next < n+1 {
+		pr.Next = n + 1
+	}
+	return updated
+}
+
+// maybeDecrTo returns false if the given to index comes from an out of order message.
+// Otherwise it decreases the progress next index to min(rejected, last) and returns true.
+func (pr *Progress) maybeDecrTo(rejected, last uint64) bool {
+	// TODO: Delete Start
+	// the rejection must be stale if the progress has matched and "rejected"
+	// is smaller than "match".
+	if rejected <= pr.Match {
+		return false
+	}
+	if pr.Next = min(rejected, last+1); pr.Next < 1 {
+		pr.Next = 1
+	}
+	return true
+}
+
+// TODO: Delete End
