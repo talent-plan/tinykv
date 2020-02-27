@@ -609,7 +609,14 @@ func (ps *PeerStorage) SetRegion(region *metapb.Region) {
 }
 
 func (ps *PeerStorage) ClearData() error {
-	// Todo: currently it is a place holder
+	ps.regionSched <- worker.Task{
+		Tp: worker.TaskTypeRegionDestroy,
+		Data: &runner.RegionTask{
+			RegionId: ps.region.GetId(),
+			StartKey: ps.region.GetStartKey(),
+			EndKey:   ps.region.GetEndKey(),
+		},
+	}
 	return nil
 }
 

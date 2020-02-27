@@ -222,7 +222,7 @@ func (c *NodeSimulator) CallCommandOnStore(storeID uint64, request *raft_cmdpb.R
 	cb := message.NewCallback()
 	err := router.SendRaftCommand(request, cb)
 	if err != nil {
-		panic(err)
+		return nil, nil
 	}
 
 	resp := cb.WaitRespWithTimeout(timeout)
