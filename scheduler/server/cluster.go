@@ -66,7 +66,6 @@ type RaftCluster struct {
 	id      id.Allocator
 
 	prepareChecker *prepareChecker
-	changedRegions chan *core.RegionInfo
 
 	coordinator *coordinator
 
@@ -136,7 +135,6 @@ func (c *RaftCluster) initCluster(id id.Allocator, opt *config.ScheduleOption, s
 	c.storage = storage
 	c.id = id
 	c.prepareChecker = newPrepareChecker()
-	c.changedRegions = make(chan *core.RegionInfo, defaultChangedRegionsLimit)
 }
 
 func (c *RaftCluster) start() error {
@@ -306,13 +304,13 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 	// Save to storage if meta is updated.
 	// Save to cache if meta or leader is updated, or contains any down/pending peer.
 	// Mark isNew if the region in cache does not have leader.
-	var saveKV, saveCache, isNew bool
+	var saveCache, isNew bool
 	if origin == nil {
 		log.Debug("insert new region",
 			zap.Uint64("region-id", region.GetID()),
 			zap.Stringer("meta-region", core.RegionToHexMeta(region.GetMeta())),
 		)
-		saveKV, saveCache, isNew = true, true, true
+		saveCache, isNew = true, true
 	} else {
 		r := region.GetRegionEpoch()
 		o := origin.GetRegionEpoch()
@@ -327,7 +325,7 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 				zap.Uint64("old-version", o.GetVersion()),
 				zap.Uint64("new-version", r.GetVersion()),
 			)
-			saveKV, saveCache = true, true
+			saveCache = true
 		}
 		if r.GetConfVer() > o.GetConfVer() {
 			log.Info("region ConfVer changed",
@@ -336,7 +334,7 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 				zap.Uint64("old-confver", o.GetConfVer()),
 				zap.Uint64("new-confver", r.GetConfVer()),
 			)
-			saveKV, saveCache = true, true
+			saveCache = true
 		}
 		if region.GetLeader().GetId() != origin.GetLeader().GetId() {
 			if origin.GetLeader().GetId() == 0 {
@@ -357,7 +355,7 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 			saveCache = true
 		}
 		if len(region.GetPeers()) != len(origin.GetPeers()) {
-			saveKV, saveCache = true, true
+			saveCache = true
 		}
 
 		if region.GetApproximateSize() != origin.GetApproximateSize() ||
@@ -366,20 +364,6 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 		}
 	}
 
-	if saveKV && c.storage != nil {
-		if err := c.storage.SaveRegion(region.GetMeta()); err != nil {
-			// Not successfully saved to storage is not fatal, it only leads to longer warm-up
-			// after restart. Here we only log the error then go on updating cache.
-			log.Error("failed to save region to storage",
-				zap.Uint64("region-id", region.GetID()),
-				zap.Stringer("region-meta", core.RegionToHexMeta(region.GetMeta())),
-				zap.Error(err))
-		}
-		select {
-		case c.changedRegions <- region:
-		default:
-		}
-	}
 	if !saveCache && !isNew {
 		return nil
 	}
@@ -894,10 +878,6 @@ func (c *RaftCluster) AllocPeer(storeID uint64) (*metapb.Peer, error) {
 		StoreId: storeID,
 	}
 	return peer, nil
-}
-
-func (c *RaftCluster) changedRegionNotifier() <-chan *core.RegionInfo {
-	return c.changedRegions
 }
 
 // GetConfig gets config from cluster.
