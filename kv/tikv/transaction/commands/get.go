@@ -1,7 +1,7 @@
-package storage
+package commands
 
 import (
-	"github.com/pingcap-incubator/tinykv/kv/tikv/storage/kvstore"
+	"github.com/pingcap-incubator/tinykv/kv/tikv/transaction/mvcc"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
 
@@ -20,7 +20,7 @@ func NewGet(request *kvrpcpb.GetRequest) Get {
 	}
 }
 
-func (g *Get) Read(txn *kvstore.RoTxn) (interface{}, [][]byte, error) {
+func (g *Get) Read(txn *mvcc.RoTxn) (interface{}, [][]byte, error) {
 	key := g.request.Key
 	txn.StartTS = &g.request.Version
 	response := new(kvrpcpb.GetResponse)
