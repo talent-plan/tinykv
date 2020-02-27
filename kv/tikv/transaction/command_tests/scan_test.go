@@ -1,4 +1,4 @@
-package commands
+package command_tests
 
 import (
 	"testing"
@@ -12,8 +12,8 @@ import (
 func TestScanEmpty4B(t *testing.T) {
 	builder := builderForScan(t)
 
-	cmd := NewScan(builder.scanRequest([]byte{200}, 10000))
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.ScanResponse)
+	cmd := builder.scanRequest([]byte{200}, 10000)
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.ScanResponse)
 	assert.Nil(t, resp.RegionError)
 	assert.Empty(t, resp.Pairs)
 }
@@ -22,8 +22,8 @@ func TestScanEmpty4B(t *testing.T) {
 func TestScanLimitZero4B(t *testing.T) {
 	builder := builderForScan(t)
 
-	cmd := NewScan(builder.scanRequest([]byte{3}, 0))
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.ScanResponse)
+	cmd := builder.scanRequest([]byte{3}, 0)
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.ScanResponse)
 	assert.Nil(t, resp.RegionError)
 	assert.Empty(t, resp.Pairs)
 }
@@ -32,8 +32,8 @@ func TestScanLimitZero4B(t *testing.T) {
 func TestScanAll4B(t *testing.T) {
 	builder := builderForScan(t)
 
-	cmd := NewScan(builder.scanRequest([]byte{0}, 10000))
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.ScanResponse)
+	cmd := builder.scanRequest([]byte{0}, 10000)
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.ScanResponse)
 
 	assert.Nil(t, resp.RegionError)
 	assert.Equal(t, 11, len(resp.Pairs))
@@ -47,8 +47,8 @@ func TestScanAll4B(t *testing.T) {
 func TestScanLimit4B(t *testing.T) {
 	builder := builderForScan(t)
 
-	cmd := NewScan(builder.scanRequest([]byte{2}, 6))
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.ScanResponse)
+	cmd := builder.scanRequest([]byte{2}, 6)
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.ScanResponse)
 
 	assert.Nil(t, resp.RegionError)
 	assert.Equal(t, 6, len(resp.Pairs))
@@ -64,15 +64,12 @@ func TestScanDeleted4B(t *testing.T) {
 
 	req1 := builder.scanRequest([]byte{100}, 10000)
 	req1.Version = 100
-	cmd1 := NewScan(req1)
 	req2 := builder.scanRequest([]byte{100}, 10000)
 	req2.Version = 105
-	cmd2 := NewScan(req2)
 	req3 := builder.scanRequest([]byte{100}, 10000)
 	req3.Version = 120
-	cmd3 := NewScan(req3)
 
-	resps := builder.runCommands(&cmd1, &cmd2, &cmd3)
+	resps := builder.runRequests(req1, req2, req3)
 
 	resp1 := resps[0].(*kvrpcpb.ScanResponse)
 	assert.Nil(t, resp1.RegionError)

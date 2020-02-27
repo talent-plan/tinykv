@@ -1,4 +1,4 @@
-package commands
+package command_tests
 
 import (
 	"testing"
@@ -20,8 +20,7 @@ func TestGetValue4A(t *testing.T) {
 	var req kvrpcpb.GetRequest
 	req.Key = []byte{99}
 	req.Version = mvcc.TsMax
-	cmd := NewGet(&req)
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.GetResponse)
+	resp := builder.runOneRequest(&req).(*kvrpcpb.GetResponse)
 
 	assert.Nil(t, resp.RegionError)
 	assert.Nil(t, resp.Error)
@@ -39,17 +38,14 @@ func TestGetValueTs4A(t *testing.T) {
 	var req0 kvrpcpb.GetRequest
 	req0.Key = []byte{99}
 	req0.Version = 100
-	get0 := NewGet(&req0)
 	var req1 kvrpcpb.GetRequest
 	req1.Key = []byte{99}
 	req1.Version = 100
-	get1 := NewGet(&req1)
 	var req2 kvrpcpb.GetRequest
 	req2.Key = []byte{99}
 	req2.Version = 100
-	get2 := NewGet(&req2)
 
-	resps := builder.runCommands(&get0, &get1, &get2)
+	resps := builder.runRequests(&req0, &req1, &req2)
 	resp0 := resps[0].(*kvrpcpb.GetResponse)
 	resp1 := resps[1].(*kvrpcpb.GetResponse)
 	resp2 := resps[2].(*kvrpcpb.GetResponse)
@@ -71,8 +67,7 @@ func TestGetEmpty4A(t *testing.T) {
 	var req kvrpcpb.GetRequest
 	req.Key = []byte{100}
 	req.Version = mvcc.TsMax
-	cmd := NewGet(&req)
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.GetResponse)
+	resp := builder.runOneRequest(&req).(*kvrpcpb.GetResponse)
 
 	assert.Nil(t, resp.RegionError)
 	assert.Nil(t, resp.Error)
@@ -92,9 +87,8 @@ func TestGetNone4A(t *testing.T) {
 	var req kvrpcpb.GetRequest
 	req.Key = []byte{100}
 	req.Version = mvcc.TsMax
-	cmd := NewGet(&req)
 
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.GetResponse)
+	resp := builder.runOneRequest(&req).(*kvrpcpb.GetResponse)
 	assert.Nil(t, resp.RegionError)
 	assert.Nil(t, resp.Error)
 	assert.Equal(t, []byte(nil), resp.Value)
@@ -115,29 +109,23 @@ func TestGetVersions4A(t *testing.T) {
 	var req0 kvrpcpb.GetRequest
 	req0.Key = []byte{99}
 	req0.Version = 40
-	get0 := NewGet(&req0)
 	var req1 kvrpcpb.GetRequest
 	req1.Key = []byte{99}
 	req1.Version = 56
-	get1 := NewGet(&req1)
 	var req2 kvrpcpb.GetRequest
 	req2.Key = []byte{99}
 	req2.Version = 60
-	get2 := NewGet(&req2)
 	var req3 kvrpcpb.GetRequest
 	req3.Key = []byte{99}
 	req3.Version = 65
-	get3 := NewGet(&req3)
 	var req4 kvrpcpb.GetRequest
 	req4.Key = []byte{99}
 	req4.Version = 66
-	get4 := NewGet(&req4)
 	var req5 kvrpcpb.GetRequest
 	req5.Key = []byte{99}
 	req5.Version = 100
-	get5 := NewGet(&req5)
 
-	resps := builder.runCommands(&get0, &get1, &get2, &get3, &get4, &get5)
+	resps := builder.runRequests(&req0, &req1, &req2, &req3, &req4, &req5)
 	resp0 := resps[0].(*kvrpcpb.GetResponse)
 	resp1 := resps[1].(*kvrpcpb.GetResponse)
 	resp2 := resps[2].(*kvrpcpb.GetResponse)
@@ -180,29 +168,23 @@ func TestGetDeleted4A(t *testing.T) {
 	var req0 kvrpcpb.GetRequest
 	req0.Key = []byte{99}
 	req0.Version = 54
-	get0 := NewGet(&req0)
 	var req1 kvrpcpb.GetRequest
 	req1.Key = []byte{99}
 	req1.Version = 60
-	get1 := NewGet(&req1)
 	var req2 kvrpcpb.GetRequest
 	req2.Key = []byte{99}
 	req2.Version = 65
-	get2 := NewGet(&req2)
 	var req3 kvrpcpb.GetRequest
 	req3.Key = []byte{99}
 	req3.Version = 66
-	get3 := NewGet(&req3)
 	var req4 kvrpcpb.GetRequest
 	req4.Key = []byte{99}
 	req4.Version = 67
-	get4 := NewGet(&req4)
 	var req5 kvrpcpb.GetRequest
 	req5.Key = []byte{99}
 	req5.Version = 122
-	get5 := NewGet(&req5)
 
-	resps := builder.runCommands(&get0, &get1, &get2, &get3, &get4, &get5)
+	resps := builder.runRequests(&req0, &req1, &req2, &req3, &req4, &req5)
 	resp0 := resps[0].(*kvrpcpb.GetResponse)
 	resp1 := resps[1].(*kvrpcpb.GetResponse)
 	resp2 := resps[2].(*kvrpcpb.GetResponse)
@@ -242,13 +224,11 @@ func TestGetLocked4A(t *testing.T) {
 	var req0 kvrpcpb.GetRequest
 	req0.Key = []byte{99}
 	req0.Version = 55
-	get0 := NewGet(&req0)
 	var req1 kvrpcpb.GetRequest
 	req1.Key = []byte{99}
 	req1.Version = 300
-	get1 := NewGet(&req1)
 
-	resps := builder.runCommands(&get0, &get1)
+	resps := builder.runRequests(&req0, &req1)
 	resp0 := resps[0].(*kvrpcpb.GetResponse)
 	resp1 := resps[1].(*kvrpcpb.GetResponse)
 

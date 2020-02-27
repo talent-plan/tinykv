@@ -1,4 +1,4 @@
-package commands
+package command_tests
 
 import (
 	"testing"
@@ -11,8 +11,8 @@ import (
 // TestEmptyPrewrite4A tests that a Prewrite with no mutations succeeds and changes nothing.
 func TestEmptyPrewrite4A(t *testing.T) {
 	builder := newBuilder(t)
-	cmd := NewPrewrite(builder.prewriteRequest())
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.PrewriteResponse)
+	cmd := builder.prewriteRequest()
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.PrewriteResponse)
 
 	assert.Empty(t, resp.Errors)
 	assert.Nil(t, resp.RegionError)
@@ -22,9 +22,9 @@ func TestEmptyPrewrite4A(t *testing.T) {
 // TestSinglePrewrite4A tests a prewrite with one write, it should succeed, we test all the expected values.
 func TestSinglePrewrite4A(t *testing.T) {
 	builder := newBuilder(t)
-	cmd := NewPrewrite(builder.prewriteRequest(mutation(3, []byte{42}, kvrpcpb.Op_Put)))
-	cmd.request.LockTtl = 1000
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.PrewriteResponse)
+	cmd := builder.prewriteRequest(mutation(3, []byte{42}, kvrpcpb.Op_Put))
+	cmd.LockTtl = 1000
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.PrewriteResponse)
 
 	assert.Empty(t, resp.Errors)
 	assert.Nil(t, resp.RegionError)
@@ -38,9 +38,9 @@ func TestSinglePrewrite4A(t *testing.T) {
 // TestPrewriteLocked4A tests that two prewrites to the same key causes a lock error.
 func TestPrewriteLocked4A(t *testing.T) {
 	builder := newBuilder(t)
-	cmd := NewPrewrite(builder.prewriteRequest(mutation(3, []byte{42}, kvrpcpb.Op_Put)))
-	cmd2 := NewPrewrite(builder.prewriteRequest(mutation(3, []byte{53}, kvrpcpb.Op_Put)))
-	resps := builder.runCommands(&cmd, &cmd2)
+	cmd := builder.prewriteRequest(mutation(3, []byte{42}, kvrpcpb.Op_Put))
+	cmd2 := builder.prewriteRequest(mutation(3, []byte{53}, kvrpcpb.Op_Put))
+	resps := builder.runRequests(cmd, cmd2)
 
 	assert.Empty(t, resps[0].(*kvrpcpb.PrewriteResponse).Errors)
 	assert.Nil(t, resps[0].(*kvrpcpb.PrewriteResponse).RegionError)
@@ -56,12 +56,12 @@ func TestPrewriteLocked4A(t *testing.T) {
 // TestPrewriteWritten4A tests an attempted prewrite with a write conflict.
 func TestPrewriteWritten4A(t *testing.T) {
 	builder := newBuilder(t)
-	cmd := NewPrewrite(builder.prewriteRequest(mutation(3, []byte{42}, kvrpcpb.Op_Put)))
+	cmd := builder.prewriteRequest(mutation(3, []byte{42}, kvrpcpb.Op_Put))
 	builder.init([]kv{
 		{cf: engine_util.CfDefault, key: []byte{3}, ts: 80, value: []byte{5}},
 		{cf: engine_util.CfWrite, key: []byte{3}, ts: 101, value: []byte{1, 0, 0, 0, 0, 0, 0, 0, 80}},
 	})
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.PrewriteResponse)
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.PrewriteResponse)
 
 	assert.Equal(t, 1, len(resp.Errors))
 	assert.NotNil(t, resp.Errors[0].Conflict)
@@ -76,12 +76,12 @@ func TestPrewriteWritten4A(t *testing.T) {
 // TestPrewriteWrittenNoConflict4A tests an attempted prewrite with a write already present, but no conflict.
 func TestPrewriteWrittenNoConflict4A(t *testing.T) {
 	builder := newBuilder(t)
-	cmd := NewPrewrite(builder.prewriteRequest(mutation(3, []byte{42}, kvrpcpb.Op_Put)))
+	cmd := builder.prewriteRequest(mutation(3, []byte{42}, kvrpcpb.Op_Put))
 	builder.init([]kv{
 		{cf: engine_util.CfDefault, key: []byte{3}, ts: 80, value: []byte{5}},
 		{cf: engine_util.CfWrite, key: []byte{3}, ts: 90, value: []byte{1, 0, 0, 0, 0, 0, 0, 0, 80}},
 	})
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.PrewriteResponse)
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.PrewriteResponse)
 
 	assert.Empty(t, resp.Errors)
 	assert.Nil(t, resp.RegionError)
@@ -98,9 +98,9 @@ func TestPrewriteWrittenNoConflict4A(t *testing.T) {
 // TestMultiplePrewrites4A tests that multiple prewrites to different keys succeeds.
 func TestMultiplePrewrites4A(t *testing.T) {
 	builder := newBuilder(t)
-	cmd := NewPrewrite(builder.prewriteRequest(mutation(3, []byte{42}, kvrpcpb.Op_Put)))
-	cmd2 := NewPrewrite(builder.prewriteRequest(mutation(4, []byte{53}, kvrpcpb.Op_Put)))
-	resps := builder.runCommands(&cmd, &cmd2)
+	cmd := builder.prewriteRequest(mutation(3, []byte{42}, kvrpcpb.Op_Put))
+	cmd2 := builder.prewriteRequest(mutation(4, []byte{53}, kvrpcpb.Op_Put))
+	resps := builder.runRequests(cmd, cmd2)
 
 	assert.Empty(t, resps[0].(*kvrpcpb.PrewriteResponse).Errors)
 	assert.Nil(t, resps[0].(*kvrpcpb.PrewriteResponse).RegionError)
@@ -119,8 +119,8 @@ func TestMultiplePrewrites4A(t *testing.T) {
 // TestPrewriteOverwrite4A tests that two writes in the same prewrite succeed and we see the second write.
 func TestPrewriteOverwrite4A(t *testing.T) {
 	builder := newBuilder(t)
-	cmd := NewPrewrite(builder.prewriteRequest(mutation(3, []byte{42}, kvrpcpb.Op_Put), mutation(3, []byte{45}, kvrpcpb.Op_Put)))
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.PrewriteResponse)
+	cmd := builder.prewriteRequest(mutation(3, []byte{42}, kvrpcpb.Op_Put), mutation(3, []byte{45}, kvrpcpb.Op_Put))
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.PrewriteResponse)
 
 	assert.Empty(t, resp.Errors)
 	assert.Nil(t, resp.RegionError)
@@ -135,15 +135,15 @@ func TestPrewriteOverwrite4A(t *testing.T) {
 // TestPrewriteMultiple4A tests that a prewrite with multiple mutations succeeds.
 func TestPrewriteMultiple4A(t *testing.T) {
 	builder := newBuilder(t)
-	cmd := NewPrewrite(builder.prewriteRequest(
+	cmd := builder.prewriteRequest(
 		mutation(3, []byte{42}, kvrpcpb.Op_Put),
 		mutation(4, []byte{43}, kvrpcpb.Op_Put),
 		mutation(5, []byte{44}, kvrpcpb.Op_Put),
 		mutation(4, nil, kvrpcpb.Op_Del),
 		mutation(4, []byte{1, 3, 5}, kvrpcpb.Op_Put),
 		mutation(255, []byte{45}, kvrpcpb.Op_Put),
-	))
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.PrewriteResponse)
+	)
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.PrewriteResponse)
 
 	assert.Empty(t, resp.Errors)
 	assert.Nil(t, resp.RegionError)
