@@ -734,7 +734,7 @@ func (p *Peer) ProposeNormal(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest)
 	}
 
 	proposeIndex := p.nextProposalIndex()
-	err = p.RaftGroup.Propose(nil, data)
+	err = p.RaftGroup.Propose(data)
 	if err != nil {
 		return 0, err
 	}
