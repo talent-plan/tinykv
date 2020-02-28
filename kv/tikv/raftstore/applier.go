@@ -810,8 +810,7 @@ func (a *applier) execBatchSplit(aCtx *applyContext, req *raft_cmdpb.AdminReques
 		}
 		keys = append(keys, splitKey)
 	}
-	keys = append(keys, derived.EndKey)
-	err = util.CheckKeyInRegion(keys[len(keys)-2], a.region)
+	err = util.CheckKeyInRegion(keys[len(keys)-1], a.region)
 	if err != nil {
 		return
 	}
@@ -835,7 +834,7 @@ func (a *applier) execBatchSplit(aCtx *applyContext, req *raft_cmdpb.AdminReques
 		writeInitialApplyState(aCtx.wb, newRegion.Id)
 		regions = append(regions, newRegion)
 	}
-	derived.StartKey = keys[len(keys)-2]
+	derived.StartKey = keys[len(keys)-1]
 	regions = append(regions, derived)
 	WritePeerState(aCtx.wb, derived, rspb.PeerState_Normal)
 

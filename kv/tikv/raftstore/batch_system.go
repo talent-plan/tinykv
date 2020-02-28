@@ -14,7 +14,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/runner"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/worker"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -41,8 +40,6 @@ func (bs *RaftBatchSystem) loadPeers() ([]*peerFsm, error) {
 	raftWB := new(engine_util.WriteBatch)
 	var applyingRegions []*metapb.Region
 	var mergingCount int
-	ctx.storeMetaLock.Lock()
-	defer ctx.storeMetaLock.Unlock()
 	err := kvEngine.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
@@ -86,7 +83,7 @@ func (bs *RaftBatchSystem) loadPeers() ([]*peerFsm, error) {
 			if err != nil {
 				return err
 			}
-			ctx.storeMeta.regionRanges.Insert(region.EndKey, util.RegionIDToBytes(regionID))
+			ctx.storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region: region})
 			ctx.storeMeta.regions[regionID] = region
 			// No need to check duplicated here, because we use region id as the key
 			// in DB.
@@ -108,7 +105,7 @@ func (bs *RaftBatchSystem) loadPeers() ([]*peerFsm, error) {
 			return nil, err
 		}
 		peer.scheduleApplyingSnapshot()
-		ctx.storeMeta.regionRanges.Insert(region.EndKey, util.RegionIDToBytes(region.Id))
+		ctx.storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region: region})
 		ctx.storeMeta.regions[region.Id] = region
 		regionPeers = append(regionPeers, peer)
 	}
@@ -179,7 +176,6 @@ func (bs *RaftBatchSystem) start(
 		engine:               engines,
 		store:                meta,
 		storeMeta:            newStoreMeta(),
-		storeMetaLock:        new(sync.RWMutex),
 		snapMgr:              snapMgr,
 		router:               bs.router,
 		trans:                trans,

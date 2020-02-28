@@ -1829,7 +1829,7 @@ func TestLeaderTransferToUpToDateNode(t *testing.T) {
 	lead := nt.peers[1].(*Raft)
 
 	if lead.Lead != 1 {
-		t.Fatalf("after election leader is %x, want 1", lead.Lead)
+		t.Fatalf("after election leader is %d, want 1", lead.Lead)
 	}
 
 	// Transfer leadership to 2.
@@ -1857,7 +1857,7 @@ func TestLeaderTransferToUpToDateNodeFromFollower(t *testing.T) {
 	lead := nt.peers[1].(*Raft)
 
 	if lead.Lead != 1 {
-		t.Fatalf("after election leader is %x, want 1", lead.Lead)
+		t.Fatalf("after election leader is %d, want 1", lead.Lead)
 	}
 
 	// Transfer leadership to 2.
@@ -1883,7 +1883,7 @@ func TestLeaderTransferToSlowFollower(t *testing.T) {
 	nt.recover()
 	lead := nt.peers[1].(*Raft)
 	if lead.Prs[3].Match != 1 {
-		t.Fatalf("node 1 has match %x for node 3, want %x", lead.Prs[3].Match, 1)
+		t.Fatalf("node 1 has match %d for node 3, want %d", lead.Prs[3].Match, 1)
 	}
 
 	// Transfer leadership to 3 when node 3 is lack of log.
@@ -1906,7 +1906,7 @@ func TestLeaderTransferAfterSnapshot(t *testing.T) {
 
 	nt.recover()
 	if lead.Prs[3].Match != 1 {
-		t.Fatalf("node 1 has match %x for node 3, want %x", lead.Prs[3].Match, 1)
+		t.Fatalf("node 1 has match %d for node 3, want %d", lead.Prs[3].Match, 1)
 	}
 
 	// Transfer leadership to 3 when node 3 is lack of snapshot.
@@ -1986,7 +1986,7 @@ func TestLeaderTransferIgnoreProposal(t *testing.T) {
 	}
 
 	if lead.Prs[1].Match != 1 {
-		t.Fatalf("node 1 has match %x, want %x", lead.Prs[1].Match, 1)
+		t.Fatalf("node 1 has match %d, want %d", lead.Prs[1].Match, 1)
 	}
 }
 
