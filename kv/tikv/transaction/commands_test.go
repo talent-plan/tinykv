@@ -1,12 +1,16 @@
-package commands
+package transaction
 
 // This file contains utility code for testing commands.
 
 import (
+	"context"
+	"fmt"
+	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/pingcap-incubator/tinykv/kv/tikv"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/transaction/latches"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/transaction/mvcc"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/stretchr/testify/assert"
@@ -14,10 +18,10 @@ import (
 
 // testBuilder is a helper type for running command tests.
 type testBuilder struct {
-	t *testing.T
+	t      *testing.T
+	server *tikv.Server
 	// mem will always be the backing store for server.
-	mem     *inner_server.MemInnerServer
-	latches *latches.Latches
+	mem *inner_server.MemInnerServer
 	// Keep track of timestamps.
 	prevTs uint64
 }
@@ -35,30 +39,8 @@ type kv struct {
 
 func newBuilder(t *testing.T) testBuilder {
 	mem := inner_server.NewMemInnerServer()
-	latches := latches.NewLatches()
-	latches.Validation = func(txn *mvcc.MvccTxn, keys [][]byte) {
-		keyMap := make(map[string]struct{})
-		for _, k := range keys {
-			keyMap[string(k)] = struct{}{}
-		}
-		for _, wr := range txn.Writes {
-			key := wr.Key()
-			// This is a bit of a hack and relies on all the raw tests using keys shorter than 9 bytes, which is the
-			// minimum length for an encoded key.
-			if len(key) > 8 {
-				switch wr.Cf() {
-				case engine_util.CfDefault:
-					key = mvcc.DecodeUserKey(wr.Key())
-				case engine_util.CfWrite:
-					key = mvcc.DecodeUserKey(wr.Key())
-				}
-			}
-			if _, ok := keyMap[string(key)]; !ok {
-				t.Errorf("Failed latching validation: tried to write a key which was not latched in %v", wr.Data)
-			}
-		}
-	}
-	return testBuilder{t, mem, latches, 99}
+	server := tikv.NewServer(mem)
+	return testBuilder{t, server, mem, 99}
 }
 
 // init sets values in the test's DB.
@@ -79,19 +61,28 @@ func (builder *testBuilder) init(values []kv) {
 	}
 }
 
-func (builder *testBuilder) runCommands(cmds ...Command) []interface{} {
+func (builder *testBuilder) runRequests(reqs ...interface{}) []interface{} {
 	var result []interface{}
-	for _, c := range cmds {
-		resp, err := RunCommand(c, builder.mem, builder.latches)
-		assert.Nil(builder.t, err)
-		result = append(result, resp)
+	for _, req := range reqs {
+		reqName := fmt.Sprintf("%v", reflect.TypeOf(req))
+		reqName = strings.TrimPrefix(strings.TrimSuffix(reqName, "Request"), "*kvrpcpb.")
+		fnName := "Kv" + reqName
+		serverVal := reflect.ValueOf(builder.server)
+		fn := serverVal.MethodByName(fnName)
+		ctxtVal := reflect.ValueOf(context.Background())
+		reqVal := reflect.ValueOf(req)
+
+		results := fn.Call([]reflect.Value{ctxtVal, reqVal})
+
+		assert.Nil(builder.t, results[1].Interface())
+		result = append(result, results[0].Interface())
 	}
 	return result
 }
 
 // runOneCmd is like runCommands but only runs a single command.
-func (builder *testBuilder) runOneCmd(cmd Command) interface{} {
-	return builder.runCommands(cmd)[0]
+func (builder *testBuilder) runOneRequest(req interface{}) interface{} {
+	return builder.runRequests(req)[0]
 }
 
 func (builder *testBuilder) nextTs() uint64 {

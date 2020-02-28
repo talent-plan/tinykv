@@ -1,4 +1,4 @@
-package commands
+package command_tests
 
 import (
 	"testing"
@@ -8,32 +8,32 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestScanEmpty tests a scan after the end of the DB.
-func TestScanEmpty(t *testing.T) {
+// TestScanEmpty4B tests a scan after the end of the DB.
+func TestScanEmpty4B(t *testing.T) {
 	builder := builderForScan(t)
 
-	cmd := NewScan(builder.scanRequest([]byte{200}, 10000))
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.ScanResponse)
+	cmd := builder.scanRequest([]byte{200}, 10000)
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.ScanResponse)
 	assert.Nil(t, resp.RegionError)
 	assert.Empty(t, resp.Pairs)
 }
 
-// TestScanLimitZero tests we get nothing if limit is 0.
-func TestScanLimitZero(t *testing.T) {
+// TestScanLimitZero4B tests we get nothing if limit is 0.
+func TestScanLimitZero4B(t *testing.T) {
 	builder := builderForScan(t)
 
-	cmd := NewScan(builder.scanRequest([]byte{3}, 0))
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.ScanResponse)
+	cmd := builder.scanRequest([]byte{3}, 0)
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.ScanResponse)
 	assert.Nil(t, resp.RegionError)
 	assert.Empty(t, resp.Pairs)
 }
 
-// TestScanAll start at the beginning of the DB and read all pairs, respecting the timestamp.
-func TestScanAll(t *testing.T) {
+// TestScanAll4B start at the beginning of the DB and read all pairs, respecting the timestamp.
+func TestScanAll4B(t *testing.T) {
 	builder := builderForScan(t)
 
-	cmd := NewScan(builder.scanRequest([]byte{0}, 10000))
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.ScanResponse)
+	cmd := builder.scanRequest([]byte{0}, 10000)
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.ScanResponse)
 
 	assert.Nil(t, resp.RegionError)
 	assert.Equal(t, 11, len(resp.Pairs))
@@ -43,12 +43,12 @@ func TestScanAll(t *testing.T) {
 	assert.Equal(t, []byte{54}, resp.Pairs[10].Value)
 }
 
-// TestScanLimit tests that scan takes the limit into account.
-func TestScanLimit(t *testing.T) {
+// TestScanLimit4B tests that scan takes the limit into account.
+func TestScanLimit4B(t *testing.T) {
 	builder := builderForScan(t)
 
-	cmd := NewScan(builder.scanRequest([]byte{2}, 6))
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.ScanResponse)
+	cmd := builder.scanRequest([]byte{2}, 6)
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.ScanResponse)
 
 	assert.Nil(t, resp.RegionError)
 	assert.Equal(t, 6, len(resp.Pairs))
@@ -58,21 +58,18 @@ func TestScanLimit(t *testing.T) {
 	assert.Equal(t, []byte{52}, resp.Pairs[5].Value)
 }
 
-// TestScanDeleted scan over a value which is deleted then replaced.
-func TestScanDeleted(t *testing.T) {
+// TestScanDeleted4B scan over a value which is deleted then replaced.
+func TestScanDeleted4B(t *testing.T) {
 	builder := builderForScan(t)
 
 	req1 := builder.scanRequest([]byte{100}, 10000)
 	req1.Version = 100
-	cmd1 := NewScan(req1)
 	req2 := builder.scanRequest([]byte{100}, 10000)
 	req2.Version = 105
-	cmd2 := NewScan(req2)
 	req3 := builder.scanRequest([]byte{100}, 10000)
 	req3.Version = 120
-	cmd3 := NewScan(req3)
 
-	resps := builder.runCommands(&cmd1, &cmd2, &cmd3)
+	resps := builder.runRequests(req1, req2, req3)
 
 	resp1 := resps[0].(*kvrpcpb.ScanResponse)
 	assert.Nil(t, resp1.RegionError)
