@@ -172,16 +172,6 @@ type Raft struct {
 
 	// the leader id
 	Lead uint64
-	// leadTransferee is id of the leader transfer target when its value is not zero.
-	// Follow the procedure defined in raft thesis 3.10.
-	leadTransferee uint64
-	// Only one conf change may be pending (in the log, but not yet
-	// applied) at a time. This is enforced via PendingConfIndex, which
-	// is set to a value >= the log index of the latest pending
-	// configuration change (if any). Config changes are only allowed to
-	// be proposed if the leader's applied index is greater than this
-	// value.
-	PendingConfIndex uint64
 
 	// heartbeat interval
 	heartbeatTimeout int
@@ -195,10 +185,20 @@ type Raft struct {
 
 	// Your Code Here 2A
 	// TODO: Delete Start
-	// number of ticks since it reached last electionTimeout when it is leader
-	// or candidate.
-	// number of ticks since it reached last electionTimeout or received a
-	// valid message from current leader when it is a follower.
+
+	// leadTransferee is id of the leader transfer target when its value is not zero.
+	// Follow the procedure defined in raft thesis 3.10.
+	leadTransferee uint64
+
+	// Only one conf change may be pending (in the log, but not yet
+	// applied) at a time. This is enforced via PendingConfIndex, which
+	// is set to a value >= the log index of the latest pending
+	// configuration change (if any). Config changes are only allowed to
+	// be proposed if the leader's applied index is greater than this
+	// value.
+	PendingConfIndex uint64
+
+	// number of ticks since it reached last electionTimeout
 	electionElapsed int
 
 	// number of ticks since it reached last heartbeatTimeout.

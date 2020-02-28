@@ -1234,23 +1234,6 @@ func TestSlowNodeRestore2B(t *testing.T) {
 	}
 }
 
-// TestStepConfig tests that when raft step MessageType_MsgPropose in EntryType_EntryConfChange type,
-// it appends the entry to log and sets pendingConf to be true.
-func TestStepConfig3A(t *testing.T) {
-	// a raft that cannot make progress
-	r := newTestRaft(1, []uint64{1, 2}, 10, 1, NewMemoryStorage())
-	r.becomeCandidate()
-	r.becomeLeader()
-	index := r.RaftLog.LastIndex()
-	r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{EntryType: pb.EntryType_EntryConfChange}}})
-	if g := r.RaftLog.LastIndex(); g != index+1 {
-		t.Errorf("index = %d, want %d", g, index+1)
-	}
-	if r.PendingConfIndex != index+1 {
-		t.Errorf("pendingConfIndex = %d, want %d", r.PendingConfIndex, index+1)
-	}
-}
-
 // TestAddNode tests that addNode could update nodes correctly.
 func TestAddNode3A(t *testing.T) {
 	r := newTestRaft(1, []uint64{1}, 10, 1, NewMemoryStorage())
@@ -1485,58 +1468,6 @@ func TestLeaderTransferToNonExistingNode3C(t *testing.T) {
 	checkLeaderTransferState(t, lead, StateLeader, 1)
 }
 
-func TestLeaderTransferTimeout3C(t *testing.T) {
-	nt := newNetwork(nil, nil, nil)
-	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
-
-	nt.isolate(3)
-
-	lead := nt.peers[1].(*Raft)
-
-	// Transfer leadership to isolated node, wait for timeout.
-	nt.send(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgTransferLeader})
-	if lead.leadTransferee != 3 {
-		t.Fatalf("wait transferring, leadTransferee = %v, want %v", lead.leadTransferee, 3)
-	}
-	for i := 0; i < lead.heartbeatTimeout; i++ {
-		lead.tick()
-	}
-	if lead.leadTransferee != 3 {
-		t.Fatalf("wait transferring, leadTransferee = %v, want %v", lead.leadTransferee, 3)
-	}
-
-	for i := 0; i < lead.electionTimeout-lead.heartbeatTimeout; i++ {
-		lead.tick()
-	}
-
-	checkLeaderTransferState(t, lead, StateLeader, 1)
-}
-
-func TestLeaderTransferIgnoreProposal3C(t *testing.T) {
-	nt := newNetwork(nil, nil, nil)
-	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
-
-	nt.isolate(3)
-
-	lead := nt.peers[1].(*Raft)
-
-	// Transfer leadership to isolated node to let transfer pending, then send proposal.
-	nt.send(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgTransferLeader})
-	if lead.leadTransferee != 3 {
-		t.Fatalf("wait transferring, leadTransferee = %v, want %v", lead.leadTransferee, 3)
-	}
-
-	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{}}})
-	err := lead.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{}}})
-	if err != ErrProposalDropped {
-		t.Fatalf("should return drop proposal error while transferring")
-	}
-
-	if lead.Prs[1].Match != 1 {
-		t.Fatalf("node 1 has match %x, want %x", lead.Prs[1].Match, 1)
-	}
-}
-
 func TestLeaderTransferReceiveHigherTermVote3C(t *testing.T) {
 	nt := newNetwork(nil, nil, nil)
 	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
@@ -1547,10 +1478,6 @@ func TestLeaderTransferReceiveHigherTermVote3C(t *testing.T) {
 
 	// Transfer leadership to isolated node to let transfer pending.
 	nt.send(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgTransferLeader})
-	if lead.leadTransferee != 3 {
-		t.Fatalf("wait transferring, leadTransferee = %v, want %v", lead.leadTransferee, 3)
-	}
-
 	nt.send(pb.Message{From: 2, To: 2, MsgType: pb.MessageType_MsgHup, Index: 1, Term: 2})
 
 	checkLeaderTransferState(t, lead, StateFollower, 2)
@@ -1560,17 +1487,10 @@ func TestLeaderTransferRemoveNode3C(t *testing.T) {
 	nt := newNetwork(nil, nil, nil)
 	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 
-	nt.ignore(pb.MessageType_MsgTimeoutNow)
-
 	lead := nt.peers[1].(*Raft)
-
-	// The leadTransferee is removed when leadship transferring.
-	nt.send(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgTransferLeader})
-	if lead.leadTransferee != 3 {
-		t.Fatalf("wait transferring, leadTransferee = %v, want %v", lead.leadTransferee, 3)
-	}
-
 	lead.removeNode(3)
+
+	nt.send(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgTransferLeader})
 
 	checkLeaderTransferState(t, lead, StateLeader, 1)
 }
@@ -1585,9 +1505,6 @@ func TestLeaderTransferBack3C(t *testing.T) {
 	lead := nt.peers[1].(*Raft)
 
 	nt.send(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgTransferLeader})
-	if lead.leadTransferee != 3 {
-		t.Fatalf("wait transferring, leadTransferee = %v, want %v", lead.leadTransferee, 3)
-	}
 
 	// Transfer leadership back to self.
 	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgTransferLeader})
@@ -1606,50 +1523,15 @@ func TestLeaderTransferSecondTransferToAnotherNode3C(t *testing.T) {
 	lead := nt.peers[1].(*Raft)
 
 	nt.send(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgTransferLeader})
-	if lead.leadTransferee != 3 {
-		t.Fatalf("wait transferring, leadTransferee = %v, want %v", lead.leadTransferee, 3)
-	}
-
 	// Transfer leadership to another node.
 	nt.send(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgTransferLeader})
 
 	checkLeaderTransferState(t, lead, StateFollower, 2)
 }
 
-// TestLeaderTransferSecondTransferToSameNode verifies second transfer leader request
-// to the same node should not extend the timeout while the first one is pending.
-func TestLeaderTransferSecondTransferToSameNode3C(t *testing.T) {
-	nt := newNetwork(nil, nil, nil)
-	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
-
-	nt.isolate(3)
-
-	lead := nt.peers[1].(*Raft)
-
-	nt.send(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgTransferLeader})
-	if lead.leadTransferee != 3 {
-		t.Fatalf("wait transferring, leadTransferee = %v, want %v", lead.leadTransferee, 3)
-	}
-
-	for i := 0; i < lead.heartbeatTimeout; i++ {
-		lead.tick()
-	}
-	// Second transfer leadership request to the same node.
-	nt.send(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgTransferLeader})
-
-	for i := 0; i < lead.electionTimeout-lead.heartbeatTimeout; i++ {
-		lead.tick()
-	}
-
-	checkLeaderTransferState(t, lead, StateLeader, 1)
-}
-
 func checkLeaderTransferState(t *testing.T, r *Raft, state StateType, lead uint64) {
 	if r.State != state || r.Lead != lead {
 		t.Fatalf("after transferring, node has state %v lead %v, want state %v lead %v", r.State, r.Lead, state, lead)
-	}
-	if r.leadTransferee != None {
-		t.Fatalf("after transferring, node has leadTransferee %v, want leadTransferee %v", r.leadTransferee, None)
 	}
 }
 
