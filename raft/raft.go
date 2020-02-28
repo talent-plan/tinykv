@@ -191,9 +191,6 @@ type Raft struct {
 	// [electiontimeout, 2 * electiontimeout - 1].
 	randomizedElectionTimeout int
 
-	// function for this peer to handle messages
-	step stepFunc
-
 	logger Logger
 
 	// Your Code Here 2A
@@ -527,7 +524,6 @@ func (r *Raft) tickHeartbeat() {
 func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	// Your Code Here 2A
 	// TODO: Delete Start
-	r.step = stepFollower
 	r.reset(term)
 	r.Lead = lead
 	r.State = StateFollower
@@ -539,7 +535,6 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 func (r *Raft) becomeCandidate() {
 	// Your Code Here 2A
 	// TODO: Delete Start
-	r.step = stepCandidate
 	r.reset(r.Term + 1)
 	r.Vote = r.id
 	r.State = StateCandidate
@@ -551,7 +546,6 @@ func (r *Raft) becomeCandidate() {
 func (r *Raft) becomeLeader() {
 	// Your Code Here 2A
 	// TODO: Delete Start
-	r.step = stepLeader
 	r.reset(r.Term)
 	r.Lead = r.id
 	r.State = StateLeader
@@ -674,9 +668,22 @@ func (r *Raft) Step(m pb.Message) error {
 		}
 
 	default:
-		err := r.step(r, m)
-		if err != nil {
-			return err
+		switch r.State {
+		case StateFollower:
+			err := r.stepFollower(m)
+			if err != nil {
+				return err
+			}
+		case StateCandidate:
+			err := r.stepCandidate(m)
+			if err != nil {
+				return err
+			}
+		case StateLeader:
+			err := r.stepLeader(m)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	// TODO: Delete End
@@ -686,7 +693,7 @@ func (r *Raft) Step(m pb.Message) error {
 type stepFunc func(r *Raft, m pb.Message) error
 
 // stepLeader handle leader's message
-func stepLeader(r *Raft, m pb.Message) error {
+func (r *Raft) stepLeader(m pb.Message) error {
 	// Your Code Here 2A
 	// TODO: Delete Start
 	pr := r.getProgress(m.From)
@@ -793,7 +800,7 @@ func stepLeader(r *Raft, m pb.Message) error {
 }
 
 // stepCandidate handle candidate's message
-func stepCandidate(r *Raft, m pb.Message) error {
+func (r *Raft) stepCandidate(m pb.Message) error {
 	// Your Code Here 2A
 	switch m.MsgType {
 	// TODO: Delete Start
@@ -828,7 +835,7 @@ func stepCandidate(r *Raft, m pb.Message) error {
 }
 
 // stepFollower handle follower's message
-func stepFollower(r *Raft, m pb.Message) error {
+func (r *Raft) stepFollower(m pb.Message) error {
 	// Your Code Here 2A
 	switch m.MsgType {
 	// TODO: Delete Start

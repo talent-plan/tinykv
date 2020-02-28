@@ -709,14 +709,6 @@ func TestRecvMessageType_MsgRequestVote2A(t *testing.T) {
 	for i, tt := range tests {
 		sm := newTestRaft(1, []uint64{1}, 10, 1, NewMemoryStorage())
 		sm.State = tt.state
-		switch tt.state {
-		case StateFollower:
-			sm.step = stepFollower
-		case StateCandidate:
-			sm.step = stepCandidate
-		case StateLeader:
-			sm.step = stepLeader
-		}
 		sm.Vote = tt.voteFor
 		sm.RaftLog = newLog(&MemoryStorage{ents: []pb.Entry{{}, {Index: 1, Term: 2}, {Index: 2, Term: 2}}}, raftLogger)
 
@@ -1082,14 +1074,6 @@ func TestRecvMessageType_MsgBeat2A(t *testing.T) {
 		sm.RaftLog = newLog(&MemoryStorage{ents: []pb.Entry{{}, {Index: 1, Term: 0}, {Index: 2, Term: 1}}}, raftLogger)
 		sm.Term = 1
 		sm.State = tt.state
-		switch tt.state {
-		case StateFollower:
-			sm.step = stepFollower
-		case StateCandidate:
-			sm.step = stepCandidate
-		case StateLeader:
-			sm.step = stepLeader
-		}
 		sm.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgBeat})
 
 		msgs := sm.readMessages()
