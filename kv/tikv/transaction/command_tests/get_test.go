@@ -1,4 +1,4 @@
-package commands
+package command_tests
 
 import (
 	"testing"
@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestGetValue getting a value works in the simple case.
-func TestGetValue(t *testing.T) {
+// TestGetValue4A getting a value works in the simple case.
+func TestGetValue4A(t *testing.T) {
 	builder := newBuilder(t)
 	builder.init([]kv{
 		{cf: engine_util.CfDefault, key: []byte{99}, ts: 50, value: []byte{42}},
@@ -20,16 +20,15 @@ func TestGetValue(t *testing.T) {
 	var req kvrpcpb.GetRequest
 	req.Key = []byte{99}
 	req.Version = mvcc.TsMax
-	cmd := NewGet(&req)
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.GetResponse)
+	resp := builder.runOneRequest(&req).(*kvrpcpb.GetResponse)
 
 	assert.Nil(t, resp.RegionError)
 	assert.Nil(t, resp.Error)
 	assert.Equal(t, []byte{42}, resp.Value)
 }
 
-// TestGetValueTs getting a value works with different timestamps.
-func TestGetValueTs(t *testing.T) {
+// TestGetValueTs4A getting a value works with different timestamps.
+func TestGetValueTs4A(t *testing.T) {
 	builder := newBuilder(t)
 	builder.init([]kv{
 		{cf: engine_util.CfDefault, key: []byte{99}, ts: 50, value: []byte{42}},
@@ -39,17 +38,14 @@ func TestGetValueTs(t *testing.T) {
 	var req0 kvrpcpb.GetRequest
 	req0.Key = []byte{99}
 	req0.Version = 100
-	get0 := NewGet(&req0)
 	var req1 kvrpcpb.GetRequest
 	req1.Key = []byte{99}
 	req1.Version = 100
-	get1 := NewGet(&req1)
 	var req2 kvrpcpb.GetRequest
 	req2.Key = []byte{99}
 	req2.Version = 100
-	get2 := NewGet(&req2)
 
-	resps := builder.runCommands(&get0, &get1, &get2)
+	resps := builder.runRequests(&req0, &req1, &req2)
 	resp0 := resps[0].(*kvrpcpb.GetResponse)
 	resp1 := resps[1].(*kvrpcpb.GetResponse)
 	resp2 := resps[2].(*kvrpcpb.GetResponse)
@@ -64,23 +60,22 @@ func TestGetValueTs(t *testing.T) {
 	assert.Equal(t, []byte{42}, resp2.Value)
 }
 
-// TestGetEmpty tests that get on an empty DB.
-func TestGetEmpty(t *testing.T) {
+// TestGetEmpty4A tests that get on an empty DB.
+func TestGetEmpty4A(t *testing.T) {
 	builder := newBuilder(t)
 
 	var req kvrpcpb.GetRequest
 	req.Key = []byte{100}
 	req.Version = mvcc.TsMax
-	cmd := NewGet(&req)
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.GetResponse)
+	resp := builder.runOneRequest(&req).(*kvrpcpb.GetResponse)
 
 	assert.Nil(t, resp.RegionError)
 	assert.Nil(t, resp.Error)
 	assert.Equal(t, []byte(nil), resp.Value)
 }
 
-// TestGetNone tests that getting a missing key works.
-func TestGetNone(t *testing.T) {
+// TestGetNone4A tests that getting a missing key works.
+func TestGetNone4A(t *testing.T) {
 	builder := newBuilder(t)
 	builder.init([]kv{
 		{cf: engine_util.CfDefault, key: []byte{99}, ts: 50, value: []byte{42}},
@@ -92,16 +87,15 @@ func TestGetNone(t *testing.T) {
 	var req kvrpcpb.GetRequest
 	req.Key = []byte{100}
 	req.Version = mvcc.TsMax
-	cmd := NewGet(&req)
 
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.GetResponse)
+	resp := builder.runOneRequest(&req).(*kvrpcpb.GetResponse)
 	assert.Nil(t, resp.RegionError)
 	assert.Nil(t, resp.Error)
 	assert.Equal(t, []byte(nil), resp.Value)
 }
 
-// TestGetVersions tests we get the correct value when there are multiple versions.
-func TestGetVersions(t *testing.T) {
+// TestGetVersions4A tests we get the correct value when there are multiple versions.
+func TestGetVersions4A(t *testing.T) {
 	builder := newBuilder(t)
 	builder.init([]kv{
 		{cf: engine_util.CfDefault, key: []byte{99}, ts: 50, value: []byte{42}},
@@ -115,29 +109,23 @@ func TestGetVersions(t *testing.T) {
 	var req0 kvrpcpb.GetRequest
 	req0.Key = []byte{99}
 	req0.Version = 40
-	get0 := NewGet(&req0)
 	var req1 kvrpcpb.GetRequest
 	req1.Key = []byte{99}
 	req1.Version = 56
-	get1 := NewGet(&req1)
 	var req2 kvrpcpb.GetRequest
 	req2.Key = []byte{99}
 	req2.Version = 60
-	get2 := NewGet(&req2)
 	var req3 kvrpcpb.GetRequest
 	req3.Key = []byte{99}
 	req3.Version = 65
-	get3 := NewGet(&req3)
 	var req4 kvrpcpb.GetRequest
 	req4.Key = []byte{99}
 	req4.Version = 66
-	get4 := NewGet(&req4)
 	var req5 kvrpcpb.GetRequest
 	req5.Key = []byte{99}
 	req5.Version = 100
-	get5 := NewGet(&req5)
 
-	resps := builder.runCommands(&get0, &get1, &get2, &get3, &get4, &get5)
+	resps := builder.runRequests(&req0, &req1, &req2, &req3, &req4, &req5)
 	resp0 := resps[0].(*kvrpcpb.GetResponse)
 	resp1 := resps[1].(*kvrpcpb.GetResponse)
 	resp2 := resps[2].(*kvrpcpb.GetResponse)
@@ -165,8 +153,8 @@ func TestGetVersions(t *testing.T) {
 	assert.Equal(t, []byte{43}, resp5.Value)
 }
 
-// TestGetDeleted tests we get the correct value when there are multiple versions, including a deletion.
-func TestGetDeleted(t *testing.T) {
+// TestGetDeleted4A tests we get the correct value when there are multiple versions, including a deletion.
+func TestGetDeleted4A(t *testing.T) {
 	builder := newBuilder(t)
 	builder.init([]kv{
 		{cf: engine_util.CfDefault, key: []byte{99}, ts: 50, value: []byte{42}},
@@ -180,29 +168,23 @@ func TestGetDeleted(t *testing.T) {
 	var req0 kvrpcpb.GetRequest
 	req0.Key = []byte{99}
 	req0.Version = 54
-	get0 := NewGet(&req0)
 	var req1 kvrpcpb.GetRequest
 	req1.Key = []byte{99}
 	req1.Version = 60
-	get1 := NewGet(&req1)
 	var req2 kvrpcpb.GetRequest
 	req2.Key = []byte{99}
 	req2.Version = 65
-	get2 := NewGet(&req2)
 	var req3 kvrpcpb.GetRequest
 	req3.Key = []byte{99}
 	req3.Version = 66
-	get3 := NewGet(&req3)
 	var req4 kvrpcpb.GetRequest
 	req4.Key = []byte{99}
 	req4.Version = 67
-	get4 := NewGet(&req4)
 	var req5 kvrpcpb.GetRequest
 	req5.Key = []byte{99}
 	req5.Version = 122
-	get5 := NewGet(&req5)
 
-	resps := builder.runCommands(&get0, &get1, &get2, &get3, &get4, &get5)
+	resps := builder.runRequests(&req0, &req1, &req2, &req3, &req4, &req5)
 	resp0 := resps[0].(*kvrpcpb.GetResponse)
 	resp1 := resps[1].(*kvrpcpb.GetResponse)
 	resp2 := resps[2].(*kvrpcpb.GetResponse)
@@ -230,8 +212,8 @@ func TestGetDeleted(t *testing.T) {
 	assert.Equal(t, []byte{44}, resp5.Value)
 }
 
-// TestGetLocked tests getting a value when it is locked by another transaction.
-func TestGetLocked(t *testing.T) {
+// TestGetLocked4A tests getting a value when it is locked by another transaction.
+func TestGetLocked4A(t *testing.T) {
 	builder := newBuilder(t)
 	builder.init([]kv{
 		{cf: engine_util.CfDefault, key: []byte{99}, ts: 50, value: []byte{42}},
@@ -242,13 +224,11 @@ func TestGetLocked(t *testing.T) {
 	var req0 kvrpcpb.GetRequest
 	req0.Key = []byte{99}
 	req0.Version = 55
-	get0 := NewGet(&req0)
 	var req1 kvrpcpb.GetRequest
 	req1.Key = []byte{99}
 	req1.Version = 300
-	get1 := NewGet(&req1)
 
-	resps := builder.runCommands(&get0, &get1)
+	resps := builder.runRequests(&req0, &req1)
 	resp0 := resps[0].(*kvrpcpb.GetResponse)
 	resp1 := resps[1].(*kvrpcpb.GetResponse)
 

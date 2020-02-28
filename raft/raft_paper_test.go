@@ -438,7 +438,7 @@ func TestLeaderCommitEntry2B(t *testing.T) {
 	sort.Sort(messageSlice(msgs))
 	for i, m := range msgs {
 		if w := uint64(i + 2); m.To != w {
-			t.Errorf("to = %x, want %x", m.To, w)
+			t.Errorf("to = %d, want %d", m.To, w)
 		}
 		if m.MsgType != pb.MessageType_MsgAppend {
 			t.Errorf("type = %v, want %v", m.MsgType, pb.MessageType_MsgAppend)
