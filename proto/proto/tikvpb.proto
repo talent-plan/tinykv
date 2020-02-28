@@ -13,7 +13,8 @@ option (gogoproto.unmarshaler_all) = true;
 
 option java_package = "org.tikv.kvproto";
 
-// Serve as a distributed kv database.
+// Serve as a distributed kv database. See the request and response definitions in
+// kvrpcpb.proto
 service Tikv {
     // KV commands with mvcc/txn supported.
     rpc KvGet(kvrpcpb.GetRequest) returns (kvrpcpb.GetResponse) {}

@@ -1,4 +1,4 @@
-package commands
+package command_tests
 
 import (
 	"testing"
@@ -8,25 +8,26 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestEmptyCommit(t *testing.T) {
+// TestEmptyCommit4A tests a commit request with no keys to commit.
+func TestEmptyCommit4A(t *testing.T) {
 	builder := newBuilder(t)
-	cmd := NewCommit(builder.commitRequest([][]byte{}...))
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.CommitResponse)
+	cmd := builder.commitRequest([][]byte{}...)
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.CommitResponse)
 
 	assert.Nil(t, resp.Error)
 	assert.Nil(t, resp.RegionError)
 	builder.assertLens(0, 0, 0)
 }
 
-// TestSimpleCommit tests committing a single key.
-func TestSingleCommit(t *testing.T) {
+// TestSimpleCommit4A tests committing a single key.
+func TestSingleCommit4A(t *testing.T) {
 	builder := newBuilder(t)
-	cmd := NewCommit(builder.commitRequest([]byte{3}))
+	cmd := builder.commitRequest([]byte{3})
 	builder.init([]kv{
 		{cf: engine_util.CfDefault, key: []byte{3}, value: []byte{42}},
 		{cf: engine_util.CfLock, key: []byte{3}, value: []byte{1, 0, 0, 0, 0, 0, 0, 0, builder.ts(), 0, 0, 0, 0, 0, 0, 0, 0}},
 	})
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.CommitResponse)
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.CommitResponse)
 
 	assert.Nil(t, resp.Error)
 	assert.Nil(t, resp.RegionError)
@@ -37,10 +38,10 @@ func TestSingleCommit(t *testing.T) {
 	})
 }
 
-// TestCommitOverwrite tests committing where there is already a write.
-func TestCommitOverwrite(t *testing.T) {
+// TestCommitOverwrite4A tests committing where there is already a write.
+func TestCommitOverwrite4A(t *testing.T) {
 	builder := newBuilder(t)
-	cmd := NewCommit(builder.commitRequest([]byte{3}))
+	cmd := builder.commitRequest([]byte{3})
 	builder.init([]kv{
 		// A previous, committed write.
 		{cf: engine_util.CfDefault, key: []byte{3}, ts: 80, value: []byte{15}},
@@ -50,7 +51,7 @@ func TestCommitOverwrite(t *testing.T) {
 		{cf: engine_util.CfDefault, key: []byte{3}, value: []byte{42}},
 		{cf: engine_util.CfLock, key: []byte{3}, value: []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, builder.ts(), 0, 0, 0, 0, 0, 0, 0, 0}},
 	})
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.CommitResponse)
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.CommitResponse)
 
 	assert.Nil(t, resp.Error)
 	assert.Nil(t, resp.RegionError)
@@ -61,11 +62,11 @@ func TestCommitOverwrite(t *testing.T) {
 	})
 }
 
-// TestMultipleKeys tests committing multiple keys in the same commit. Also puts some other data in the DB and test
+// TestCommitMultipleKeys4A tests committing multiple keys in the same commit. Also puts some other data in the DB and test
 // that it is unchanged.
-func TestMultipleKeys(t *testing.T) {
+func TestCommitMultipleKeys4A(t *testing.T) {
 	builder := newBuilder(t)
-	cmd := NewCommit(builder.commitRequest([]byte{3}, []byte{12, 4, 0}, []byte{15}))
+	cmd := builder.commitRequest([]byte{3}, []byte{12, 4, 0}, []byte{15})
 	builder.init([]kv{
 		// Current, pre-written.
 		{cf: engine_util.CfDefault, key: []byte{3}, value: []byte{42}},
@@ -87,7 +88,7 @@ func TestMultipleKeys(t *testing.T) {
 		{cf: engine_util.CfDefault, key: []byte{43, 6}, ts: 99, value: []byte{1, 1, 0, 0, 1, 5}},
 		{cf: engine_util.CfLock, key: []byte{43, 6}, value: []byte{1, 2, 0, 0, 0, 0, 0, 0, 0, 99, 0, 0, 0, 0, 0, 0, 0, 0}},
 	})
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.CommitResponse)
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.CommitResponse)
 
 	assert.Nil(t, resp.Error)
 	assert.Nil(t, resp.RegionError)
@@ -112,16 +113,16 @@ func TestMultipleKeys(t *testing.T) {
 	})
 }
 
-// TestRecommitKey tests committing the same key multiple times in one commit.
-func TestRecommitKey(t *testing.T) {
+// TestRecommitKey4A tests committing the same key multiple times in one commit.
+func TestRecommitKey4A(t *testing.T) {
 	builder := newBuilder(t)
-	cmd := NewCommit(builder.commitRequest([]byte{3}, []byte{3}))
+	cmd := builder.commitRequest([]byte{3}, []byte{3})
 	builder.init([]kv{
 		// The current, pre-written write.
 		{cf: engine_util.CfDefault, key: []byte{3}, value: []byte{42}},
 		{cf: engine_util.CfLock, key: []byte{3}, value: []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, builder.ts(), 0, 0, 0, 0, 0, 0, 0, 0}},
 	})
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.CommitResponse)
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.CommitResponse)
 
 	assert.Nil(t, resp.Error)
 	assert.Nil(t, resp.RegionError)
@@ -132,14 +133,14 @@ func TestRecommitKey(t *testing.T) {
 	})
 }
 
-// TestConflictRollback tests committing a rolled back transaction.
-func TestConflictRollback(t *testing.T) {
+// TestCommitConflictRollback4A tests committing a rolled back transaction.
+func TestCommitConflictRollback4A(t *testing.T) {
 	builder := newBuilder(t)
-	cmd := NewCommit(builder.commitRequest([]byte{3}))
+	cmd := builder.commitRequest([]byte{3})
 	builder.init([]kv{
 		{cf: engine_util.CfWrite, key: []byte{3}, ts: 110, value: []byte{3, 0, 0, 0, 0, 0, 0, 0, builder.ts()}},
 	})
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.CommitResponse)
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.CommitResponse)
 
 	assert.Nil(t, resp.Error)
 	assert.Nil(t, resp.RegionError)
@@ -149,15 +150,15 @@ func TestConflictRollback(t *testing.T) {
 	})
 }
 
-// TestConflictRace tests committing where a key is pre-written by a different transaction.
-func TestConflictRace(t *testing.T) {
+// TestCommitConflictRace4A tests committing where a key is pre-written by a different transaction.
+func TestCommitConflictRace4A(t *testing.T) {
 	builder := newBuilder(t)
-	cmd := NewCommit(builder.commitRequest([]byte{3}))
+	cmd := builder.commitRequest([]byte{3})
 	builder.init([]kv{
 		{cf: engine_util.CfDefault, key: []byte{3}, ts: 90, value: []byte{110}},
 		{cf: engine_util.CfLock, key: []byte{3}, value: []byte{1, 3, 0, 0, 0, 0, 0, 0, 0, 90, 0, 0, 0, 0, 0, 0, 0, 0}},
 	})
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.CommitResponse)
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.CommitResponse)
 
 	assert.NotNil(t, resp.Error.Retryable)
 	assert.Nil(t, resp.RegionError)
@@ -168,15 +169,15 @@ func TestConflictRace(t *testing.T) {
 	})
 }
 
-// TestConflictRepeat tests recommitting a transaction (i.e., the same commit request is received twice).
-func TestConflictRepeat(t *testing.T) {
+// TestCommitConflictRepeat4A tests recommitting a transaction (i.e., the same commit request is received twice).
+func TestCommitConflictRepeat4A(t *testing.T) {
 	builder := newBuilder(t)
-	cmd := NewCommit(builder.commitRequest([]byte{3}))
+	cmd := builder.commitRequest([]byte{3})
 	builder.init([]kv{
 		{cf: engine_util.CfDefault, key: []byte{3}, value: []byte{42}},
 		{cf: engine_util.CfWrite, key: []byte{3}, ts: 110, value: []byte{1, 0, 0, 0, 0, 0, 0, 0, builder.ts()}},
 	})
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.CommitResponse)
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.CommitResponse)
 
 	assert.Nil(t, resp.Error)
 	assert.Nil(t, resp.RegionError)
@@ -187,11 +188,11 @@ func TestConflictRepeat(t *testing.T) {
 	})
 }
 
-// TestMissingPrewrite tests committing a transaction which was not prewritten (i.e., a request was lost, but
+// TestCommitMissingPrewrite4a tests committing a transaction which was not prewritten (i.e., a request was lost, but
 // the commit request was not).
-func TestMissingPrewrite(t *testing.T) {
+func TestCommitMissingPrewrite4a(t *testing.T) {
 	builder := newBuilder(t)
-	cmd := NewCommit(builder.commitRequest([]byte{3}))
+	cmd := builder.commitRequest([]byte{3})
 	builder.init([]kv{
 		// Some committed data.
 		{cf: engine_util.CfDefault, key: []byte{4}, ts: 80, value: []byte{15}},
@@ -200,7 +201,7 @@ func TestMissingPrewrite(t *testing.T) {
 		{cf: engine_util.CfWrite, key: []byte{3, 0}, ts: 84, value: []byte{1, 0, 0, 0, 0, 0, 0, 0, 80}},
 		// Note no prewrite.
 	})
-	resp := builder.runOneCmd(&cmd).(*kvrpcpb.CommitResponse)
+	resp := builder.runOneRequest(cmd).(*kvrpcpb.CommitResponse)
 
 	assert.Nil(t, resp.Error)
 	assert.Nil(t, resp.RegionError)
