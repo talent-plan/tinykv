@@ -7,8 +7,6 @@ import (
 	"log"
 	"os"
 	"runtime"
-	"sync"
-	"time"
 )
 
 const (
@@ -62,14 +60,6 @@ func SetLevel(level LogLevel) {
 }
 func GetLogLevel() LogLevel {
 	return _log.level
-}
-
-func SetOutput(out io.Writer) {
-	_log.SetOutput(out)
-}
-
-func SetOutputByName(path string) error {
-	return _log.SetOutputByName(path)
 }
 
 func SetFlags(flags int) {
@@ -140,27 +130,10 @@ func SetHighlighting(highlighting bool) {
 	_log.SetHighlighting(highlighting)
 }
 
-func SetRotateByDay() {
-	_log.SetRotateByDay()
-}
-
-func SetRotateByHour() {
-	_log.SetRotateByHour()
-}
-
 type logger struct {
 	_log         *log.Logger
 	level        LogLevel
 	highlighting bool
-
-	dailyRolling bool
-	hourRolling  bool
-
-	fileName  string
-	logSuffix string
-	fd        *os.File
-
-	lock sync.Mutex
 }
 
 func (l *logger) SetHighlighting(highlighting bool) {
@@ -179,113 +152,12 @@ func (l *logger) SetLevelByString(level string) {
 	l.level = StringToLogLevel(level)
 }
 
-func (l *logger) SetRotateByDay() {
-	l.dailyRolling = true
-	l.logSuffix = genDayTime(time.Now())
-}
-
-func (l *logger) SetRotateByHour() {
-	l.hourRolling = true
-	l.logSuffix = genHourTime(time.Now())
-}
-
-func (l *logger) rotate() error {
-	l.lock.Lock()
-	defer l.lock.Unlock()
-
-	var suffix string
-	if l.dailyRolling {
-		suffix = genDayTime(time.Now())
-	} else if l.hourRolling {
-		suffix = genHourTime(time.Now())
-	} else {
-		return nil
-	}
-
-	// Notice: if suffix is not equal to l.LogSuffix, then rotate
-	if suffix != l.logSuffix {
-		err := l.doRotate(suffix)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (l *logger) doRotate(suffix string) error {
-	// Notice: Not check error, is this ok?
-	l.fd.Close()
-
-	lastFileName := l.fileName + "." + l.logSuffix
-	err := os.Rename(l.fileName, lastFileName)
-	if err != nil {
-		return err
-	}
-
-	err = l.SetOutputByName(l.fileName)
-	if err != nil {
-		return err
-	}
-
-	l.logSuffix = suffix
-
-	return nil
-}
-
-func (l *logger) SetOutput(out io.Writer) {
-	l._log = log.New(out, l._log.Prefix(), l._log.Flags())
-}
-
-func (l *logger) SetOutputByName(path string) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0666)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	l.SetOutput(f)
-
-	l.fileName = path
-	l.fd = f
-
-	return err
-}
-
 func (l *logger) log(t LogType, v ...interface{}) {
-	if l.level|LogLevel(t) != l.level {
-		return
-	}
-
-	err := l.rotate()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s\n", err.Error())
-		return
-	}
-
-	v1 := make([]interface{}, len(v)+2)
-	logStr, logColor := LogTypeToString(t)
-	if l.highlighting {
-		v1[0] = "\033" + logColor + "m[" + logStr + "]"
-		copy(v1[1:], v)
-		v1[len(v)+1] = "\033[0m"
-	} else {
-		v1[0] = "[" + logStr + "]"
-		copy(v1[1:], v)
-		v1[len(v)+1] = ""
-	}
-
-	s := fmt.Sprintln(v1...)
-	l._log.Output(4, s)
+	l.logf(t, "%v\n", v)
 }
 
 func (l *logger) logf(t LogType, format string, v ...interface{}) {
 	if l.level|LogLevel(t) != l.level {
-		return
-	}
-
-	err := l.rotate()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s\n", err.Error())
 		return
 	}
 
@@ -373,14 +245,6 @@ func LogTypeToString(t LogType) (string, string) {
 		return "info", "[0;37"
 	}
 	return "unknown", "[0;37"
-}
-
-func genDayTime(t time.Time) string {
-	return t.Format(FORMAT_TIME_DAY)
-}
-
-func genHourTime(t time.Time) string {
-	return t.Format(FORMAT_TIME_HOUR)
 }
 
 func New() *logger {
