@@ -35,44 +35,53 @@ func (server *Server) Run(cmd commands.Command) (interface{}, error) {
 
 // The below functions are Server's gRPC API (implements TikvServer).
 
+// TODO: delete the bodies of the below functions.
+
 // Transactional API.
 func (server *Server) KvGet(_ context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb.GetResponse, error) {
+	// Your code here 4A
 	cmd := commands.NewGet(req)
 	resp, err := server.Run(&cmd)
 	return resp.(*kvrpcpb.GetResponse), err
 }
 
 func (server *Server) KvScan(_ context.Context, req *kvrpcpb.ScanRequest) (*kvrpcpb.ScanResponse, error) {
+	// Your code here 4B
 	cmd := commands.NewScan(req)
 	resp, err := server.Run(&cmd)
 	return resp.(*kvrpcpb.ScanResponse), err
 }
 
 func (server *Server) KvPrewrite(_ context.Context, req *kvrpcpb.PrewriteRequest) (*kvrpcpb.PrewriteResponse, error) {
+	// Your code here 4A
 	cmd := commands.NewPrewrite(req)
 	resp, err := server.Run(&cmd)
 	return resp.(*kvrpcpb.PrewriteResponse), err
 }
 
 func (server *Server) KvCommit(_ context.Context, req *kvrpcpb.CommitRequest) (*kvrpcpb.CommitResponse, error) {
+	// Your code here 4A
 	cmd := commands.NewCommit(req)
 	resp, err := server.Run(&cmd)
 	return resp.(*kvrpcpb.CommitResponse), err
 }
 
 func (server *Server) KvCheckTxnStatus(_ context.Context, req *kvrpcpb.CheckTxnStatusRequest) (*kvrpcpb.CheckTxnStatusResponse, error) {
+	// Your code here 4B
 	cmd := commands.NewCheckTxnStatus(req)
 	resp, err := server.Run(&cmd)
 	return resp.(*kvrpcpb.CheckTxnStatusResponse), err
 }
 
 func (server *Server) KvBatchRollback(_ context.Context, req *kvrpcpb.BatchRollbackRequest) (*kvrpcpb.BatchRollbackResponse, error) {
+	// Your code here 4B
 	cmd := commands.NewRollback(req)
 	resp, err := server.Run(&cmd)
 	return resp.(*kvrpcpb.BatchRollbackResponse), err
 }
 
 func (server *Server) KvResolveLock(_ context.Context, req *kvrpcpb.ResolveLockRequest) (*kvrpcpb.ResolveLockResponse, error) {
+	// Your code here 4B
 	cmd := commands.NewResolveLock(req)
 	resp, err := server.Run(&cmd)
 	return resp.(*kvrpcpb.ResolveLockResponse), err
@@ -82,6 +91,7 @@ func (server *Server) KvResolveLock(_ context.Context, req *kvrpcpb.ResolveLockR
 // This is because these commands are fairly straightforward and do not share a lot of code with the transactional
 // commands.
 func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
+	// Your code here 1A
 	response := new(kvrpcpb.RawGetResponse)
 	reader, err := server.innerServer.Reader(req.Context)
 	if !rawRegionError(err, response) {
@@ -101,6 +111,7 @@ func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kv
 }
 
 func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
+	// Your code here 1A
 	response := new(kvrpcpb.RawPutResponse)
 	err := server.innerServer.Write(req.Context, []inner_server.Modify{{
 		Type: inner_server.ModifyTypePut,
@@ -114,6 +125,7 @@ func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kv
 }
 
 func (server *Server) RawDelete(_ context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
+	// Your code here 1A
 	response := new(kvrpcpb.RawDeleteResponse)
 	err := server.innerServer.Write(req.Context, []inner_server.Modify{{
 		Type: inner_server.ModifyTypeDelete,
@@ -126,6 +138,7 @@ func (server *Server) RawDelete(_ context.Context, req *kvrpcpb.RawDeleteRequest
 }
 
 func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*kvrpcpb.RawScanResponse, error) {
+	// Your code here 1A
 	response := new(kvrpcpb.RawScanResponse)
 
 	reader, err := server.innerServer.Reader(req.Context)
