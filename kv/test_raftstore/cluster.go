@@ -143,6 +143,9 @@ func (c *Cluster) Shutdown() {
 	for _, storeID := range c.simulator.GetStoreIds() {
 		c.simulator.StopStore(storeID)
 	}
+	for _, engine := range c.engines {
+		engine.Close()
+	}
 	for _, dir := range c.dirs {
 		os.RemoveAll(dir)
 	}
@@ -235,7 +238,7 @@ func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeou
 		if resp.Header.Error != nil {
 			err := resp.Header.Error
 			if err.GetStaleCommand() != nil || err.GetEpochNotMatch() != nil || err.GetNotLeader() != nil {
-				log.Warnf("encouter retryable err %+v", resp)
+				log.Debugf("encouter retryable err %+v", resp)
 				if err.GetNotLeader() != nil && err.GetNotLeader().Leader != nil {
 					leader = err.GetNotLeader().Leader
 				} else {

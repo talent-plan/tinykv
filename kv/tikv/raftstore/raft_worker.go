@@ -127,7 +127,6 @@ func (rw *raftWorker) handleRaftReady(peers map[uint64]*peerState, batch *applyB
 
 func (rw *raftWorker) removeQueuedSnapshots() {
 	if len(rw.raftCtx.queuedSnaps) > 0 {
-		rw.raftCtx.storeMetaLock.Lock()
 		meta := rw.raftCtx.storeMeta
 		retained := meta.pendingSnapshotRegions[:0]
 		for _, region := range meta.pendingSnapshotRegions {
@@ -136,7 +135,6 @@ func (rw *raftWorker) removeQueuedSnapshots() {
 			}
 		}
 		meta.pendingSnapshotRegions = retained
-		rw.raftCtx.storeMetaLock.Unlock()
 		rw.raftCtx.queuedSnaps = map[uint64]struct{}{}
 	}
 }
@@ -165,6 +163,10 @@ func (aw *applyWorker) run(wg *sync.WaitGroup) {
 		}
 		for _, msg := range batch.msgs {
 			ps := aw.pr.get(msg.RegionID)
+			if ps == nil {
+				// TODO: figure out a way to invoke all cmd for the deleted applier
+				continue
+			}
 			ps.apply.handleTask(aw.applyCtx, msg)
 		}
 		aw.applyCtx.flush()
