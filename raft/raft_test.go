@@ -202,6 +202,7 @@ func TestVoteFromAnyState2A(t *testing.T) {
 			r.becomeCandidate()
 			r.becomeLeader()
 		}
+		r.readMessages() // clear message
 
 		// Note that setting our state above may have advanced r.Term
 		// past its initial value.
@@ -615,51 +616,6 @@ func TestHandleHeartbeat2B(t *testing.T) {
 		if m[0].MsgType != pb.MessageType_MsgHeartbeatResponse {
 			t.Errorf("#%d: type = %v, want MessageType_MsgHeartbeatResponse", i, m[0].MsgType)
 		}
-	}
-}
-
-// TestHandleHeartbeatResp ensures that we re-send log entries when we get a heartbeat response.
-func TestHandleHeartbeatResp2B(t *testing.T) {
-	storage := NewMemoryStorage()
-	storage.Append([]pb.Entry{{Index: 1, Term: 1}, {Index: 2, Term: 2}, {Index: 3, Term: 3}})
-	sm := newTestRaft(1, []uint64{1, 2}, 5, 1, storage)
-	sm.becomeCandidate()
-	sm.becomeLeader()
-	sm.RaftLog.commitTo(sm.RaftLog.LastIndex())
-
-	// A heartbeat response from a node that is behind; re-send MessageType_MsgAppend
-	sm.Step(pb.Message{From: 2, MsgType: pb.MessageType_MsgHeartbeatResponse})
-	msgs := sm.readMessages()
-	if len(msgs) != 1 {
-		t.Fatalf("len(msgs) = %d, want 1", len(msgs))
-	}
-	if msgs[0].MsgType != pb.MessageType_MsgAppend {
-		t.Errorf("type = %v, want MessageType_MsgAppend", msgs[0].MsgType)
-	}
-
-	// A second heartbeat response generates another MessageType_MsgAppend re-send
-	sm.Step(pb.Message{From: 2, MsgType: pb.MessageType_MsgHeartbeatResponse})
-	msgs = sm.readMessages()
-	if len(msgs) != 1 {
-		t.Fatalf("len(msgs) = %d, want 1", len(msgs))
-	}
-	if msgs[0].MsgType != pb.MessageType_MsgAppend {
-		t.Errorf("type = %v, want MessageType_MsgAppend", msgs[0].MsgType)
-	}
-
-	// Once we have an MessageType_MsgAppendResponse, heartbeats no longer send MessageType_MsgAppend.
-	sm.Step(pb.Message{
-		From:    2,
-		MsgType: pb.MessageType_MsgAppendResponse,
-		Index:   msgs[0].Index + uint64(len(msgs[0].Entries)),
-	})
-	// Consume the message sent in response to MessageType_MsgAppendResponse
-	sm.readMessages()
-
-	sm.Step(pb.Message{From: 2, MsgType: pb.MessageType_MsgHeartbeatResponse})
-	msgs = sm.readMessages()
-	if len(msgs) != 0 {
-		t.Fatalf("len(msgs) = %d, want 0: %+v", len(msgs), msgs)
 	}
 }
 
@@ -1166,10 +1122,10 @@ func TestProvideSnap2B(t *testing.T) {
 	storage := NewMemoryStorage()
 	sm := newTestRaft(1, []uint64{1}, 10, 1, storage)
 	sm.handleSnapshot(pb.Message{Snapshot: &s})
-	sm.readMessages() // clear message
 
 	sm.becomeCandidate()
 	sm.becomeLeader()
+	sm.readMessages() // clear message
 
 	// force set the next of node 2, so that node 2 needs a snapshot
 	sm.Prs[2].Next = sm.RaftLog.firstIndex()

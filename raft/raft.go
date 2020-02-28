@@ -545,6 +545,7 @@ func (r *Raft) becomeCandidate() {
 // becomeLeader transform this peer's state to leader
 func (r *Raft) becomeLeader() {
 	// Your Code Here 2A
+	// NOTE: Leader should propose a noop entry on its term
 	// TODO: Delete Start
 	r.reset(r.Term)
 	r.Lead = r.id
@@ -556,11 +557,11 @@ func (r *Raft) becomeLeader() {
 	// pending log entries, and scanning the entire tail of the log
 	// could be expensive.
 	r.PendingConfIndex = r.RaftLog.LastIndex()
-	// TODO: Delete End
 
 	emptyEnt := pb.Entry{Data: nil}
 	r.appendEntry(emptyEnt)
 	r.logger.Infof("%d became leader at term %d", r.id, r.Term)
+	// TODO: Delete End
 }
 
 // TODO: Delete method
