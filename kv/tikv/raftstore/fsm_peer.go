@@ -1,7 +1,6 @@
 package raftstore
 
 import (
-	"bytes"
 	"fmt"
 	"time"
 
@@ -19,6 +18,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/raft"
+	"github.com/pingcap-incubator/tinykv/scheduler/pkg/btree"
 	"github.com/pingcap/errors"
 )
 
@@ -487,10 +487,6 @@ func (d *peerMsgHandler) checkSnapshot(msg *rspb.RaftMessage) (*snap.SnapKey, er
 		log.Infof("%s %s doesn't contains peer %d, skip", d.tag(), snapRegion, peerID)
 		return &key, nil
 	}
-	d.ctx.storeMetaLock.Lock()
-	defer func() {
-		d.ctx.storeMetaLock.Unlock()
-	}()
 	meta := d.ctx.storeMeta
 	if !RegionEqual(meta.regions[d.regionID()], d.region()) {
 		if !d.peer.isInitialized() {
@@ -501,15 +497,18 @@ func (d *peerMsgHandler) checkSnapshot(msg *rspb.RaftMessage) (*snap.SnapKey, er
 		}
 	}
 
-	existRegions := d.findOverlapRegions(meta, snapRegion)
+	existRegions := meta.getOverlapRegions(snapRegion)
 	for _, existRegion := range existRegions {
+		if existRegion.GetId() == snapRegion.GetId() {
+			continue
+		}
 		log.Infof("%s region overlapped %s %s", d.tag(), existRegion, snapRegion)
 		return &key, nil
 	}
 
 	for _, region := range meta.pendingSnapshotRegions {
-		if bytes.Compare(region.StartKey, snapRegion.EndKey) < 0 &&
-			bytes.Compare(region.EndKey, snapRegion.StartKey) > 0 &&
+		if !engine_util.ExceedEndKey(region.StartKey, snapRegion.EndKey) &&
+			!engine_util.ExceedEndKey(snapRegion.StartKey, region.EndKey) &&
 			// Same region can overlap, we will apply the latest version of snapshot.
 			region.Id != snapRegion.Id {
 			log.Infof("pending region overlapped regionID %d peerID %d region %s snap %s",
@@ -526,25 +525,6 @@ func (d *peerMsgHandler) checkSnapshot(msg *rspb.RaftMessage) (*snap.SnapKey, er
 	meta.pendingSnapshotRegions = append(meta.pendingSnapshotRegions, snapRegion)
 	d.ctx.queuedSnaps[regionID] = struct{}{}
 	return nil, nil
-}
-
-func (d *peerMsgHandler) findOverlapRegions(storeMeta *storeMeta, snapRegion *metapb.Region) (result []*metapb.Region) {
-	it := storeMeta.regionRanges.NewIterator()
-	it.Seek(snapRegion.StartKey)
-	for it.Valid() {
-		regionID := util.RegionIDFromBytes(it.Value())
-		if bytes.Equal(it.Key(), snapRegion.StartKey) || regionID == snapRegion.Id {
-			it.Next()
-			continue
-		}
-		region := storeMeta.regions[regionID]
-		if bytes.Compare(region.StartKey, snapRegion.EndKey) < 0 {
-			result = append(result, region)
-		} else {
-			return
-		}
-	}
-	return
 }
 
 func (d *peerMsgHandler) handleDestroyPeer(job *DestroyPeerJob) bool {
@@ -564,10 +544,6 @@ func (d *peerMsgHandler) destroyPeer() {
 	regionID := d.regionID()
 	// We can't destroy a peer which is applying snapshot.
 	y.Assert(!d.peer.IsApplyingSnapshot())
-	d.ctx.storeMetaLock.Lock()
-	defer func() {
-		d.ctx.storeMetaLock.Unlock()
-	}()
 	meta := d.ctx.storeMeta
 	isInitialized := d.peer.isInitialized()
 	if err := d.peer.Destroy(d.ctx.engine, false); err != nil {
@@ -579,7 +555,7 @@ func (d *peerMsgHandler) destroyPeer() {
 	}
 	d.ctx.router.close(regionID)
 	d.stop()
-	if isInitialized && !meta.regionRanges.Delete(d.region().EndKey) {
+	if isInitialized && meta.regionRanges.Delete(&regionItem{region: d.region()}) == nil {
 		panic(d.tag() + " meta corruption detected")
 	}
 	if _, ok := meta.regions[regionID]; !ok {
@@ -595,9 +571,7 @@ func (d *peerMsgHandler) onReadyChangePeer(cp changePeer) {
 		// Apply failed, skip.
 		return
 	}
-	d.ctx.storeMetaLock.Lock()
 	d.ctx.storeMeta.setRegion(cp.region, d.peer)
-	d.ctx.storeMetaLock.Unlock()
 	peerID := cp.peer.Id
 	switch changeType {
 	case eraftpb.ConfChangeType_AddNode:
@@ -654,8 +628,6 @@ func (d *peerMsgHandler) onReadyCompactLog(firstIndex uint64, truncatedIndex uin
 }
 
 func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*metapb.Region) {
-	d.ctx.storeMetaLock.Lock()
-	defer d.ctx.storeMetaLock.Unlock()
 	meta := d.ctx.storeMeta
 	regionID := derived.Id
 	meta.setRegion(derived, d.getPeer())
@@ -667,18 +639,18 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 		log.Infof("%s notify pd with split count %d", d.tag(), len(regions))
 	}
 
-	lastRegion := regions[len(regions)-1]
-	if !meta.regionRanges.Delete(lastRegion.EndKey) {
+	if meta.regionRanges.Delete(&regionItem{region: regions[0]}) == nil {
 		panic(d.tag() + " original region should exist")
 	}
 	// It's not correct anymore, so set it to None to let split checker update it.
 	d.peer.ApproximateSize = nil
-	lastRegionID := lastRegion.Id
 
 	for _, newRegion := range regions {
 		newRegionID := newRegion.Id
-		notExist := meta.regionRanges.Insert(newRegion.EndKey, util.RegionIDToBytes(newRegionID))
-		y.Assert(notExist)
+		notExist := meta.regionRanges.ReplaceOrInsert(&regionItem{region: newRegion})
+		if notExist != nil {
+			panic(fmt.Sprintf("%v %v newregion:%v", d.tag(), notExist.(*regionItem).region, newRegion))
+		}
 		if newRegionID == regionID {
 			continue
 		}
@@ -724,11 +696,6 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 
 		newPeer.peer.Activate(d.ctx.applyMsgs)
 		meta.regions[newRegionID] = newRegion
-		if lastRegionID == newRegionID {
-			// To prevent from big region, the right region needs run split
-			// check again after split.
-			newPeer.peer.SizeDiffHint = d.ctx.cfg.RegionSplitSize
-		}
 		d.ctx.router.register(newPeer)
 		_ = d.ctx.router.send(newRegionID, message.NewPeerMsg(message.MsgTypeStart, newRegionID, nil))
 		if !campaigned {
@@ -748,17 +715,14 @@ func (d *peerMsgHandler) onReadyApplySnapshot(applyResult *ApplySnapResult) {
 	region := applyResult.Region
 
 	log.Infof("%s snapshot for region %s is applied", d.tag(), region)
-	d.ctx.storeMetaLock.Lock()
-	defer d.ctx.storeMetaLock.Unlock()
 	meta := d.ctx.storeMeta
 	initialized := len(prevRegion.Peers) > 0
 	if initialized {
 		log.Infof("%s region changed from %s -> %s after applying snapshot", d.tag(), prevRegion, region)
-		meta.regionRanges.Delete(prevRegion.EndKey)
+		meta.regionRanges.Delete(&regionItem{region: prevRegion})
 	}
-	if !meta.regionRanges.Insert(region.EndKey, util.RegionIDToBytes(region.Id)) {
-		oldRegionID := util.RegionIDFromBytes(meta.regionRanges.Get(region.EndKey, nil))
-		panic(fmt.Sprintf("%s unexpected old region %d", d.tag(), oldRegionID))
+	if oldRegion := meta.regionRanges.ReplaceOrInsert(&regionItem{region: region}); oldRegion != nil {
+		panic(fmt.Sprintf("%s unexpected old region %+v, region %+v", d.tag(), oldRegion, region))
 	}
 	meta.regions[region.Id] = region
 }
@@ -826,15 +790,11 @@ func (d *peerMsgHandler) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) (
 func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *message.Callback) {
 	resp, err := d.preProposeRaftCommand(msg)
 	if err != nil {
-		if cb != nil {
-			cb.Done(ErrResp(err))
-		}
+		cb.Done(ErrResp(err))
 		return
 	}
 	if resp != nil {
-		if cb != nil {
-			cb.Done(resp)
-		}
+		cb.Done(resp)
 		return
 	}
 
@@ -854,19 +814,14 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 	}
 }
 
-func (d *peerMsgHandler) findSiblingRegion() *metapb.Region {
-	var start []byte
-	start = d.region().StartKey
-	d.ctx.storeMetaLock.Lock()
-	defer d.ctx.storeMetaLock.Unlock()
+func (d *peerMsgHandler) findSiblingRegion() (result *metapb.Region) {
 	meta := d.ctx.storeMeta
-	it := meta.regionRanges.NewIterator()
-	it.Seek(start)
-	if !it.Valid() {
-		return nil
-	}
-	regionID := util.RegionIDFromBytes(it.Value())
-	return meta.regions[regionID]
+	item := &regionItem{region: d.region()}
+	meta.regionRanges.AscendGreaterOrEqual(item, func(i btree.Item) bool {
+		result = i.(*regionItem).region
+		return true
+	})
+	return
 }
 
 func (d *peerMsgHandler) onRaftGCLogTick() {

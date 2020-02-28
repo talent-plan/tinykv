@@ -2,7 +2,6 @@ package util
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 
 	"github.com/golang/protobuf/proto"
@@ -156,16 +155,6 @@ func ConfStateFromRegion(region *metapb.Region) (confState eraftpb.ConfState) {
 		confState.Nodes = append(confState.Nodes, p.GetId())
 	}
 	return
-}
-
-func RegionIDToBytes(id uint64) []byte {
-	b := make([]byte, 8)
-	binary.LittleEndian.PutUint64(b, id)
-	return b
-}
-
-func RegionIDFromBytes(b []byte) uint64 {
-	return binary.LittleEndian.Uint64(b)
 }
 
 func CheckStoreID(req *raft_cmdpb.RaftCmdRequest, storeID uint64) error {

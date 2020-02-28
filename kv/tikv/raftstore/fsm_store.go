@@ -3,13 +3,11 @@ package raftstore
 import (
 	"bytes"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/Connor1996/badger"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/lockstore"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
@@ -21,6 +19,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
+	"github.com/pingcap-incubator/tinykv/scheduler/pkg/btree"
 	"github.com/pingcap/errors"
 )
 
@@ -31,9 +30,22 @@ const (
 	StoreTickSnapGC           StoreTick = 2
 )
 
+var _ btree.Item = &regionItem{}
+
+type regionItem struct {
+	region *metapb.Region
+}
+
+// Less returns true if the region start key is less than the other.
+func (r *regionItem) Less(other btree.Item) bool {
+	left := r.region.GetStartKey()
+	right := other.(*regionItem).region.GetStartKey()
+	return bytes.Compare(left, right) < 0
+}
+
 type storeMeta struct {
 	/// region end key -> region ID
-	regionRanges *lockstore.MemStore
+	regionRanges *btree.BTree
 	/// region_id -> region
 	regions map[uint64]*metapb.Region
 	/// `MsgRequestVote` messages from newly split Regions shouldn't be dropped if there is no
@@ -45,7 +57,7 @@ type storeMeta struct {
 
 func newStoreMeta() *storeMeta {
 	return &storeMeta{
-		regionRanges: lockstore.NewMemStore(32 * 1024),
+		regionRanges: btree.New(2),
 		regions:      map[uint64]*metapb.Region{},
 	}
 }
@@ -55,12 +67,37 @@ func (m *storeMeta) setRegion(region *metapb.Region, peer *Peer) {
 	peer.SetRegion(region)
 }
 
+// getOverlaps gets the regions which are overlapped with the specified region range.
+func (m *storeMeta) getOverlapRegions(region *metapb.Region) []*metapb.Region {
+	item := &regionItem{region: region}
+	var result *regionItem
+	// find is a helper function to find an item that contains the regions start key.
+	m.regionRanges.DescendLessOrEqual(item, func(i btree.Item) bool {
+		result = i.(*regionItem)
+		return false
+	})
+
+	if result == nil || !engine_util.ExceedEndKey(region.GetStartKey(), result.region.GetEndKey()) {
+		result = item
+	}
+
+	var overlaps []*metapb.Region
+	m.regionRanges.AscendGreaterOrEqual(result, func(i btree.Item) bool {
+		over := i.(*regionItem)
+		if engine_util.ExceedEndKey(over.region.GetStartKey(), region.GetEndKey()) {
+			return false
+		}
+		overlaps = append(overlaps, over.region)
+		return true
+	})
+	return overlaps
+}
+
 type GlobalContext struct {
 	cfg                  *config.Config
 	engine               *engine_util.Engines
 	store                *metapb.Store
 	storeMeta            *storeMeta
-	storeMetaLock        *sync.RWMutex
 	snapMgr              *snap.SnapManager
 	router               *router
 	trans                Transport
@@ -174,8 +211,6 @@ func (d *storeMsgHandler) checkMsg(msg *rspb.RaftMessage) (bool, error) {
 	if localState.State != rspb.PeerState_Tombstone {
 		// Maybe split, but not registered yet.
 		if util.IsFirstVoteMessage(msg.Message) {
-			d.ctx.storeMetaLock.Lock()
-			defer d.ctx.storeMetaLock.Unlock()
 			meta := d.ctx.storeMeta
 			// Last check on whether target peer is created, otherwise, the
 			// vote message will never be comsumed.
@@ -252,10 +287,6 @@ func (d *storeMsgHandler) onRaftMessage(msg *rspb.RaftMessage) error {
 func (d *storeMsgHandler) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage) (bool, error) {
 	// we may encounter a message with larger peer id, which means
 	// current peer is stale, then we should remove current peer
-	d.ctx.storeMetaLock.Lock()
-	defer func() {
-		d.ctx.storeMetaLock.Unlock()
-	}()
 	meta := d.ctx.storeMeta
 	if _, ok := meta.regions[regionID]; ok {
 		return true, nil
@@ -265,18 +296,11 @@ func (d *storeMsgHandler) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage
 		return false, nil
 	}
 
-	it := meta.regionRanges.NewIterator()
-	it.Seek(msg.StartKey)
-	if it.Valid() && bytes.Equal(msg.StartKey, it.Key()) {
-		it.Next()
-	}
-	for ; it.Valid(); it.Next() {
-		regionID := util.RegionIDFromBytes(it.Value())
-		existRegion := meta.regions[regionID]
-		if bytes.Compare(existRegion.StartKey, msg.EndKey) >= 0 {
-			break
-		}
-		log.Debugf("msg %s is overlapped with exist region %s", msg, existRegion)
+	for _, region := range meta.getOverlapRegions(&metapb.Region{
+		StartKey: msg.StartKey,
+		EndKey:   msg.EndKey,
+	}) {
+		log.Debugf("msg %s is overlapped with exist region %s", msg, region)
 		if util.IsFirstVoteMessage(msg.Message) {
 			meta.pendingVotes = append(meta.pendingVotes, msg)
 		}
@@ -299,9 +323,7 @@ func (d *storeMsgHandler) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage
 func (d *storeMsgHandler) storeHeartbeatPD() {
 	stats := new(pdpb.StoreStats)
 	stats.StoreId = d.ctx.store.Id
-	d.ctx.storeMetaLock.RLock()
 	stats.RegionCount = uint32(len(d.ctx.storeMeta.regions))
-	d.ctx.storeMetaLock.RUnlock()
 	storeInfo := &runner.PdStoreHeartbeatTask{
 		Stats:  stats,
 		Engine: d.ctx.engine.Kv,
