@@ -790,7 +790,6 @@ func (s *testClusterInfoSuite) TestLoadClusterInfo(c *C) {
 	meta := &metapb.Cluster{Id: 123}
 	c.Assert(storage.SaveMeta(meta), IsNil)
 	stores := mustSaveStores(c, storage, n)
-	regions := mustSaveRegions(c, storage, n)
 
 	raftCluster = createTestRaftCluster(server.idAllocator, opt, storage)
 	cluster, err = raftCluster.loadClusterInfo()
@@ -802,10 +801,6 @@ func (s *testClusterInfoSuite) TestLoadClusterInfo(c *C) {
 	c.Assert(cluster.getStoreCount(), Equals, n)
 	for _, store := range cluster.GetMetaStores() {
 		c.Assert(store, DeepEquals, stores[store.GetId()])
-	}
-	c.Assert(cluster.core.Regions.GetRegionCount(), Equals, n)
-	for _, region := range cluster.GetMetaRegions() {
-		c.Assert(region, DeepEquals, regions[region.GetId()])
 	}
 }
 
@@ -996,56 +991,6 @@ func (s *testClusterInfoSuite) TestRegionHeartbeat(c *C) {
 		c.Assert(store.GetLeaderSize(), Equals, cluster.core.Regions.GetStoreLeaderRegionSize(store.GetID()))
 		c.Assert(store.GetRegionSize(), Equals, cluster.core.Regions.GetStoreRegionSize(store.GetID()))
 	}
-
-	// Test with storage.
-	if storage := cluster.storage; storage != nil {
-		for _, region := range regions {
-			tmp := &metapb.Region{}
-			ok, err := storage.LoadRegion(region.GetID(), tmp)
-			c.Assert(ok, IsTrue)
-			c.Assert(err, IsNil)
-			c.Assert(tmp, DeepEquals, region.GetMeta())
-		}
-
-		// Check overlap with stale version
-		overlapRegion := regions[n-1].Clone(
-			core.WithStartKey([]byte("")),
-			core.WithEndKey([]byte("")),
-			core.WithNewRegionID(10000),
-			core.WithDecVersion(),
-		)
-		c.Assert(cluster.processRegionHeartbeat(overlapRegion), NotNil)
-		region := &metapb.Region{}
-		ok, err := storage.LoadRegion(regions[n-1].GetID(), region)
-		c.Assert(ok, IsTrue)
-		c.Assert(err, IsNil)
-		c.Assert(region, DeepEquals, regions[n-1].GetMeta())
-		ok, err = storage.LoadRegion(regions[n-2].GetID(), region)
-		c.Assert(ok, IsTrue)
-		c.Assert(err, IsNil)
-		c.Assert(region, DeepEquals, regions[n-2].GetMeta())
-		ok, err = storage.LoadRegion(overlapRegion.GetID(), region)
-		c.Assert(ok, IsFalse)
-		c.Assert(err, IsNil)
-
-		// Check overlap
-		overlapRegion = regions[n-1].Clone(
-			core.WithStartKey(regions[n-2].GetStartKey()),
-			core.WithNewRegionID(regions[n-1].GetID()+1),
-		)
-		c.Assert(cluster.processRegionHeartbeat(overlapRegion), IsNil)
-		region = &metapb.Region{}
-		ok, err = storage.LoadRegion(regions[n-1].GetID(), region)
-		c.Assert(ok, IsFalse)
-		c.Assert(err, IsNil)
-		ok, err = storage.LoadRegion(regions[n-2].GetID(), region)
-		c.Assert(ok, IsFalse)
-		c.Assert(err, IsNil)
-		ok, err = storage.LoadRegion(overlapRegion.GetID(), region)
-		c.Assert(ok, IsTrue)
-		c.Assert(err, IsNil)
-		c.Assert(region, DeepEquals, overlapRegion.GetMeta())
-	}
 }
 
 func heartbeatRegions(c *C, cluster *RaftCluster, regions []*core.RegionInfo) {
@@ -1228,19 +1173,4 @@ func mustSaveStores(c *C, s *core.Storage, n int) []*metapb.Store {
 	}
 
 	return stores
-}
-
-func mustSaveRegions(c *C, s *core.Storage, n int) []*metapb.Region {
-	regions := make([]*metapb.Region, 0, n)
-	for i := 0; i < n; i++ {
-		region := newTestRegionMeta(uint64(i))
-		regions = append(regions, region)
-	}
-
-	for _, region := range regions {
-		c.Assert(s.SaveRegion(region), IsNil)
-	}
-	c.Assert(s.Flush(), IsNil)
-
-	return regions
 }

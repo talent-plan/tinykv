@@ -137,7 +137,16 @@ func (c *RaftCluster) initCluster(id id.Allocator, opt *config.ScheduleOption, s
 	c.prepareChecker = newPrepareChecker()
 }
 
-func (c *RaftCluster) start() error {
+// ClusterCreateOption used to create region.
+type ClusterCreateOption func(cluster *RaftCluster)
+
+func WithRegion(region *core.RegionInfo) ClusterCreateOption {
+	return func(cluster *RaftCluster) {
+		cluster.core.PutRegion(region)
+	}
+}
+
+func (c *RaftCluster) start(opts ...ClusterCreateOption) error {
 	c.Lock()
 	defer c.Unlock()
 
@@ -153,6 +162,9 @@ func (c *RaftCluster) start() error {
 	}
 	if cluster == nil {
 		return nil
+	}
+	for _, opt := range opts {
+		opt(cluster)
 	}
 
 	c.coordinator = newCoordinator(c.ctx, cluster, c.s.hbStreams)
@@ -183,16 +195,6 @@ func (c *RaftCluster) loadClusterInfo() (*RaftCluster, error) {
 	}
 	log.Info("load stores",
 		zap.Int("count", c.getStoreCount()),
-		zap.Duration("cost", time.Since(start)),
-	)
-
-	start = time.Now()
-
-	if err := c.storage.LoadRegions(c.core.PutRegion); err != nil {
-		return nil, err
-	}
-	log.Info("load regions",
-		zap.Int("count", c.core.GetRegionCount()),
 		zap.Duration("cost", time.Since(start)),
 	)
 	return c, nil
@@ -375,17 +377,7 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 	}
 
 	if saveCache {
-		overlaps := c.core.PutRegion(region)
-		if c.storage != nil {
-			for _, item := range overlaps {
-				if err := c.storage.DeleteRegion(item.GetMeta()); err != nil {
-					log.Error("failed to delete region from storage",
-						zap.Uint64("region-id", item.GetID()),
-						zap.Stringer("region-meta", core.RegionToHexMeta(item.GetMeta())),
-						zap.Error(err))
-				}
-			}
-		}
+		c.core.PutRegion(region)
 
 		// Update related stores.
 		if origin != nil {
@@ -941,11 +933,6 @@ func (c *RaftCluster) isPrepared() bool {
 func (c *RaftCluster) putRegion(region *core.RegionInfo) error {
 	c.Lock()
 	defer c.Unlock()
-	if c.storage != nil {
-		if err := c.storage.SaveRegion(region.GetMeta()); err != nil {
-			return err
-		}
-	}
 	c.core.PutRegion(region)
 	return nil
 }
