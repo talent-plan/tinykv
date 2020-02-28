@@ -2,6 +2,10 @@ package transaction
 
 import (
 	"testing"
+
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
+	"github.com/stretchr/testify/assert"
 )
 
 // TestGetValue4A getting a value works in the simple case.
@@ -30,6 +34,33 @@ func TestGetDeleted4A(t *testing.T) {
 
 // TestGetLocked4A tests getting a value when it is locked by another transaction.
 func TestGetLocked4A(t *testing.T) {
+	builder := newBuilder(t)
+	builder.init([]kv{
+		{cf: engine_util.CfDefault, key: []byte{99}, ts: 50, value: []byte{42}},
+		{cf: engine_util.CfWrite, key: []byte{99}, ts: 54, value: []byte{1, 0, 0, 0, 0, 0, 0, 0, 50}},
+		{cf: engine_util.CfLock, key: []byte{99}, value: []byte{99, 1, 0, 0, 0, 0, 0, 0, 0, 200, 0, 0, 0, 0, 0, 0, 0, 0}},
+	})
+
+	var req0 kvrpcpb.GetRequest
+	req0.Key = []byte{99}
+	req0.Version = 55
+	var req1 kvrpcpb.GetRequest
+	req1.Key = []byte{99}
+	req1.Version = 300
+
+	resps := builder.runRequests(&req0, &req1)
+	resp0 := resps[0].(*kvrpcpb.GetResponse)
+	resp1 := resps[1].(*kvrpcpb.GetResponse)
+
+	assert.Nil(t, resp0.RegionError)
+	assert.Nil(t, resp0.Error)
+	assert.Equal(t, []byte{42}, resp0.Value)
+
+	assert.Nil(t, resp1.RegionError)
+	lockInfo := resp1.Error.Locked
+	assert.Equal(t, []byte{99}, lockInfo.Key)
+	assert.Equal(t, []byte{99}, lockInfo.PrimaryLock)
+	assert.Equal(t, uint64(200), lockInfo.LockVersion)
 }
 
 // TestEmptyPrewrite4A tests that a Prewrite with no mutations succeeds and changes nothing.
