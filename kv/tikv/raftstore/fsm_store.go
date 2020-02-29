@@ -77,7 +77,7 @@ func (m *storeMeta) getOverlapRegions(region *metapb.Region) []*metapb.Region {
 		return false
 	})
 
-	if result == nil || !engine_util.ExceedEndKey(region.GetStartKey(), result.region.GetEndKey()) {
+	if result == nil || engine_util.ExceedEndKey(region.GetStartKey(), result.region.GetEndKey()) {
 		result = item
 	}
 

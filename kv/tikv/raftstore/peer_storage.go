@@ -552,17 +552,6 @@ func (ps *PeerStorage) SaveReadyState(kvWB, raftWB *engine_util.WriteBatch, read
 	return ctx, nil
 }
 
-func PeerEqual(l, r *metapb.Peer) bool {
-	return l.Id == r.Id && l.StoreId == r.StoreId
-}
-
-func RegionEqual(l, r *metapb.Region) bool {
-	if l == nil || r == nil {
-		return false
-	}
-	return l.Id == r.Id && l.RegionEpoch.Version == r.RegionEpoch.Version && l.RegionEpoch.ConfVer == r.RegionEpoch.ConfVer
-}
-
 // Update the memory state after ready changes are flushed to disk successfully.
 func (ps *PeerStorage) PostReadyPersistent(ctx *InvokeContext) *ApplySnapResult {
 	ps.raftState = ctx.RaftState

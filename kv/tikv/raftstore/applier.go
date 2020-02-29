@@ -733,7 +733,7 @@ func (a *applier) execChangePeer(aCtx *applyContext, req *raft_cmdpb.AdminReques
 		log.Infof("%s add peer successfully, peer %s, region %s", a.tag, peer, a.region)
 	case eraftpb.ConfChangeType_RemoveNode:
 		if p := util.RemovePeer(region, storeID); p != nil {
-			if !PeerEqual(p, peer) {
+			if !util.PeerEqual(p, peer) {
 				errMsg := fmt.Sprintf("%s ignore remove unmatched peer, expected_peer %s, got_peer %s",
 					a.tag, peer, p)
 				log.Error(errMsg)
