@@ -1,5 +1,7 @@
 package commands
 
+// TODO delete all of the commands and command_tests packages
+
 import (
 	"reflect"
 
