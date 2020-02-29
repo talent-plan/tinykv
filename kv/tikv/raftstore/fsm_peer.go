@@ -151,7 +151,6 @@ func (d *peerMsgHandler) HandleMsgs(msgs ...message.Msg) {
 			split := msg.Data.(*message.MsgSplitRegion)
 			log.Infof("%s on split with %v", d.peer.Tag, split.SplitKeys)
 			d.onPrepareSplitRegion(split.RegionEpoch, split.SplitKeys, split.Callback)
-		// TODO: should update approximate size in split checker
 		case message.MsgTypeRegionApproximateSize:
 			d.onApproximateRegionSize(msg.Data.(uint64))
 		case message.MsgTypeGcSnap:
@@ -506,24 +505,22 @@ func (d *peerMsgHandler) checkSnapshot(msg *rspb.RaftMessage) (*snap.SnapKey, er
 		return &key, nil
 	}
 
-	for _, region := range meta.pendingSnapshotRegions {
-		if !engine_util.ExceedEndKey(region.StartKey, snapRegion.EndKey) &&
-			!engine_util.ExceedEndKey(snapRegion.StartKey, region.EndKey) &&
-			// Same region can overlap, we will apply the latest version of snapshot.
-			region.Id != snapRegion.Id {
-			log.Infof("pending region overlapped regionID %d peerID %d region %s snap %s",
-				d.regionID(), d.peerID(), region, snapshot)
-			return &key, nil
-		}
-	}
+	// for _, region := range meta.pendingSnapshotRegions {
+	// 	if !engine_util.ExceedEndKey(region.StartKey, snapRegion.EndKey) &&
+	// 		!engine_util.ExceedEndKey(snapRegion.StartKey, region.EndKey) &&
+	// 		// Same region can overlap, we will apply the latest version of snapshot.
+	// 		region.Id != snapRegion.Id {
+	// 		log.Infof("pending region overlapped regionID %d peerID %d region %s snap %s",
+	// 			d.regionID(), d.peerID(), region, snapshot)
+	// 		return &key, nil
+	// 	}
+	// }
 
 	// check if snapshot file exists.
 	_, err = d.ctx.snapMgr.GetSnapshotForApplying(key)
 	if err != nil {
 		return nil, err
 	}
-	meta.pendingSnapshotRegions = append(meta.pendingSnapshotRegions, snapRegion)
-	d.ctx.queuedSnaps[regionID] = struct{}{}
 	return nil, nil
 }
 
@@ -649,7 +646,7 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 		newRegionID := newRegion.Id
 		notExist := meta.regionRanges.ReplaceOrInsert(&regionItem{region: newRegion})
 		if notExist != nil {
-			panic(fmt.Sprintf("%v %v newregion:%v", d.tag(), notExist.(*regionItem).region, newRegion))
+			panic(fmt.Sprintf("%v %v newregion:%v, region:%v", d.tag(), notExist.(*regionItem).region, newRegion, regions[0]))
 		}
 		if newRegionID == regionID {
 			continue
@@ -746,15 +743,10 @@ func (d *peerMsgHandler) onReadyResult(execResults []execResult) []execResult {
 	return nil
 }
 
-func (d *peerMsgHandler) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.RaftCmdResponse, error) {
+func (d *peerMsgHandler) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) error {
 	// Check store_id, make sure that the msg is dispatched to the right place.
 	if err := util.CheckStoreID(req, d.storeID()); err != nil {
-		return nil, err
-	}
-	// only for test
-	if req.StatusRequest != nil {
-		// For status commands, we handle it here directly.
-		return d.executeStatusCommand(req)
+		return err
 	}
 
 	// Check whether the store has the right peer to handle the request.
@@ -762,15 +754,15 @@ func (d *peerMsgHandler) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) (
 	leaderID := d.peer.LeaderId()
 	if !d.peer.IsLeader() {
 		leader := d.peer.getPeerFromCache(leaderID)
-		return nil, &util.ErrNotLeader{RegionId: regionID, Leader: leader}
+		return &util.ErrNotLeader{RegionId: regionID, Leader: leader}
 	}
 	// peer_id must be the same as peer's.
 	if err := util.CheckPeerID(req, d.peerID()); err != nil {
-		return nil, err
+		return err
 	}
 	// Check whether the term is stale.
 	if err := util.CheckTerm(req, d.peer.Term()); err != nil {
-		return nil, err
+		return err
 	}
 	err := util.CheckRegionEpoch(req, d.region(), true)
 	if errEpochNotMatching, ok := err.(*util.ErrEpochNotMatch); ok {
@@ -782,19 +774,15 @@ func (d *peerMsgHandler) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) (
 		if siblingRegion != nil {
 			errEpochNotMatching.Regions = append(errEpochNotMatching.Regions, siblingRegion)
 		}
-		return nil, errEpochNotMatching
+		return errEpochNotMatching
 	}
-	return nil, err
+	return err
 }
 
 func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *message.Callback) {
-	resp, err := d.preProposeRaftCommand(msg)
+	err := d.preProposeRaftCommand(msg)
 	if err != nil {
 		cb.Done(ErrResp(err))
-		return
-	}
-	if resp != nil {
-		cb.Done(resp)
 		return
 	}
 
@@ -807,7 +795,7 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 	// The peer that is being checked is a leader. It might step down to be a follower later. It
 	// doesn't matter whether the peer is a leader or not. If it's not a leader, the proposing
 	// command log entry can't be committed.
-	resp = &raft_cmdpb.RaftCmdResponse{}
+	resp := &raft_cmdpb.RaftCmdResponse{}
 	BindRespTerm(resp, d.peer.Term())
 	if d.peer.Propose(d.ctx.engine.Kv, d.ctx.cfg, cb, msg, resp) {
 		d.hasReady = true
@@ -967,61 +955,4 @@ func newCompactLogRequest(regionID uint64, peer *metapb.Peer, compactIndex, comp
 		},
 	}
 	return req
-}
-
-// Handle status commands here, separate the logic, maybe we can move it
-// to another file later.
-// Unlike other commands (write or admin), status commands only show current
-// store status, so no need to handle it in raft group.
-func (d *peerMsgHandler) executeStatusCommand(request *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.RaftCmdResponse, error) {
-	cmdType := request.StatusRequest.CmdType
-	var response *raft_cmdpb.StatusResponse
-	switch cmdType {
-	case raft_cmdpb.StatusCmdType_RegionLeader:
-		response = d.executeRegionLeader()
-	case raft_cmdpb.StatusCmdType_RegionDetail:
-		var err error
-		response, err = d.executeRegionDetail(request)
-		if err != nil {
-			return nil, err
-		}
-	case raft_cmdpb.StatusCmdType_InvalidStatus:
-		return nil, errors.New("invalid status command!")
-	}
-	response.CmdType = cmdType
-
-	resp := &raft_cmdpb.RaftCmdResponse{
-		StatusResponse: response,
-	}
-	BindRespTerm(resp, d.peer.Term())
-	return resp, nil // TODO: stub
-}
-
-func (d *peerMsgHandler) executeRegionLeader() *raft_cmdpb.StatusResponse {
-	resp := &raft_cmdpb.StatusResponse{}
-	if leader := d.peer.getPeerFromCache(d.peer.LeaderId()); leader != nil {
-		resp.RegionLeader = &raft_cmdpb.RegionLeaderResponse{
-			Leader: leader,
-		}
-	}
-	return resp
-}
-
-// TODO: can we remove it?
-func (d *peerMsgHandler) executeRegionDetail(request *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.StatusResponse, error) {
-	if !d.peer.isInitialized() {
-		regionID := request.Header.RegionId
-		return nil, errors.Errorf("region %d not initialized", regionID)
-	}
-	resp := &raft_cmdpb.StatusResponse{
-		RegionDetail: &raft_cmdpb.RegionDetailResponse{
-			Region: d.region(),
-		},
-	}
-	if leader := d.peer.getPeerFromCache(d.peer.LeaderId()); leader != nil {
-		resp.RegionDetail = &raft_cmdpb.RegionDetailResponse{
-			Leader: leader,
-		}
-	}
-	return resp, nil
 }

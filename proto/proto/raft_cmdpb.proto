@@ -128,48 +128,6 @@ message AdminResponse {
     BatchSplitResponse splits = 10;
 }
 
-// For get the leader of the region.
-message RegionLeaderRequest {}
-
-message RegionLeaderResponse {
-    metapb.Peer leader = 1;
-}
-
-// For getting more information of the region.
-// We add some admin operations (ChangePeer, Split...) into the pb job list,
-// then pd server will peek the first one, handle it and then pop it from the job lib. 
-// But sometimes, the pd server may crash before popping. When another pd server
-// starts and finds the job is running but not finished, it will first check whether
-// the raft server already has handled this job.
-// E,g, for ChangePeer, if we add Peer10 into region1 and find region1 has already had
-// Peer10, we can think this ChangePeer is finished, and can pop this job from job list
-// directly.
-message RegionDetailRequest {}
-
-message RegionDetailResponse {
-    metapb.Region region = 1;
-    metapb.Peer leader = 2;
-}
-
-
-enum StatusCmdType {
-    InvalidStatus = 0;
-    RegionLeader = 1;
-    RegionDetail = 2;
-}
-
-message StatusRequest {
-    StatusCmdType cmd_type = 1;
-    RegionLeaderRequest region_leader = 2;
-    RegionDetailRequest region_detail = 3;
-}
-
-message StatusResponse {
-    StatusCmdType cmd_type = 1;
-    RegionLeaderResponse region_leader = 2;
-    RegionDetailResponse region_detail = 3;
-}
-
 message RaftRequestHeader {
     uint64 region_id = 1;
     metapb.Peer peer = 2;
@@ -191,12 +149,10 @@ message RaftCmdRequest {
     // at same time. 
     repeated Request requests = 2;
     AdminRequest admin_request = 3;
-    StatusRequest status_request = 4;
 }
 
 message RaftCmdResponse {
     RaftResponseHeader header = 1;
     repeated Response responses = 2;
     AdminResponse admin_response = 3;
-    StatusResponse status_response = 4;
 }

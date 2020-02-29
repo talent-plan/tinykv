@@ -18,8 +18,100 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
+	"github.com/pingcap-incubator/tinykv/scheduler/pkg/btree"
 	"github.com/pingcap/errors"
 )
+
+var _ btree.Item = &regionItem{}
+
+type regionItem struct {
+	region *metapb.Region
+}
+
+// Less returns true if the region start key is less than the other.
+func (r *regionItem) Less(other btree.Item) bool {
+	left := r.region.GetStartKey()
+	right := other.(*regionItem).region.GetStartKey()
+	return bytes.Compare(left, right) < 0
+}
+
+type storeMeta struct {
+	/// region end key -> region ID
+	regionRanges *btree.BTree
+	/// region_id -> region
+	regions map[uint64]*metapb.Region
+	/// `MsgRequestVote` messages from newly split Regions shouldn't be dropped if there is no
+	/// such Region in this store now. So the messages are recorded temporarily and will be handled later.
+	pendingVotes []*rspb.RaftMessage
+}
+
+func newStoreMeta() *storeMeta {
+	return &storeMeta{
+		regionRanges: btree.New(2),
+		regions:      map[uint64]*metapb.Region{},
+	}
+}
+
+func (m *storeMeta) setRegion(region *metapb.Region, peer *Peer) {
+	m.regions[region.Id] = region
+	peer.SetRegion(region)
+}
+
+// getOverlaps gets the regions which are overlapped with the specified region range.
+func (m *storeMeta) getOverlapRegions(region *metapb.Region) []*metapb.Region {
+	item := &regionItem{region: region}
+	var result *regionItem
+	// find is a helper function to find an item that contains the regions start key.
+	m.regionRanges.DescendLessOrEqual(item, func(i btree.Item) bool {
+		result = i.(*regionItem)
+		return false
+	})
+
+	if result == nil || engine_util.ExceedEndKey(region.GetStartKey(), result.region.GetEndKey()) {
+		result = item
+	}
+
+	var overlaps []*metapb.Region
+	m.regionRanges.AscendGreaterOrEqual(result, func(i btree.Item) bool {
+		over := i.(*regionItem)
+		if engine_util.ExceedEndKey(over.region.GetStartKey(), region.GetEndKey()) {
+			return false
+		}
+		overlaps = append(overlaps, over.region)
+		return true
+	})
+	return overlaps
+}
+
+type GlobalContext struct {
+	cfg                  *config.Config
+	engine               *engine_util.Engines
+	store                *metapb.Store
+	storeMeta            *storeMeta
+	snapMgr              *snap.SnapManager
+	router               *router
+	trans                Transport
+	pdTaskSender         chan<- worker.Task
+	regionTaskSender     chan<- worker.Task
+	raftLogGCTaskSender  chan<- worker.Task
+	splitCheckTaskSender chan<- worker.Task
+	pdClient             pd.Client
+	tickDriverSender     chan uint64
+}
+
+type RaftContext struct {
+	*GlobalContext
+	applyMsgs    *applyMsgs
+	ReadyRes     []*ReadyICPair
+	kvWB         *engine_util.WriteBatch
+	raftWB       *engine_util.WriteBatch
+	pendingCount int
+	hasReady     bool
+}
+
+type Transport interface {
+	Send(msg *rspb.RaftMessage) error
+}
 
 /// loadPeers loads peers in this store. It scans the db engine, loads all regions
 /// and their peers from it, and schedules snapshot worker if necessary.
@@ -140,6 +232,7 @@ type workers struct {
 
 type RaftBatchSystem struct {
 	ctx        *GlobalContext
+	storeState *storeState
 	router     *router
 	workers    *workers
 	tickDriver *tickDriver
@@ -207,7 +300,7 @@ func (bs *RaftBatchSystem) startWorkers(peers []*peerFsm) {
 	go rw.run(bs.closeCh, bs.wg)
 	aw := newApplyWorker(ctx, rw.applyCh, router)
 	go aw.run(bs.wg)
-	sw := newStoreWorker(ctx, router)
+	sw := newStoreWorker(ctx, bs.storeState)
 	go sw.run(bs.closeCh, bs.wg)
 	router.sendStore(message.Msg{Type: message.MsgTypeStoreStart, Data: ctx.store})
 	for i := 0; i < len(peers); i++ {
@@ -241,11 +334,12 @@ func (bs *RaftBatchSystem) shutDown() {
 }
 
 func CreateRaftBatchSystem(cfg *config.Config) (*router, *RaftBatchSystem) {
-	storeSender, storeFsm := newStoreFsm(cfg)
-	router := newRouter(storeSender, storeFsm)
+	storeSender, storeState := newStoreState(cfg)
+	router := newRouter(storeSender)
 	raftBatchSystem := &RaftBatchSystem{
 		router:     router,
-		tickDriver: newTickDriver(cfg.RaftBaseTickInterval, router, storeFsm.ticker),
+		storeState: storeState,
+		tickDriver: newTickDriver(cfg.RaftBaseTickInterval, router, storeState.ticker),
 		closeCh:    make(chan struct{}),
 		wg:         new(sync.WaitGroup),
 	}

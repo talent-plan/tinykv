@@ -36,7 +36,6 @@ func newRaftWorker(ctx *GlobalContext, pm *router) *raftWorker {
 	raftCtx := &RaftContext{
 		GlobalContext: ctx,
 		applyMsgs:     new(applyMsgs),
-		queuedSnaps:   make(map[uint64]struct{}),
 		kvWB:          new(engine_util.WriteBatch),
 		raftWB:        new(engine_util.WriteBatch),
 	}
@@ -87,7 +86,6 @@ func (rw *raftWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
 		applyMsgs := rw.raftCtx.applyMsgs
 		batch.msgs = append(batch.msgs, applyMsgs.msgs...)
 		applyMsgs.msgs = applyMsgs.msgs[:0]
-		rw.removeQueuedSnapshots()
 		rw.applyCh <- batch
 	}
 }
@@ -125,23 +123,11 @@ func (rw *raftWorker) handleRaftReady(peers map[uint64]*peerState, batch *applyB
 	}
 }
 
-func (rw *raftWorker) removeQueuedSnapshots() {
-	if len(rw.raftCtx.queuedSnaps) > 0 {
-		meta := rw.raftCtx.storeMeta
-		retained := meta.pendingSnapshotRegions[:0]
-		for _, region := range meta.pendingSnapshotRegions {
-			if _, ok := rw.raftCtx.queuedSnaps[region.Id]; !ok {
-				retained = append(retained, region)
-			}
-		}
-		meta.pendingSnapshotRegions = retained
-		rw.raftCtx.queuedSnaps = map[uint64]struct{}{}
-	}
-}
-
 type applyWorker struct {
-	pr       *router
-	applyCh  chan *applyBatch
+	pr      *router
+	applyCh chan *applyBatch
+
+	// TODO: Delete this
 	applyCtx *applyContext
 }
 
@@ -170,30 +156,5 @@ func (aw *applyWorker) run(wg *sync.WaitGroup) {
 			ps.apply.handleTask(aw.applyCtx, msg)
 		}
 		aw.applyCtx.flush()
-	}
-}
-
-// storeWorker runs store commands.
-type storeWorker struct {
-	store *storeMsgHandler
-}
-
-func newStoreWorker(ctx *GlobalContext, r *router) *storeWorker {
-	storeCtx := &StoreContext{GlobalContext: ctx, applyingSnapCount: new(uint64)}
-	return &storeWorker{
-		store: newStoreFsmDelegate(r.storeFsm, storeCtx),
-	}
-}
-
-func (sw *storeWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
-	defer wg.Done()
-	for {
-		var msg message.Msg
-		select {
-		case <-closeCh:
-			return
-		case msg = <-sw.store.receiver:
-		}
-		sw.store.handleMsg(msg)
 	}
 }
