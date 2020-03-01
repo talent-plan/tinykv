@@ -449,7 +449,7 @@ func (d *peerMsgHandler) handleGCPeerMsg(msg *rspb.RaftMessage) {
 	if !util.IsEpochStale(d.peer.Region().RegionEpoch, fromEpoch) {
 		return
 	}
-	if !PeerEqual(d.peer.Meta, msg.ToPeer) {
+	if !util.PeerEqual(d.peer.Meta, msg.ToPeer) {
 		log.Infof("%s receive stale gc msg, ignore", d.tag())
 		return
 	}
@@ -488,7 +488,7 @@ func (d *peerMsgHandler) checkSnapshot(msg *rspb.RaftMessage) (*snap.SnapKey, er
 		return &key, nil
 	}
 	meta := d.ctx.storeMeta
-	if !RegionEqual(meta.regions[d.regionID()], d.region()) {
+	if !util.RegionEqual(meta.regions[d.regionID()], d.region()) {
 		if !d.peer.isInitialized() {
 			log.Infof("%s stale delegate detected, skip", d.tag())
 			return &key, nil
@@ -700,7 +700,7 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 		_ = d.ctx.router.send(newRegionID, message.NewPeerMsg(message.MsgTypeStart, newRegionID, nil))
 		if !campaigned {
 			for i, msg := range meta.pendingVotes {
-				if PeerEqual(msg.ToPeer, metaPeer) {
+				if util.PeerEqual(msg.ToPeer, metaPeer) {
 					meta.pendingVotes = append(meta.pendingVotes[:i], meta.pendingVotes[i+1:]...)
 					_ = d.ctx.router.send(newRegionID, message.NewPeerMsg(message.MsgTypeRaftMessage, newRegionID, msg))
 					break

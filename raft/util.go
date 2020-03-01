@@ -15,6 +15,8 @@
 package raft
 
 import (
+	"sort"
+
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
@@ -70,4 +72,13 @@ func hardStateIsEmpty(hs *pb.HardState) bool {
 
 func hardStateEqual(l, r *pb.HardState) bool {
 	return l.Commit == r.Commit && l.Term == r.Term && l.Vote == r.Vote
+}
+
+func nodes(r *Raft) []uint64 {
+	nodes := make([]uint64, 0, len(r.Prs))
+	for id := range r.Prs {
+		nodes = append(nodes, id)
+	}
+	sort.Sort(uint64Slice(nodes))
+	return nodes
 }

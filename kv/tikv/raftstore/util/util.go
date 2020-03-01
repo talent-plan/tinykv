@@ -194,3 +194,14 @@ func CloneMsg(origin, cloned proto.Message) error {
 func SafeCopy(b []byte) []byte {
 	return append([]byte{}, b...)
 }
+
+func PeerEqual(l, r *metapb.Peer) bool {
+	return l.Id == r.Id && l.StoreId == r.StoreId
+}
+
+func RegionEqual(l, r *metapb.Region) bool {
+	if l == nil || r == nil {
+		return false
+	}
+	return l.Id == r.Id && l.RegionEpoch.Version == r.RegionEpoch.Version && l.RegionEpoch.ConfVer == r.RegionEpoch.ConfVer
+}
