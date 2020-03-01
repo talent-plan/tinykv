@@ -20,16 +20,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/raft"
 )
 
-type ReadyICPair struct {
-	Ready raft.Ready
-	IC    *InvokeContext
-}
-
-type ReqCbPair struct {
-	Req *raft_cmdpb.RaftCmdRequest
-	Cb  *message.Callback
-}
-
 func NotifyStaleReq(term uint64, cb *message.Callback) {
 	cb.Done(ErrRespStaleCommand(term))
 }
@@ -114,8 +104,8 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 		peerCache:             make(map[uint64]*metapb.Peer),
 		PeerHeartbeats:        make(map[uint64]time.Time),
 		PeersStartPendingTime: make(map[uint64]time.Time),
-		Tag:             tag,
-		LastApplyingIdx: appliedIndex,
+		Tag:                   tag,
+		LastApplyingIdx:       appliedIndex,
 	}
 
 	// If this region has only one peer and I am the one, campaign directly.
@@ -403,16 +393,16 @@ func (p *Peer) TakeApplyProposals() *regionProposal {
 	return newRegionProposal(p.PeerId(), p.regionId, props)
 }
 
-func (p *Peer) HandleRaftReadyAppend(trans Transport) *ReadyICPair {
+func (p *Peer) HandleRaftReady(msgs []message.Msg, pdScheduler chan<- worker.Task, trans Transport) (*ApplySnapResult, []message.Msg) {
 	if p.PendingRemove {
-		return nil
+		return nil, msgs
 	}
 	if p.Store().CheckApplyingSnap() {
 		// If we continue to handle all the messages, it may cause too many messages because
 		// leader will send all the remaining messages to this follower, which can lead
 		// to full message queue under high load.
 		log.Debugf("%v still applying snapshot, skip further handling", p.Tag)
-		return nil
+		return nil, msgs
 	}
 
 	if len(p.pendingMessages) > 0 {
@@ -423,11 +413,11 @@ func (p *Peer) HandleRaftReadyAppend(trans Transport) *ReadyICPair {
 
 	if p.HasPendingSnapshot() && !p.ReadyToHandlePendingSnap() {
 		log.Debugf("%v [apply_id: %v, last_applying_idx: %v] is not ready to apply snapshot.", p.Tag, p.Store().AppliedIndex(), p.LastApplyingIdx)
-		return nil
+		return nil, msgs
 	}
 
 	if !p.RaftGroup.HasReadySince(p.LastApplyingIdx) {
-		return nil
+		return nil, msgs
 	}
 
 	log.Debugf("%v handle raft ready", p.Tag)
@@ -446,17 +436,15 @@ func (p *Peer) HandleRaftReadyAppend(trans Transport) *ReadyICPair {
 		p.Send(trans, ready.Messages)
 		ready.Messages = ready.Messages[:0]
 	}
+	ss := ready.SoftState
+	if ss != nil && ss.RaftState == raft.StateLeader {
+		p.HeartbeatPd(pdScheduler)
+	}
 
-	invokeCtx, err := p.Store().SaveReadyState(&ready)
+	applySnapResult, err := p.Store().SaveReadyState(&ready)
 	if err != nil {
 		panic(fmt.Sprintf("failed to handle raft ready, error: %v", err))
 	}
-	return &ReadyICPair{Ready: ready, IC: invokeCtx}
-}
-
-func (p *Peer) PostRaftReadyPersistent(trans Transport, ready *raft.Ready, invokeCtx *InvokeContext) *ApplySnapResult {
-	applySnapResult := p.Store().PostReadyPersistent(invokeCtx)
-
 	if !p.IsLeader() {
 		if p.IsApplyingSnapshot() {
 			p.pendingMessages = ready.Messages
@@ -465,7 +453,33 @@ func (p *Peer) PostRaftReadyPersistent(trans Transport, ready *raft.Ready, invok
 			p.Send(trans, ready.Messages)
 		}
 	}
-	return applySnapResult
+
+	if applySnapResult != nil {
+		msgs = p.Activate(msgs)
+		// Snapshot's metadata has been applied.
+		p.LastApplyingIdx = p.Store().truncatedIndex()
+	} else {
+		committedEntries := ready.CommittedEntries
+		ready.CommittedEntries = nil
+		l := len(committedEntries)
+		if l > 0 {
+			p.LastApplyingIdx = committedEntries[l-1].Index
+			apply := &apply{
+				regionId: p.regionId,
+				term:     p.Term(),
+				entries:  committedEntries,
+			}
+			msgs = append(msgs, message.Msg{Type: message.MsgTypeApply, Data: apply, RegionID: p.regionId})
+		}
+	}
+
+	p.RaftGroup.Advance(ready)
+	if applySnapResult != nil {
+		// Because we only handle raft ready when not applying snapshot, so following
+		// line won't be called twice for the same snapshot.
+		p.RaftGroup.AdvanceApply(p.LastApplyingIdx)
+	}
+	return applySnapResult, msgs
 }
 
 func (p *Peer) MaybeCampaign(parentIsLeader bool) bool {
@@ -536,41 +550,6 @@ func (p *Peer) sendRaftMessage(msg eraftpb.Message, trans Transport) error {
 	return trans.Send(sendMsg)
 }
 
-func (p *Peer) HandleRaftReadyApply(kv *badger.DB, msgs []message.Msg, ready *raft.Ready) []message.Msg {
-	// Call `HandleRaftCommittedEntries` directly here may lead to inconsistency.
-	// In some cases, there will be some pending committed entries when applying a
-	// snapshot. If we call `HandleRaftCommittedEntries` directly, these updates
-	// will be written to disk. Because we apply snapshot asynchronously, so these
-	// updates will soon be removed. But the soft state of raft is still be updated
-	// in memory. Hence when handle ready next time, these updates won't be included
-	// in `ready.committed_entries` again, which will lead to inconsistency.
-	if p.IsApplyingSnapshot() {
-		// Snapshot's metadata has been applied.
-		p.LastApplyingIdx = p.Store().truncatedIndex()
-	} else {
-		committedEntries := ready.CommittedEntries
-		ready.CommittedEntries = nil
-		l := len(committedEntries)
-		if l > 0 {
-			p.LastApplyingIdx = committedEntries[l-1].Index
-			apply := &apply{
-				regionId: p.regionId,
-				term:     p.Term(),
-				entries:  committedEntries,
-			}
-			msgs = append(msgs, message.Msg{Type: message.MsgTypeApply, Data: apply, RegionID: p.regionId})
-		}
-	}
-
-	p.RaftGroup.Advance(*ready)
-	if p.IsApplyingSnapshot() {
-		// Because we only handle raft ready when not applying snapshot, so following
-		// line won't be called twice for the same snapshot.
-		p.RaftGroup.AdvanceApply(p.LastApplyingIdx)
-	}
-	return msgs
-}
-
 func (p *Peer) PostApply(kv *badger.DB, applyState rspb.RaftApplyState, appliedIndexTerm uint64, sizeDiffHint uint64) bool {
 	hasReady := false
 	if p.IsApplyingSnapshot() {
@@ -593,11 +572,6 @@ func (p *Peer) PostApply(kv *badger.DB, applyState rspb.RaftApplyState, appliedI
 	}
 
 	return hasReady
-}
-
-func (p *Peer) PostSplit() {
-	// Reset size_diff_hint.
-	p.SizeDiffHint = 0
 }
 
 // Propose a request.

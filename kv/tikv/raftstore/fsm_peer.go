@@ -254,33 +254,22 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		msg := message.Msg{Type: message.MsgTypeApplyProposal, Data: p, RegionID: p.RegionId}
 		msgs = append(msgs, msg)
 	}
-	readyRes := d.peer.HandleRaftReadyAppend(d.ctx.trans)
-	if readyRes != nil {
-		ss := readyRes.Ready.SoftState
-		if ss != nil && ss.RaftState == raft.StateLeader {
-			d.peer.HeartbeatPd(d.ctx.pdTaskSender)
-		}
-		applySnapResult := d.peer.PostRaftReadyPersistent(d.ctx.trans, &readyRes.Ready, readyRes.IC)
-		if applySnapResult != nil {
-			msgs = d.peer.Activate(msgs)
-		}
-		msgs = d.peer.HandleRaftReadyApply(d.ctx.engine.Kv, msgs, &readyRes.Ready)
-		if applySnapResult != nil {
-			prevRegion := applySnapResult.PrevRegion
-			region := applySnapResult.Region
+	applySnapResult, msgs := d.peer.HandleRaftReady(msgs, d.ctx.pdTaskSender, d.ctx.trans)
+	if applySnapResult != nil {
+		prevRegion := applySnapResult.PrevRegion
+		region := applySnapResult.Region
 
-			log.Infof("%s snapshot for region %s is applied", d.tag(), region)
-			meta := d.ctx.storeMeta
-			initialized := len(prevRegion.Peers) > 0
-			if initialized {
-				log.Infof("%s region changed from %s -> %s after applying snapshot", d.tag(), prevRegion, region)
-				meta.regionRanges.Delete(&regionItem{region: prevRegion})
-			}
-			if oldRegion := meta.regionRanges.ReplaceOrInsert(&regionItem{region: region}); oldRegion != nil {
-				panic(fmt.Sprintf("%s unexpected old region %+v, region %+v", d.tag(), oldRegion, region))
-			}
-			meta.regions[region.Id] = region
+		log.Infof("%s snapshot for region %s is applied", d.tag(), region)
+		meta := d.ctx.storeMeta
+		initialized := len(prevRegion.Peers) > 0
+		if initialized {
+			log.Infof("%s region changed from %s -> %s after applying snapshot", d.tag(), prevRegion, region)
+			meta.regionRanges.Delete(&regionItem{region: prevRegion})
 		}
+		if oldRegion := meta.regionRanges.ReplaceOrInsert(&regionItem{region: region}); oldRegion != nil {
+			panic(fmt.Sprintf("%s unexpected old region %+v, region %+v", d.tag(), oldRegion, region))
+		}
+		meta.regions[region.Id] = region
 	}
 	d.applyCh <- msgs
 }
@@ -652,7 +641,7 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 	meta := d.ctx.storeMeta
 	regionID := derived.Id
 	meta.setRegion(derived, d.getPeer())
-	d.peer.PostSplit()
+	d.peer.SizeDiffHint = 0
 	isLeader := d.peer.IsLeader()
 	if isLeader {
 		d.peer.HeartbeatPd(d.ctx.pdTaskSender)
@@ -821,7 +810,7 @@ func (d *peerMsgHandler) onRaftGCLogTick() {
 
 	term, err := d.peer.RaftGroup.Raft.RaftLog.Term(compactIdx)
 	if err != nil {
-		log.Fatalf("appliedIdx: %d, firstIdx: %d, compactIdx: %d")
+		log.Fatalf("appliedIdx: %d, firstIdx: %d, compactIdx: %d", appliedIdx, firstIdx, compactIdx)
 		panic(err)
 	}
 

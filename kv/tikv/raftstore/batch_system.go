@@ -156,6 +156,7 @@ func (bs *RaftBatchSystem) loadPeers() ([]*peerFsm, error) {
 			if localState.State == rspb.PeerState_Applying {
 				// in case of restart happen when we just write region state to Applying,
 				// but not write raft_local_state to raft rocksdb in time.
+				recoverFromApplyingState(ctx.engine, raftWB, regionID)
 				applyingCount++
 				applyingRegions = append(applyingRegions, region)
 				continue

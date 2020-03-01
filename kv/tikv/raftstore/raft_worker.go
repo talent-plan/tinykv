@@ -14,11 +14,6 @@ type peerState struct {
 	apply  *applier
 }
 
-type applyBatch struct {
-	msgs      []message.Msg
-	proposals []*regionProposal
-}
-
 // raftWorker is responsible for run raft commands and apply raft logs.
 type raftWorker struct {
 	pr *router
@@ -72,11 +67,6 @@ func (rw *raftWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
 		for _, peerState := range peerStateMap {
 			newRaftMsgHandler(peerState.peer, rw.applyCh, rw.raftCtx).HandleRaftReady()
 		}
-		// rw.handleRaftReady(peerStateMap, batch)
-		// applyMsgs := rw.raftCtx.applyMsgs
-		// batch.msgs = append(batch.msgs, applyMsgs.msgs...)
-		// applyMsgs.msgs = applyMsgs.msgs[:0]
-		//  <- batch
 	}
 }
 
@@ -91,27 +81,6 @@ func (rw *raftWorker) getPeerState(peersMap map[uint64]*peerState, regionID uint
 	}
 	return peer
 }
-
-// func (rw *raftWorker) handleRaftReady(peers map[uint64]*peerState, batch *applyBatch) {
-// 	for _, proposal := range batch.proposals {
-// 		msg := message.Msg{Type: message.MsgTypeApplyProposal, Data: proposal}
-// 		rw.raftCtx.applyMsgs.appendMsg(proposal.RegionId, msg)
-// 	}
-// 	kvWB := rw.raftCtx.kvWB
-// 	kvWB.MustWriteToDB(rw.raftCtx.engine.Kv)
-// 	kvWB.Reset()
-// 	raftWB := rw.raftCtx.raftWB
-// 	raftWB.MustWriteToDB(rw.raftCtx.engine.Raft)
-// 	raftWB.Reset()
-// 	readyRes := rw.raftCtx.ReadyRes
-// 	rw.raftCtx.ReadyRes = nil
-// 	if len(readyRes) > 0 {
-// 		for _, pair := range readyRes {
-// 			regionID := pair.IC.RegionID
-// 			newRaftMsgHandler(peers[regionID].peer, rw.raftCtx).PostRaftReadyPersistent(&pair.Ready, pair.IC)
-// 		}
-// 	}
-// }
 
 type applyWorker struct {
 	pr      *router
