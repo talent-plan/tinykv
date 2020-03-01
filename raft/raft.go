@@ -954,7 +954,7 @@ func (r *Raft) restoreNode(nodes []uint64) {
 			match = next - 1
 		}
 		r.setProgress(n, match, next)
-		r.logger.Infof("%d restored progress of %d [%s]", r.id, n, r.getProgress(n))
+		r.logger.Infof("%d restored progress of %d [%+v]", r.id, n, r.getProgress(n))
 	}
 }
 

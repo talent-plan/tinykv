@@ -509,7 +509,8 @@ func (ps *PeerStorage) ApplySnapshot(ctx *InvokeContext, snap *eraftpb.Snapshot,
 /// it explicitly to disk. If it's flushed to disk successfully, `post_ready` should be called
 /// to update the memory states properly.
 /// Do not modify ready in this function, this is a requirement to advance the ready object properly later.
-func (ps *PeerStorage) SaveReadyState(kvWB, raftWB *engine_util.WriteBatch, ready *raft.Ready) (*InvokeContext, error) {
+func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (*InvokeContext, error) {
+	kvWB, raftWB := new(engine_util.WriteBatch), new(engine_util.WriteBatch)
 	ctx := NewInvokeContext(ps)
 	var snapshotIdx uint64 = 0
 	if !raft.IsEmptySnap(&ready.Snapshot) {
@@ -548,6 +549,9 @@ func (ps *PeerStorage) SaveReadyState(kvWB, raftWB *engine_util.WriteBatch, read
 	if !proto.Equal(&ctx.ApplyState, &ps.applyState) {
 		ctx.saveApplyStateTo(kvWB)
 	}
+
+	kvWB.MustWriteToDB(ps.Engines.Kv)
+	raftWB.MustWriteToDB(ps.Engines.Raft)
 
 	return ctx, nil
 }

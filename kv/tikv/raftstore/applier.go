@@ -175,20 +175,6 @@ func newRegistration(peer *Peer) *registration {
 	}
 }
 
-type applyMsgs struct {
-	msgs []message.Msg
-}
-
-func (r *applyMsgs) appendMsg(regionID uint64, msg message.Msg) {
-	msg.RegionID = regionID
-	r.msgs = append(r.msgs, msg)
-	return
-}
-
-func newApplyMsg(apply *apply) message.Msg {
-	return message.Msg{Type: message.MsgTypeApply, Data: apply}
-}
-
 type applyContext struct {
 	tag              string
 	notifier         chan<- message.Msg

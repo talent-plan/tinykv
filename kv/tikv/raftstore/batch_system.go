@@ -99,16 +99,6 @@ type GlobalContext struct {
 	tickDriverSender     chan uint64
 }
 
-type RaftContext struct {
-	*GlobalContext
-	applyMsgs    *applyMsgs
-	ReadyRes     []*ReadyICPair
-	kvWB         *engine_util.WriteBatch
-	raftWB       *engine_util.WriteBatch
-	pendingCount int
-	hasReady     bool
-}
-
 type Transport interface {
 	Send(msg *rspb.RaftMessage) error
 }

@@ -117,12 +117,14 @@ func (pf *peerFsm) tag() string {
 
 type peerMsgHandler struct {
 	*peerFsm
-	ctx *RaftContext
+	applyCh chan []message.Msg
+	ctx     *GlobalContext
 }
 
-func newRaftMsgHandler(fsm *peerFsm, ctx *RaftContext) *peerMsgHandler {
+func newRaftMsgHandler(fsm *peerFsm, applyCh chan []message.Msg, ctx *GlobalContext) *peerMsgHandler {
 	return &peerMsgHandler{
 		peerFsm: fsm,
+		applyCh: applyCh,
 		ctx:     ctx,
 	}
 }
@@ -131,38 +133,36 @@ type MsgGCSnap struct {
 	Snaps []snap.SnapKeyWithSending
 }
 
-func (d *peerMsgHandler) HandleMsgs(msgs ...message.Msg) {
-	for _, msg := range msgs {
-		switch msg.Type {
-		case message.MsgTypeRaftMessage:
-			raftMsg := msg.Data.(*rspb.RaftMessage)
-			if err := d.onRaftMsg(raftMsg); err != nil {
-				log.Errorf("%s handle raft message error %v", d.peer.Tag, err)
-			}
-		case message.MsgTypeRaftCmd:
-			raftCMD := msg.Data.(*message.MsgRaftCmd)
-			d.proposeRaftCommand(raftCMD.Request, raftCMD.Callback)
-		case message.MsgTypeTick:
-			d.onTick()
-		case message.MsgTypeApplyRes:
-			res := msg.Data.(*applyTaskRes)
-			d.onApplyResult(res)
-		case message.MsgTypeSplitRegion:
-			split := msg.Data.(*message.MsgSplitRegion)
-			log.Infof("%s on split with %v", d.peer.Tag, split.SplitKeys)
-			d.onPrepareSplitRegion(split.RegionEpoch, split.SplitKeys, split.Callback)
-		case message.MsgTypeRegionApproximateSize:
-			d.onApproximateRegionSize(msg.Data.(uint64))
-		case message.MsgTypeGcSnap:
-			gcSnap := msg.Data.(*MsgGCSnap)
-			d.onGCSnap(gcSnap.Snaps)
-		case message.MsgTypeStart:
-			d.startTicker()
-		case message.MsgTypeSnapStatus:
-			status := msg.Data.(*message.MsgSnapStatus)
-			// Report snapshot status to the corresponding peer.
-			d.reportSnapshotStatus(status.ToPeerID, status.SnapshotStatus)
+func (d *peerMsgHandler) HandleMsgs(msg message.Msg) {
+	switch msg.Type {
+	case message.MsgTypeRaftMessage:
+		raftMsg := msg.Data.(*rspb.RaftMessage)
+		if err := d.onRaftMsg(raftMsg); err != nil {
+			log.Errorf("%s handle raft message error %v", d.peer.Tag, err)
 		}
+	case message.MsgTypeRaftCmd:
+		raftCMD := msg.Data.(*message.MsgRaftCmd)
+		d.proposeRaftCommand(raftCMD.Request, raftCMD.Callback)
+	case message.MsgTypeTick:
+		d.onTick()
+	case message.MsgTypeApplyRes:
+		res := msg.Data.(*applyTaskRes)
+		d.onApplyResult(res)
+	case message.MsgTypeSplitRegion:
+		split := msg.Data.(*message.MsgSplitRegion)
+		log.Infof("%s on split with %v", d.peer.Tag, split.SplitKeys)
+		d.onPrepareSplitRegion(split.RegionEpoch, split.SplitKeys, split.Callback)
+	case message.MsgTypeRegionApproximateSize:
+		d.onApproximateRegionSize(msg.Data.(uint64))
+	case message.MsgTypeGcSnap:
+		gcSnap := msg.Data.(*MsgGCSnap)
+		d.onGCSnap(gcSnap.Snaps)
+	case message.MsgTypeStart:
+		d.startTicker()
+	case message.MsgTypeSnapStatus:
+		status := msg.Data.(*message.MsgSnapStatus)
+		// Report snapshot status to the corresponding peer.
+		d.reportSnapshotStatus(status.ToPeerID, status.SnapshotStatus)
 	}
 }
 
@@ -242,34 +242,47 @@ func (d *peerMsgHandler) reportSnapshotStatus(toPeerID uint64, status raft.Snaps
 	d.peer.RaftGroup.ReportSnapshot(toPeerID, status)
 }
 
-func (d *peerMsgHandler) HandleRaftReadyAppend(proposals []*regionProposal) []*regionProposal {
+func (d *peerMsgHandler) HandleRaftReady() {
 	hasReady := d.hasReady
 	d.hasReady = false
 	if !hasReady || d.stopped {
-		return proposals
+		return
 	}
-	d.ctx.pendingCount += 1
-	d.ctx.hasReady = true
+
+	msgs := make([]message.Msg, 0)
 	if p := d.peer.TakeApplyProposals(); p != nil {
-		proposals = append(proposals, p)
+		msg := message.Msg{Type: message.MsgTypeApplyProposal, Data: p, RegionID: p.RegionId}
+		msgs = append(msgs, msg)
 	}
-	readyRes := d.peer.HandleRaftReadyAppend(d.ctx.trans, d.ctx.applyMsgs, d.ctx.kvWB, d.ctx.raftWB)
+	readyRes := d.peer.HandleRaftReadyAppend(d.ctx.trans)
 	if readyRes != nil {
-		d.ctx.ReadyRes = append(d.ctx.ReadyRes, readyRes)
 		ss := readyRes.Ready.SoftState
 		if ss != nil && ss.RaftState == raft.StateLeader {
 			d.peer.HeartbeatPd(d.ctx.pdTaskSender)
 		}
-	}
-	return proposals
-}
+		applySnapResult := d.peer.PostRaftReadyPersistent(d.ctx.trans, &readyRes.Ready, readyRes.IC)
+		if applySnapResult != nil {
+			msgs = d.peer.Activate(msgs)
+		}
+		msgs = d.peer.HandleRaftReadyApply(d.ctx.engine.Kv, msgs, &readyRes.Ready)
+		if applySnapResult != nil {
+			prevRegion := applySnapResult.PrevRegion
+			region := applySnapResult.Region
 
-func (d *peerMsgHandler) PostRaftReadyPersistent(ready *raft.Ready, invokeCtx *InvokeContext) {
-	res := d.peer.PostRaftReadyPersistent(d.ctx.trans, d.ctx.applyMsgs, ready, invokeCtx)
-	d.peer.HandleRaftReadyApply(d.ctx.engine.Kv, d.ctx.applyMsgs, ready)
-	if res != nil {
-		d.onReadyApplySnapshot(res)
+			log.Infof("%s snapshot for region %s is applied", d.tag(), region)
+			meta := d.ctx.storeMeta
+			initialized := len(prevRegion.Peers) > 0
+			if initialized {
+				log.Infof("%s region changed from %s -> %s after applying snapshot", d.tag(), prevRegion, region)
+				meta.regionRanges.Delete(&regionItem{region: prevRegion})
+			}
+			if oldRegion := meta.regionRanges.ReplaceOrInsert(&regionItem{region: region}); oldRegion != nil {
+				panic(fmt.Sprintf("%s unexpected old region %+v, region %+v", d.tag(), oldRegion, region))
+			}
+			meta.regions[region.Id] = region
+		}
 	}
+	d.applyCh <- msgs
 }
 
 func (d *peerMsgHandler) onRaftBaseTick() {
@@ -297,7 +310,18 @@ func (d *peerMsgHandler) onApplyResult(res *applyTaskRes) {
 		d.destroyPeer()
 	} else {
 		log.Debugf("%s async apply finished %v", d.tag(), res)
-		res.execResults = d.onReadyResult(res.execResults)
+		// handle executing committed log results
+		for _, result := range res.execResults {
+			switch x := result.(type) {
+			case *execResultChangePeer:
+				d.onReadyChangePeer(x.cp)
+			case *execResultCompactLog:
+				d.onReadyCompactLog(x.firstIndex, x.truncatedIndex)
+			case *execResultSplitRegion:
+				d.onReadySplitRegion(x.derived, x.regions)
+			}
+		}
+		res.execResults = nil
 		if d.stopped {
 			return
 		}
@@ -526,7 +550,7 @@ func (d *peerMsgHandler) checkSnapshot(msg *rspb.RaftMessage) (*snap.SnapKey, er
 
 func (d *peerMsgHandler) handleDestroyPeer(job *DestroyPeerJob) bool {
 	if job.Initialized {
-		d.ctx.applyMsgs.appendMsg(job.RegionId, message.NewPeerMsg(message.MsgTypeApplyDestroy, job.RegionId, nil))
+		d.applyCh <- []message.Msg{message.NewPeerMsg(message.MsgTypeApplyDestroy, job.RegionId, nil)}
 	}
 	if job.AsyncRemove {
 		log.Infof("[region %d] %d is destroyed asynchronously", job.RegionId, job.Peer.Id)
@@ -691,7 +715,6 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 			newPeer.peer.HeartbeatPd(d.ctx.pdTaskSender)
 		}
 
-		newPeer.peer.Activate(d.ctx.applyMsgs)
 		meta.regions[newRegionID] = newRegion
 		d.ctx.router.register(newPeer)
 		_ = d.ctx.router.send(newRegionID, message.NewPeerMsg(message.MsgTypeStart, newRegionID, nil))
@@ -705,42 +728,6 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 			}
 		}
 	}
-}
-
-func (d *peerMsgHandler) onReadyApplySnapshot(applyResult *ApplySnapResult) {
-	prevRegion := applyResult.PrevRegion
-	region := applyResult.Region
-
-	log.Infof("%s snapshot for region %s is applied", d.tag(), region)
-	meta := d.ctx.storeMeta
-	initialized := len(prevRegion.Peers) > 0
-	if initialized {
-		log.Infof("%s region changed from %s -> %s after applying snapshot", d.tag(), prevRegion, region)
-		meta.regionRanges.Delete(&regionItem{region: prevRegion})
-	}
-	if oldRegion := meta.regionRanges.ReplaceOrInsert(&regionItem{region: region}); oldRegion != nil {
-		panic(fmt.Sprintf("%s unexpected old region %+v, region %+v", d.tag(), oldRegion, region))
-	}
-	meta.regions[region.Id] = region
-}
-
-func (d *peerMsgHandler) onReadyResult(execResults []execResult) []execResult {
-	if len(execResults) == 0 {
-		return nil
-	}
-
-	// handle executing committed log results
-	for _, result := range execResults {
-		switch x := result.(type) {
-		case *execResultChangePeer:
-			d.onReadyChangePeer(x.cp)
-		case *execResultCompactLog:
-			d.onReadyCompactLog(x.firstIndex, x.truncatedIndex)
-		case *execResultSplitRegion:
-			d.onReadySplitRegion(x.derived, x.regions)
-		}
-	}
-	return nil
 }
 
 func (d *peerMsgHandler) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) error {
@@ -834,6 +821,7 @@ func (d *peerMsgHandler) onRaftGCLogTick() {
 
 	term, err := d.peer.RaftGroup.Raft.RaftLog.Term(compactIdx)
 	if err != nil {
+		log.Fatalf("appliedIdx: %d, firstIdx: %d, compactIdx: %d")
 		panic(err)
 	}
 

@@ -114,8 +114,8 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 		peerCache:             make(map[uint64]*metapb.Peer),
 		PeerHeartbeats:        make(map[uint64]time.Time),
 		PeersStartPendingTime: make(map[uint64]time.Time),
-		Tag:                   tag,
-		LastApplyingIdx:       appliedIndex,
+		Tag:             tag,
+		LastApplyingIdx: appliedIndex,
 	}
 
 	// If this region has only one peer and I am the one, campaign directly.
@@ -151,9 +151,8 @@ func (p *Peer) getPeerFromCache(peerID uint64) *metapb.Peer {
 }
 
 /// Register self to applyMsgs so that the peer is then usable.
-/// Also trigger `RegionChangeEvent::Create` here.
-func (p *Peer) Activate(applyMsgs *applyMsgs) {
-	applyMsgs.appendMsg(p.regionId, message.NewMsg(message.MsgTypeApplyRegistration, newRegistration(p)))
+func (p *Peer) Activate(msgs []message.Msg) []message.Msg {
+	return append(msgs, message.NewPeerMsg(message.MsgTypeApplyRegistration, p.regionId, newRegistration(p)))
 }
 
 func (p *Peer) nextProposalIndex() uint64 {
@@ -404,7 +403,7 @@ func (p *Peer) TakeApplyProposals() *regionProposal {
 	return newRegionProposal(p.PeerId(), p.regionId, props)
 }
 
-func (p *Peer) HandleRaftReadyAppend(trans Transport, applyMsgs *applyMsgs, kvWB, raftWB *engine_util.WriteBatch) *ReadyICPair {
+func (p *Peer) HandleRaftReadyAppend(trans Transport) *ReadyICPair {
 	if p.PendingRemove {
 		return nil
 	}
@@ -448,14 +447,14 @@ func (p *Peer) HandleRaftReadyAppend(trans Transport, applyMsgs *applyMsgs, kvWB
 		ready.Messages = ready.Messages[:0]
 	}
 
-	invokeCtx, err := p.Store().SaveReadyState(kvWB, raftWB, &ready)
+	invokeCtx, err := p.Store().SaveReadyState(&ready)
 	if err != nil {
 		panic(fmt.Sprintf("failed to handle raft ready, error: %v", err))
 	}
 	return &ReadyICPair{Ready: ready, IC: invokeCtx}
 }
 
-func (p *Peer) PostRaftReadyPersistent(trans Transport, applyMsgs *applyMsgs, ready *raft.Ready, invokeCtx *InvokeContext) *ApplySnapResult {
+func (p *Peer) PostRaftReadyPersistent(trans Transport, ready *raft.Ready, invokeCtx *InvokeContext) *ApplySnapResult {
 	applySnapResult := p.Store().PostReadyPersistent(invokeCtx)
 
 	if !p.IsLeader() {
@@ -466,11 +465,6 @@ func (p *Peer) PostRaftReadyPersistent(trans Transport, applyMsgs *applyMsgs, re
 			p.Send(trans, ready.Messages)
 		}
 	}
-
-	if applySnapResult != nil {
-		p.Activate(applyMsgs)
-	}
-
 	return applySnapResult
 }
 
@@ -542,7 +536,7 @@ func (p *Peer) sendRaftMessage(msg eraftpb.Message, trans Transport) error {
 	return trans.Send(sendMsg)
 }
 
-func (p *Peer) HandleRaftReadyApply(kv *badger.DB, applyMsgs *applyMsgs, ready *raft.Ready) {
+func (p *Peer) HandleRaftReadyApply(kv *badger.DB, msgs []message.Msg, ready *raft.Ready) []message.Msg {
 	// Call `HandleRaftCommittedEntries` directly here may lead to inconsistency.
 	// In some cases, there will be some pending committed entries when applying a
 	// snapshot. If we call `HandleRaftCommittedEntries` directly, these updates
@@ -564,7 +558,7 @@ func (p *Peer) HandleRaftReadyApply(kv *badger.DB, applyMsgs *applyMsgs, ready *
 				term:     p.Term(),
 				entries:  committedEntries,
 			}
-			applyMsgs.appendMsg(p.regionId, newApplyMsg(apply))
+			msgs = append(msgs, message.Msg{Type: message.MsgTypeApply, Data: apply, RegionID: p.regionId})
 		}
 	}
 
@@ -574,6 +568,7 @@ func (p *Peer) HandleRaftReadyApply(kv *badger.DB, applyMsgs *applyMsgs, ready *
 		// line won't be called twice for the same snapshot.
 		p.RaftGroup.AdvanceApply(p.LastApplyingIdx)
 	}
+	return msgs
 }
 
 func (p *Peer) PostApply(kv *badger.DB, applyState rspb.RaftApplyState, appliedIndexTerm uint64, sizeDiffHint uint64) bool {
