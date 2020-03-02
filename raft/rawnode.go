@@ -158,7 +158,7 @@ func (rn *RawNode) Propose(data []byte) error {
 }
 
 // ProposeConfChange proposes a config change.
-func (rn *RawNode) ProposeConfChange(ctx []byte, cc pb.ConfChange) error {
+func (rn *RawNode) ProposeConfChange(cc pb.ConfChange) error {
 	// Your Code Here 3A
 	// TODO: Delete Start
 	data, err := cc.Marshal()

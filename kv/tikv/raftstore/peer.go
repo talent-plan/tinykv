@@ -758,7 +758,7 @@ func (p *Peer) ProposeConfChange(cfg *config.Config, req *raft_cmdpb.RaftCmdRequ
 	log.Infof("%v propose conf change %v peer %v", p.Tag, cc.ChangeType, cc.NodeId)
 
 	proposeIndex := p.nextProposalIndex()
-	if err = p.RaftGroup.ProposeConfChange(nil, cc); err != nil {
+	if err = p.RaftGroup.ProposeConfChange(cc); err != nil {
 		return 0, err
 	}
 	if p.nextProposalIndex() == proposeIndex {

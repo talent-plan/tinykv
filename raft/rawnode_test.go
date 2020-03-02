@@ -78,7 +78,7 @@ func TestRawNodeProposeAndConfChange3A(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rawNode.ProposeConfChange([]byte(""), cc)
+	rawNode.ProposeConfChange(cc)
 
 	entries := rawNode.Raft.RaftLog.allEntries()
 	if l := len(entries); l < 2 {
@@ -130,7 +130,7 @@ func TestRawNodeProposeAddDuplicateNode3A(t *testing.T) {
 	}
 
 	proposeConfChangeAndApply := func(cc pb.ConfChange) {
-		rawNode.ProposeConfChange([]byte(""), cc)
+		rawNode.ProposeConfChange(cc)
 		rd = rawNode.Ready()
 		s.Append(rd.Entries)
 		for _, entry := range rd.CommittedEntries {
