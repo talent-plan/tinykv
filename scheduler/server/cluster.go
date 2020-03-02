@@ -202,7 +202,6 @@ func (c *RaftCluster) runBackgroundJobs(interval time.Duration) {
 			return
 		case <-ticker.C:
 			c.checkStores()
-			c.coordinator.opController.PruneHistory()
 		}
 	}
 }
