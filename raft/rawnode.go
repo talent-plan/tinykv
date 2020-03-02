@@ -166,8 +166,8 @@ func (rn *RawNode) Campaign() error {
 }
 
 // Propose proposes data be appended to the raft log.
-func (rn *RawNode) Propose(ctx, data []byte) error {
-	ent := pb.Entry{Data: data, Context: ctx}
+func (rn *RawNode) Propose(data []byte) error {
+	ent := pb.Entry{Data: data}
 	return rn.Raft.Step(pb.Message{
 		MsgType: pb.MessageType_MsgPropose,
 		From:    rn.Raft.id,
@@ -180,7 +180,7 @@ func (rn *RawNode) ProposeConfChange(ctx []byte, cc pb.ConfChange) error {
 	if err != nil {
 		return err
 	}
-	ent := pb.Entry{EntryType: pb.EntryType_EntryConfChange, Data: data, Context: ctx}
+	ent := pb.Entry{EntryType: pb.EntryType_EntryConfChange, Data: data}
 	return rn.Raft.Step(pb.Message{
 		MsgType: pb.MessageType_MsgPropose,
 		Entries: []*pb.Entry{&ent},
@@ -190,7 +190,7 @@ func (rn *RawNode) ProposeConfChange(ctx []byte, cc pb.ConfChange) error {
 // ApplyConfChange applies a config change to the local node.
 func (rn *RawNode) ApplyConfChange(cc pb.ConfChange) *pb.ConfState {
 	if cc.NodeId == None {
-		return &pb.ConfState{Nodes: rn.Raft.nodes()}
+		return &pb.ConfState{Nodes: nodes(rn.Raft)}
 	}
 	switch cc.ChangeType {
 	case pb.ConfChangeType_AddNode:
@@ -200,7 +200,7 @@ func (rn *RawNode) ApplyConfChange(cc pb.ConfChange) *pb.ConfState {
 	default:
 		panic("unexpected conf type")
 	}
-	return &pb.ConfState{Nodes: rn.Raft.nodes()}
+	return &pb.ConfState{Nodes: nodes(rn.Raft)}
 }
 
 // Step advances the state machine using the given message.

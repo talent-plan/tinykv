@@ -21,7 +21,6 @@ message Entry {
     uint64 term = 2;
     uint64 index = 3;
     bytes data = 4;
-    bytes context = 6;
 }
 
 message SnapshotMetadata {

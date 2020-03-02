@@ -27,7 +27,6 @@ func NewRaftLogGCTaskHandler() *raftLogGCTaskHandler {
 
 // gcRaftLog does the GC job and returns the count of logs collected.
 func (r *raftLogGCTaskHandler) gcRaftLog(raftDb *badger.DB, regionId, startIdx, endIdx uint64) (uint64, error) {
-
 	// Find the raft log idx range needed to be gc.
 	firstIdx := startIdx
 	if firstIdx == 0 {

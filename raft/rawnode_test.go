@@ -102,7 +102,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		s.Append(rd.Entries)
 		// Once we are the leader, propose a command and a ConfChange.
 		if !proposed && rd.SoftState.Lead == rawNode.Raft.id {
-			rawNode.Propose([]byte(""), []byte("somedata"))
+			rawNode.Propose([]byte("somedata"))
 
 			cc := pb.ConfChange{ChangeType: pb.ConfChangeType_AddNode, NodeId: 1}
 			ccdata, err = cc.Marshal()
@@ -256,8 +256,8 @@ func TestRawNodeStart(t *testing.T) {
 		},
 		{
 			HardState:        pb.HardState{Term: 2, Commit: 3, Vote: 1},
-			Entries:          []pb.Entry{{Term: 2, Index: 3, Context: []byte(""), Data: []byte("foo")}},
-			CommittedEntries: []pb.Entry{{Term: 2, Index: 3, Context: []byte(""), Data: []byte("foo")}},
+			Entries:          []pb.Entry{{Term: 2, Index: 3, Data: []byte("foo")}},
+			CommittedEntries: []pb.Entry{{Term: 2, Index: 3, Data: []byte("foo")}},
 		},
 	}
 
@@ -291,7 +291,7 @@ func TestRawNodeStart(t *testing.T) {
 		rawNode.AdvanceApply(idx)
 	}
 
-	rawNode.Propose([]byte(""), []byte("foo"))
+	rawNode.Propose([]byte("foo"))
 	if rd = rawNode.Ready(); !reflect.DeepEqual(rd, wants[1]) {
 		t.Errorf("#%d: g = %+v,\n             w   %+v", 2, rd, wants[1])
 	} else {
