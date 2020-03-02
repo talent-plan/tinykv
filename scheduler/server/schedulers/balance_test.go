@@ -15,10 +15,7 @@ package schedulers
 
 import (
 	"context"
-	"math"
-
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockcluster"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockoption"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/testutil"
@@ -89,21 +86,6 @@ func (s *testBalanceSpeedSuite) TestShouldBalance(c *C) {
 		kind := core.NewScheduleKind(core.RegionKind)
 		c.Assert(shouldBalance(tc, source, target, region, kind, ""), Equals, t.expectedResult)
 	}
-}
-
-func (s *testBalanceSpeedSuite) TestBalanceLimit(c *C) {
-	opt := mockoption.NewScheduleOptions()
-	tc := mockcluster.NewCluster(opt)
-	tc.AddLeaderStore(1, 10)
-	tc.AddLeaderStore(2, 20)
-	tc.AddLeaderStore(3, 30)
-
-	// StandDeviation is sqrt((10^2+0+10^2)/3).
-	c.Assert(adjustBalanceLimit(tc, core.LeaderKind), Equals, uint64(math.Sqrt(200.0/3.0)))
-
-	tc.SetStoreOffline(1)
-	// StandDeviation is sqrt((5^2+5^2)/2).
-	c.Assert(adjustBalanceLimit(tc, core.LeaderKind), Equals, uint64(math.Sqrt(50.0/2.0)))
 }
 
 var _ = Suite(&testBalanceLeaderSchedulerSuite{})
@@ -339,7 +321,7 @@ func (s *testBalanceRegionSchedulerSuite) TearDownSuite(c *C) {
 	s.cancel()
 }
 
-func (s *testBalanceRegionSchedulerSuite) TestBalance(c *C) {
+func (s *testBalanceRegionSchedulerSuite) TestBalance3B(c *C) {
 	opt := mockoption.NewScheduleOptions()
 	tc := mockcluster.NewCluster(opt)
 	oc := schedule.NewOperatorController(s.ctx, nil, nil)
@@ -495,7 +477,7 @@ func (s *testBalanceRegionSchedulerSuite) TestReplicas5(c *C) {
 //	testutil.CheckTransferPeer(c, sb.Schedule(tc), operator.OpBalance, 1, 5)
 //}
 
-func (s *testBalanceRegionSchedulerSuite) TestStoreWeight(c *C) {
+func (s *testBalanceRegionSchedulerSuite) TestStoreWeight3B(c *C) {
 	opt := mockoption.NewScheduleOptions()
 	tc := mockcluster.NewCluster(opt)
 	oc := schedule.NewOperatorController(s.ctx, nil, nil)
@@ -592,18 +574,6 @@ func (s *testReplicaCheckerSuite) TestBasic(c *C) {
 
 	region = region.Clone(core.WithRemoveStorePeer(1))
 
-	// Peer in store 2 is down, remove it.
-	tc.SetStoreDown(2)
-	downPeer := &pdpb.PeerStats{
-		Peer:        region.GetStorePeer(2),
-		DownSeconds: 24 * 60 * 60,
-	}
-
-	region = region.Clone(core.WithDownPeers(append(region.GetDownPeers(), downPeer)))
-	testutil.CheckTransferPeer(c, rc.Check(region), operator.OpReplica, 2, 1)
-	region = region.Clone(core.WithDownPeers(nil))
-	c.Assert(rc.Check(region), IsNil)
-
 	// Peer in store 3 is offline, transfer peer to store 1.
 	tc.SetStoreOffline(3)
 	testutil.CheckTransferPeer(c, rc.Check(region), operator.OpReplica, 3, 1)
@@ -677,28 +647,4 @@ func (s *testReplicaCheckerSuite) TestOffline(c *C) {
 	// Store 5 has smaller region score than store 4, we will choose store 5.
 	tc.AddRegionStore(5, 3)
 	testutil.CheckTransferPeer(c, rc.Check(region), operator.OpReplica, 3, 5)
-}
-
-func (s *testReplicaCheckerSuite) TestOpts(c *C) {
-	opt := mockoption.NewScheduleOptions()
-	tc := mockcluster.NewCluster(opt)
-	rc := checker.NewReplicaChecker(tc)
-
-	tc.AddRegionStore(1, 100)
-	tc.AddRegionStore(2, 100)
-	tc.AddRegionStore(3, 100)
-	tc.AddRegionStore(4, 100)
-	tc.AddLeaderRegion(1, 1, 2, 3)
-
-	region := tc.GetRegion(1)
-	// Test remove down replica and replace offline replica.
-	tc.SetStoreDown(1)
-	region = region.Clone(core.WithDownPeers([]*pdpb.PeerStats{
-		{
-			Peer:        region.GetStorePeer(1),
-			DownSeconds: 24 * 60 * 60,
-		},
-	}))
-	tc.SetStoreOffline(2)
-	testutil.CheckTransferPeer(c, rc.Check(region), operator.OpReplica, 1, 4)
 }

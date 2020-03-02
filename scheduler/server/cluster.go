@@ -337,10 +337,10 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 			}
 			saveCache = true
 		}
-		if len(region.GetDownPeers()) > 0 || len(region.GetPendingPeers()) > 0 {
+		if len(region.GetPendingPeers()) > 0 {
 			saveCache = true
 		}
-		if len(origin.GetDownPeers()) > 0 || len(origin.GetPendingPeers()) > 0 {
+		if len(origin.GetPendingPeers()) > 0 {
 			saveCache = true
 		}
 		if len(region.GetPeers()) != len(origin.GetPeers()) {
@@ -587,8 +587,7 @@ func (c *RaftCluster) putStore(store *metapb.Store) error {
 	} else {
 		// Update an existed store.
 		s = s.Clone(
-			core.SetStoreAddress(store.Address, store.StatusAddress, store.PeerAddress),
-			core.SetStoreVersion(store.GitHash, store.Version),
+			core.SetStoreAddress(store.Address),
 		)
 	}
 	return c.putStoreLocked(s)

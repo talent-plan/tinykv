@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	. "github.com/pingcap/check"
 )
@@ -67,7 +66,7 @@ func (s *testRegionUnhealthySuite) TestIsRegionUnhealthy(c *C) {
 		StoreId: 2,
 	})
 
-	r1 := core.NewRegionInfo(&metapb.Region{Peers: peers[:2]}, peers[0], core.WithDownPeers([]*pdpb.PeerStats{{Peer: peers[1]}}))
+	r1 := core.NewRegionInfo(&metapb.Region{Peers: peers[:2]}, peers[0], core.WithLearner([]*metapb.Peer{peers[1]}))
 	r2 := core.NewRegionInfo(&metapb.Region{Peers: peers[:2]}, peers[0], core.WithPendingPeers([]*metapb.Peer{peers[1]}))
 	r4 := core.NewRegionInfo(&metapb.Region{Peers: peers[:2]}, peers[0])
 	c.Assert(isRegionUnhealthy(r1), IsTrue)

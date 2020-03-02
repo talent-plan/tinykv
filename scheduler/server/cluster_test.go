@@ -16,6 +16,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"sync"
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -70,7 +71,6 @@ func (s *baseCluster) newStore(c *C, storeID uint64, addr string, version string
 	return &metapb.Store{
 		Id:      storeID,
 		Address: addr,
-		Version: version,
 	}
 }
 
@@ -725,9 +725,6 @@ func checkRegion(c *C, a *core.RegionInfo, b *core.RegionInfo) {
 	c.Assert(a.GetMeta(), DeepEquals, b.GetMeta())
 	c.Assert(a.GetLeader(), DeepEquals, b.GetLeader())
 	c.Assert(a.GetPeers(), DeepEquals, b.GetPeers())
-	if len(a.GetDownPeers()) > 0 || len(b.GetDownPeers()) > 0 {
-		c.Assert(a.GetDownPeers(), DeepEquals, b.GetDownPeers())
-	}
 	if len(a.GetPendingPeers()) > 0 || len(b.GetPendingPeers()) > 0 {
 		c.Assert(a.GetPendingPeers(), DeepEquals, b.GetPendingPeers())
 	}
@@ -898,6 +895,18 @@ func (s *testClusterInfoSuite) TestRegionHeartbeat3A(c *C) {
 		// region is stale (ConfVer).
 		stale = origin.Clone(core.WithIncConfVer())
 		c.Assert(cluster.processRegionHeartbeat(stale), NotNil)
+		checkRegions(c, cluster.core.Regions, regions[:i+1])
+
+		// Add a pending peer.
+		region = region.Clone(core.WithPendingPeers([]*metapb.Peer{region.GetPeers()[rand.Intn(len(region.GetPeers()))]}))
+		regions[i] = region
+		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
+		checkRegions(c, cluster.core.Regions, regions[:i+1])
+
+		// Clear pending peers.
+		region = region.Clone(core.WithPendingPeers(nil))
+		regions[i] = region
+		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
 		checkRegions(c, cluster.core.Regions, regions[:i+1])
 
 		// Remove peers.

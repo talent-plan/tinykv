@@ -16,7 +16,6 @@ package schedulers
 import (
 	"time"
 
-	"github.com/montanaflynn/stats"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/opt"
 	"github.com/pingcap/log"
@@ -56,7 +55,7 @@ func minDuration(a, b time.Duration) time.Duration {
 }
 
 func isRegionUnhealthy(region *core.RegionInfo) bool {
-	return len(region.GetDownPeers()) != 0 || len(region.GetLearners()) != 0
+	return len(region.GetLearners()) != 0
 }
 
 func shouldBalance(cluster opt.Cluster, source, target *core.StoreInfo, region *core.RegionInfo, kind core.ScheduleKind, scheduleName string) bool {
@@ -112,16 +111,4 @@ func getTolerantRatio(cluster opt.Cluster) float64 {
 	}
 
 	return tolerantSizeRatio
-}
-
-func adjustBalanceLimit(cluster opt.Cluster, kind core.ResourceKind) uint64 {
-	stores := cluster.GetStores()
-	counts := make([]float64, 0, len(stores))
-	for _, s := range stores {
-		if s.IsUp() {
-			counts = append(counts, float64(s.ResourceCount(kind)))
-		}
-	}
-	limit, _ := stats.StandardDeviation(counts)
-	return maxUint64(1, uint64(limit))
 }
