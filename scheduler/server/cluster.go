@@ -137,16 +137,7 @@ func (c *RaftCluster) initCluster(id id.Allocator, opt *config.ScheduleOption, s
 	c.prepareChecker = newPrepareChecker()
 }
 
-// ClusterCreateOption used to create region.
-type ClusterCreateOption func(cluster *RaftCluster)
-
-func WithRegion(region *core.RegionInfo) ClusterCreateOption {
-	return func(cluster *RaftCluster) {
-		cluster.core.PutRegion(region)
-	}
-}
-
-func (c *RaftCluster) start(opts ...ClusterCreateOption) error {
+func (c *RaftCluster) start() error {
 	c.Lock()
 	defer c.Unlock()
 
@@ -162,9 +153,6 @@ func (c *RaftCluster) start(opts ...ClusterCreateOption) error {
 	}
 	if cluster == nil {
 		return nil
-	}
-	for _, opt := range opts {
-		opt(cluster)
 	}
 
 	c.coordinator = newCoordinator(c.ctx, cluster, c.s.hbStreams)

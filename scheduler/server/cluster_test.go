@@ -236,10 +236,21 @@ func (s *testClusterSuite) TestGetPutConfig(c *C) {
 	_, err = s.svr.bootstrapCluster(s.newBootstrapRequest(c, s.svr.clusterID, storeAddr))
 	c.Assert(err, IsNil)
 
+	store := s.newStore(c, 0, storeAddr, "2.1.0")
+	peer := s.newPeer(c, store.GetId(), 0)
+	region := s.newRegion(c, 0, []byte{}, []byte{}, []*metapb.Peer{peer}, nil)
+	regionClient, err := s.grpcPDClient.RegionHeartbeat(context.Background())
+	c.Assert(err, IsNil)
+	err = regionClient.Send(&pdpb.RegionHeartbeatRequest{
+		Header:               testutil.NewRequestHeader(s.svr.clusterID),
+		Region:               region,
+		Leader:               nil,
+	})
+	c.Assert(err, IsNil)
 	// Get region.
-	region := s.getRegion(c, clusterID, []byte("abc"))
+	region = s.getRegion(c, clusterID, []byte("abc"))
 	c.Assert(region.GetPeers(), HasLen, 1)
-	peer := region.GetPeers()[0]
+	peer = region.GetPeers()[0]
 
 	// Get region by id.
 	regionByID := s.getRegionByID(c, clusterID, region.GetId())
@@ -247,7 +258,7 @@ func (s *testClusterSuite) TestGetPutConfig(c *C) {
 
 	// Get store.
 	storeID := peer.GetStoreId()
-	store := s.getStore(c, clusterID, storeID)
+	store = s.getStore(c, clusterID, storeID)
 
 	// Update store.
 	store.Address = "127.0.0.1:1"

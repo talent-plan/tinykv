@@ -385,7 +385,7 @@ func (s *Server) bootstrapCluster(req *pdpb.BootstrapRequest) (*pdpb.BootstrapRe
 	}
 
 	log.Info("bootstrap cluster ok", zap.Uint64("cluster-id", clusterID))
-	if err := s.cluster.start(WithRegion(core.NewRegionInfo(req.GetRegion(), nil))); err != nil {
+	if err := s.cluster.start(); err != nil {
 		return nil, err
 	}
 
