@@ -16,7 +16,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"sync"
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -853,7 +852,7 @@ func (s *testClusterInfoSuite) TestStoreHeartbeat(c *C) {
 	}
 }
 
-func (s *testClusterInfoSuite) TestRegionHeartbeat(c *C) {
+func (s *testClusterInfoSuite) TestRegionHeartbeat3A(c *C) {
 	_, opt, err := newTestScheduleConfig()
 	c.Assert(err, IsNil)
 	cluster := createTestRaftCluster(mockid.NewIDAllocator(), opt, core.NewStorage(kv.NewMemoryKV()))
@@ -899,35 +898,6 @@ func (s *testClusterInfoSuite) TestRegionHeartbeat(c *C) {
 		// region is stale (ConfVer).
 		stale = origin.Clone(core.WithIncConfVer())
 		c.Assert(cluster.processRegionHeartbeat(stale), NotNil)
-		checkRegions(c, cluster.core.Regions, regions[:i+1])
-
-		// Add a down peer.
-		region = region.Clone(core.WithDownPeers([]*pdpb.PeerStats{
-			{
-				Peer:        region.GetPeers()[rand.Intn(len(region.GetPeers()))],
-				DownSeconds: 42,
-			},
-		}))
-		regions[i] = region
-		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
-		checkRegions(c, cluster.core.Regions, regions[:i+1])
-
-		// Add a pending peer.
-		region = region.Clone(core.WithPendingPeers([]*metapb.Peer{region.GetPeers()[rand.Intn(len(region.GetPeers()))]}))
-		regions[i] = region
-		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
-		checkRegions(c, cluster.core.Regions, regions[:i+1])
-
-		// Clear down peers.
-		region = region.Clone(core.WithDownPeers(nil))
-		regions[i] = region
-		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
-		checkRegions(c, cluster.core.Regions, regions[:i+1])
-
-		// Clear pending peers.
-		region = region.Clone(core.WithPendingPeers(nil))
-		regions[i] = region
-		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
 		checkRegions(c, cluster.core.Regions, regions[:i+1])
 
 		// Remove peers.
