@@ -4,6 +4,7 @@ package transaction
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"reflect"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/transaction/mvcc"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -40,6 +42,28 @@ type kv struct {
 func newBuilder(t *testing.T) testBuilder {
 	mem := inner_server.NewMemInnerServer()
 	server := tikv.NewServer(mem)
+	server.Latches.Validation = func(txn *mvcc.MvccTxn, keys [][]byte) {
+		keyMap := make(map[string]struct{})
+		for _, k := range keys {
+			keyMap[string(k)] = struct{}{}
+		}
+		for _, wr := range txn.Writes {
+			key := wr.Key()
+			// This is a bit of a hack and relies on all the raw tests using keys shorter than 9 bytes, which is the
+			// minimum length for an encoded key.
+			if len(key) > 8 {
+				switch wr.Cf() {
+				case engine_util.CfDefault:
+					key = mvcc.DecodeUserKey(wr.Key())
+				case engine_util.CfWrite:
+					key = mvcc.DecodeUserKey(wr.Key())
+				}
+			}
+			if _, ok := keyMap[string(key)]; !ok {
+				t.Errorf("Failed latching validation: tried to write a key which was not latched in %v", wr.Data)
+			}
+		}
+	}
 	return testBuilder{t, server, mem, 99}
 }
 
@@ -129,4 +153,59 @@ func (builder *testBuilder) assertLens(def int, lock int, write int) {
 	builder.assertLen(engine_util.CfDefault, def)
 	builder.assertLen(engine_util.CfLock, lock)
 	builder.assertLen(engine_util.CfWrite, write)
+}
+
+func (builder *testBuilder) prewriteRequest(muts ...*kvrpcpb.Mutation) *kvrpcpb.PrewriteRequest {
+	var req kvrpcpb.PrewriteRequest
+	req.PrimaryLock = []byte{1}
+	req.StartVersion = builder.nextTs()
+	req.Mutations = muts
+	return &req
+}
+
+func mutation(key byte, value []byte, op kvrpcpb.Op) *kvrpcpb.Mutation {
+	var mut kvrpcpb.Mutation
+	mut.Key = []byte{key}
+	mut.Value = value
+	mut.Op = op
+	return &mut
+}
+
+func (builder *testBuilder) commitRequest(keys ...[]byte) *kvrpcpb.CommitRequest {
+	var req kvrpcpb.CommitRequest
+	req.StartVersion = builder.nextTs()
+	req.CommitVersion = builder.prevTs + 10
+	req.Keys = keys
+	return &req
+}
+
+func (builder *testBuilder) rollbackRequest(keys ...[]byte) *kvrpcpb.BatchRollbackRequest {
+	var req kvrpcpb.BatchRollbackRequest
+	req.StartVersion = builder.nextTs()
+	req.Keys = keys
+	return &req
+}
+
+func (builder *testBuilder) checkTxnStatusRequest(key []byte) *kvrpcpb.CheckTxnStatusRequest {
+	var req kvrpcpb.CheckTxnStatusRequest
+	builder.nextTs()
+	req.LockTs = binary.BigEndian.Uint64([]byte{0, 0, 5, 0, 0, 0, 0, builder.ts()})
+	req.CurrentTs = binary.BigEndian.Uint64([]byte{0, 0, 6, 0, 0, 0, 0, builder.ts()})
+	req.PrimaryKey = key
+	return &req
+}
+
+func resolveRequest(startTs uint64, commitTs uint64) *kvrpcpb.ResolveLockRequest {
+	var req kvrpcpb.ResolveLockRequest
+	req.StartVersion = startTs
+	req.CommitVersion = commitTs
+	return &req
+}
+
+func (builder *testBuilder) scanRequest(startKey []byte, limit uint32) *kvrpcpb.ScanRequest {
+	var req kvrpcpb.ScanRequest
+	req.StartKey = startKey
+	req.Limit = limit
+	req.Version = builder.nextTs()
+	return &req
 }
