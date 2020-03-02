@@ -117,7 +117,6 @@ func (r *pdTaskHandler) onHeartbeat(t *PdRegionHeartbeatTask) {
 	req := &pdpb.RegionHeartbeatRequest{
 		Region:          t.Region,
 		Leader:          t.Peer,
-		DownPeers:       t.DownPeers,
 		PendingPeers:    t.PendingPeers,
 		ApproximateSize: uint64(size),
 	}
