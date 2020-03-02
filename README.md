@@ -1,5 +1,6 @@
 # The TinyKV LAB
 This is a series of labs on a key-value storage system built with the Raft consensus algorithm. These labs are inspired by the famous [MIT  6.824](http://nil.csail.mit.edu/6.824/2018/index.html) course, but aim to be closer to industry implementations. The whole lab is pruned from [TiKV](github.com/tikv/tikv) and re-written in Go. After completing this course, you will have the knowledge to implement a basic key-value storage service with distributed transactions and fault-tolerance and better understanding of TiKV implementation.
+
 The whole project is a skeleton code for a kv server and a scheduler server at initial, and you need to finish the core logic step by step:
 - LAB1: build a standalone key-value server
 - LAB2: build a fault tolerant key-value server with Raft
