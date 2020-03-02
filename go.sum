@@ -7,6 +7,8 @@ github.com/Connor1996/badger v1.5.0 h1:GIETn+enyBZZEs6SNXCGZafzf4W9bf83Ec/Rtf7+E
 github.com/Connor1996/badger v1.5.0/go.mod h1:i5tVv6WOnUfrDvUwyNe70leuRyNIBfTpXX9I8CoxQjQ=
 github.com/Connor1996/badger v1.5.1-0.20200220043901-cee19f7bcf4f h1:xNCYfucq8ErQ0obR9SirnxbCXtzwQkORy8KhtKuf0/Q=
 github.com/Connor1996/badger v1.5.1-0.20200220043901-cee19f7bcf4f/go.mod h1:eDy3lZfjgEs4EC8pePI7y/Qx509ylx/S94y/dimtkxc=
+github.com/Connor1996/badger v1.5.1-0.20200302104252-6a1b02b1cb4c h1:5BlmQypu3/umx1JZw5sE5lv1zdPMRl1NQLUYCvoRgUk=
+github.com/Connor1996/badger v1.5.1-0.20200302104252-6a1b02b1cb4c/go.mod h1:eDy3lZfjgEs4EC8pePI7y/Qx509ylx/S94y/dimtkxc=
 github.com/DataDog/zstd v1.4.1 h1:3oxKN3wbHibqx897utPC2LTQU4J+IHWWJO+glkAkpFM=
 github.com/DataDog/zstd v1.4.1/go.mod h1:1jcaCB/ufaK+sKp1NBhlGmpz41jOoPQ35bpF36t7BBo=
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=
