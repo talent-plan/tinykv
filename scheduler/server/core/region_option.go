@@ -51,8 +51,8 @@ func WithLeader(leader *metapb.Peer) RegionCreateOption {
 	}
 }
 
-// WithLearner adds learner to the region
-func WithLearner(learner []*metapb.Peer) RegionCreateOption {
+// WithLearners adds learner to the region
+func WithLearners(learner []*metapb.Peer) RegionCreateOption {
 	return func(region *RegionInfo) {
 		region.learners = append(region.learners, learner...)
 	}
