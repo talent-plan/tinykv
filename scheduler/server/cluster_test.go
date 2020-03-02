@@ -849,7 +849,7 @@ func (s *testClusterInfoSuite) TestStoreHeartbeat(c *C) {
 	}
 }
 
-func (s *testClusterInfoSuite) TestRegionHeartbeat3A(c *C) {
+func (s *testClusterInfoSuite) TestRegionHeartbeat(c *C) {
 	_, opt, err := newTestScheduleConfig()
 	c.Assert(err, IsNil)
 	cluster := createTestRaftCluster(mockid.NewIDAllocator(), opt, core.NewStorage(kv.NewMemoryKV()))

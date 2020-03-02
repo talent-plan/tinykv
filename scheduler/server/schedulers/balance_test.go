@@ -321,7 +321,7 @@ func (s *testBalanceRegionSchedulerSuite) TearDownSuite(c *C) {
 	s.cancel()
 }
 
-func (s *testBalanceRegionSchedulerSuite) TestBalance3B(c *C) {
+func (s *testBalanceRegionSchedulerSuite) TestReplicas1(c *C) {
 	opt := mockoption.NewScheduleOptions()
 	tc := mockcluster.NewCluster(opt)
 	oc := schedule.NewOperatorController(s.ctx, nil, nil)
@@ -385,7 +385,7 @@ func (s *testBalanceRegionSchedulerSuite) TestReplicas3(c *C) {
 	tc.AddRegionStore(6, 0)
 	testutil.CheckTransferPeer(c, sb.Schedule(tc), operator.OpBalance, 1, 6)
 
-	// If store 6 is not available, will choose store 6.
+	// If store 6 is not available, will choose store 5.
 	tc.SetStoreDown(6)
 	testutil.CheckTransferPeer(c, sb.Schedule(tc), operator.OpBalance, 1, 5)
 
@@ -454,30 +454,28 @@ func (s *testBalanceRegionSchedulerSuite) TestReplicas5(c *C) {
 //|    11     |       1      |        4       |       5        |
 // and the space of last store 5 if very small, about 5 * regionsize
 // the source region is more likely distributed in store[1, 2, 3].
-//func (s *testBalanceRegionSchedulerSuite) TestBalance1(c *C) {
-//	opt := mockoption.NewScheduleOptions()
-//	tc := mockcluster.NewCluster(opt)
-//	oc := schedule.NewOperatorController(s.ctx, nil, nil)
-//
-//	opt.TolerantSizeRatio = 1
-//
-//	sb, err := schedule.CreateScheduler("balance-region", oc, core.NewStorage(kv.NewMemoryKV()), nil)
-//	c.Assert(err, IsNil)
-//
-//	tc.AddRegionStore(1, 11)
-//	tc.AddRegionStore(2, 9)
-//	tc.AddRegionStore(3, 6)
-//	tc.AddRegionStore(4, 5)
-//	tc.AddRegionStore(5, 2)
-//	tc.AddLeaderRegion(1, 1, 2, 3)
-//	tc.AddLeaderRegion(2, 1, 2, 3)
-//
-//	c.Assert(sb.Schedule(tc), NotNil)
-//	// if the space of store 5 is normal, we can balance region to store 5
-//	testutil.CheckTransferPeer(c, sb.Schedule(tc), operator.OpBalance, 1, 5)
-//}
+func (s *testBalanceRegionSchedulerSuite) TestBalance1(c *C) {
+	opt := mockoption.NewScheduleOptions()
+	tc := mockcluster.NewCluster(opt)
+	oc := schedule.NewOperatorController(s.ctx, nil, nil)
 
-func (s *testBalanceRegionSchedulerSuite) TestStoreWeight3B(c *C) {
+	sb, err := schedule.CreateScheduler("balance-region", oc, core.NewStorage(kv.NewMemoryKV()), nil)
+	c.Assert(err, IsNil)
+
+	tc.AddRegionStore(1, 11)
+	tc.AddRegionStore(2, 9)
+	tc.AddRegionStore(3, 6)
+	tc.AddRegionStore(4, 5)
+	tc.AddRegionStore(5, 2)
+	tc.AddLeaderRegion(1, 1, 2, 3)
+	tc.AddLeaderRegion(2, 1, 2, 3)
+
+	c.Assert(sb.Schedule(tc), NotNil)
+	// if the space of store 5 is normal, we can balance region to store 5
+	testutil.CheckTransferPeer(c, sb.Schedule(tc), operator.OpBalance, 1, 5)
+}
+
+func (s *testBalanceRegionSchedulerSuite) TestStoreWeight(c *C) {
 	opt := mockoption.NewScheduleOptions()
 	tc := mockcluster.NewCluster(opt)
 	oc := schedule.NewOperatorController(s.ctx, nil, nil)
