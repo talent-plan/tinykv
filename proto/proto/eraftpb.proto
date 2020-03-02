@@ -15,7 +15,7 @@ enum EntryType {
 //
 // For configuration changes, the data will contain the ConfChange message and the
 // context will provide anything needed to assist the configuration change. The context
-// if for the user to set and use in this case.
+// is for the user to set and use in this case.
 message Entry {
     EntryType entry_type = 1;
     uint64 term = 2;
@@ -23,6 +23,8 @@ message Entry {
     bytes data = 4;
 }
 
+// SnapshotMetadata cantains the log index and term of the last log applied to this
+// Snapshot, along with the membership information of the time the last log applied.
 message SnapshotMetadata {
     ConfState conf_state = 1;
     uint64 index = 2;
@@ -79,17 +81,23 @@ message Message {
     uint64 commit = 8;
     Snapshot snapshot = 9;
     bool reject = 10;
+    // TODO: Delete Start
     uint64 reject_hint = 11;
     bytes context = 12;
+    // TODO: Delete End
 }
 
+// HardState contains the state of a node, including the current term, commit index 
+// and the vote record
 message HardState {
     uint64 term = 1;
     uint64 vote = 2;
     uint64 commit = 3;
 }
 
+// ConfState contains the current membership information of the raft group
 message ConfState {
+    // all node id
     repeated uint64 nodes = 1;
 }
 
@@ -98,10 +106,10 @@ enum ConfChangeType {
     RemoveNode = 1;
 }
 
+// ConfChange is the data that attach on entry with EntryConfChange type
 message ConfChange {
-    uint64 id = 1;
-    ConfChangeType change_type = 2;
+    ConfChangeType change_type = 1;
     // node will be add/remove
-    uint64 node_id = 3;
-    bytes context = 4;
+    uint64 node_id = 2;
+    bytes context = 3;
 }

@@ -906,58 +906,6 @@ func TestDisruptiveFollower2A(t *testing.T) {
 	}
 }
 
-func TestLeaderAppResp2B(t *testing.T) {
-	// initial progress: match = 0; next = 3
-	tests := []struct {
-		index  uint64
-		reject bool
-		// progress
-		wmatch uint64
-		wnext  uint64
-		// message
-		wmsgNum    int
-		windex     uint64
-		wcommitted uint64
-	}{
-		{2, true, 0, 2, 1, 1, 0},  // denied resp; leader does not commit;
-		{2, false, 2, 3, 2, 2, 2}, // accept resp; leader commits; broadcast with commit index
-		{0, false, 0, 3, 0, 0, 0}, // ignore heartbeat replies
-	}
-
-	for i, tt := range tests {
-		// sm term is 1 after it becomes the leader.
-		// thus the last log term must be 1 to be committed.
-		sm := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
-		sm.RaftLog = newLog(&MemoryStorage{ents: []pb.Entry{{}, {Index: 1, Term: 0}, {Index: 2, Term: 1}}}, raftLogger)
-		sm.becomeCandidate()
-		sm.becomeLeader()
-		sm.readMessages()
-		sm.Step(pb.Message{From: 2, MsgType: pb.MessageType_MsgAppendResponse, Index: tt.index, Term: sm.Term, Reject: tt.reject, RejectHint: tt.index})
-
-		p := sm.Prs[2]
-		if p.Match != tt.wmatch {
-			t.Errorf("#%d match = %d, want %d", i, p.Match, tt.wmatch)
-		}
-		if p.Next != tt.wnext {
-			t.Errorf("#%d next = %d, want %d", i, p.Next, tt.wnext)
-		}
-
-		msgs := sm.readMessages()
-
-		if len(msgs) != tt.wmsgNum {
-			t.Errorf("#%d msgNum = %d, want %d", i, len(msgs), tt.wmsgNum)
-		}
-		for j, msg := range msgs {
-			if msg.Index != tt.windex {
-				t.Errorf("#%d.%d index = %d, want %d", i, j, msg.Index, tt.windex)
-			}
-			if msg.Commit != tt.wcommitted {
-				t.Errorf("#%d.%d commit = %d, want %d", i, j, msg.Commit, tt.wcommitted)
-			}
-		}
-	}
-}
-
 // When the leader receives a heartbeat tick, it should
 // send a MessageType_MsgHeartbeat with m.Index = 0, m.LogTerm=0 and empty entries.
 func TestBcastBeat2B(t *testing.T) {

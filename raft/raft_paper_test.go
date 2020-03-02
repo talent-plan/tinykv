@@ -587,20 +587,18 @@ func TestFollowerCheckMessageType_MsgAppend2B(t *testing.T) {
 	tests := []struct {
 		term        uint64
 		index       uint64
-		windex      uint64
 		wreject     bool
-		wrejectHint uint64
 	}{
 		// match with committed entries
-		{0, 0, 1, false, 0},
-		{ents[0].Term, ents[0].Index, 1, false, 0},
+		{0, 0, false},
+		{ents[0].Term, ents[0].Index, false},
 		// match with uncommitted entries
-		{ents[1].Term, ents[1].Index, 2, false, 0},
+		{ents[1].Term, ents[1].Index, false},
 
 		// unmatch with existing entry
-		{ents[0].Term, ents[1].Index, ents[1].Index, true, 2},
+		{ents[0].Term, ents[1].Index, true},
 		// unexisting entry
-		{ents[1].Term + 1, ents[1].Index + 1, ents[1].Index + 1, true, 2},
+		{ents[1].Term + 1, ents[1].Index + 1, true},
 	}
 	for i, tt := range tests {
 		storage := NewMemoryStorage()
@@ -608,15 +606,19 @@ func TestFollowerCheckMessageType_MsgAppend2B(t *testing.T) {
 		r := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, storage)
 		r.RaftLog.committed = 1
 		r.becomeFollower(2, 2)
+		msgs := r.readMessages() // clear message
 
 		r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgAppend, Term: 2, LogTerm: tt.term, Index: tt.index})
 
-		msgs := r.readMessages()
-		wmsgs := []pb.Message{
-			{From: 1, To: 2, MsgType: pb.MessageType_MsgAppendResponse, Term: 2, Index: tt.windex, Reject: tt.wreject, RejectHint: tt.wrejectHint},
+		msgs = r.readMessages()
+		if len(msgs) != 1 {
+			t.Errorf("#%d: len(msgs) = %+v, want %+v", i, len(msgs), 1)
 		}
-		if !reflect.DeepEqual(msgs, wmsgs) {
-			t.Errorf("#%d: msgs = %+v, want %+v", i, msgs, wmsgs)
+		if msgs[0].Term != 2 {
+			t.Errorf("#%d: term = %+v, want %+v", i, msgs[0].Term, 2)
+		}
+		if msgs[0].Reject != tt.wreject {
+			t.Errorf("#%d: term = %+v, want %+v", i, msgs[0].Reject, tt.wreject)
 		}
 	}
 }
