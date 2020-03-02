@@ -37,8 +37,29 @@ message Response {
     kvrpcpb.LockInfo locked = 3;
     string other_error = 4;
     KeyRange range = 5;
-    kvrpcpb.ExecDetails exec_details = 6;
+    ExecDetails exec_details = 6;
 
     bool is_cache_hit = 7;
     uint64 cache_last_version = 8;
+}
+
+message ExecDetails {
+    HandleTime handle_time = 1;// set when ctx.handle_time = true or meet slow query
+    ScanDetail scan_detail = 2;// set when ctx.scan_detail = true or meet slow query
+}
+
+message HandleTime {
+    int64 wait_ms = 1; // time in queue
+    int64 process_ms = 2; // process time without wait time.
+}
+
+message ScanInfo {
+    int64 total = 1; // total count
+    int64 processed = 2; // processed count
+}
+
+message ScanDetail {
+    ScanInfo write = 1;
+    ScanInfo lock = 2;
+    ScanInfo data = 3;
 }

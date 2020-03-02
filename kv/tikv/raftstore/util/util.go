@@ -2,7 +2,6 @@ package util
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 
 	"github.com/golang/protobuf/proto"
@@ -158,16 +157,6 @@ func ConfStateFromRegion(region *metapb.Region) (confState eraftpb.ConfState) {
 	return
 }
 
-func RegionIDToBytes(id uint64) []byte {
-	b := make([]byte, 8)
-	binary.LittleEndian.PutUint64(b, id)
-	return b
-}
-
-func RegionIDFromBytes(b []byte) uint64 {
-	return binary.LittleEndian.Uint64(b)
-}
-
 func CheckStoreID(req *raft_cmdpb.RaftCmdRequest, storeID uint64) error {
 	peer := req.Header.Peer
 	if peer.StoreId == storeID {
@@ -204,4 +193,15 @@ func CloneMsg(origin, cloned proto.Message) error {
 
 func SafeCopy(b []byte) []byte {
 	return append([]byte{}, b...)
+}
+
+func PeerEqual(l, r *metapb.Peer) bool {
+	return l.Id == r.Id && l.StoreId == r.StoreId
+}
+
+func RegionEqual(l, r *metapb.Region) bool {
+	if l == nil || r == nil {
+		return false
+	}
+	return l.Id == r.Id && l.RegionEpoch.Version == r.RegionEpoch.Version && l.RegionEpoch.ConfVer == r.RegionEpoch.ConfVer
 }

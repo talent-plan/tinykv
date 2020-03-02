@@ -1,5 +1,7 @@
 package commands
 
+// TODO delete the commands package.
+
 import (
 	"reflect"
 

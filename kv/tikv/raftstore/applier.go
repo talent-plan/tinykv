@@ -175,20 +175,6 @@ func newRegistration(peer *Peer) *registration {
 	}
 }
 
-type applyMsgs struct {
-	msgs []message.Msg
-}
-
-func (r *applyMsgs) appendMsg(regionID uint64, msg message.Msg) {
-	msg.RegionID = regionID
-	r.msgs = append(r.msgs, msg)
-	return
-}
-
-func newApplyMsg(apply *apply) message.Msg {
-	return message.Msg{Type: message.MsgTypeApply, Data: apply}
-}
-
 type applyContext struct {
 	tag              string
 	notifier         chan<- message.Msg
@@ -733,7 +719,7 @@ func (a *applier) execChangePeer(aCtx *applyContext, req *raft_cmdpb.AdminReques
 		log.Infof("%s add peer successfully, peer %s, region %s", a.tag, peer, a.region)
 	case eraftpb.ConfChangeType_RemoveNode:
 		if p := util.RemovePeer(region, storeID); p != nil {
-			if !PeerEqual(p, peer) {
+			if !util.PeerEqual(p, peer) {
 				errMsg := fmt.Sprintf("%s ignore remove unmatched peer, expected_peer %s, got_peer %s",
 					a.tag, peer, p)
 				log.Error(errMsg)
@@ -810,8 +796,7 @@ func (a *applier) execBatchSplit(aCtx *applyContext, req *raft_cmdpb.AdminReques
 		}
 		keys = append(keys, splitKey)
 	}
-	keys = append(keys, derived.EndKey)
-	err = util.CheckKeyInRegion(keys[len(keys)-2], a.region)
+	err = util.CheckKeyInRegion(keys[len(keys)-1], a.region)
 	if err != nil {
 		return
 	}
@@ -835,7 +820,7 @@ func (a *applier) execBatchSplit(aCtx *applyContext, req *raft_cmdpb.AdminReques
 		writeInitialApplyState(aCtx.wb, newRegion.Id)
 		regions = append(regions, newRegion)
 	}
-	derived.StartKey = keys[len(keys)-2]
+	derived.StartKey = keys[len(keys)-1]
 	regions = append(regions, derived)
 	WritePeerState(aCtx.wb, derived, rspb.PeerState_Normal)
 

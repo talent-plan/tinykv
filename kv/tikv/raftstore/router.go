@@ -15,14 +15,12 @@ type router struct {
 	peers       sync.Map
 	peerSender  chan message.Msg
 	storeSender chan<- message.Msg
-	storeFsm    *storeFsm
 }
 
-func newRouter(storeSender chan<- message.Msg, storeFsm *storeFsm) *router {
+func newRouter(storeSender chan<- message.Msg) *router {
 	pm := &router{
-		peerSender:  make(chan message.Msg, 4096),
+		peerSender:  make(chan message.Msg, 40960),
 		storeSender: storeSender,
-		storeFsm:    storeFsm,
 	}
 	return pm
 }

@@ -15,6 +15,8 @@
 package raft
 
 import (
+	"sort"
+
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
@@ -57,6 +59,15 @@ func mustTerm(term uint64, err error) uint64 {
 		panic(err)
 	}
 	return term
+}
+
+func nodes(r *Raft) []uint64 {
+	nodes := make([]uint64, 0, len(r.Prs))
+	for id := range r.Prs {
+		nodes = append(nodes, id)
+	}
+	sort.Sort(uint64Slice(nodes))
+	return nodes
 }
 
 // TODO: Delete Start

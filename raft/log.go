@@ -393,7 +393,7 @@ func (l *RaftLog) maybeCommit(maxIndex, term uint64) bool {
 
 // TODO: Delete method
 func (l *RaftLog) restore(s pb.Snapshot) {
-	l.logger.Infof("log [%s] starts to restore snapshot [index: %d, term: %d]", l, s.Metadata.Index, s.Metadata.Term)
+	l.logger.Infof("log [%+v] starts to restore snapshot [index: %d, term: %d]", l, s.Metadata.Index, s.Metadata.Term)
 	l.committed = s.Metadata.Index
 	l.entries = nil
 	l.stabled = s.Metadata.Index

@@ -11,7 +11,6 @@ GO                  := GO111MODULE=on go
 GOBUILD             := $(GO) build $(BUILD_FLAG) -tags codes
 GOTEST              := $(GO) test -p 8
 
-LDFLAGS             += -X "main.gitHash=`git rev-parse HEAD`" 
 TEST_LDFLAGS        := ""
 
 PACKAGE_LIST        := go list ./...| grep -vE "cmd"
@@ -37,10 +36,10 @@ proto:
 	GO111MODULE=on go build ./proto/pkg/...
 
 kv:
-	$(GOBUILD) -ldflags '$(LDFLAGS)' -o bin/tinykv-server kv/tinykv-server/main.go
+	$(GOBUILD) -o bin/tinykv-server kv/tinykv-server/main.go
 
 scheduler:
-	$(GOBUILD) -ldflags '$(LDFLAGS)' -o bin/pd-server scheduler/cmd/pd-server/main.go
+	$(GOBUILD) -o bin/pd-server scheduler/cmd/pd-server/main.go
 
 ci: default test
 	@echo "Checking formatting"

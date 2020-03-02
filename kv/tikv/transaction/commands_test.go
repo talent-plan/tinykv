@@ -1,23 +1,29 @@
-package commands
+package transaction
 
 // This file contains utility code for testing commands.
 
 import (
+	"context"
+	"encoding/binary"
+	"fmt"
+	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/pingcap-incubator/tinykv/kv/tikv"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/transaction/latches"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/transaction/mvcc"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/stretchr/testify/assert"
 )
 
 // testBuilder is a helper type for running command tests.
 type testBuilder struct {
-	t *testing.T
+	t      *testing.T
+	server *tikv.Server
 	// mem will always be the backing store for server.
-	mem     *inner_server.MemInnerServer
-	latches *latches.Latches
+	mem *inner_server.MemInnerServer
 	// Keep track of timestamps.
 	prevTs uint64
 }
@@ -35,8 +41,8 @@ type kv struct {
 
 func newBuilder(t *testing.T) testBuilder {
 	mem := inner_server.NewMemInnerServer()
-	latches := latches.NewLatches()
-	latches.Validation = func(txn *mvcc.MvccTxn, keys [][]byte) {
+	server := tikv.NewServer(mem)
+	server.Latches.Validation = func(txn *mvcc.MvccTxn, keys [][]byte) {
 		keyMap := make(map[string]struct{})
 		for _, k := range keys {
 			keyMap[string(k)] = struct{}{}
@@ -58,7 +64,7 @@ func newBuilder(t *testing.T) testBuilder {
 			}
 		}
 	}
-	return testBuilder{t, mem, latches, 99}
+	return testBuilder{t, server, mem, 99}
 }
 
 // init sets values in the test's DB.
@@ -79,19 +85,28 @@ func (builder *testBuilder) init(values []kv) {
 	}
 }
 
-func (builder *testBuilder) runCommands(cmds ...Command) []interface{} {
+func (builder *testBuilder) runRequests(reqs ...interface{}) []interface{} {
 	var result []interface{}
-	for _, c := range cmds {
-		resp, err := RunCommand(c, builder.mem, builder.latches)
-		assert.Nil(builder.t, err)
-		result = append(result, resp)
+	for _, req := range reqs {
+		reqName := fmt.Sprintf("%v", reflect.TypeOf(req))
+		reqName = strings.TrimPrefix(strings.TrimSuffix(reqName, "Request"), "*kvrpcpb.")
+		fnName := "Kv" + reqName
+		serverVal := reflect.ValueOf(builder.server)
+		fn := serverVal.MethodByName(fnName)
+		ctxtVal := reflect.ValueOf(context.Background())
+		reqVal := reflect.ValueOf(req)
+
+		results := fn.Call([]reflect.Value{ctxtVal, reqVal})
+
+		assert.Nil(builder.t, results[1].Interface())
+		result = append(result, results[0].Interface())
 	}
 	return result
 }
 
 // runOneCmd is like runCommands but only runs a single command.
-func (builder *testBuilder) runOneCmd(cmd Command) interface{} {
-	return builder.runCommands(cmd)[0]
+func (builder *testBuilder) runOneRequest(req interface{}) interface{} {
+	return builder.runRequests(req)[0]
 }
 
 func (builder *testBuilder) nextTs() uint64 {
@@ -138,4 +153,59 @@ func (builder *testBuilder) assertLens(def int, lock int, write int) {
 	builder.assertLen(engine_util.CfDefault, def)
 	builder.assertLen(engine_util.CfLock, lock)
 	builder.assertLen(engine_util.CfWrite, write)
+}
+
+func (builder *testBuilder) prewriteRequest(muts ...*kvrpcpb.Mutation) *kvrpcpb.PrewriteRequest {
+	var req kvrpcpb.PrewriteRequest
+	req.PrimaryLock = []byte{1}
+	req.StartVersion = builder.nextTs()
+	req.Mutations = muts
+	return &req
+}
+
+func mutation(key byte, value []byte, op kvrpcpb.Op) *kvrpcpb.Mutation {
+	var mut kvrpcpb.Mutation
+	mut.Key = []byte{key}
+	mut.Value = value
+	mut.Op = op
+	return &mut
+}
+
+func (builder *testBuilder) commitRequest(keys ...[]byte) *kvrpcpb.CommitRequest {
+	var req kvrpcpb.CommitRequest
+	req.StartVersion = builder.nextTs()
+	req.CommitVersion = builder.prevTs + 10
+	req.Keys = keys
+	return &req
+}
+
+func (builder *testBuilder) rollbackRequest(keys ...[]byte) *kvrpcpb.BatchRollbackRequest {
+	var req kvrpcpb.BatchRollbackRequest
+	req.StartVersion = builder.nextTs()
+	req.Keys = keys
+	return &req
+}
+
+func (builder *testBuilder) checkTxnStatusRequest(key []byte) *kvrpcpb.CheckTxnStatusRequest {
+	var req kvrpcpb.CheckTxnStatusRequest
+	builder.nextTs()
+	req.LockTs = binary.BigEndian.Uint64([]byte{0, 0, 5, 0, 0, 0, 0, builder.ts()})
+	req.CurrentTs = binary.BigEndian.Uint64([]byte{0, 0, 6, 0, 0, 0, 0, builder.ts()})
+	req.PrimaryKey = key
+	return &req
+}
+
+func resolveRequest(startTs uint64, commitTs uint64) *kvrpcpb.ResolveLockRequest {
+	var req kvrpcpb.ResolveLockRequest
+	req.StartVersion = startTs
+	req.CommitVersion = commitTs
+	return &req
+}
+
+func (builder *testBuilder) scanRequest(startKey []byte, limit uint32) *kvrpcpb.ScanRequest {
+	var req kvrpcpb.ScanRequest
+	req.StartKey = startKey
+	req.Limit = limit
+	req.Version = builder.nextTs()
+	return &req
 }

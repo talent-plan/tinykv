@@ -1,16 +1,11 @@
 package raftstore
 
 import (
-	"bytes"
-	"fmt"
 	"sync"
-	"time"
 
 	"github.com/Connor1996/badger"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/lockstore"
-	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/runner"
@@ -31,94 +26,48 @@ const (
 	StoreTickSnapGC           StoreTick = 2
 )
 
-type storeMeta struct {
-	/// region end key -> region ID
-	regionRanges *lockstore.MemStore
-	/// region_id -> region
-	regions map[uint64]*metapb.Region
-	/// `MsgRequestVote` messages from newly split Regions shouldn't be dropped if there is no
-	/// such Region in this store now. So the messages are recorded temporarily and will be handled later.
-	pendingVotes []*rspb.RaftMessage
-	/// The regions with pending snapshots.
-	pendingSnapshotRegions []*metapb.Region
+type storeState struct {
+	id       uint64
+	receiver <-chan message.Msg
+	ticker   *ticker
 }
 
-func newStoreMeta() *storeMeta {
-	return &storeMeta{
-		regionRanges: lockstore.NewMemStore(32 * 1024),
-		regions:      map[uint64]*metapb.Region{},
-	}
-}
-
-func (m *storeMeta) setRegion(region *metapb.Region, peer *Peer) {
-	m.regions[region.Id] = region
-	peer.SetRegion(region)
-}
-
-type GlobalContext struct {
-	cfg                  *config.Config
-	engine               *engine_util.Engines
-	store                *metapb.Store
-	storeMeta            *storeMeta
-	storeMetaLock        *sync.RWMutex
-	snapMgr              *snap.SnapManager
-	router               *router
-	trans                Transport
-	pdTaskSender         chan<- worker.Task
-	regionTaskSender     chan<- worker.Task
-	raftLogGCTaskSender  chan<- worker.Task
-	splitCheckTaskSender chan<- worker.Task
-	pdClient             pd.Client
-	tickDriverSender     chan uint64
-}
-
-type StoreContext struct {
-	*GlobalContext
-	applyingSnapCount *uint64
-}
-
-type RaftContext struct {
-	*GlobalContext
-	applyMsgs    *applyMsgs
-	ReadyRes     []*ReadyICPair
-	kvWB         *engine_util.WriteBatch
-	raftWB       *engine_util.WriteBatch
-	pendingCount int
-	hasReady     bool
-	queuedSnaps  map[uint64]struct{}
-}
-
-type Transport interface {
-	Send(msg *rspb.RaftMessage) error
-}
-
-type storeFsm struct {
-	id        uint64
-	stopped   bool
-	startTime *time.Time
-	receiver  <-chan message.Msg
-	ticker    *ticker
-}
-
-func newStoreFsm(cfg *config.Config) (chan<- message.Msg, *storeFsm) {
+func newStoreState(cfg *config.Config) (chan<- message.Msg, *storeState) {
 	ch := make(chan message.Msg, 40960)
-	fsm := &storeFsm{
+	fsm := &storeState{
 		receiver: (<-chan message.Msg)(ch),
 		ticker:   newStoreTicker(cfg),
 	}
 	return (chan<- message.Msg)(ch), fsm
 }
 
-type storeMsgHandler struct {
-	*storeFsm
-	ctx *StoreContext
+// storeWorker runs store commands.
+type storeWorker struct {
+	*storeState
+	ctx *GlobalContext
 }
 
-func newStoreFsmDelegate(store *storeFsm, ctx *StoreContext) *storeMsgHandler {
-	return &storeMsgHandler{storeFsm: store, ctx: ctx}
+func newStoreWorker(ctx *GlobalContext, state *storeState) *storeWorker {
+	return &storeWorker{
+		storeState: state,
+		ctx:        ctx,
+	}
 }
 
-func (d *storeMsgHandler) onTick(tick StoreTick) {
+func (sw *storeWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for {
+		var msg message.Msg
+		select {
+		case <-closeCh:
+			return
+		case msg = <-sw.receiver:
+		}
+		sw.handleMsg(msg)
+	}
+}
+
+func (d *storeWorker) onTick(tick StoreTick) {
 	switch tick {
 	case StoreTickPdStoreHeartbeat:
 		d.onPDStoreHearbeatTick()
@@ -127,7 +76,7 @@ func (d *storeMsgHandler) onTick(tick StoreTick) {
 	}
 }
 
-func (d *storeMsgHandler) handleMsg(msg message.Msg) {
+func (d *storeWorker) handleMsg(msg message.Msg) {
 	switch msg.Type {
 	case message.MsgTypeStoreRaftMessage:
 		if err := d.onRaftMessage(msg.Data.(*rspb.RaftMessage)); err != nil {
@@ -140,13 +89,8 @@ func (d *storeMsgHandler) handleMsg(msg message.Msg) {
 	}
 }
 
-func (d *storeMsgHandler) start(store *metapb.Store) {
-	if d.startTime != nil {
-		panic(fmt.Sprintf("store %d unable to start again %s", d.id, store))
-	}
+func (d *storeWorker) start(store *metapb.Store) {
 	d.id = store.Id
-	now := time.Now()
-	d.startTime = &now
 	d.ticker.scheduleStore(StoreTickPdStoreHeartbeat)
 	d.ticker.scheduleStore(StoreTickSnapGC)
 }
@@ -154,7 +98,7 @@ func (d *storeMsgHandler) start(store *metapb.Store) {
 /// Checks if the message is targeting a stale peer.
 ///
 /// Returns true means the message can be dropped silently.
-func (d *storeMsgHandler) checkMsg(msg *rspb.RaftMessage) (bool, error) {
+func (d *storeWorker) checkMsg(msg *rspb.RaftMessage) (bool, error) {
 	regionID := msg.GetRegionId()
 	fromEpoch := msg.GetRegionEpoch()
 	msgType := msg.Message.MsgType
@@ -174,8 +118,6 @@ func (d *storeMsgHandler) checkMsg(msg *rspb.RaftMessage) (bool, error) {
 	if localState.State != rspb.PeerState_Tombstone {
 		// Maybe split, but not registered yet.
 		if util.IsFirstVoteMessage(msg.Message) {
-			d.ctx.storeMetaLock.Lock()
-			defer d.ctx.storeMetaLock.Unlock()
 			meta := d.ctx.storeMeta
 			// Last check on whether target peer is created, otherwise, the
 			// vote message will never be comsumed.
@@ -206,13 +148,13 @@ func (d *storeMsgHandler) checkMsg(msg *rspb.RaftMessage) (bool, error) {
 	return false, nil
 }
 
-func (d *storeMsgHandler) onRaftMessage(msg *rspb.RaftMessage) error {
+func (d *storeWorker) onRaftMessage(msg *rspb.RaftMessage) error {
 	regionID := msg.RegionId
 	if err := d.ctx.router.send(regionID, message.Msg{Type: message.MsgTypeRaftMessage, Data: msg}); err == nil {
 		return nil
 	}
 	log.Debugf("handle raft message. from_peer:%d, to_peer:%d, store:%d, region:%d, msg:%+v",
-		msg.FromPeer.Id, msg.ToPeer.Id, d.storeFsm.id, regionID, msg.Message)
+		msg.FromPeer.Id, msg.ToPeer.Id, d.storeState.id, regionID, msg.Message)
 	if msg.ToPeer.StoreId != d.ctx.store.Id {
 		log.Warnf("store not match, ignore it. store_id:%d, to_store_id:%d, region_id:%d",
 			d.ctx.store.Id, msg.ToPeer.StoreId, regionID)
@@ -249,13 +191,9 @@ func (d *storeMsgHandler) onRaftMessage(msg *rspb.RaftMessage) error {
 ///
 /// return false to indicate that target peer is in invalid state or
 /// doesn't exist and can't be created.
-func (d *storeMsgHandler) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage) (bool, error) {
+func (d *storeWorker) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage) (bool, error) {
 	// we may encounter a message with larger peer id, which means
 	// current peer is stale, then we should remove current peer
-	d.ctx.storeMetaLock.Lock()
-	defer func() {
-		d.ctx.storeMetaLock.Unlock()
-	}()
 	meta := d.ctx.storeMeta
 	if _, ok := meta.regions[regionID]; ok {
 		return true, nil
@@ -265,18 +203,11 @@ func (d *storeMsgHandler) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage
 		return false, nil
 	}
 
-	it := meta.regionRanges.NewIterator()
-	it.Seek(msg.StartKey)
-	if it.Valid() && bytes.Equal(msg.StartKey, it.Key()) {
-		it.Next()
-	}
-	for ; it.Valid(); it.Next() {
-		regionID := util.RegionIDFromBytes(it.Value())
-		existRegion := meta.regions[regionID]
-		if bytes.Compare(existRegion.StartKey, msg.EndKey) >= 0 {
-			break
-		}
-		log.Debugf("msg %s is overlapped with exist region %s", msg, existRegion)
+	for _, region := range meta.getOverlapRegions(&metapb.Region{
+		StartKey: msg.StartKey,
+		EndKey:   msg.EndKey,
+	}) {
+		log.Debugf("msg %s is overlapped with exist region %s", msg, region)
 		if util.IsFirstVoteMessage(msg.Message) {
 			meta.pendingVotes = append(meta.pendingVotes, msg)
 		}
@@ -296,12 +227,10 @@ func (d *storeMsgHandler) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage
 	return true, nil
 }
 
-func (d *storeMsgHandler) storeHeartbeatPD() {
+func (d *storeWorker) storeHeartbeatPD() {
 	stats := new(pdpb.StoreStats)
 	stats.StoreId = d.ctx.store.Id
-	d.ctx.storeMetaLock.RLock()
 	stats.RegionCount = uint32(len(d.ctx.storeMeta.regions))
-	d.ctx.storeMetaLock.RUnlock()
 	storeInfo := &runner.PdStoreHeartbeatTask{
 		Stats:  stats,
 		Engine: d.ctx.engine.Kv,
@@ -310,12 +239,12 @@ func (d *storeMsgHandler) storeHeartbeatPD() {
 	d.ctx.pdTaskSender <- worker.Task{Tp: worker.TaskTypePDStoreHeartbeat, Data: storeInfo}
 }
 
-func (d *storeMsgHandler) onPDStoreHearbeatTick() {
+func (d *storeWorker) onPDStoreHearbeatTick() {
 	d.storeHeartbeatPD()
 	d.ticker.scheduleStore(StoreTickPdStoreHeartbeat)
 }
 
-func (d *storeMsgHandler) handleSnapMgrGC() error {
+func (d *storeWorker) handleSnapMgrGC() error {
 	mgr := d.ctx.snapMgr
 	snapKeys, err := mgr.ListIdleSnap()
 	if err != nil {
@@ -348,7 +277,7 @@ func (d *storeMsgHandler) handleSnapMgrGC() error {
 	return nil
 }
 
-func (d *storeMsgHandler) scheduleGCSnap(regionID uint64, keys []snap.SnapKeyWithSending) error {
+func (d *storeWorker) scheduleGCSnap(regionID uint64, keys []snap.SnapKeyWithSending) error {
 	gcSnap := message.Msg{Type: message.MsgTypeGcSnap, Data: &MsgGCSnap{Snaps: keys}}
 	if d.ctx.router.send(regionID, gcSnap) != nil {
 		// The snapshot exists because MsgAppend has been rejected. So the
@@ -374,9 +303,9 @@ func (d *storeMsgHandler) scheduleGCSnap(regionID uint64, keys []snap.SnapKeyWit
 	return nil
 }
 
-func (d *storeMsgHandler) onSnapMgrGC() {
+func (d *storeWorker) onSnapMgrGC() {
 	if err := d.handleSnapMgrGC(); err != nil {
-		log.Errorf("handle snap GC failed store_id %d, err %s", d.storeFsm.id, err)
+		log.Errorf("handle snap GC failed store_id %d, err %s", d.storeState.id, err)
 	}
 	d.ticker.scheduleStore(StoreTickSnapGC)
 }
