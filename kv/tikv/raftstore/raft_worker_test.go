@@ -80,7 +80,7 @@ func (b *EntryBuilder) epoch(confVer, version uint64) *EntryBuilder {
 	return b
 }
 
-func (b *EntryBuilder) build(applyCh chan<- *applyBatch, peerID, regionID uint64, callback *message.Callback) *eraftpb.Entry {
+func (b *EntryBuilder) build(applyCh chan<- []message.Msg, peerID, regionID uint64, callback *message.Callback) *eraftpb.Entry {
 	prop := &proposal{
 		isConfChange: false,
 		index:        b.entry.Index,
@@ -88,9 +88,7 @@ func (b *EntryBuilder) build(applyCh chan<- *applyBatch, peerID, regionID uint64
 		cb:           callback,
 	}
 	msg := message.Msg{Type: message.MsgTypeApplyProposal, RegionID: regionID, Data: newRegionProposal(peerID, regionID, []*proposal{prop})}
-	applyCh <- &applyBatch{
-		msgs: []message.Msg{msg},
-	}
+	applyCh <- []message.Msg{msg}
 
 	data, err := b.req.Marshal()
 	if err != nil {
@@ -100,16 +98,15 @@ func (b *EntryBuilder) build(applyCh chan<- *applyBatch, peerID, regionID uint64
 	return &b.entry
 }
 
-func commit(applyCh chan<- *applyBatch, entries []eraftpb.Entry, regionID uint64) {
+func commit(applyCh chan<- []message.Msg, entries []eraftpb.Entry, regionID uint64) {
 	apply := &apply{
 		regionId: regionID,
 		term:     entries[0].Term,
 		entries:  entries,
 	}
 	msg := message.Msg{Type: message.MsgTypeApply, RegionID: regionID, Data: apply}
-	applyCh <- &applyBatch{
-		msgs: []message.Msg{msg},
-	}
+	applyCh <- []message.Msg{msg}
+
 }
 
 func TestHandleRaftCommittedEntries(t *testing.T) {
@@ -123,7 +120,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 		engine: engines,
 		router: router,
 	}
-	applyCh := make(chan *applyBatch, 1)
+	applyCh := make(chan []message.Msg, 1)
 	aw := newApplyWorker(ctx, applyCh, router)
 	wg := new(sync.WaitGroup)
 	wg.Add(1)

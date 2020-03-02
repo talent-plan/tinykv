@@ -92,19 +92,6 @@ func NewTransferLeaderCmd(peer *metapb.Peer) *raft_cmdpb.AdminRequest {
 	return cmd
 }
 
-func NewStatusRequest(regionID uint64, peer *metapb.Peer, request *raft_cmdpb.StatusRequest) *raft_cmdpb.RaftCmdRequest {
-	req := NewBaseRequest(regionID, &metapb.RegionEpoch{})
-	req.Header.Peer = peer
-	req.StatusRequest = request
-	return &req
-}
-
-func NewRegionLeaderCmd() *raft_cmdpb.StatusRequest {
-	cmd := raft_cmdpb.StatusRequest{}
-	cmd.CmdType = raft_cmdpb.StatusCmdType_RegionLeader
-	return &cmd
-}
-
 func MustGetCf(engine *engine_util.Engines, cf string, key []byte, value []byte) {
 	for i := 0; i < 300; i++ {
 		val, err := engine_util.GetCF(engine.Kv, cf, key)
