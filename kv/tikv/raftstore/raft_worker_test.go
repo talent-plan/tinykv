@@ -87,7 +87,11 @@ func (b *EntryBuilder) build(applyCh chan<- []message.Msg, peerID, regionID uint
 		term:         b.entry.Term,
 		cb:           callback,
 	}
-	msg := message.Msg{Type: message.MsgTypeApplyProposal, RegionID: regionID, Data: newRegionProposal(peerID, regionID, []*proposal{prop})}
+	msg := message.Msg{Type: message.MsgTypeApplyProposal, RegionID: regionID, Data: &MsgApplyProposal{
+		Id:       peerID,
+		RegionId: regionID,
+		Props:    []*proposal{prop},
+	}}
 	applyCh <- []message.Msg{msg}
 
 	data, err := b.req.Marshal()
@@ -99,14 +103,13 @@ func (b *EntryBuilder) build(applyCh chan<- []message.Msg, peerID, regionID uint
 }
 
 func commit(applyCh chan<- []message.Msg, entries []eraftpb.Entry, regionID uint64) {
-	apply := &apply{
+	apply := &MsgApplyCommitted{
 		regionId: regionID,
 		term:     entries[0].Term,
 		entries:  entries,
 	}
-	msg := message.Msg{Type: message.MsgTypeApply, RegionID: regionID, Data: apply}
+	msg := message.Msg{Type: message.MsgTypeApplyCommitted, RegionID: regionID, Data: apply}
 	applyCh <- []message.Msg{msg}
-
 }
 
 func TestHandleRaftCommittedEntries(t *testing.T) {
@@ -126,23 +129,21 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	wg.Add(1)
 	go aw.run(wg)
 
-	reg := &registration{
-		id: 3,
-		region: &metapb.Region{
-			Id: 1,
-			Peers: []*metapb.Peer{{
-				Id:      3,
-				StoreId: 2,
-			}},
-			EndKey: []byte("k5"),
-			RegionEpoch: &metapb.RegionEpoch{
-				ConfVer: 1,
-				Version: 3,
-			},
-		},
-	}
 	newPeer := &peerState{
-		apply: newApplier(reg),
+		apply: &applier{
+			id: 3,
+			region: &metapb.Region{
+				Id: 1,
+				Peers: []*metapb.Peer{{
+					Id:      3,
+					StoreId: 2,
+				}},
+				EndKey: []byte("k5"),
+				RegionEpoch: &metapb.RegionEpoch{
+					ConfVer: 1,
+					Version: 3,
+				},
+			}},
 	}
 	router.peers.Store(uint64(1), newPeer)
 
@@ -277,13 +278,13 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	require.True(t, bytes.Equal(resp.GetResponses()[0].GetGet().Value, []byte("v10")))
 }
 
-func fetchApplyRes(raftCh <-chan message.Msg) *applyTaskRes {
+func fetchApplyRes(raftCh <-chan message.Msg) *MsgApplyRes {
 	select {
 	case msg := <-raftCh:
 		if msg.Type != message.MsgTypeApplyRes {
 			panic("unexpected apply res")
 		}
-		return msg.Data.(*applyTaskRes)
+		return msg.Data.(*MsgApplyRes)
 	case <-time.After(time.Second):
 		panic("no apply res received")
 	}

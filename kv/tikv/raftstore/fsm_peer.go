@@ -146,7 +146,7 @@ func (d *peerMsgHandler) HandleMsgs(msg message.Msg) {
 	case message.MsgTypeTick:
 		d.onTick()
 	case message.MsgTypeApplyRes:
-		res := msg.Data.(*applyTaskRes)
+		res := msg.Data.(*MsgApplyRes)
 		d.onApplyResult(res)
 	case message.MsgTypeSplitRegion:
 		split := msg.Data.(*message.MsgSplitRegion)
@@ -293,30 +293,25 @@ func (d *peerMsgHandler) onRaftBaseTick() {
 	d.ticker.schedule(PeerTickRaft)
 }
 
-func (d *peerMsgHandler) onApplyResult(res *applyTaskRes) {
-	if res.destroyPeerID != 0 {
-		y.Assert(res.destroyPeerID == d.peerID())
-		d.destroyPeer()
-	} else {
-		log.Debugf("%s async apply finished %v", d.tag(), res)
-		// handle executing committed log results
-		for _, result := range res.execResults {
-			switch x := result.(type) {
-			case *execResultChangePeer:
-				d.onReadyChangePeer(x.cp)
-			case *execResultCompactLog:
-				d.onReadyCompactLog(x.firstIndex, x.truncatedIndex)
-			case *execResultSplitRegion:
-				d.onReadySplitRegion(x.derived, x.regions)
-			}
+func (d *peerMsgHandler) onApplyResult(res *MsgApplyRes) {
+	log.Debugf("%s async apply finished %v", d.tag(), res)
+	// handle executing committed log results
+	for _, result := range res.execResults {
+		switch x := result.(type) {
+		case *execResultChangePeer:
+			d.onReadyChangePeer(x)
+		case *execResultCompactLog:
+			d.onReadyCompactLog(x.firstIndex, x.truncatedIndex)
+		case *execResultSplitRegion:
+			d.onReadySplitRegion(x.derived, x.regions)
 		}
-		res.execResults = nil
-		if d.stopped {
-			return
-		}
-		if d.peer.PostApply(d.ctx.engine.Kv, res.applyState, res.appliedIndexTerm, res.sizeDiffHint) {
-			d.hasReady = true
-		}
+	}
+	res.execResults = nil
+	if d.stopped {
+		return
+	}
+	if d.peer.PostApply(d.ctx.engine.Kv, res.applyState, res.appliedIndexTerm, res.sizeDiffHint) {
+		d.hasReady = true
 	}
 }
 
@@ -420,12 +415,10 @@ func (d *peerMsgHandler) checkMessage(msg *rspb.RaftMessage) bool {
 		log.Infof("%s target peer ID %d is less than %d, msg maybe stale", d.tag(), target.Id, d.peerID())
 		return true
 	} else if target.Id > d.peerID() {
-		if job := d.peer.MaybeDestroy(); job != nil {
+		if d.peer.MaybeDestroy() {
 			log.Infof("%s is stale as received a larger peer %s, destroying", d.tag(), target)
-			if d.handleDestroyPeer(job) {
-				storeMsg := message.NewMsg(message.MsgTypeStoreRaftMessage, msg)
-				d.ctx.router.sendStore(storeMsg)
-			}
+			d.destroyPeer()
+			d.ctx.router.sendStore(message.NewMsg(message.MsgTypeStoreRaftMessage, msg))
 		}
 		return true
 	}
@@ -465,10 +458,9 @@ func (d *peerMsgHandler) handleGCPeerMsg(msg *rspb.RaftMessage) {
 		log.Infof("%s receive stale gc msg, ignore", d.tag())
 		return
 	}
-	// TODO: ask pd to guarantee we are stale now.
 	log.Infof("%s peer %s receives gc message, trying to remove", d.tag(), msg.ToPeer)
-	if job := d.peer.MaybeDestroy(); job != nil {
-		d.handleDestroyPeer(job)
+	if d.peer.MaybeDestroy() {
+		d.destroyPeer()
 	}
 }
 
@@ -518,35 +510,12 @@ func (d *peerMsgHandler) checkSnapshot(msg *rspb.RaftMessage) (*snap.SnapKey, er
 		return &key, nil
 	}
 
-	// for _, region := range meta.pendingSnapshotRegions {
-	// 	if !engine_util.ExceedEndKey(region.StartKey, snapRegion.EndKey) &&
-	// 		!engine_util.ExceedEndKey(snapRegion.StartKey, region.EndKey) &&
-	// 		// Same region can overlap, we will apply the latest version of snapshot.
-	// 		region.Id != snapRegion.Id {
-	// 		log.Infof("pending region overlapped regionID %d peerID %d region %s snap %s",
-	// 			d.regionID(), d.peerID(), region, snapshot)
-	// 		return &key, nil
-	// 	}
-	// }
-
 	// check if snapshot file exists.
 	_, err = d.ctx.snapMgr.GetSnapshotForApplying(key)
 	if err != nil {
 		return nil, err
 	}
 	return nil, nil
-}
-
-func (d *peerMsgHandler) handleDestroyPeer(job *DestroyPeerJob) bool {
-	if job.Initialized {
-		d.applyCh <- []message.Msg{message.NewPeerMsg(message.MsgTypeApplyDestroy, job.RegionId, nil)}
-	}
-	if job.AsyncRemove {
-		log.Infof("[region %d] %d is destroyed asynchronously", job.RegionId, job.Peer.Id)
-		return false
-	}
-	d.destroyPeer()
-	return true
 }
 
 func (d *peerMsgHandler) destroyPeer() {
@@ -574,7 +543,7 @@ func (d *peerMsgHandler) destroyPeer() {
 	delete(meta.regions, regionID)
 }
 
-func (d *peerMsgHandler) onReadyChangePeer(cp changePeer) {
+func (d *peerMsgHandler) onReadyChangePeer(cp *execResultChangePeer) {
 	changeType := cp.confChange.ChangeType
 	d.peer.RaftGroup.ApplyConfChange(*cp.confChange)
 	if cp.confChange.NodeId == 0 {

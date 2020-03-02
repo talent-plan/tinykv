@@ -1,9 +1,6 @@
 package message
 
 import (
-	"time"
-
-	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	"github.com/pingcap-incubator/tinykv/raft"
@@ -27,12 +24,9 @@ const (
 	MsgTypeStoreTick        MsgType = 106
 	MsgTypeStoreStart       MsgType = 107
 
-	MsgTypeApply             MsgType = 301
-	MsgTypeApplyRegistration MsgType = 302
-	MsgTypeApplyProposal     MsgType = 303
-	MsgTypeApplyDestroy      MsgType = 306
-
-	msgDefaultChanSize = 1024
+	MsgTypeApplyCommitted MsgType = 301
+	MsgTypeApplyRefresh   MsgType = 302
+	MsgTypeApplyProposal  MsgType = 303
 )
 
 type Msg struct {
@@ -41,12 +35,12 @@ type Msg struct {
 	Data     interface{}
 }
 
-func NewPeerMsg(tp MsgType, regionID uint64, data interface{}) Msg {
-	return Msg{Type: tp, RegionID: regionID, Data: data}
-}
-
 func NewMsg(tp MsgType, data interface{}) Msg {
 	return Msg{Type: tp, Data: data}
+}
+
+func NewPeerMsg(tp MsgType, regionID uint64, data interface{}) Msg {
+	return Msg{Type: tp, RegionID: regionID, Data: data}
 }
 
 type MsgRaftCmd struct {
@@ -63,42 +57,4 @@ type MsgSplitRegion struct {
 type MsgSnapStatus struct {
 	ToPeerID       uint64
 	SnapshotStatus raft.SnapshotStatus
-}
-
-type Callback struct {
-	Resp *raft_cmdpb.RaftCmdResponse
-	Txn  *badger.Txn // used for GetSnap
-	done chan struct{}
-}
-
-func (cb *Callback) Done(resp *raft_cmdpb.RaftCmdResponse) {
-	if cb == nil {
-		return
-	}
-	if resp != nil {
-		cb.Resp = resp
-	}
-	cb.done <- struct{}{}
-}
-
-func (cb *Callback) WaitResp() *raft_cmdpb.RaftCmdResponse {
-	select {
-	case <-cb.done:
-		return cb.Resp
-	}
-}
-
-func (cb *Callback) WaitRespWithTimeout(timeout time.Duration) *raft_cmdpb.RaftCmdResponse {
-	select {
-	case <-cb.done:
-		return cb.Resp
-	case <-time.After(timeout):
-		return cb.Resp
-	}
-}
-
-func NewCallback() *Callback {
-	done := make(chan struct{}, 1)
-	cb := &Callback{done: done}
-	return cb
 }

@@ -19,10 +19,8 @@ type raftWorker struct {
 	pr *router
 
 	raftCh chan message.Msg
-	// TODO: remove it
-	raftCtx *GlobalContext
+	ctx    *GlobalContext
 
-	// make it to make(chan message.Msg, 4096)
 	applyCh chan []message.Msg
 
 	closeCh <-chan struct{}
@@ -31,7 +29,7 @@ type raftWorker struct {
 func newRaftWorker(ctx *GlobalContext, pm *router) *raftWorker {
 	return &raftWorker{
 		raftCh:  pm.peerSender,
-		raftCtx: ctx,
+		ctx:     ctx,
 		applyCh: make(chan []message.Msg, 4096),
 		pr:      pm,
 	}
@@ -62,10 +60,10 @@ func (rw *raftWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
 			if peerState == nil {
 				continue
 			}
-			newRaftMsgHandler(peerState.peer, rw.applyCh, rw.raftCtx).HandleMsgs(msg)
+			newRaftMsgHandler(peerState.peer, rw.applyCh, rw.ctx).HandleMsgs(msg)
 		}
 		for _, peerState := range peerStateMap {
-			newRaftMsgHandler(peerState.peer, rw.applyCh, rw.raftCtx).HandleRaftReady()
+			newRaftMsgHandler(peerState.peer, rw.applyCh, rw.ctx).HandleRaftReady()
 		}
 	}
 }
