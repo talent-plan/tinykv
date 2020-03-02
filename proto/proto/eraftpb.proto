@@ -34,19 +34,37 @@ message Snapshot {
     SnapshotMetadata metadata = 2;
 }
 
+// Some MessageType defined here are local messages which not come from the network, but should
+// also use the Step method to handle
 enum MessageType {
+    // 'MessageType_MsgHup' is a local message used for election. If an election timeout happened,
+    // the node should passes 'MessageType_MsgHup' to its Step method and start a new election.
     MsgHup = 0;
+    // 'MessageType_MsgBeat' is a local message that signals the leader to send a heartbeat
+    // of the 'MessageType_MsgHeartbeat' type to its followers.
     MsgBeat = 1;
+    // 'MessageType_MsgPropose' is a local message that proposes to append data to the leader's log entries.
     MsgPropose = 2;
+    // 'MessageType_MsgAppend' contains log entries to replicate.
     MsgAppend = 3;
+    // 'MessageType_MsgAppendResponse' is response to log replication request('MessageType_MsgAppend').
     MsgAppendResponse = 4;
+    // 'MessageType_MsgRequestVote' requests votes for election.
     MsgRequestVote = 5;
+    // 'MessageType_MsgRequestVoteResponse' contains responses from voting request.
     MsgRequestVoteResponse = 6;
+    // 'MessageType_MsgSnapshot' requests to install a snapshot message.
     MsgSnapshot = 7;
+    // 'MessageType_MsgHeartbeat' sends heartbeat from leader to its followers.
     MsgHeartbeat = 8;
+    // 'MessageType_MsgHeartbeatResponse' is a response to 'MessageType_MsgHeartbeat'.
     MsgHeartbeatResponse = 9;
+    // 'MessageType_MsgSnapStatus' tells the result of snapshot install message.
     MsgSnapStatus = 10;
+    // 'MessageType_MsgTransferLeader' requests the leader to transfer its leadership.
     MsgTransferLeader = 11;
+    // 'MessageType_MsgTimeoutNow' send from the leader to the leadership transfer target, to let
+    // the transfer target timeout immediately and start a new election.
     MsgTimeoutNow = 12;
 }
 
@@ -83,6 +101,7 @@ enum ConfChangeType {
 message ConfChange {
     uint64 id = 1;
     ConfChangeType change_type = 2;
+    // node will be add/remove
     uint64 node_id = 3;
     bytes context = 4;
 }

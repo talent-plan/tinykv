@@ -609,7 +609,8 @@ func (r *Raft) poll(id uint64, t pb.MessageType, v bool) (granted int) {
 	return granted
 }
 
-// Step the entrance of handle message
+// Step the entrance of handle message, see `MessageType`
+// on `eraftpb.proto` for what msgs should be handled
 func (r *Raft) Step(m pb.Message) error {
 	// Your Code Here 2A
 	// TODO: Delete Start
