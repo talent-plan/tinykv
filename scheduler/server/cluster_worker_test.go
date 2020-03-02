@@ -97,7 +97,14 @@ func (s *testClusterWorkerSuite) TestAskSplit(c *C) {
 	c.Assert(err, IsNil)
 	mustWaitLeader(c, []*Server{s.svr})
 	s.grpcPDClient = testutil.MustNewGrpcClient(c, s.svr.GetAddr())
-	_, err = s.svr.bootstrapCluster(s.newBootstrapRequest(c, s.svr.clusterID, "127.0.0.1:0"))
+	bootstrapRequest := s.newBootstrapRequest(c, s.svr.clusterID, "127.0.0.1:0")
+	_, err = s.svr.bootstrapCluster(bootstrapRequest)
+	c.Assert(err, IsNil)
+
+	store := bootstrapRequest.Store
+	peer := s.newPeer(c, store.GetId(), 0)
+	region := s.newRegion(c, 0, []byte{}, []byte{}, []*metapb.Peer{peer}, nil)
+	err = s.svr.cluster.processRegionHeartbeat(core.NewRegionInfo(region, nil))
 	c.Assert(err, IsNil)
 
 	cluster := s.svr.GetRaftCluster()

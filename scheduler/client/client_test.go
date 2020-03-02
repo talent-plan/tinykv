@@ -132,19 +132,9 @@ func newHeader(srv *server.Server) *pdpb.RequestHeader {
 }
 
 func bootstrapServer(c *C, header *pdpb.RequestHeader, client pdpb.PDClient) {
-	regionID := regionIDAllocator.alloc()
-	region := &metapb.Region{
-		Id: regionID,
-		RegionEpoch: &metapb.RegionEpoch{
-			ConfVer: 1,
-			Version: 1,
-		},
-		Peers: peers[:1],
-	}
 	req := &pdpb.BootstrapRequest{
 		Header: header,
 		Store:  stores[0],
-		Region: region,
 	}
 	_, err := client.Bootstrap(context.Background(), req)
 	c.Assert(err, IsNil)
