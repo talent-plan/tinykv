@@ -83,7 +83,6 @@ message Message {
     bool reject = 10;
     // TODO: Delete Start
     uint64 reject_hint = 11;
-    bytes context = 12;
     // TODO: Delete End
 }
 
