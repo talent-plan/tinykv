@@ -393,10 +393,6 @@ func makeStoreKey(clusterRootPath string, storeID uint64) string {
 	return path.Join(clusterRootPath, "s", fmt.Sprintf("%020d", storeID))
 }
 
-func makeRegionKey(clusterRootPath string, regionID uint64) string {
-	return path.Join(clusterRootPath, "r", fmt.Sprintf("%020d", regionID))
-}
-
 func makeRaftClusterStatusPrefix(clusterRootPath string) string {
 	return path.Join(clusterRootPath, "status")
 }
