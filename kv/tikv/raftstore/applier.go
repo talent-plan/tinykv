@@ -19,6 +19,203 @@ import (
 	"github.com/pingcap/errors"
 )
 
+type MsgApplyProposal struct {
+	Id       uint64
+	RegionId uint64
+	Props    []*proposal
+}
+
+type MsgApplyCommitted struct {
+	regionId uint64
+	term     uint64
+	entries  []eraftpb.Entry
+}
+
+type proposal struct {
+	isConfChange bool
+	index        uint64
+	term         uint64
+	cb           *message.Callback
+}
+
+type MsgApplyRefresh struct {
+	id               uint64
+	term             uint64
+	applyState       rspb.RaftApplyState
+	appliedIndexTerm uint64
+	region           *metapb.Region
+}
+
+type MsgApplyRes struct {
+	regionID         uint64
+	applyState       rspb.RaftApplyState
+	appliedIndexTerm uint64
+	execResults      []execResult
+	sizeDiffHint     uint64
+}
+
+type execResult = interface{}
+
+type execResultChangePeer struct {
+	confChange *eraftpb.ConfChange
+	peer       *metapb.Peer
+	region     *metapb.Region
+}
+
+type execResultCompactLog struct {
+	truncatedIndex uint64
+	firstIndex     uint64
+}
+
+type execResultSplitRegion struct {
+	regions []*metapb.Region
+	derived *metapb.Region
+}
+
+/// Calls the callback of `cmd` when the Region is removed.
+func notifyRegionRemoved(regionID, peerID uint64, cmd pendingCmd) {
+	log.Debugf("region %d is removed, peerID %d, index %d, term %d", regionID, peerID, cmd.index, cmd.term)
+	cmd.cb.Done(ErrRespRegionNotFound(regionID))
+}
+
+/// Calls the callback of `cmd` when it can not be processed further.
+func notifyStaleCommand(regionID, peerID, term uint64, cmd pendingCmd) {
+	log.Infof("command is stale, skip. regionID %d, peerID %d, index %d, term %d",
+		regionID, peerID, cmd.index, cmd.term)
+	cmd.cb.Done(ErrRespStaleCommand(term))
+}
+
+/// The applier of a Region which is responsible for handling committed
+/// raft log entries of a Region.
+///
+/// `Apply` is a term of Raft, which means executing the actual commands.
+/// In Raft, once some log entries are committed, for every peer of the Raft
+/// group will apply the logs one by one. For write commands, it does write or
+/// delete to local engine; for admin commands, it does some meta change of the
+/// Raft group.
+///
+/// The raft worker receives all the apply tasks of different Regions
+/// located at this store, and it will get the corresponding applier to
+/// handle the apply worker.Task to make the code logic more clear.
+type applier struct {
+	id     uint64
+	term   uint64
+	region *metapb.Region
+	tag    string
+
+	/// Set to true when removing itself because of `ConfChangeType::RemoveNode`, and then
+	/// any following committed logs in same Ready should be applied failed.
+	pendingRemove bool
+
+	/// The commands waiting to be committed and applied
+	pendingCmds pendingCmdQueue
+
+	/// We writes apply_state to KV DB, in one write batch together with kv data.
+	///
+	/// If we write it to Raft DB, apply_state and kv data (Put, Delete) are in
+	/// separate WAL file. When power failure, for current raft log, apply_index may synced
+	/// to file, but KV data may not synced to file, so we will lose data.
+	applyState rspb.RaftApplyState
+	/// The term of the raft log at applied index.
+	appliedIndexTerm uint64
+
+	sizeDiffHint uint64
+}
+
+func newApplierFromPeer(peer *Peer) *applier {
+	return &applier{
+		tag:              fmt.Sprintf("[region %d] %d", peer.Region().GetId(), peer.PeerId()),
+		id:               peer.PeerId(),
+		term:             peer.Term(),
+		applyState:       peer.Store().applyState,
+		appliedIndexTerm: peer.Store().appliedIndexTerm,
+		region:           peer.Region(),
+	}
+}
+
+func (a *applier) handleTask(aCtx *applyContext, msg message.Msg) {
+	switch msg.Type {
+	case message.MsgTypeApplyProposal:
+		a.handleProposal(msg.Data.(*MsgApplyProposal))
+	case message.MsgTypeApplyCommitted:
+		a.handleApply(aCtx, msg.Data.(*MsgApplyCommitted))
+	case message.MsgTypeApplyRefresh:
+		a.handleRefresh(msg.Data.(*MsgApplyRefresh))
+	}
+}
+
+// when a snapshot, need to refresh the apply state
+/// Handles peer registration. When a peer is created, it will register an applier.
+func (a *applier) handleRefresh(reg *MsgApplyRefresh) {
+	log.Infof("%s refresh the applier, term %d", a.tag, reg.term)
+	y.Assert(a.id == reg.id)
+	a.term = reg.term
+	for _, cmd := range a.pendingCmds.normals {
+		notifyStaleCommand(a.region.Id, a.id, a.term, cmd)
+	}
+	a.pendingCmds.normals = a.pendingCmds.normals[:0]
+	if cmd := a.pendingCmds.takeConfChange(); cmd != nil {
+		notifyStaleCommand(a.region.Id, a.id, a.term, *cmd)
+	}
+	*a = applier{
+		tag:              fmt.Sprintf("[region %d] %d", reg.region.Id, reg.id),
+		id:               reg.id,
+		term:             reg.term,
+		applyState:       reg.applyState,
+		appliedIndexTerm: reg.appliedIndexTerm,
+		region:           reg.region,
+	}
+}
+
+/// Handles apply tasks, and uses the applier to handle the committed entries.
+func (a *applier) handleApply(aCtx *applyContext, apply *MsgApplyCommitted) {
+	if len(apply.entries) == 0 || a.pendingRemove {
+		return
+	}
+	a.term = apply.term
+	a.handleRaftCommittedEntries(aCtx, apply.entries)
+	apply.entries = apply.entries[:0]
+}
+
+/// Handles proposals, and appends the commands to the applier.
+func (a *applier) handleProposal(regionProposal *MsgApplyProposal) {
+	regionID, peerID := a.region.Id, a.id
+	y.Assert(a.id == regionProposal.Id)
+	if a.pendingRemove {
+		for _, p := range regionProposal.Props {
+			cmd := pendingCmd{index: p.index, term: p.term, cb: p.cb}
+			notifyStaleCommand(regionID, peerID, a.term, cmd)
+		}
+		return
+	}
+	for _, p := range regionProposal.Props {
+		cmd := pendingCmd{index: p.index, term: p.term, cb: p.cb}
+		if p.isConfChange {
+			if confCmd := a.pendingCmds.takeConfChange(); confCmd != nil {
+				// if it loses leadership before conf change is replicated, there may be
+				// a stale pending conf change before next conf change is applied. If it
+				// becomes leader again with the stale pending conf change, will enter
+				// this block, so we notify leadership may have been changed.
+				notifyStaleCommand(regionID, peerID, a.term, *confCmd)
+			}
+			a.pendingCmds.setConfChange(&cmd)
+		} else {
+			a.pendingCmds.appendNormal(cmd)
+		}
+	}
+}
+
+func (a *applier) destroy() {
+	log.Infof("%s remove applier", a.tag)
+	for _, cmd := range a.pendingCmds.normals {
+		notifyRegionRemoved(a.region.Id, a.id, cmd)
+	}
+	a.pendingCmds.normals = nil
+	if cmd := a.pendingCmds.takeConfChange(); cmd != nil {
+		notifyRegionRemoved(a.region.Id, a.id, *cmd)
+	}
+}
+
 type pendingCmd struct {
 	index uint64
 	term  uint64
@@ -59,44 +256,6 @@ func (q *pendingCmdQueue) setConfChange(cmd *pendingCmd) {
 	q.confChange = cmd
 }
 
-type changePeer struct {
-	confChange *eraftpb.ConfChange
-	peer       *metapb.Peer
-	region     *metapb.Region
-}
-
-type apply struct {
-	regionId uint64
-	term     uint64
-	entries  []eraftpb.Entry
-}
-
-type applyTaskRes struct {
-	regionID         uint64
-	applyState       rspb.RaftApplyState
-	appliedIndexTerm uint64
-	execResults      []execResult
-	sizeDiffHint     uint64
-
-	destroyPeerID uint64
-}
-
-type execResultChangePeer struct {
-	cp changePeer
-}
-
-type execResultCompactLog struct {
-	truncatedIndex uint64
-	firstIndex     uint64
-}
-
-type execResultSplitRegion struct {
-	regions []*metapb.Region
-	derived *metapb.Region
-}
-
-type execResult = interface{}
-
 type applyResultType int
 
 const (
@@ -136,51 +295,12 @@ func (c *applyCallback) push(cb *message.Callback, resp *raft_cmdpb.RaftCmdRespo
 	c.cbs = append(c.cbs, cb)
 }
 
-type proposal struct {
-	isConfChange bool
-	index        uint64
-	term         uint64
-	cb           *message.Callback
-}
-
-type regionProposal struct {
-	Id       uint64
-	RegionId uint64
-	Props    []*proposal
-}
-
-func newRegionProposal(id uint64, regionId uint64, props []*proposal) *regionProposal {
-	return &regionProposal{
-		Id:       id,
-		RegionId: regionId,
-		Props:    props,
-	}
-}
-
-type registration struct {
-	id               uint64
-	term             uint64
-	applyState       rspb.RaftApplyState
-	appliedIndexTerm uint64
-	region           *metapb.Region
-}
-
-func newRegistration(peer *Peer) *registration {
-	return &registration{
-		id:               peer.PeerId(),
-		term:             peer.Term(),
-		applyState:       peer.Store().applyState,
-		appliedIndexTerm: peer.Store().appliedIndexTerm,
-		region:           peer.Region(),
-	}
-}
-
 type applyContext struct {
 	tag              string
 	notifier         chan<- message.Msg
 	engines          *engine_util.Engines
 	cbs              []applyCallback
-	applyTaskResList []*applyTaskRes
+	applyTaskResList []*MsgApplyRes
 	execCtx          *applyExecContext
 	wb               *engine_util.WriteBatch
 	lastAppliedIndex uint64
@@ -248,7 +368,7 @@ func (ac *applyContext) finishFor(d *applier, results []execResult) {
 		d.writeApplyState(ac.wb)
 	}
 	ac.commitOpt(d, false)
-	res := &applyTaskRes{
+	res := &MsgApplyRes{
 		regionID:         d.region.Id,
 		applyState:       d.applyState,
 		execResults:      results,
@@ -267,78 +387,6 @@ func (ac *applyContext) flush() {
 		ac.applyTaskResList = ac.applyTaskResList[:0]
 	}
 	ac.committedCount = 0
-}
-
-/// Calls the callback of `cmd` when the Region is removed.
-func notifyRegionRemoved(regionID, peerID uint64, cmd pendingCmd) {
-	log.Debugf("region %d is removed, peerID %d, index %d, term %d", regionID, peerID, cmd.index, cmd.term)
-	notifyReqRegionRemoved(regionID, cmd.cb)
-}
-
-func notifyReqRegionRemoved(regionID uint64, cb *message.Callback) {
-	cb.Done(ErrRespRegionNotFound(regionID))
-}
-
-/// Calls the callback of `cmd` when it can not be processed further.
-func notifyStaleCommand(regionID, peerID, term uint64, cmd pendingCmd) {
-	log.Infof("command is stale, skip. regionID %d, peerID %d, index %d, term %d",
-		regionID, peerID, cmd.index, cmd.term)
-	notifyStaleReq(term, cmd.cb)
-}
-
-func notifyStaleReq(term uint64, cb *message.Callback) {
-	cb.Done(ErrRespStaleCommand(term))
-}
-
-/// The applier of a Region which is responsible for handling committed
-/// raft log entries of a Region.
-///
-/// `Apply` is a term of Raft, which means executing the actual commands.
-/// In Raft, once some log entries are committed, for every peer of the Raft
-/// group will apply the logs one by one. For write commands, it does write or
-/// delete to local engine; for admin commands, it does some meta change of the
-/// Raft group.
-///
-/// The raft worker receives all the apply tasks of different Regions
-/// located at this store, and it will get the corresponding applier to
-/// handle the apply worker.Task to make the code logic more clear.
-type applier struct {
-	id     uint64
-	term   uint64
-	region *metapb.Region
-	tag    string
-
-	/// If the applier should be stopped from polling.
-	/// A applier can be stopped in conf change or requested by destroy message.
-	stopped bool
-	/// Set to true when removing itself because of `ConfChangeType::RemoveNode`, and then
-	/// any following committed logs in same Ready should be applied failed.
-	pendingRemove bool
-
-	/// The commands waiting to be committed and applied
-	pendingCmds pendingCmdQueue
-
-	/// We writes apply_state to KV DB, in one write batch together with kv data.
-	///
-	/// If we write it to Raft DB, apply_state and kv data (Put, Delete) are in
-	/// separate WAL file. When power failure, for current raft log, apply_index may synced
-	/// to file, but KV data may not synced to file, so we will lose data.
-	applyState rspb.RaftApplyState
-	/// The term of the raft log at applied index.
-	appliedIndexTerm uint64
-
-	sizeDiffHint uint64
-}
-
-func newApplier(reg *registration) *applier {
-	return &applier{
-		id:               reg.id,
-		tag:              fmt.Sprintf("[region %d] %d", reg.region.Id, reg.id),
-		region:           reg.region,
-		applyState:       reg.applyState,
-		appliedIndexTerm: reg.appliedIndexTerm,
-		term:             reg.term,
-	}
 }
 
 /// Handles all the committed_entries, namely, applies the committed entries.
@@ -426,12 +474,12 @@ func (a *applier) handleRaftEntryConfChange(aCtx *applyContext, entry *eraftpb.E
 	switch result.tp {
 	case applyResultTypeNone:
 		// If failed, tell Raft that the `ConfChange` was aborted.
-		return applyResult{tp: applyResultTypeExecResult, data: &execResultChangePeer{cp: changePeer{
+		return applyResult{tp: applyResultTypeExecResult, data: &execResultChangePeer{
 			confChange: new(eraftpb.ConfChange),
-		}}}
+		}}
 	case applyResultTypeExecResult:
 		cp := result.data.(*execResultChangePeer)
-		cp.cp.confChange = confChange
+		cp.confChange = confChange
 		return applyResult{tp: applyResultTypeExecResult, data: result.data}
 	default:
 		panic("unreachable")
@@ -522,23 +570,13 @@ func (a *applier) applyRaftCmd(aCtx *applyContext, index, term uint64,
 	if applyResult.tp == applyResultTypeExecResult {
 		switch x := applyResult.data.(type) {
 		case *execResultChangePeer:
-			a.region = x.cp.region
+			a.region = x.region
 		case *execResultSplitRegion:
 			a.region = x.derived
 		default:
 		}
 	}
 	return resp, txn, applyResult
-}
-
-func (a *applier) clearAllCommandsAsStale() {
-	for _, cmd := range a.pendingCmds.normals {
-		notifyStaleCommand(a.region.Id, a.id, a.term, cmd)
-	}
-	a.pendingCmds.normals = a.pendingCmds.normals[:0]
-	if cmd := a.pendingCmds.takeConfChange(); cmd != nil {
-		notifyStaleCommand(a.region.Id, a.id, a.term, *cmd)
-	}
 }
 
 func (a *applier) newCtx(index, term uint64) *applyExecContext {
@@ -729,7 +767,6 @@ func (a *applier) execChangePeer(aCtx *applyContext, req *raft_cmdpb.AdminReques
 			if a.id == peer.Id {
 				// Remove ourself, we will destroy all region data later.
 				// So we need not to apply following logs.
-				a.stopped = true
 				a.pendingRemove = true
 			}
 		} else {
@@ -754,11 +791,9 @@ func (a *applier) execChangePeer(aCtx *applyContext, req *raft_cmdpb.AdminReques
 	result = applyResult{
 		tp: applyResultTypeExecResult,
 		data: &execResultChangePeer{
-			cp: changePeer{
-				confChange: new(eraftpb.ConfChange),
-				region:     region,
-				peer:       peer,
-			},
+			confChange: new(eraftpb.ConfChange),
+			region:     region,
+			peer:       peer,
 		},
 	}
 	return
@@ -864,102 +899,4 @@ func (a *applier) execCompactLog(aCtx *applyContext, req *raft_cmdpb.AdminReques
 		firstIndex:     firstIndex,
 	}}
 	return
-}
-
-func newApplierFromPeer(peer *peerFsm) *applier {
-	reg := newRegistration(peer.peer)
-	return newApplier(reg)
-}
-
-/// Handles peer registration. When a peer is created, it will register an applier.
-func (a *applier) handleRegistration(reg *registration) {
-	log.Infof("%s re-register to applier, term %d", a.tag, reg.term)
-	y.Assert(a.id == reg.id)
-	a.term = reg.term
-	a.clearAllCommandsAsStale()
-	*a = *newApplier(reg)
-}
-
-/// Handles apply tasks, and uses the applier to handle the committed entries.
-func (a *applier) handleApply(aCtx *applyContext, apply *apply) {
-	if len(apply.entries) == 0 || a.pendingRemove || a.stopped {
-		return
-	}
-	a.term = apply.term
-	a.handleRaftCommittedEntries(aCtx, apply.entries)
-	apply.entries = apply.entries[:0]
-	if a.pendingRemove {
-		a.destroy(aCtx)
-	}
-}
-
-/// Handles proposals, and appends the commands to the applier.
-func (a *applier) handleProposal(regionProposal *regionProposal) {
-	regionID, peerID := a.region.Id, a.id
-	y.Assert(a.id == regionProposal.Id)
-	if a.stopped {
-		for _, p := range regionProposal.Props {
-			cmd := pendingCmd{index: p.index, term: p.term, cb: p.cb}
-			notifyStaleCommand(regionID, peerID, a.term, cmd)
-		}
-		return
-	}
-	for _, p := range regionProposal.Props {
-		cmd := pendingCmd{index: p.index, term: p.term, cb: p.cb}
-		if p.isConfChange {
-			if confCmd := a.pendingCmds.takeConfChange(); confCmd != nil {
-				// if it loses leadership before conf change is replicated, there may be
-				// a stale pending conf change before next conf change is applied. If it
-				// becomes leader again with the stale pending conf change, will enter
-				// this block, so we notify leadership may have been changed.
-				notifyStaleCommand(regionID, peerID, a.term, *confCmd)
-			}
-			a.pendingCmds.setConfChange(&cmd)
-		} else {
-			a.pendingCmds.appendNormal(cmd)
-		}
-	}
-}
-
-func (a *applier) destroy(aCtx *applyContext) {
-	regionID := a.region.Id
-	for _, res := range aCtx.applyTaskResList {
-		if res.regionID == regionID {
-			// Flush before destroying to avoid reordering messages.
-			aCtx.flush()
-		}
-	}
-	log.Infof("%s remove applier", a.tag)
-	a.stopped = true
-	for _, cmd := range a.pendingCmds.normals {
-		notifyRegionRemoved(a.region.Id, a.id, cmd)
-	}
-	a.pendingCmds.normals = nil
-	if cmd := a.pendingCmds.takeConfChange(); cmd != nil {
-		notifyRegionRemoved(a.region.Id, a.id, *cmd)
-	}
-}
-
-/// Handles peer destroy. When a peer is destroyed, the corresponding applier should be removed too.
-func (a *applier) handleDestroy(aCtx *applyContext, regionID uint64) {
-	if !a.stopped {
-		a.destroy(aCtx)
-		aCtx.notifier <- message.NewPeerMsg(message.MsgTypeApplyRes, a.region.Id, &applyTaskRes{
-			regionID:      a.region.Id,
-			destroyPeerID: a.id,
-		})
-	}
-}
-
-func (a *applier) handleTask(aCtx *applyContext, msg message.Msg) {
-	switch msg.Type {
-	case message.MsgTypeApply:
-		a.handleApply(aCtx, msg.Data.(*apply))
-	case message.MsgTypeApplyProposal:
-		a.handleProposal(msg.Data.(*regionProposal))
-	case message.MsgTypeApplyRegistration:
-		a.handleRegistration(msg.Data.(*registration))
-	case message.MsgTypeApplyDestroy:
-		a.handleDestroy(aCtx, msg.RegionID)
-	}
 }
