@@ -1,6 +1,7 @@
 package message
 
 import (
+	"github.com/pingcap-incubator/tinykv/kv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	"github.com/pingcap-incubator/tinykv/raft"
@@ -41,6 +42,10 @@ func NewMsg(tp MsgType, data interface{}) Msg {
 
 func NewPeerMsg(tp MsgType, regionID uint64, data interface{}) Msg {
 	return Msg{Type: tp, RegionID: regionID, Data: data}
+}
+
+type MsgGCSnap struct {
+	Snaps []snap.SnapKeyWithSending
 }
 
 type MsgRaftCmd struct {

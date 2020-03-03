@@ -10,9 +10,16 @@ import (
 	"github.com/pingcap/errors"
 )
 
+// peerState contains the peer states that needs to run raft command and apply command.
+type peerState struct {
+	closed uint32
+	peer   *peer
+	apply  *applier
+}
+
 // router routes a message to a peer.
 type router struct {
-	peers       sync.Map
+	peers       sync.Map // regionID -> peerState
 	peerSender  chan message.Msg
 	storeSender chan<- message.Msg
 }
@@ -33,11 +40,11 @@ func (pr *router) get(regionID uint64) *peerState {
 	return nil
 }
 
-func (pr *router) register(peer *peerFsm) {
-	id := peer.peer.regionId
+func (pr *router) register(peer *peer) {
+	id := peer.regionId
 	newPeer := &peerState{
 		peer:  peer,
-		apply: newApplierFromPeer(peer.peer),
+		apply: newApplierFromPeer(peer),
 	}
 	pr.peers.Store(id, newPeer)
 }
