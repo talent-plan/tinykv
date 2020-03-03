@@ -13,7 +13,6 @@ require (
 	github.com/juju/loggo v0.0.0-20180524022052-584905176618 // indirect
 	github.com/juju/testing v0.0.0-20180920084828-472a3e8b2073 // indirect
 	github.com/montanaflynn/stats v0.0.0-20180911141734-db72e6cae808
-	github.com/ngaut/log v0.0.0-20180314031856-b8e36e7ba5ac
 	github.com/opentracing/opentracing-go v1.0.2
 	github.com/petar/GoLLRB v0.0.0-20190514000832-33fb24c13b99
 	github.com/pingcap/check v0.0.0-20190102082844-67f458068fc8
