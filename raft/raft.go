@@ -48,18 +48,6 @@ func (st StateType) String() string {
 	return stmap[uint64(st)]
 }
 
-// CampaignType represents the type of campaigning
-// the reason we use the type of string instead of uint64
-// is because it's simpler to compare and fill in raft entries
-type CampaignType string
-
-const (
-	// campaignElection represents a normal (time-based) election
-	campaignElection CampaignType = "CampaignElection"
-	// campaignTransfer represents the type of leader transfer
-	campaignTransfer CampaignType = "CampaignTransfer"
-)
-
 // ErrProposalDropped is returned when the proposal is ignored by some cases,
 // so that the proposer can be notified and fail fast.
 var ErrProposalDropped = errors.New("raft proposal dropped")
@@ -565,7 +553,7 @@ func (r *Raft) becomeLeader() {
 }
 
 // TODO: Delete method
-func (r *Raft) campaign(t CampaignType) {
+func (r *Raft) campaign() {
 	r.becomeCandidate()
 	voteMsg := pb.MessageType_MsgRequestVote
 	term := r.Term
@@ -583,11 +571,7 @@ func (r *Raft) campaign(t CampaignType) {
 		r.logger.Infof("%d [logterm: %d, index: %d] sent %s request to %d at term %d",
 			r.id, r.RaftLog.lastTerm(), r.RaftLog.LastIndex(), voteMsg, id, r.Term)
 
-		var ctx []byte
-		if t == campaignTransfer {
-			ctx = []byte(t)
-		}
-		r.send(pb.Message{Term: term, To: id, MsgType: voteMsg, Index: r.RaftLog.LastIndex(), LogTerm: r.RaftLog.lastTerm(), Context: ctx})
+		r.send(pb.Message{Term: term, To: id, MsgType: voteMsg, Index: r.RaftLog.LastIndex(), LogTerm: r.RaftLog.lastTerm()})
 	}
 }
 
@@ -609,7 +593,8 @@ func (r *Raft) poll(id uint64, t pb.MessageType, v bool) (granted int) {
 	return granted
 }
 
-// Step the entrance of handle message
+// Step the entrance of handle message, see `MessageType`
+// on `eraftpb.proto` for what msgs should be handled
 func (r *Raft) Step(m pb.Message) error {
 	// Your Code Here 2A
 	// TODO: Delete Start
@@ -644,7 +629,7 @@ func (r *Raft) Step(m pb.Message) error {
 
 			r.logger.Infof("%d is starting a new election at term %d", r.id, r.Term)
 
-			r.campaign(campaignElection)
+			r.campaign()
 		} else {
 			r.logger.Debugf("%d ignoring MessageType_MsgHup because already leader", r.id)
 		}
@@ -865,7 +850,7 @@ func (r *Raft) stepFollower(m pb.Message) error {
 	case pb.MessageType_MsgTimeoutNow:
 		if r.promotable() {
 			r.logger.Infof("%d [term %d] received MessageType_MsgTimeoutNow from %d and starts an election to get leadership.", r.id, r.Term, m.From)
-			r.campaign(campaignTransfer)
+			r.campaign()
 		} else {
 			r.logger.Infof("%d received MessageType_MsgTimeoutNow from %d but is not promotable", r.id, m.From)
 		}
@@ -902,7 +887,7 @@ func (r *Raft) handleHeartbeat(m pb.Message) {
 	// Your Code Here 2A
 	// TODO: Delete Start
 	r.RaftLog.commitTo(m.Commit)
-	r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgHeartbeatResponse, Context: m.Context})
+	r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgHeartbeatResponse})
 	// TODO: Delete End
 }
 
