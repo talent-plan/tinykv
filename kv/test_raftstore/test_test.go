@@ -13,7 +13,7 @@ import (
 	"github.com/Connor1996/badger"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/meta"
+	"github.com/pingcap-incubator/tinykv/kv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	"github.com/stretchr/testify/assert"
