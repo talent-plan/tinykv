@@ -7,7 +7,8 @@ import (
 	"sync"
 
 	"github.com/google/btree"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/util"
+	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/util/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -296,7 +297,7 @@ func (m *MockPDClient) RegionHeartbeat(req *pdpb.RegionHeartbeatRequest) error {
 }
 
 func (m *MockPDClient) handleHeartbeatVersion(region *metapb.Region) error {
-	if bytes.Compare(region.GetStartKey(), region.GetEndKey()) > 0 {
+	if engine_util.ExceedEndKey(region.GetStartKey(), region.GetEndKey()) {
 		panic("start key > end key")
 	}
 
@@ -319,7 +320,7 @@ func (m *MockPDClient) handleHeartbeatVersion(region *metapb.Region) error {
 				return nil
 			}
 
-			if bytes.Compare(searchRegion.GetStartKey(), region.GetEndKey()) > 0 {
+			if engine_util.ExceedEndKey(searchRegion.GetStartKey(), region.GetEndKey()) {
 				// No range covers [start, end) now, insert directly.
 				m.addRegionLocked(region)
 				return nil

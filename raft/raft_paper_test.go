@@ -35,13 +35,13 @@ import (
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
-func TestFollowerUpdateTermFromMessage(t *testing.T) {
+func TestFollowerUpdateTermFromMessage2A(t *testing.T) {
 	testUpdateTermFromMessage(t, StateFollower)
 }
-func TestCandidateUpdateTermFromMessage(t *testing.T) {
+func TestCandidateUpdateTermFromMessage2A(t *testing.T) {
 	testUpdateTermFromMessage(t, StateCandidate)
 }
-func TestLeaderUpdateTermFromMessage(t *testing.T) {
+func TestLeaderUpdateTermFromMessage2A(t *testing.T) {
 	testUpdateTermFromMessage(t, StateLeader)
 }
 
@@ -72,30 +72,9 @@ func testUpdateTermFromMessage(t *testing.T, state StateType) {
 	}
 }
 
-// TestRejectStaleTermMessage tests that if a server receives a request with
-// a stale term number, it rejects the request.
-// Our implementation ignores the request instead.
-// Reference: section 5.1
-func TestRejectStaleTermMessage(t *testing.T) {
-	called := false
-	fakeStep := func(r *Raft, m pb.Message) error {
-		called = true
-		return nil
-	}
-	r := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
-	r.step = fakeStep
-	r.loadState(pb.HardState{Term: 2})
-
-	r.Step(pb.Message{MsgType: pb.MessageType_MsgAppend, Term: r.Term - 1})
-
-	if called {
-		t.Errorf("stepFunc called = %v, want %v", called, false)
-	}
-}
-
 // TestStartAsFollower tests that when servers start up, they begin as followers.
 // Reference: section 5.2
-func TestStartAsFollower(t *testing.T) {
+func TestStartAsFollower2A(t *testing.T) {
 	r := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
 	if r.State != StateFollower {
 		t.Errorf("state = %s, want %s", r.State, StateFollower)
@@ -106,15 +85,15 @@ func TestStartAsFollower(t *testing.T) {
 // it will send a MessageType_MsgHeartbeat with m.Index = 0, m.LogTerm=0 and empty entries
 // as heartbeat to all followers.
 // Reference: section 5.2
-func TestLeaderBcastBeat(t *testing.T) {
+func TestLeaderBcastBeat2A(t *testing.T) {
 	// heartbeat interval
 	hi := 1
 	r := newTestRaft(1, []uint64{1, 2, 3}, 10, hi, NewMemoryStorage())
 	r.becomeCandidate()
 	r.becomeLeader()
-	for i := 0; i < 10; i++ {
-		r.appendEntry(pb.Entry{Index: uint64(i) + 1})
-	}
+
+	r.Step(pb.Message{MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{}}})
+	r.readMessages() // clear message
 
 	for i := 0; i < hi; i++ {
 		r.tick()
@@ -131,10 +110,10 @@ func TestLeaderBcastBeat(t *testing.T) {
 	}
 }
 
-func TestFollowerStartElection(t *testing.T) {
+func TestFollowerStartElection2A(t *testing.T) {
 	testNonleaderStartElection(t, StateFollower)
 }
-func TestCandidateStartNewElection(t *testing.T) {
+func TestCandidateStartNewElection2A(t *testing.T) {
 	testNonleaderStartElection(t, StateCandidate)
 }
 
@@ -189,7 +168,7 @@ func testNonleaderStartElection(t *testing.T, state StateType) {
 // b) it loses the election
 // c) it is unclear about the result
 // Reference: section 5.2
-func TestLeaderElectionInOneRoundRPC(t *testing.T) {
+func TestLeaderElectionInOneRoundRPC2A(t *testing.T) {
 	tests := []struct {
 		size  int
 		votes map[uint64]bool
@@ -234,7 +213,7 @@ func TestLeaderElectionInOneRoundRPC(t *testing.T) {
 // TestFollowerVote tests that each follower will vote for at most one
 // candidate in a given term, on a first-come-first-served basis.
 // Reference: section 5.2
-func TestFollowerVote(t *testing.T) {
+func TestFollowerVote2A(t *testing.T) {
 	tests := []struct {
 		vote    uint64
 		nvote   uint64
@@ -249,7 +228,8 @@ func TestFollowerVote(t *testing.T) {
 	}
 	for i, tt := range tests {
 		r := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
-		r.loadState(pb.HardState{Term: 1, Vote: tt.vote})
+		r.Term = 1
+		r.Vote = tt.vote
 
 		r.Step(pb.Message{From: tt.nvote, To: 1, Term: 1, MsgType: pb.MessageType_MsgRequestVote})
 
@@ -268,7 +248,7 @@ func TestFollowerVote(t *testing.T) {
 // to be leader whose term is at least as large as the candidate's current term,
 // it recognizes the leader as legitimate and returns to follower state.
 // Reference: section 5.2
-func TestCandidateFallback(t *testing.T) {
+func TestCandidateFallback2A(t *testing.T) {
 	tests := []pb.Message{
 		{From: 2, To: 1, Term: 1, MsgType: pb.MessageType_MsgAppend},
 		{From: 2, To: 1, Term: 2, MsgType: pb.MessageType_MsgAppend},
@@ -291,12 +271,12 @@ func TestCandidateFallback(t *testing.T) {
 	}
 }
 
-func TestFollowerElectionTimeoutRandomized(t *testing.T) {
+func TestFollowerElectionTimeoutRandomized2A(t *testing.T) {
 	SetLogger(discardLogger)
 	defer SetLogger(defaultLogger)
 	testNonleaderElectionTimeoutRandomized(t, StateFollower)
 }
-func TestCandidateElectionTimeoutRandomized(t *testing.T) {
+func TestCandidateElectionTimeoutRandomized2A(t *testing.T) {
 	SetLogger(discardLogger)
 	defer SetLogger(defaultLogger)
 	testNonleaderElectionTimeoutRandomized(t, StateCandidate)
@@ -332,12 +312,12 @@ func testNonleaderElectionTimeoutRandomized(t *testing.T, state StateType) {
 	}
 }
 
-func TestFollowersElectionTimeoutNonconflict(t *testing.T) {
+func TestFollowersElectionTimeoutNonconflict2A(t *testing.T) {
 	SetLogger(discardLogger)
 	defer SetLogger(defaultLogger)
 	testNonleadersElectionTimeoutNonconflict(t, StateFollower)
 }
-func TestCandidatesElectionTimeoutNonconflict(t *testing.T) {
+func TestCandidatesElectionTimeoutNonconflict2A(t *testing.T) {
 	SetLogger(discardLogger)
 	defer SetLogger(defaultLogger)
 	testNonleadersElectionTimeoutNonconflict(t, StateCandidate)
@@ -394,7 +374,7 @@ func testNonleadersElectionTimeoutNonconflict(t *testing.T, state StateType) {
 // the new entries.
 // Also, it writes the new entry into stable storage.
 // Reference: section 5.3
-func TestLeaderStartReplication(t *testing.T) {
+func TestLeaderStartReplication2B(t *testing.T) {
 	s := NewMemoryStorage()
 	r := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, s)
 	r.becomeCandidate()
@@ -434,7 +414,7 @@ func TestLeaderStartReplication(t *testing.T) {
 // and it includes that index in future AppendEntries RPCs so that the other
 // servers eventually find out.
 // Reference: section 5.3
-func TestLeaderCommitEntry(t *testing.T) {
+func TestLeaderCommitEntry2B(t *testing.T) {
 	s := NewMemoryStorage()
 	r := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, s)
 	r.becomeCandidate()
@@ -458,7 +438,7 @@ func TestLeaderCommitEntry(t *testing.T) {
 	sort.Sort(messageSlice(msgs))
 	for i, m := range msgs {
 		if w := uint64(i + 2); m.To != w {
-			t.Errorf("to = %x, want %x", m.To, w)
+			t.Errorf("to = %d, want %d", m.To, w)
 		}
 		if m.MsgType != pb.MessageType_MsgAppend {
 			t.Errorf("type = %v, want %v", m.MsgType, pb.MessageType_MsgAppend)
@@ -472,7 +452,7 @@ func TestLeaderCommitEntry(t *testing.T) {
 // TestLeaderAcknowledgeCommit tests that a log entry is committed once the
 // leader that created the entry has replicated it on a majority of the servers.
 // Reference: section 5.3
-func TestLeaderAcknowledgeCommit(t *testing.T) {
+func TestLeaderAcknowledgeCommit2B(t *testing.T) {
 	tests := []struct {
 		size      int
 		acceptors map[uint64]bool
@@ -514,7 +494,7 @@ func TestLeaderAcknowledgeCommit(t *testing.T) {
 // entries created by previous leaders.
 // Also, it applies the entry to its local state machine (in log order).
 // Reference: section 5.3
-func TestLeaderCommitPrecedingEntries(t *testing.T) {
+func TestLeaderCommitPrecedingEntries2B(t *testing.T) {
 	tests := [][]pb.Entry{
 		{},
 		{{Term: 2, Index: 1}},
@@ -525,7 +505,7 @@ func TestLeaderCommitPrecedingEntries(t *testing.T) {
 		storage := NewMemoryStorage()
 		storage.Append(tt)
 		r := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, storage)
-		r.loadState(pb.HardState{Term: 2})
+		r.Term = 2
 		r.becomeCandidate()
 		r.becomeLeader()
 		r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: []byte("some data")}}})
@@ -545,7 +525,7 @@ func TestLeaderCommitPrecedingEntries(t *testing.T) {
 // TestFollowerCommitEntry tests that once a follower learns that a log entry
 // is committed, it applies the entry to its local state machine (in log order).
 // Reference: section 5.3
-func TestFollowerCommitEntry(t *testing.T) {
+func TestFollowerCommitEntry2B(t *testing.T) {
 	tests := []struct {
 		ents   []*pb.Entry
 		commit uint64
@@ -602,41 +582,43 @@ func TestFollowerCommitEntry(t *testing.T) {
 // then it refuses the new entries. Otherwise it replies that it accepts the
 // append entries.
 // Reference: section 5.3
-func TestFollowerCheckMessageType_MsgAppend(t *testing.T) {
+func TestFollowerCheckMessageType_MsgAppend2B(t *testing.T) {
 	ents := []pb.Entry{{Term: 1, Index: 1}, {Term: 2, Index: 2}}
 	tests := []struct {
-		term        uint64
-		index       uint64
-		windex      uint64
-		wreject     bool
-		wrejectHint uint64
+		term    uint64
+		index   uint64
+		wreject bool
 	}{
 		// match with committed entries
-		{0, 0, 1, false, 0},
-		{ents[0].Term, ents[0].Index, 1, false, 0},
+		{0, 0, false},
+		{ents[0].Term, ents[0].Index, false},
 		// match with uncommitted entries
-		{ents[1].Term, ents[1].Index, 2, false, 0},
+		{ents[1].Term, ents[1].Index, false},
 
 		// unmatch with existing entry
-		{ents[0].Term, ents[1].Index, ents[1].Index, true, 2},
+		{ents[0].Term, ents[1].Index, true},
 		// unexisting entry
-		{ents[1].Term + 1, ents[1].Index + 1, ents[1].Index + 1, true, 2},
+		{ents[1].Term + 1, ents[1].Index + 1, true},
 	}
 	for i, tt := range tests {
 		storage := NewMemoryStorage()
 		storage.Append(ents)
 		r := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, storage)
-		r.loadState(pb.HardState{Commit: 1})
+		r.RaftLog.committed = 1
 		r.becomeFollower(2, 2)
+		msgs := r.readMessages() // clear message
 
 		r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgAppend, Term: 2, LogTerm: tt.term, Index: tt.index})
 
-		msgs := r.readMessages()
-		wmsgs := []pb.Message{
-			{From: 1, To: 2, MsgType: pb.MessageType_MsgAppendResponse, Term: 2, Index: tt.windex, Reject: tt.wreject, RejectHint: tt.wrejectHint},
+		msgs = r.readMessages()
+		if len(msgs) != 1 {
+			t.Errorf("#%d: len(msgs) = %+v, want %+v", i, len(msgs), 1)
 		}
-		if !reflect.DeepEqual(msgs, wmsgs) {
-			t.Errorf("#%d: msgs = %+v, want %+v", i, msgs, wmsgs)
+		if msgs[0].Term != 2 {
+			t.Errorf("#%d: term = %+v, want %+v", i, msgs[0].Term, 2)
+		}
+		if msgs[0].Reject != tt.wreject {
+			t.Errorf("#%d: term = %+v, want %+v", i, msgs[0].Reject, tt.wreject)
 		}
 	}
 }
@@ -646,7 +628,7 @@ func TestFollowerCheckMessageType_MsgAppend(t *testing.T) {
 // and append any new entries not already in the log.
 // Also, it writes the new entry into stable storage.
 // Reference: section 5.3
-func TestFollowerAppendEntries(t *testing.T) {
+func TestFollowerAppendEntries2B(t *testing.T) {
 	tests := []struct {
 		index, term uint64
 		ents        []*pb.Entry
@@ -709,7 +691,7 @@ func TestFollowerAppendEntries(t *testing.T) {
 // TestLeaderSyncFollowerLog tests that the leader could bring a follower's log
 // into consistency with its own.
 // Reference: section 5.3, figure 7
-func TestLeaderSyncFollowerLog(t *testing.T) {
+func TestLeaderSyncFollowerLog2B(t *testing.T) {
 	ents := []pb.Entry{
 		{},
 		{Term: 1, Index: 1}, {Term: 1, Index: 2}, {Term: 1, Index: 3},
@@ -762,18 +744,19 @@ func TestLeaderSyncFollowerLog(t *testing.T) {
 		leadStorage := NewMemoryStorage()
 		leadStorage.Append(ents)
 		lead := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, leadStorage)
-		lead.loadState(pb.HardState{Commit: lead.RaftLog.LastIndex(), Term: term})
+		lead.Term = term
+		lead.RaftLog.committed = lead.RaftLog.LastIndex()
 		followerStorage := NewMemoryStorage()
 		followerStorage.Append(tt)
 		follower := newTestRaft(2, []uint64{1, 2, 3}, 10, 1, followerStorage)
-		follower.loadState(pb.HardState{Term: term - 1})
+		follower.Term = term - 1
 		// It is necessary to have a three-node cluster.
 		// The second may have more up-to-date log than the first one, so the
 		// first node needs the vote from the third node to become the leader.
 		n := newNetwork(lead, follower, nopStepper)
 		n.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 		// The election occurs in the term after the one we loaded with
-		// lead.loadState above.
+		// lead's term and commited index setted up above.
 		n.send(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgRequestVoteResponse, Term: term + 1})
 
 		n.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{}}})
@@ -787,7 +770,7 @@ func TestLeaderSyncFollowerLog(t *testing.T) {
 // TestVoteRequest tests that the vote request includes information about the candidate’s log
 // and are sent to all of the other nodes.
 // Reference: section 5.4.1
-func TestVoteRequest(t *testing.T) {
+func TestVoteRequest2B(t *testing.T) {
 	tests := []struct {
 		ents  []*pb.Entry
 		wterm uint64
@@ -802,8 +785,8 @@ func TestVoteRequest(t *testing.T) {
 		})
 		r.readMessages()
 
-		for i := 1; i < r.electionTimeout*2; i++ {
-			r.tickElection()
+		for r.State != StateCandidate {
+			r.tick()
 		}
 
 		msgs := r.readMessages()
@@ -835,7 +818,7 @@ func TestVoteRequest(t *testing.T) {
 // TestVoter tests the voter denies its vote if its own log is more up-to-date
 // than that of the candidate.
 // Reference: section 5.4.1
-func TestVoter(t *testing.T) {
+func TestVoter2A(t *testing.T) {
 	tests := []struct {
 		ents    []pb.Entry
 		logterm uint64
@@ -880,7 +863,7 @@ func TestVoter(t *testing.T) {
 // TestLeaderOnlyCommitsLogFromCurrentTerm tests that only log entries from the leader’s
 // current term are committed by counting replicas.
 // Reference: section 5.4.2
-func TestLeaderOnlyCommitsLogFromCurrentTerm(t *testing.T) {
+func TestLeaderOnlyCommitsLogFromCurrentTerm2B(t *testing.T) {
 	ents := []pb.Entry{{Term: 1, Index: 1}, {Term: 2, Index: 2}}
 	tests := []struct {
 		index   uint64
@@ -896,7 +879,7 @@ func TestLeaderOnlyCommitsLogFromCurrentTerm(t *testing.T) {
 		storage := NewMemoryStorage()
 		storage.Append(ents)
 		r := newTestRaft(1, []uint64{1, 2}, 10, 1, storage)
-		r.loadState(pb.HardState{Term: 2})
+		r.Term = 2
 		// become leader at term 3
 		r.becomeCandidate()
 		r.becomeLeader()
@@ -921,7 +904,13 @@ func commitNoopEntry(r *Raft, s *MemoryStorage) {
 	if r.State != StateLeader {
 		panic("it should only be used when it is the leader")
 	}
-	r.bcastAppend()
+	for id := range r.Prs {
+		if id == r.id {
+			continue
+		}
+
+		r.sendAppend(id)
+	}
 	// simulate the response of MessageType_MsgAppend
 	msgs := r.readMessages()
 	for _, m := range msgs {
@@ -933,8 +922,8 @@ func commitNoopEntry(r *Raft, s *MemoryStorage) {
 	// ignore further messages to refresh followers' commit index
 	r.readMessages()
 	s.Append(r.RaftLog.unstableEntries())
-	r.RaftLog.appliedTo(r.RaftLog.committed)
-	r.RaftLog.stableTo(r.RaftLog.LastIndex(), r.RaftLog.lastTerm())
+	r.RaftLog.applied = r.RaftLog.committed
+	r.RaftLog.stabled = r.RaftLog.LastIndex()
 }
 
 func acceptAndReply(m pb.Message) pb.Message {
