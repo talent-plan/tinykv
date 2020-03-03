@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"github.com/pingcap-incubator/tinykv/kv/tikv"
 	"net"
 	_ "net/http/pprof"
 	"os"
@@ -14,8 +13,9 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
+	"github.com/pingcap-incubator/tinykv/kv/inner_server"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/inner_server"
+	"github.com/pingcap-incubator/tinykv/kv/server"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
@@ -56,7 +56,7 @@ func main() {
 	} else {
 		innerServer = setupStandAloneInnerServer(pdClient, conf)
 	}
-	tikvServer := tikv.NewServer(innerServer)
+	tikvServer := server.NewServer(innerServer)
 
 	var alivePolicy = keepalive.EnforcementPolicy{
 		MinTime:             2 * time.Second, // If a client pings more than once every 2 seconds, terminate the connection
