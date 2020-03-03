@@ -759,6 +759,9 @@ func (d *peerMsgHandler) findSiblingRegion() (result *metapb.Region) {
 
 func (d *peerMsgHandler) onRaftGCLogTick() {
 	d.ticker.schedule(PeerTickRaftLogGC)
+	if !d.peer.IsLeader() {
+		return
+	}
 
 	appliedIdx := d.peer.Store().AppliedIndex()
 	firstIdx, _ := d.peer.Store().FirstIndex()
