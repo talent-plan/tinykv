@@ -6,12 +6,10 @@ import (
 
 	"github.com/Connor1996/badger/y"
 	"github.com/ngaut/log"
-	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/runner"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
-	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -31,106 +29,18 @@ const (
 	PeerTickPdHeartbeat      PeerTick = 3
 )
 
-type peerFsm struct {
-	peer     *Peer
-	stopped  bool
-	hasReady bool
-	ticker   *ticker
-}
-
-// If we create the peer actively, like bootstrap/split/merge region, we should
-// use this function to create the peer. The region must contain the peer info
-// for this store.
-func createPeerFsm(storeID uint64, cfg *config.Config, sched chan<- worker.Task,
-	engines *engine_util.Engines, region *metapb.Region) (*peerFsm, error) {
-	metaPeer := util.FindPeer(region, storeID)
-	if metaPeer == nil {
-		return nil, errors.Errorf("find no peer for store %d in region %v", storeID, region)
-	}
-	log.Infof("region %v create peer with ID %d", region, metaPeer.Id)
-	peer, err := NewPeer(storeID, cfg, engines, region, sched, metaPeer)
-	if err != nil {
-		return nil, err
-	}
-	return &peerFsm{
-		peer:   peer,
-		ticker: newTicker(region.GetId(), cfg),
-	}, nil
-}
-
-// The peer can be created from another node with raft membership changes, and we only
-// know the region_id and peer_id when creating this replicated peer, the region info
-// will be retrieved later after applying snapshot.
-func replicatePeerFsm(storeID uint64, cfg *config.Config, sched chan<- worker.Task,
-	engines *engine_util.Engines, regionID uint64, metaPeer *metapb.Peer) (*peerFsm, error) {
-	// We will remove tombstone key when apply snapshot
-	log.Infof("[region %v] replicates peer with ID %d", regionID, metaPeer.GetId())
-	region := &metapb.Region{
-		Id:          regionID,
-		RegionEpoch: &metapb.RegionEpoch{},
-	}
-	peer, err := NewPeer(storeID, cfg, engines, region, sched, metaPeer)
-	if err != nil {
-		return nil, err
-	}
-	return &peerFsm{
-		peer:   peer,
-		ticker: newTicker(region.GetId(), cfg),
-	}, nil
-}
-
-func (pf *peerFsm) drop() {
-	pf.peer.Stop()
-}
-
-func (pf *peerFsm) regionID() uint64 {
-	return pf.peer.regionId
-}
-
-func (pf *peerFsm) region() *metapb.Region {
-	return pf.peer.Store().region
-}
-
-func (pf *peerFsm) getPeer() *Peer {
-	return pf.peer
-}
-
-func (pf *peerFsm) storeID() uint64 {
-	return pf.peer.Meta.StoreId
-}
-
-func (pf *peerFsm) peerID() uint64 {
-	return pf.peer.Meta.Id
-}
-
-func (pf *peerFsm) stop() {
-	pf.stopped = true
-}
-
-func (pf *peerFsm) scheduleApplyingSnapshot() {
-	pf.peer.Store().ScheduleApplyingSnapshot()
-}
-
-func (pf *peerFsm) tag() string {
-	return pf.peer.Tag
-}
-
 type peerMsgHandler struct {
-	*peerFsm
+	*peer
 	applyCh chan []message.Msg
 	ctx     *GlobalContext
 }
 
-func newRaftMsgHandler(fsm *peerFsm, applyCh chan []message.Msg, ctx *GlobalContext) *peerMsgHandler {
+func newRaftMsgHandler(peer *peer, applyCh chan []message.Msg, ctx *GlobalContext) *peerMsgHandler {
 	return &peerMsgHandler{
-		peerFsm: fsm,
+		peer:    peer,
 		applyCh: applyCh,
 		ctx:     ctx,
 	}
-}
-
-type MsgGCSnap struct {
-	Snaps []snap.SnapKeyWithSending
 }
 
 func (d *peerMsgHandler) HandleMsgs(msg message.Msg) {
@@ -155,7 +65,7 @@ func (d *peerMsgHandler) HandleMsgs(msg message.Msg) {
 	case message.MsgTypeRegionApproximateSize:
 		d.onApproximateRegionSize(msg.Data.(uint64))
 	case message.MsgTypeGcSnap:
-		gcSnap := msg.Data.(*MsgGCSnap)
+		gcSnap := msg.Data.(*message.MsgGCSnap)
 		d.onGCSnap(gcSnap.Snaps)
 	case message.MsgTypeStart:
 		d.startTicker()
@@ -609,7 +519,7 @@ func (d *peerMsgHandler) onReadyCompactLog(firstIndex uint64, truncatedIndex uin
 func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*metapb.Region) {
 	meta := d.ctx.storeMeta
 	regionID := derived.Id
-	meta.setRegion(derived, d.getPeer())
+	meta.setRegion(derived, d.peer)
 	d.peer.SizeDiffHint = 0
 	isLeader := d.peer.IsLeader()
 	if isLeader {
@@ -650,27 +560,27 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 			d.ctx.router.close(newRegionID)
 		}
 
-		newPeer, err := createPeerFsm(d.ctx.store.Id, d.ctx.cfg, d.ctx.regionTaskSender, d.ctx.engine, newRegion)
+		newPeer, err := createPeer(d.ctx.store.Id, d.ctx.cfg, d.ctx.regionTaskSender, d.ctx.engine, newRegion)
 		if err != nil {
 			// peer information is already written into db, can't recover.
 			// there is probably a bug.
 			panic(fmt.Sprintf("create new split region %s error %v", newRegion, err))
 		}
-		metaPeer := newPeer.peer.Meta
+		metaPeer := newPeer.Meta
 
 		for _, p := range newRegion.GetPeers() {
-			newPeer.peer.insertPeerCache(p)
+			newPeer.insertPeerCache(p)
 		}
 
 		// New peer derive write flow from parent region,
 		// this will be used by balance write flow.
-		campaigned := newPeer.peer.MaybeCampaign(isLeader)
+		campaigned := newPeer.MaybeCampaign(isLeader)
 		newPeer.hasReady = newPeer.hasReady || campaigned
 
 		if isLeader {
 			// The new peer is likely to become leader, send a heartbeat immediately to reduce
 			// client query miss.
-			newPeer.peer.HeartbeatPd(d.ctx.pdTaskSender)
+			newPeer.HeartbeatPd(d.ctx.pdTaskSender)
 		}
 
 		meta.regions[newRegionID] = newRegion

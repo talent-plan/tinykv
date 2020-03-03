@@ -122,7 +122,7 @@ type applier struct {
 	sizeDiffHint uint64
 }
 
-func newApplierFromPeer(peer *Peer) *applier {
+func newApplierFromPeer(peer *peer) *applier {
 	return &applier{
 		tag:              fmt.Sprintf("[region %d] %d", peer.Region().GetId(), peer.PeerId()),
 		id:               peer.PeerId(),

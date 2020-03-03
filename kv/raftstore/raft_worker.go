@@ -6,14 +6,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
 )
 
-// peerState contains the peer states that needs to run raft command and apply command.
-// It binds to a worker to make sure the commands are always executed on a same goroutine.
-type peerState struct {
-	closed uint32
-	peer   *peerFsm
-	apply  *applier
-}
-
 // raftWorker is responsible for run raft commands and apply raft logs.
 type raftWorker struct {
 	pr *router
