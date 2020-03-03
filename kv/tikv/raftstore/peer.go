@@ -30,13 +30,6 @@ func NotifyReqRegionRemoved(regionId uint64, cb *message.Callback) {
 	cb.Done(resp)
 }
 
-type DestroyPeerJob struct {
-	Initialized bool
-	AsyncRemove bool
-	RegionId    uint64
-	Peer        *metapb.Peer
-}
-
 type Peer struct {
 	Meta           *metapb.Peer
 	regionId       uint64
@@ -140,41 +133,24 @@ func (p *Peer) getPeerFromCache(peerID uint64) *metapb.Peer {
 	return nil
 }
 
-/// Register self to applyMsgs so that the peer is then usable.
-func (p *Peer) Activate(msgs []message.Msg) []message.Msg {
-	return append(msgs, message.NewPeerMsg(message.MsgTypeApplyRegistration, p.regionId, newRegistration(p)))
-}
-
 func (p *Peer) nextProposalIndex() uint64 {
 	return p.RaftGroup.Raft.RaftLog.LastIndex() + 1
 }
 
 /// Tries to destroy itself. Returns a job (if needed) to do more cleaning tasks.
-func (p *Peer) MaybeDestroy() *DestroyPeerJob {
+func (p *Peer) MaybeDestroy() bool {
 	if p.PendingRemove {
 		log.Infof("%v is being destroyed, skip", p.Tag)
-		return nil
+		return false
 	}
-	initialized := p.peerStorage.isInitialized()
-	asyncRemove := false
 	if p.IsApplyingSnapshot() {
 		if !p.Store().CancelApplyingSnap() {
 			log.Infof("%v stale peer %v is applying snapshot", p.Tag, p.Meta.Id)
-			return nil
+			return false
 		}
-		// There is no tasks in apply worker.
-		asyncRemove = false
-	} else {
-		asyncRemove = initialized
 	}
 	p.PendingRemove = true
-
-	return &DestroyPeerJob{
-		AsyncRemove: asyncRemove,
-		Initialized: initialized,
-		RegionId:    p.regionId,
-		Peer:        p.Meta,
-	}
+	return true
 }
 
 /// Does the real destroy worker.Task which includes:
@@ -384,13 +360,17 @@ func (p *Peer) ReadyToHandlePendingSnap() bool {
 	return p.LastApplyingIdx == p.Store().AppliedIndex()
 }
 
-func (p *Peer) TakeApplyProposals() *regionProposal {
+func (p *Peer) TakeApplyProposals() *MsgApplyProposal {
 	if len(p.applyProposals) == 0 {
 		return nil
 	}
 	props := p.applyProposals
 	p.applyProposals = nil
-	return newRegionProposal(p.PeerId(), p.regionId, props)
+	return &MsgApplyProposal{
+		Id:       p.PeerId(),
+		RegionId: p.regionId,
+		Props:    props,
+	}
 }
 
 func (p *Peer) HandleRaftReady(msgs []message.Msg, pdScheduler chan<- worker.Task, trans Transport) (*ApplySnapResult, []message.Msg) {
@@ -455,7 +435,15 @@ func (p *Peer) HandleRaftReady(msgs []message.Msg, pdScheduler chan<- worker.Tas
 	}
 
 	if applySnapResult != nil {
-		msgs = p.Activate(msgs)
+		/// Register self to applyMsgs so that the peer is then usable.
+		msgs = append(msgs, message.NewPeerMsg(message.MsgTypeApplyRefresh, p.regionId, &MsgApplyRefresh{
+			id:               p.PeerId(),
+			term:             p.Term(),
+			applyState:       p.Store().applyState,
+			appliedIndexTerm: p.Store().appliedIndexTerm,
+			region:           p.Region(),
+		}))
+
 		// Snapshot's metadata has been applied.
 		p.LastApplyingIdx = p.Store().truncatedIndex()
 	} else {
@@ -464,12 +452,11 @@ func (p *Peer) HandleRaftReady(msgs []message.Msg, pdScheduler chan<- worker.Tas
 		l := len(committedEntries)
 		if l > 0 {
 			p.LastApplyingIdx = committedEntries[l-1].Index
-			apply := &apply{
+			msgs = append(msgs, message.Msg{Type: message.MsgTypeApplyCommitted, Data: &MsgApplyCommitted{
 				regionId: p.regionId,
 				term:     p.Term(),
 				entries:  committedEntries,
-			}
-			msgs = append(msgs, message.Msg{Type: message.MsgTypeApply, Data: apply, RegionID: p.regionId})
+			}, RegionID: p.regionId})
 		}
 	}
 
