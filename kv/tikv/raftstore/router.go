@@ -37,7 +37,7 @@ func (pr *router) register(peer *peerFsm) {
 	id := peer.peer.regionId
 	newPeer := &peerState{
 		peer:  peer,
-		apply: newApplierFromPeer(peer),
+		apply: newApplierFromPeer(peer.peer),
 	}
 	pr.peers.Store(id, newPeer)
 }
@@ -47,6 +47,7 @@ func (pr *router) close(regionID uint64) {
 	if ok {
 		ps := v.(*peerState)
 		atomic.StoreUint32(&ps.closed, 1)
+		ps.apply.destroy()
 		pr.peers.Delete(regionID)
 	}
 }
