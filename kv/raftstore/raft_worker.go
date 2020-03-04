@@ -75,6 +75,7 @@ func (rw *raftWorker) getPeerState(peersMap map[uint64]*peerState, regionID uint
 type applyWorker struct {
 	pr      *router
 	applyCh chan []message.Msg
+	ctx     *GlobalContext
 
 	// TODO: Delete this
 	applyCtx *applyContext
@@ -82,8 +83,10 @@ type applyWorker struct {
 
 func newApplyWorker(ctx *GlobalContext, ch chan []message.Msg, pr *router) *applyWorker {
 	return &applyWorker{
-		pr:       pr,
-		applyCh:  ch,
+		pr:      pr,
+		applyCh: ch,
+		ctx:     ctx,
+		// TODO: Delete this
 		applyCtx: newApplyContext("", ctx.engine, pr.peerSender, ctx.cfg),
 	}
 }
@@ -99,11 +102,11 @@ func (aw *applyWorker) run(wg *sync.WaitGroup) {
 		for _, msg := range msgs {
 			ps := aw.pr.get(msg.RegionID)
 			if ps == nil {
-				// TODO: figure out a way to invoke all cmd for the deleted applier
 				continue
 			}
 			ps.apply.handleTask(aw.applyCtx, msg)
 		}
+		// TODO: Delete this
 		aw.applyCtx.flush()
 	}
 }

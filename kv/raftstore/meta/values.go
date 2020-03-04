@@ -36,7 +36,6 @@ func GetSnapRaftState(db *badger.DB, regionId uint64) (*rspb.RaftLocalState, err
 
 func GetApplyState(db *badger.DB, regionId uint64) (*rspb.RaftApplyState, error) {
 	applyState := new(rspb.RaftApplyState)
-	applyState.TruncatedState = new(rspb.RaftTruncatedState)
 	if err := engine_util.GetMsg(db, ApplyStateKey(regionId), applyState); err != nil {
 		return nil, err
 	}
@@ -92,6 +91,10 @@ func InitApplyState(kvEngine *badger.DB, region *metapb.Region) (*rspb.RaftApply
 			applyState.AppliedIndex = RaftInitLogIndex
 			applyState.TruncatedState.Index = RaftInitLogIndex
 			applyState.TruncatedState.Term = RaftInitLogTerm
+		}
+		err = engine_util.PutMsg(kvEngine, ApplyStateKey(region.Id), applyState)
+		if err != nil {
+			return applyState, err
 		}
 	}
 	return applyState, nil
