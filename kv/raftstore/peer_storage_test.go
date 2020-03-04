@@ -9,6 +9,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/raft"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,14 +32,15 @@ func newTestPeerStorageFromEnts(t *testing.T, ents []eraftpb.Entry) *PeerStorage
 	ctx := NewInvokeContext(peerStore)
 	raftWB := new(engine_util.WriteBatch)
 	require.Nil(t, peerStore.Append(ctx, ents[1:], raftWB))
-	ctx.ApplyState.TruncatedState.Index = ents[0].Index
-	ctx.ApplyState.TruncatedState.Term = ents[0].Term
+	ctx.ApplyState.TruncatedState = &rspb.RaftTruncatedState{
+		Index: ents[0].Index,
+		Term:  ents[0].Term,
+	}
 	ctx.ApplyState.AppliedIndex = ents[len(ents)-1].Index
 	ctx.saveApplyStateTo(kvWB)
 	require.Nil(t, peerStore.Engines.WriteRaft(raftWB))
 	peerStore.Engines.WriteKV(kvWB)
 	peerStore.raftState = ctx.RaftState
-	peerStore.applyState = ctx.ApplyState
 	return peerStore
 }
 

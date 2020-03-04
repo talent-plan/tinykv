@@ -39,19 +39,16 @@ type proposal struct {
 }
 
 type MsgApplyRefresh struct {
-	id               uint64
-	term             uint64
-	applyState       rspb.RaftApplyState
-	appliedIndexTerm uint64
-	region           *metapb.Region
+	id     uint64
+	term   uint64
+	region *metapb.Region
 }
 
 type MsgApplyRes struct {
-	regionID         uint64
-	applyState       rspb.RaftApplyState
-	appliedIndexTerm uint64
-	execResults      []execResult
-	sizeDiffHint     uint64
+	regionID     uint64
+	appliedIndex uint64
+	execResults  []execResult
+	sizeDiffHint uint64
 }
 
 type execResult = interface{}
@@ -107,6 +104,7 @@ type applier struct {
 	/// any following committed logs in same Ready should be applied failed.
 	pendingRemove bool
 
+	// TODO: Delete Start
 	/// The commands waiting to be committed and applied
 	pendingCmds pendingCmdQueue
 
@@ -116,33 +114,46 @@ type applier struct {
 	/// separate WAL file. When power failure, for current raft log, apply_index may synced
 	/// to file, but KV data may not synced to file, so we will lose data.
 	applyState rspb.RaftApplyState
-	/// The term of the raft log at applied index.
-	appliedIndexTerm uint64
+	// TODO: Delete End
 
 	sizeDiffHint uint64
 }
 
 func newApplierFromPeer(peer *peer) *applier {
 	return &applier{
-		tag:              fmt.Sprintf("[region %d] %d", peer.Region().GetId(), peer.PeerId()),
-		id:               peer.PeerId(),
-		term:             peer.Term(),
-		applyState:       peer.Store().applyState,
-		appliedIndexTerm: peer.Store().appliedIndexTerm,
-		region:           peer.Region(),
+		tag:    fmt.Sprintf("[region %d] %d", peer.Region().GetId(), peer.PeerId()),
+		id:     peer.PeerId(),
+		term:   peer.Term(),
+		region: peer.Region(),
+	}
+}
+
+func (a *applier) destroy() {
+	log.Infof("%s remove applier", a.tag)
+	for _, cmd := range a.pendingCmds.normals {
+		notifyRegionRemoved(a.region.Id, a.id, cmd)
+	}
+	a.pendingCmds.normals = nil
+	if cmd := a.pendingCmds.takeConfChange(); cmd != nil {
+		notifyRegionRemoved(a.region.Id, a.id, *cmd)
 	}
 }
 
 func (a *applier) handleTask(aCtx *applyContext, msg message.Msg) {
 	switch msg.Type {
 	case message.MsgTypeApplyProposal:
+		// Your Code Here (2B).
 		a.handleProposal(msg.Data.(*MsgApplyProposal))
 	case message.MsgTypeApplyCommitted:
+		// Your Code Here (2B).
 		a.handleApply(aCtx, msg.Data.(*MsgApplyCommitted))
 	case message.MsgTypeApplyRefresh:
+		// Your Code Here (2C).
 		a.handleRefresh(msg.Data.(*MsgApplyRefresh))
 	}
 }
+
+// TODO: Delete Start
 
 // when a snapshot, need to refresh the apply state
 /// Handles peer registration. When a peer is created, it will register an applier.
@@ -158,12 +169,10 @@ func (a *applier) handleRefresh(reg *MsgApplyRefresh) {
 		notifyStaleCommand(a.region.Id, a.id, a.term, *cmd)
 	}
 	*a = applier{
-		tag:              fmt.Sprintf("[region %d] %d", reg.region.Id, reg.id),
-		id:               reg.id,
-		term:             reg.term,
-		applyState:       reg.applyState,
-		appliedIndexTerm: reg.appliedIndexTerm,
-		region:           reg.region,
+		tag:    fmt.Sprintf("[region %d] %d", reg.region.Id, reg.id),
+		id:     reg.id,
+		term:   reg.term,
+		region: reg.region,
 	}
 }
 
@@ -202,17 +211,6 @@ func (a *applier) handleProposal(regionProposal *MsgApplyProposal) {
 		} else {
 			a.pendingCmds.appendNormal(cmd)
 		}
-	}
-}
-
-func (a *applier) destroy() {
-	log.Infof("%s remove applier", a.tag)
-	for _, cmd := range a.pendingCmds.normals {
-		notifyRegionRemoved(a.region.Id, a.id, cmd)
-	}
-	a.pendingCmds.normals = nil
-	if cmd := a.pendingCmds.takeConfChange(); cmd != nil {
-		notifyRegionRemoved(a.region.Id, a.id, *cmd)
 	}
 }
 
@@ -327,6 +325,8 @@ func (ac *applyContext) prepareFor(d *applier) {
 		ac.wb = new(engine_util.WriteBatch)
 	}
 	ac.cbs = append(ac.cbs, applyCallback{region: d.region})
+	applyState, _ := meta.GetApplyState(ac.engines.Kv, d.region.GetId())
+	d.applyState = *applyState
 	ac.lastAppliedIndex = d.applyState.AppliedIndex
 }
 
@@ -369,10 +369,9 @@ func (ac *applyContext) finishFor(d *applier, results []execResult) {
 	}
 	ac.commitOpt(d, false)
 	res := &MsgApplyRes{
-		regionID:         d.region.Id,
-		applyState:       d.applyState,
-		execResults:      results,
-		appliedIndexTerm: d.appliedIndexTerm,
+		regionID:     d.region.Id,
+		appliedIndex: d.applyState.AppliedIndex,
+		execResults:  results,
 	}
 	ac.applyTaskResList = append(ac.applyTaskResList, res)
 }
@@ -446,7 +445,6 @@ func (a *applier) handleRaftEntryNormal(aCtx *applyContext, entry *eraftpb.Entry
 
 	// when a peer become leader, it will send an empty entry.
 	a.applyState.AppliedIndex = index
-	a.appliedIndexTerm = term
 	y.Assert(term > 0)
 	for {
 		cmd := a.pendingCmds.popNormal(term - 1)
@@ -544,7 +542,7 @@ func (a *applier) applyRaftCmd(aCtx *applyContext, index, term uint64,
 	// if pending remove, apply should be aborted already.
 	y.Assert(!a.pendingRemove)
 
-	aCtx.execCtx = a.newCtx(index, term)
+	aCtx.execCtx = a.newCtx(aCtx.engines, index, term)
 	aCtx.wb.SetSafePoint()
 	resp, txn, applyResult, err := a.execRaftCmd(aCtx, req)
 	if err != nil {
@@ -565,7 +563,6 @@ func (a *applier) applyRaftCmd(aCtx *applyContext, index, term uint64,
 	a.applyState = aCtx.execCtx.applyState
 	aCtx.execCtx = nil
 	a.applyState.AppliedIndex = index
-	a.appliedIndexTerm = term
 
 	if applyResult.tp == applyResultTypeExecResult {
 		switch x := applyResult.data.(type) {
@@ -579,7 +576,7 @@ func (a *applier) applyRaftCmd(aCtx *applyContext, index, term uint64,
 	return resp, txn, applyResult
 }
 
-func (a *applier) newCtx(index, term uint64) *applyExecContext {
+func (a *applier) newCtx(engines *engine_util.Engines, index, term uint64) *applyExecContext {
 	return &applyExecContext{
 		index:      index,
 		term:       term,
@@ -876,7 +873,7 @@ func (a *applier) execCompactLog(aCtx *applyContext, req *raft_cmdpb.AdminReques
 	compactIndex := req.CompactLog.CompactIndex
 	resp = new(raft_cmdpb.AdminResponse)
 	applyState := &aCtx.execCtx.applyState
-	firstIndex := firstIndex(applyState)
+	firstIndex := applyState.TruncatedState.Index + 1
 	if compactIndex <= firstIndex {
 		log.Debugf("%s compact index <= first index, no need to compact", a.tag)
 		return
@@ -900,3 +897,5 @@ func (a *applier) execCompactLog(aCtx *applyContext, req *raft_cmdpb.AdminReques
 	}}
 	return
 }
+
+// TODO: Delete End

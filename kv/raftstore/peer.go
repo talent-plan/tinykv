@@ -502,11 +502,9 @@ func (p *peer) HandleRaftReady(msgs []message.Msg, pdScheduler chan<- worker.Tas
 	if applySnapResult != nil {
 		/// Register self to applyMsgs so that the peer is then usable.
 		msgs = append(msgs, message.NewPeerMsg(message.MsgTypeApplyRefresh, p.regionId, &MsgApplyRefresh{
-			id:               p.PeerId(),
-			term:             p.Term(),
-			applyState:       p.Store().applyState,
-			appliedIndexTerm: p.Store().appliedIndexTerm,
-			region:           p.Region(),
+			id:     p.PeerId(),
+			term:   p.Term(),
+			region: p.Region(),
 		}))
 
 		// Snapshot's metadata has been applied.
@@ -602,15 +600,12 @@ func (p *peer) sendRaftMessage(msg eraftpb.Message, trans Transport) error {
 	return trans.Send(sendMsg)
 }
 
-func (p *peer) PostApply(kv *badger.DB, applyState rspb.RaftApplyState, appliedIndexTerm uint64, sizeDiffHint uint64) bool {
+func (p *peer) PostApply(kv *badger.DB, appliedIndex uint64, sizeDiffHint uint64) bool {
 	hasReady := false
 	if p.IsApplyingSnapshot() {
 		panic("should not applying snapshot")
 	}
-	p.RaftGroup.AdvanceApply(applyState.AppliedIndex)
-
-	p.Store().applyState = applyState
-	p.Store().appliedIndexTerm = appliedIndexTerm
+	p.RaftGroup.AdvanceApply(appliedIndex)
 
 	diff := p.SizeDiffHint + sizeDiffHint
 	if diff > 0 {

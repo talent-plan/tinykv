@@ -159,6 +159,8 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		return
 	}
 
+	// Your Code Here (2B).
+	// TODO: Delete Start
 	msgs := make([]message.Msg, 0)
 	if p := d.peer.TakeApplyProposals(); p != nil {
 		msg := message.Msg{Type: message.MsgTypeApplyProposal, Data: p, RegionID: p.RegionId}
@@ -182,6 +184,7 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		meta.regions[region.Id] = region
 	}
 	d.applyCh <- msgs
+	// TODO: Delete End
 }
 
 func (d *peerMsgHandler) onRaftBaseTick() {
@@ -204,6 +207,9 @@ func (d *peerMsgHandler) onRaftBaseTick() {
 }
 
 func (d *peerMsgHandler) onApplyResult(res *MsgApplyRes) {
+	// Your Code Here (2B).
+
+	// TODO: Delete Start
 	log.Debugf("%s async apply finished %v", d.tag(), res)
 	// handle executing committed log results
 	for _, result := range res.execResults {
@@ -220,9 +226,10 @@ func (d *peerMsgHandler) onApplyResult(res *MsgApplyRes) {
 	if d.stopped {
 		return
 	}
-	if d.peer.PostApply(d.ctx.engine.Kv, res.applyState, res.appliedIndexTerm, res.sizeDiffHint) {
+	if d.peer.PostApply(d.ctx.engine.Kv, res.appliedIndex, res.sizeDiffHint) {
 		d.hasReady = true
 	}
+	// TODO: Delete End
 }
 
 func (d *peerMsgHandler) onRaftMsg(msg *rspb.RaftMessage) error {
@@ -454,6 +461,8 @@ func (d *peerMsgHandler) destroyPeer() {
 }
 
 func (d *peerMsgHandler) onReadyChangePeer(cp *execResultChangePeer) {
+	// Your Code Here (3B).
+	// TODO: Delete Start
 	changeType := cp.confChange.ChangeType
 	d.peer.RaftGroup.ApplyConfChange(*cp.confChange)
 	if cp.confChange.NodeId == 0 {
@@ -500,6 +509,7 @@ func (d *peerMsgHandler) onReadyChangePeer(cp *execResultChangePeer) {
 			panic(fmt.Sprintf("%s trying to remove unknown peer %s", d.tag(), cp.peer))
 		}
 	}
+	// TODO: Delete End
 }
 
 func (d *peerMsgHandler) onReadyCompactLog(firstIndex uint64, truncatedIndex uint64) {
@@ -517,6 +527,8 @@ func (d *peerMsgHandler) onReadyCompactLog(firstIndex uint64, truncatedIndex uin
 }
 
 func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*metapb.Region) {
+	// Your Code Here (3B).
+	// TODO: Delete Start
 	meta := d.ctx.storeMeta
 	regionID := derived.Id
 	meta.setRegion(derived, d.peer)
@@ -596,6 +608,7 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 			}
 		}
 	}
+	// TODO: Delete End
 }
 
 func (d *peerMsgHandler) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) error {
