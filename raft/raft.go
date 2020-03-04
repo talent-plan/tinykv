@@ -110,7 +110,7 @@ type Config struct {
 
 	// Logger is the logger used for raft log. For multinode which can host
 	// multiple raft group, each raft group can have its own logger
-	Logger Logger
+	Logger *DefaultLogger
 }
 
 func (c *Config) validate() error {
@@ -169,7 +169,7 @@ type Raft struct {
 	// [electiontimeout, 2 * electiontimeout - 1].
 	randomizedElectionTimeout int
 
-	logger Logger
+	logger *DefaultLogger
 
 	// Your Code Here 2A
 	// TODO: Delete Start

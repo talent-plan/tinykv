@@ -44,14 +44,14 @@ const (
 const FORMAT_TIME_DAY string = "20060102"
 const FORMAT_TIME_HOUR string = "2006010215"
 
-var _log *logger = New()
+var _log *Logger = New()
 
 func init() {
 	SetFlags(Ldate | Ltime | Lshortfile)
 	SetHighlighting(runtime.GOOS != "windows")
 }
 
-func Logger() *log.Logger {
+func GlobalLogger() *log.Logger {
 	return _log._log
 }
 
@@ -75,11 +75,11 @@ func Infof(format string, v ...interface{}) {
 }
 
 func Panic(v ...interface{}) {
-	_log._log.Panic(v...)
+	_log.Panic(v...)
 }
 
 func Panicf(format string, v ...interface{}) {
-	_log._log.Panicf(format, v...)
+	_log.Panicf(format, v...)
 }
 
 func Debug(v ...interface{}) {
@@ -130,33 +130,37 @@ func SetHighlighting(highlighting bool) {
 	_log.SetHighlighting(highlighting)
 }
 
-type logger struct {
+type Logger struct {
 	_log         *log.Logger
 	level        LogLevel
 	highlighting bool
 }
 
-func (l *logger) SetHighlighting(highlighting bool) {
+func (l *Logger) SetHighlighting(highlighting bool) {
 	l.highlighting = highlighting
 }
 
-func (l *logger) SetFlags(flags int) {
+func (l *Logger) SetFlags(flags int) {
 	l._log.SetFlags(flags)
 }
 
-func (l *logger) SetLevel(level LogLevel) {
+func (l *Logger) Flags() int {
+	return l._log.Flags()
+}
+
+func (l *Logger) SetLevel(level LogLevel) {
 	l.level = level
 }
 
-func (l *logger) SetLevelByString(level string) {
+func (l *Logger) SetLevelByString(level string) {
 	l.level = StringToLogLevel(level)
 }
 
-func (l *logger) log(t LogType, v ...interface{}) {
+func (l *Logger) log(t LogType, v ...interface{}) {
 	l.logf(t, "%v\n", v)
 }
 
-func (l *logger) logf(t LogType, format string, v ...interface{}) {
+func (l *Logger) logf(t LogType, format string, v ...interface{}) {
 	if l.level|LogLevel(t) != l.level {
 		return
 	}
@@ -171,45 +175,53 @@ func (l *logger) logf(t LogType, format string, v ...interface{}) {
 	l._log.Output(4, s)
 }
 
-func (l *logger) Fatal(v ...interface{}) {
+func (l *Logger) Fatal(v ...interface{}) {
 	l.log(LOG_FATAL, v...)
 	os.Exit(-1)
 }
 
-func (l *logger) Fatalf(format string, v ...interface{}) {
+func (l *Logger) Fatalf(format string, v ...interface{}) {
 	l.logf(LOG_FATAL, format, v...)
 	os.Exit(-1)
 }
 
-func (l *logger) Error(v ...interface{}) {
+func (l *Logger) Panic(v ...interface{}) {
+	_log.Panic(v...)
+}
+
+func (l *Logger) Panicf(format string, v ...interface{}) {
+	_log.Panicf(format, v...)
+}
+
+func (l *Logger) Error(v ...interface{}) {
 	l.log(LOG_ERROR, v...)
 }
 
-func (l *logger) Errorf(format string, v ...interface{}) {
+func (l *Logger) Errorf(format string, v ...interface{}) {
 	l.logf(LOG_ERROR, format, v...)
 }
 
-func (l *logger) Warning(v ...interface{}) {
+func (l *Logger) Warning(v ...interface{}) {
 	l.log(LOG_WARNING, v...)
 }
 
-func (l *logger) Warningf(format string, v ...interface{}) {
+func (l *Logger) Warningf(format string, v ...interface{}) {
 	l.logf(LOG_WARNING, format, v...)
 }
 
-func (l *logger) Debug(v ...interface{}) {
+func (l *Logger) Debug(v ...interface{}) {
 	l.log(LOG_DEBUG, v...)
 }
 
-func (l *logger) Debugf(format string, v ...interface{}) {
+func (l *Logger) Debugf(format string, v ...interface{}) {
 	l.logf(LOG_DEBUG, format, v...)
 }
 
-func (l *logger) Info(v ...interface{}) {
+func (l *Logger) Info(v ...interface{}) {
 	l.log(LOG_INFO, v...)
 }
 
-func (l *logger) Infof(format string, v ...interface{}) {
+func (l *Logger) Infof(format string, v ...interface{}) {
 	l.logf(LOG_INFO, format, v...)
 }
 
@@ -247,10 +259,10 @@ func LogTypeToString(t LogType) (string, string) {
 	return "unknown", "[0;37"
 }
 
-func New() *logger {
-	return Newlogger(os.Stderr, "")
+func New() *Logger {
+	return NewLogger(os.Stderr, "")
 }
 
-func Newlogger(w io.Writer, prefix string) *logger {
-	return &logger{_log: log.New(w, prefix, LstdFlags), level: LOG_LEVEL_ALL, highlighting: true}
+func NewLogger(w io.Writer, prefix string) *Logger {
+	return &Logger{_log: log.New(w, prefix, LstdFlags), level: LOG_LEVEL_ALL, highlighting: true}
 }

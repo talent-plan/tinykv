@@ -47,7 +47,7 @@ type RaftLog struct {
 	// all entries that have not yet compact.
 	entries []pb.Entry
 
-	logger Logger
+	logger *DefaultLogger
 
 	// Your Code Here 2A
 	// TODO: Delete Start
@@ -63,7 +63,7 @@ type RaftLog struct {
 
 // newLog returns log using the given storage. It recovers the log
 // to the state that it just commits and applies the latest snapshot.
-func newLog(storage Storage, logger Logger) *RaftLog {
+func newLog(storage Storage, logger *DefaultLogger) *RaftLog {
 	// Your Code Here 2A
 	// TODO: Delete Start
 	if storage == nil {
