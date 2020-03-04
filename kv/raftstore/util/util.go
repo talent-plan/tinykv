@@ -85,7 +85,7 @@ func CheckRegionEpoch(req *raft_cmdpb.RaftCmdRequest, region *metapb.Region, inc
 		case raft_cmdpb.AdminCmdType_CompactLog, raft_cmdpb.AdminCmdType_InvalidAdmin:
 		case raft_cmdpb.AdminCmdType_ChangePeer:
 			checkConfVer = true
-		case raft_cmdpb.AdminCmdType_BatchSplit, raft_cmdpb.AdminCmdType_TransferLeader:
+		case raft_cmdpb.AdminCmdType_Split, raft_cmdpb.AdminCmdType_TransferLeader:
 			checkVer = true
 			checkConfVer = true
 		}

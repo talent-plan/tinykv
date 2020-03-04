@@ -98,11 +98,15 @@ func (r *pdTaskHandler) onAskBatchSplit(t *PdAskBatchSplitTask) {
 			NewPeerIds:  splitID.NewPeerIds,
 		}
 	}
+
+	if len(srs) < 1 {
+		log.Errorf("not split request")
+		return
+	}
+
 	aq := &raft_cmdpb.AdminRequest{
-		CmdType: raft_cmdpb.AdminCmdType_BatchSplit,
-		Splits: &raft_cmdpb.BatchSplitRequest{
-			Requests: srs,
-		},
+		CmdType: raft_cmdpb.AdminCmdType_Split,
+		Split:   srs[0],
 	}
 	r.sendAdminRequest(t.Region.GetId(), t.Region.GetRegionEpoch(), t.Peer, aq, t.Callback)
 }

@@ -608,8 +608,8 @@ func (a *applier) execAdminCmd(aCtx *applyContext, req *raft_cmdpb.RaftCmdReques
 	switch cmdType {
 	case raft_cmdpb.AdminCmdType_ChangePeer:
 		adminResp, result, err = a.execChangePeer(aCtx, adminReq)
-	case raft_cmdpb.AdminCmdType_BatchSplit:
-		adminResp, result, err = a.execBatchSplit(aCtx, adminReq)
+	case raft_cmdpb.AdminCmdType_Split:
+		adminResp, result, err = a.execSplit(aCtx, adminReq)
 	case raft_cmdpb.AdminCmdType_CompactLog:
 		adminResp, result, err = a.execCompactLog(aCtx, adminReq)
 	case raft_cmdpb.AdminCmdType_TransferLeader:
@@ -794,68 +794,69 @@ func (a *applier) execChangePeer(aCtx *applyContext, req *raft_cmdpb.AdminReques
 	return
 }
 
-func (a *applier) execBatchSplit(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
+func (a *applier) execSplit(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
 	resp *raft_cmdpb.AdminResponse, result applyResult, err error) {
-	splitReqs := req.Splits
-	if len(splitReqs.Requests) == 0 {
-		err = errors.New("missing split key")
-		return
-	}
+	splitReq := req.Split
 	derived := new(metapb.Region)
 	if err := util.CloneMsg(a.region, derived); err != nil {
 		panic(err)
 	}
-	newRegionCnt := len(splitReqs.Requests)
+
+	newRegionCnt := 1
 	regions := make([]*metapb.Region, 0, newRegionCnt+1)
 	keys := make([][]byte, 0, newRegionCnt+1)
 	keys = append(keys, derived.StartKey)
-	for _, request := range splitReqs.Requests {
-		splitKey := request.SplitKey
-		if len(splitKey) == 0 {
-			err = errors.New("missing split key")
-			return
-		}
-		if bytes.Compare(splitKey, keys[len(keys)-1]) <= 0 {
-			err = errors.Errorf("invalid split request:%s", splitReqs)
-			return
-		}
-		if len(request.NewPeerIds) != len(derived.Peers) {
-			err = errors.Errorf("invalid new peer id count, need %d but got %d",
-				len(derived.Peers), len(request.NewPeerIds))
-			return
-		}
-		keys = append(keys, splitKey)
+	splitKey := splitReq.SplitKey
+	if len(splitKey) == 0 {
+		err = errors.New("missing split key")
+		return
 	}
+	if bytes.Compare(splitKey, keys[len(keys)-1]) <= 0 {
+		err = errors.Errorf("invalid split request:%s", splitReq)
+		return
+	}
+	if len(splitReq.NewPeerIds) != len(derived.Peers) {
+		err = errors.Errorf("invalid new peer id count, need %d but got %d",
+			len(derived.Peers), len(splitReq.NewPeerIds))
+		return
+	}
+	keys = append(keys, splitKey)
+
 	err = util.CheckKeyInRegion(keys[len(keys)-1], a.region)
 	if err != nil {
 		return
 	}
+
+	if len(keys) < 2 {
+		err = errors.New("losing the startKey or splitKey")
+		return
+
+	}
+
 	log.Infof("%s split region %s, keys %v", a.tag, a.region, keys)
 	derived.RegionEpoch.Version += uint64(newRegionCnt)
-	for i, request := range splitReqs.Requests {
-		newRegion := &metapb.Region{
-			Id:          request.NewRegionId,
-			RegionEpoch: derived.RegionEpoch,
-			StartKey:    keys[i],
-			EndKey:      keys[i+1],
-		}
-		newRegion.Peers = make([]*metapb.Peer, len(derived.Peers))
-		for j := range newRegion.Peers {
-			newRegion.Peers[j] = &metapb.Peer{
-				Id:      request.NewPeerIds[j],
-				StoreId: derived.Peers[j].StoreId,
-			}
-		}
-		WritePeerState(aCtx.wb, newRegion, rspb.PeerState_Normal)
-		writeInitialApplyState(aCtx.wb, newRegion.Id)
-		regions = append(regions, newRegion)
+	newRegion := &metapb.Region{
+		Id:          splitReq.NewRegionId,
+		RegionEpoch: derived.RegionEpoch,
+		StartKey:    keys[0],
+		EndKey:      keys[1],
 	}
+	newRegion.Peers = make([]*metapb.Peer, len(derived.Peers))
+	for j := range newRegion.Peers {
+		newRegion.Peers[j] = &metapb.Peer{
+			Id:      splitReq.NewPeerIds[j],
+			StoreId: derived.Peers[j].StoreId,
+		}
+	}
+	WritePeerState(aCtx.wb, newRegion, rspb.PeerState_Normal)
+	writeInitialApplyState(aCtx.wb, newRegion.Id)
+	regions = append(regions, newRegion)
 	derived.StartKey = keys[len(keys)-1]
 	regions = append(regions, derived)
 	WritePeerState(aCtx.wb, derived, rspb.PeerState_Normal)
 
 	resp = &raft_cmdpb.AdminResponse{
-		Splits: &raft_cmdpb.BatchSplitResponse{
+		Split: &raft_cmdpb.SplitResponse{
 			Regions: regions,
 		},
 	}
