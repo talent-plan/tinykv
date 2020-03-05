@@ -129,12 +129,17 @@ func (s *testClusterInfoSuite) TestRegionWithStaleConfVer3C(c *C) {
 func (s *testClusterInfoSuite) TestRegionAddPendingPeer3C(c *C) {
 	cluster, regions := s.setUpTestCluster(c)
 
+	pendingCounts := make([]int, 3)
 	for i, region := range regions {
-		region := region.Clone(core.WithPendingPeers([]*metapb.Peer{region.GetPeers()[rand.Intn(len(region.GetPeers()))]}))
+		pendingPeer := region.GetPeers()[rand.Intn(len(region.GetPeers()))]
+		pendingCounts[pendingPeer.StoreId]++
+
+		region := region.Clone(core.WithPendingPeers([]*metapb.Peer{pendingPeer}))
 		regions[i] = region
 		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
 		checkRegions(c, cluster.core.Regions, regions)
 	}
+	checkPendingPeerCount([]int{}, cluster, c)
 }
 
 func (s *testClusterInfoSuite) TestRegionRemovePendingPeer3C(c *C) {
@@ -151,6 +156,7 @@ func (s *testClusterInfoSuite) TestRegionRemovePendingPeer3C(c *C) {
 		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
 		checkRegions(c, cluster.core.Regions, regions)
 	}
+	checkPendingPeerCount([]int{0, 0, 0}, cluster, c)
 }
 
 func (s *testClusterInfoSuite) TestRegionRemovePeers3C(c *C) {
@@ -293,7 +299,7 @@ func heartbeatRegions(c *C, cluster *RaftCluster, regions []*core.RegionInfo) {
 	}
 }
 
-func (s *testClusterInfoSuite) TestHeartbeatSplit(c *C) {
+func (s *testClusterInfoSuite) TestHeartbeatSplit3C(c *C) {
 	_, opt, err := newTestScheduleConfig()
 	c.Assert(err, IsNil)
 	cluster := createTestRaftCluster(mockid.NewIDAllocator(), opt, core.NewStorage(kv.NewMemoryKV()))
@@ -332,7 +338,7 @@ func (s *testClusterInfoSuite) TestHeartbeatSplit(c *C) {
 	checkRegion(c, cluster.GetRegionInfoByKey([]byte("n")), region3)
 }
 
-func (s *testClusterInfoSuite) TestRegionSplitAndMerge(c *C) {
+func (s *testClusterInfoSuite) TestRegionSplitAndMerge3C(c *C) {
 	_, opt, err := newTestScheduleConfig()
 	c.Assert(err, IsNil)
 	cluster := createTestRaftCluster(mockid.NewIDAllocator(), opt, core.NewStorage(kv.NewMemoryKV()))
@@ -363,40 +369,6 @@ func (s *testClusterInfoSuite) TestRegionSplitAndMerge(c *C) {
 		}
 		heartbeatRegions(c, cluster, regions)
 	}
-}
-
-func (s *testClusterInfoSuite) TestUpdateStorePendingPeerCount(c *C) {
-	_, opt, err := newTestScheduleConfig()
-	c.Assert(err, IsNil)
-	tc := newTestCluster(opt)
-	stores := newTestStores(5)
-	for _, s := range stores {
-		c.Assert(tc.putStoreLocked(s), IsNil)
-	}
-	peers := []*metapb.Peer{
-		{
-			Id:      2,
-			StoreId: 1,
-		},
-		{
-			Id:      3,
-			StoreId: 2,
-		},
-		{
-			Id:      3,
-			StoreId: 3,
-		},
-		{
-			Id:      4,
-			StoreId: 4,
-		},
-	}
-	origin := core.NewRegionInfo(&metapb.Region{Id: 1, Peers: peers[:3]}, peers[0], core.WithPendingPeers(peers[1:3]))
-	c.Assert(tc.processRegionHeartbeat(origin), IsNil)
-	checkPendingPeerCount([]int{0, 1, 1, 0}, tc.RaftCluster, c)
-	newRegion := core.NewRegionInfo(&metapb.Region{Id: 1, Peers: peers[1:]}, peers[1], core.WithPendingPeers(peers[3:4]))
-	c.Assert(tc.processRegionHeartbeat(newRegion), IsNil)
-	checkPendingPeerCount([]int{0, 0, 0, 1}, tc.RaftCluster, c)
 }
 
 func checkPendingPeerCount(expect []int, cluster *RaftCluster, c *C) {
