@@ -16,9 +16,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"math/rand"
-	"sync"
-
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockid"
@@ -26,6 +23,8 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
 	. "github.com/pingcap/check"
+	"math/rand"
+	"sync"
 )
 
 const (
@@ -378,6 +377,103 @@ func checkPendingPeerCount(expect []int, cluster *RaftCluster, c *C) {
 	}
 }
 
+type testClusterSuite struct {
+	baseCluster
+}
+
+var _ = Suite(&testClusterSuite{})
+
+func (s *testClusterSuite) TestConcurrentHandleRegion3C(c *C) {
+	var err error
+	var cleanup CleanupFunc
+	s.svr, cleanup, err = NewTestServer(c)
+	c.Assert(err, IsNil)
+	mustWaitLeader(c, []*Server{s.svr})
+	s.grpcPDClient = testutil.MustNewGrpcClient(c, s.svr.GetAddr())
+	defer cleanup()
+	storeAddrs := []string{"127.0.1.1:0", "127.0.1.1:1", "127.0.1.1:2"}
+	_, err = s.svr.bootstrapCluster(s.newBootstrapRequest(c, s.svr.clusterID, "127.0.0.1:0"))
+	c.Assert(err, IsNil)
+	s.svr.cluster.Lock()
+	s.svr.cluster.storage = core.NewStorage(kv.NewMemoryKV())
+	s.svr.cluster.Unlock()
+	var stores []*metapb.Store
+	for _, addr := range storeAddrs {
+		store := s.newStore(c, 0, addr, "2.1.0")
+		stores = append(stores, store)
+		_, err := putStore(c, s.grpcPDClient, s.svr.clusterID, store)
+		c.Assert(err, IsNil)
+	}
+
+	var wg sync.WaitGroup
+	// register store and bind stream
+	for i, store := range stores {
+		req := &pdpb.StoreHeartbeatRequest{
+			Header: testutil.NewRequestHeader(s.svr.clusterID),
+			Stats: &pdpb.StoreStats{
+				StoreId:   store.GetId(),
+				Capacity:  1000 * (1 << 20),
+				Available: 1000 * (1 << 20),
+			},
+		}
+		_, err := s.svr.StoreHeartbeat(context.TODO(), req)
+		c.Assert(err, IsNil)
+		stream, err := s.grpcPDClient.RegionHeartbeat(context.Background())
+		c.Assert(err, IsNil)
+		peer := &metapb.Peer{Id: s.allocID(c), StoreId: store.GetId()}
+		regionReq := &pdpb.RegionHeartbeatRequest{
+			Header: testutil.NewRequestHeader(s.svr.clusterID),
+			Region: &metapb.Region{
+				Id:    s.allocID(c),
+				Peers: []*metapb.Peer{peer},
+			},
+			Leader: peer,
+		}
+		err = stream.Send(regionReq)
+		c.Assert(err, IsNil)
+		// make sure the first store can receive one response
+		if i == 0 {
+			wg.Add(1)
+		}
+		go func(isReciver bool) {
+			if isReciver {
+				_, err := stream.Recv()
+				c.Assert(err, IsNil)
+				wg.Done()
+			}
+			for {
+				stream.Recv()
+			}
+		}(i == 0)
+	}
+	concurrent := 2000
+	for i := 0; i < concurrent; i++ {
+		region := &metapb.Region{
+			Id:       s.allocID(c),
+			StartKey: []byte(fmt.Sprintf("%5d", i)),
+			EndKey:   []byte(fmt.Sprintf("%5d", i+1)),
+			Peers:    []*metapb.Peer{{Id: s.allocID(c), StoreId: stores[0].GetId()}},
+			RegionEpoch: &metapb.RegionEpoch{
+				ConfVer: initEpochConfVer,
+				Version: initEpochVersion,
+			},
+		}
+		if i == 0 {
+			region.StartKey = []byte("")
+		} else if i == concurrent-1 {
+			region.EndKey = []byte("")
+		}
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := s.svr.cluster.HandleRegionHeartbeat(core.NewRegionInfo(region, region.Peers[0]))
+			c.Assert(err, IsNil)
+		}()
+	}
+	wg.Wait()
+}
+
 func (s *testClusterInfoSuite) TestLoadClusterInfo(c *C) {
 	server, cleanup := mustRunTestServer(c)
 	defer cleanup()
@@ -457,15 +553,9 @@ func (s *testClusterInfoSuite) TestStoreHeartbeat(c *C) {
 	}
 }
 
-var _ = Suite(&testClusterSuite{})
-
 type baseCluster struct {
 	svr          *Server
 	grpcPDClient pdpb.PDClient
-}
-
-type testClusterSuite struct {
-	baseCluster
 }
 
 func (s *baseCluster) allocID(c *C) uint64 {
@@ -865,96 +955,7 @@ func (s *testClusterSuite) TestGetPDMembers(c *C) {
 	c.Assert(len(resp.GetMembers()), Not(Equals), 0)
 }
 
-func (s *testClusterSuite) TestConcurrentHandleRegion(c *C) {
-	var err error
-	var cleanup CleanupFunc
-	s.svr, cleanup, err = NewTestServer(c)
-	c.Assert(err, IsNil)
-	mustWaitLeader(c, []*Server{s.svr})
-	s.grpcPDClient = testutil.MustNewGrpcClient(c, s.svr.GetAddr())
-	defer cleanup()
-	storeAddrs := []string{"127.0.1.1:0", "127.0.1.1:1", "127.0.1.1:2"}
-	_, err = s.svr.bootstrapCluster(s.newBootstrapRequest(c, s.svr.clusterID, "127.0.0.1:0"))
-	c.Assert(err, IsNil)
-	s.svr.cluster.Lock()
-	s.svr.cluster.storage = core.NewStorage(kv.NewMemoryKV())
-	s.svr.cluster.Unlock()
-	var stores []*metapb.Store
-	for _, addr := range storeAddrs {
-		store := s.newStore(c, 0, addr, "2.1.0")
-		stores = append(stores, store)
-		_, err := putStore(c, s.grpcPDClient, s.svr.clusterID, store)
-		c.Assert(err, IsNil)
-	}
 
-	var wg sync.WaitGroup
-	// register store and bind stream
-	for i, store := range stores {
-		req := &pdpb.StoreHeartbeatRequest{
-			Header: testutil.NewRequestHeader(s.svr.clusterID),
-			Stats: &pdpb.StoreStats{
-				StoreId:   store.GetId(),
-				Capacity:  1000 * (1 << 20),
-				Available: 1000 * (1 << 20),
-			},
-		}
-		_, err := s.svr.StoreHeartbeat(context.TODO(), req)
-		c.Assert(err, IsNil)
-		stream, err := s.grpcPDClient.RegionHeartbeat(context.Background())
-		c.Assert(err, IsNil)
-		peer := &metapb.Peer{Id: s.allocID(c), StoreId: store.GetId()}
-		regionReq := &pdpb.RegionHeartbeatRequest{
-			Header: testutil.NewRequestHeader(s.svr.clusterID),
-			Region: &metapb.Region{
-				Id:    s.allocID(c),
-				Peers: []*metapb.Peer{peer},
-			},
-			Leader: peer,
-		}
-		err = stream.Send(regionReq)
-		c.Assert(err, IsNil)
-		// make sure the first store can receive one response
-		if i == 0 {
-			wg.Add(1)
-		}
-		go func(isReciver bool) {
-			if isReciver {
-				_, err := stream.Recv()
-				c.Assert(err, IsNil)
-				wg.Done()
-			}
-			for {
-				stream.Recv()
-			}
-		}(i == 0)
-	}
-	concurrent := 2000
-	for i := 0; i < concurrent; i++ {
-		region := &metapb.Region{
-			Id:       s.allocID(c),
-			StartKey: []byte(fmt.Sprintf("%5d", i)),
-			EndKey:   []byte(fmt.Sprintf("%5d", i+1)),
-			Peers:    []*metapb.Peer{{Id: s.allocID(c), StoreId: stores[0].GetId()}},
-			RegionEpoch: &metapb.RegionEpoch{
-				ConfVer: initEpochConfVer,
-				Version: initEpochVersion,
-			},
-		}
-		if i == 0 {
-			region.StartKey = []byte("")
-		} else if i == concurrent-1 {
-			region.EndKey = []byte("")
-		}
-
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			err := s.svr.cluster.HandleRegionHeartbeat(core.NewRegionInfo(region, region.Peers[0]))
-			c.Assert(err, IsNil)
-		}()
-	}
-	wg.Wait()
-}
 
 var _ = Suite(&testGetStoresSuite{})
 
