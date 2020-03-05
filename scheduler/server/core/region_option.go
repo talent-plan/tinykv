@@ -73,29 +73,12 @@ func WithEndKey(key []byte) RegionCreateOption {
 	}
 }
 
-// WithNewRegionID sets new id for the region.
-func WithNewRegionID(id uint64) RegionCreateOption {
-	return func(region *RegionInfo) {
-		region.meta.Id = id
-	}
-}
-
 // WithIncVersion increases the version of the region.
 func WithIncVersion() RegionCreateOption {
 	return func(region *RegionInfo) {
 		e := region.meta.GetRegionEpoch()
 		if e != nil {
 			e.Version++
-		}
-	}
-}
-
-// WithDecVersion decreases the version of the region.
-func WithDecVersion() RegionCreateOption {
-	return func(region *RegionInfo) {
-		e := region.meta.GetRegionEpoch()
-		if e != nil {
-			e.Version--
 		}
 	}
 }

@@ -173,7 +173,7 @@ func (n *Node) BootstrapCluster(ctx context.Context, engines *engine_util.Engine
 			time.Sleep(time.Second)
 		}
 
-		res, err := n.pdClient.Bootstrap(ctx, n.store, firstRegion)
+		res, err := n.pdClient.Bootstrap(ctx, n.store)
 		if err != nil {
 			log.Errorf("bootstrap cluster failed, clusterID: %d, err: %v", n.clusterID, err)
 			continue

@@ -15,7 +15,6 @@ package schedule
 
 import (
 	"container/heap"
-	"container/list"
 	"context"
 	"fmt"
 	"sync"
@@ -40,7 +39,6 @@ const (
 )
 
 var (
-	historyKeepTime    = 5 * time.Minute
 	slowNotifyInterval = 5 * time.Second
 	fastNotifyInterval = 2 * time.Second
 )
@@ -57,7 +55,6 @@ type OperatorController struct {
 	cluster         opt.Cluster
 	operators       map[uint64]*operator.Operator
 	hbStreams       HeartbeatStreams
-	histories       *list.List
 	counts          map[operator.OpKind]uint64
 	opRecords       *OperatorRecords
 	opNotifierQueue operatorQueue
@@ -70,7 +67,6 @@ func NewOperatorController(ctx context.Context, cluster opt.Cluster, hbStreams H
 		cluster:         cluster,
 		operators:       make(map[uint64]*operator.Operator),
 		hbStreams:       hbStreams,
-		histories:       list.New(),
 		counts:          make(map[operator.OpKind]uint64),
 		opRecords:       NewOperatorRecords(ctx),
 		opNotifierQueue: make(operatorQueue, 0),
@@ -113,7 +109,6 @@ func (oc *OperatorController) Dispatch(region *core.RegionInfo, source string) {
 		}
 		if op.IsFinish() && oc.RemoveOperator(op) {
 			log.Info("operator finish", zap.Uint64("region-id", region.GetID()), zap.Duration("takes", op.RunningTime()), zap.Reflect("operator", op))
-			oc.pushHistory(op)
 			oc.opRecords.Put(op, pdpb.OperatorStatus_SUCCESS)
 		} else if timeout && oc.RemoveOperator(op) {
 			log.Info("operator timeout", zap.Uint64("region-id", region.GetID()), zap.Duration("takes", op.RunningTime()), zap.Reflect("operator", op))
@@ -346,41 +341,6 @@ func (oc *OperatorController) SendScheduleCommand(region *core.RegionInfo, step 
 	default:
 		log.Error("unknown operator step", zap.Reflect("step", step))
 	}
-}
-
-func (oc *OperatorController) pushHistory(op *operator.Operator) {
-	oc.Lock()
-	defer oc.Unlock()
-	for _, h := range op.History() {
-		oc.histories.PushFront(h)
-	}
-}
-
-// PruneHistory prunes a part of operators' history.
-func (oc *OperatorController) PruneHistory() {
-	oc.Lock()
-	defer oc.Unlock()
-	p := oc.histories.Back()
-	for p != nil && time.Since(p.Value.(operator.OpHistory).FinishTime) > historyKeepTime {
-		prev := p.Prev()
-		oc.histories.Remove(p)
-		p = prev
-	}
-}
-
-// GetHistory gets operators' history.
-func (oc *OperatorController) GetHistory(start time.Time) []operator.OpHistory {
-	oc.RLock()
-	defer oc.RUnlock()
-	histories := make([]operator.OpHistory, 0, oc.histories.Len())
-	for p := oc.histories.Front(); p != nil; p = p.Next() {
-		history := p.Value.(operator.OpHistory)
-		if history.FinishTime.Before(start) {
-			break
-		}
-		histories = append(histories, history)
-	}
-	return histories
 }
 
 // updateCounts updates resource counts using current pending operators.
