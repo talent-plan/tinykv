@@ -37,7 +37,7 @@ var _ = Suite(&testClusterInfoSuite{})
 
 type testClusterInfoSuite struct{}
 
-func (s *testClusterInfoSuite) TestRegionHeartbeat(c *C) {
+func (s *testClusterInfoSuite) setUpTestCluster(c *C) (*RaftCluster, []*core.RegionInfo) {
 	_, opt, err := newTestScheduleConfig()
 	c.Assert(err, IsNil)
 	cluster := createTestRaftCluster(mockid.NewIDAllocator(), opt, core.NewStorage(kv.NewMemoryKV()))
@@ -52,81 +52,170 @@ func (s *testClusterInfoSuite) TestRegionHeartbeat(c *C) {
 	}
 
 	for i, region := range regions {
-		// region does not exist.
 		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
 		checkRegions(c, cluster.core.Regions, regions[:i+1])
+	}
 
-		// region is the same, not updated.
+	return cluster, regions
+}
+
+func (s *testClusterInfoSuite) TestRegionNotUpdate3C(c *C) {
+	cluster, regions := s.setUpTestCluster(c)
+
+	for _, region := range regions {
 		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
-		checkRegions(c, cluster.core.Regions, regions[:i+1])
+		checkRegions(c, cluster.core.Regions, regions)
+	}
+}
+
+func (s *testClusterInfoSuite) TestRegionUpdateVersion3C(c *C) {
+	cluster, regions := s.setUpTestCluster(c)
+
+	for i, region := range regions {
+		region = region.Clone(core.WithIncVersion())
+		regions[i] = region
+
+		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
+		checkRegions(c, cluster.core.Regions, regions)
+	}
+}
+
+func (s *testClusterInfoSuite) TestRegionWithStaleVersion3C(c *C) {
+	cluster, regions := s.setUpTestCluster(c)
+
+	for i, region := range regions {
 		origin := region
-		// region is updated.
 		region = origin.Clone(core.WithIncVersion())
 		regions[i] = region
 		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
-		checkRegions(c, cluster.core.Regions, regions[:i+1])
+		checkRegions(c, cluster.core.Regions, regions)
 
-		// region is stale (Version).
 		stale := origin.Clone(core.WithIncConfVer())
 		c.Assert(cluster.processRegionHeartbeat(stale), NotNil)
-		checkRegions(c, cluster.core.Regions, regions[:i+1])
+		checkRegions(c, cluster.core.Regions, regions)
+	}
+}
 
-		// region is updated.
-		region = origin.Clone(
+func (s *testClusterInfoSuite) TestRegionUpdateVersionAndConfver3C(c *C) {
+	cluster, regions := s.setUpTestCluster(c)
+
+	for i, region := range regions {
+		region = region.Clone(
 			core.WithIncVersion(),
 			core.WithIncConfVer(),
 		)
 		regions[i] = region
 		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
-		checkRegions(c, cluster.core.Regions, regions[:i+1])
+		checkRegions(c, cluster.core.Regions, regions)
+	}
+}
 
-		// region is stale (ConfVer).
-		stale = origin.Clone(core.WithIncConfVer())
+func (s *testClusterInfoSuite) TestRegionWithStaleConfVer3C(c *C) {
+	cluster, regions := s.setUpTestCluster(c)
+
+	for i, region := range regions {
+		origin := region
+		region = origin.Clone(core.WithIncConfVer())
+		regions[i] = region
+		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
+		checkRegions(c, cluster.core.Regions, regions)
+
+		stale := origin.Clone()
 		c.Assert(cluster.processRegionHeartbeat(stale), NotNil)
-		checkRegions(c, cluster.core.Regions, regions[:i+1])
+		checkRegions(c, cluster.core.Regions, regions)
+	}
+}
 
-		// Add a pending peer.
+func (s *testClusterInfoSuite) TestRegionAddPendingPeer3C(c *C) {
+	cluster, regions := s.setUpTestCluster(c)
+
+	for i, region := range regions {
+		region := region.Clone(core.WithPendingPeers([]*metapb.Peer{region.GetPeers()[rand.Intn(len(region.GetPeers()))]}))
+		regions[i] = region
+		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
+		checkRegions(c, cluster.core.Regions, regions)
+	}
+}
+
+func (s *testClusterInfoSuite) TestRegionRemovePendingPeer3C(c *C) {
+	cluster, regions := s.setUpTestCluster(c)
+
+	for i, region := range regions {
 		region = region.Clone(core.WithPendingPeers([]*metapb.Peer{region.GetPeers()[rand.Intn(len(region.GetPeers()))]}))
 		regions[i] = region
 		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
-		checkRegions(c, cluster.core.Regions, regions[:i+1])
+		checkRegions(c, cluster.core.Regions, regions)
 
-		// Clear pending peers.
 		region = region.Clone(core.WithPendingPeers(nil))
 		regions[i] = region
 		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
-		checkRegions(c, cluster.core.Regions, regions[:i+1])
+		checkRegions(c, cluster.core.Regions, regions)
+	}
+}
 
-		// Remove peers.
-		origin = region
+func (s *testClusterInfoSuite) TestRegionRemovePeers3C(c *C) {
+	cluster, regions := s.setUpTestCluster(c)
+
+	for i, region := range regions {
+		region = region.Clone(core.SetPeers(region.GetPeers()[:1]))
+		regions[i] = region
+		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
+		checkRegions(c, cluster.core.Regions, regions)
+	}
+}
+
+func (s *testClusterInfoSuite) TestRegionAddBackPeers3C(c *C) {
+	cluster, regions := s.setUpTestCluster(c)
+
+	for i, region := range regions {
+		origin := region
 		region = origin.Clone(core.SetPeers(region.GetPeers()[:1]))
 		regions[i] = region
 		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
-		checkRegions(c, cluster.core.Regions, regions[:i+1])
-		// Add peers.
+		checkRegions(c, cluster.core.Regions, regions)
+
 		region = origin
 		regions[i] = region
 		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
-		checkRegions(c, cluster.core.Regions, regions[:i+1])
+		checkRegions(c, cluster.core.Regions, regions)
+	}
+}
 
-		// Change leader.
+func (s *testClusterInfoSuite) TestRegionChangeLeader3C(c *C) {
+	cluster, regions := s.setUpTestCluster(c)
+
+	for i, region := range regions {
 		region = region.Clone(core.WithLeader(region.GetPeers()[1]))
 		regions[i] = region
 		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
-		checkRegions(c, cluster.core.Regions, regions[:i+1])
+		checkRegions(c, cluster.core.Regions, regions)
+	}
+}
 
-		// Change ApproximateSize.
+func (s *testClusterInfoSuite) TestRegionChangeApproximateSize3C(c *C) {
+	cluster, regions := s.setUpTestCluster(c)
+
+	for i, region := range regions {
 		region = region.Clone(core.SetApproximateSize(144))
 		regions[i] = region
 		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
-		checkRegions(c, cluster.core.Regions, regions[:i+1])
+		checkRegions(c, cluster.core.Regions, regions)
+	}
+}
 
-		// Change ApproximateKeys.
+func (s *testClusterInfoSuite) TestRegionChangeApproximateKeys3C(c *C) {
+	cluster, regions := s.setUpTestCluster(c)
+
+	for i, region := range regions {
 		region = region.Clone(core.SetApproximateKeys(144000))
 		regions[i] = region
 		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
-		checkRegions(c, cluster.core.Regions, regions[:i+1])
+		checkRegions(c, cluster.core.Regions, regions)
 	}
+}
+
+func (s *testClusterInfoSuite) TestRegionCounts3C(c *C) {
+	cluster, regions := s.setUpTestCluster(c)
 
 	regionCounts := make(map[uint64]int)
 	for _, region := range regions {
@@ -137,13 +226,22 @@ func (s *testClusterInfoSuite) TestRegionHeartbeat(c *C) {
 	for id, count := range regionCounts {
 		c.Assert(cluster.GetStoreRegionCount(id), Equals, count)
 	}
+}
+
+func (s *testClusterInfoSuite) TestRegionGetRegions3C(c *C) {
+	cluster, regions := s.setUpTestCluster(c)
 
 	for _, region := range cluster.GetRegions() {
 		checkRegion(c, region, regions[region.GetID()])
 	}
+
 	for _, region := range cluster.GetMetaRegions() {
 		c.Assert(region, DeepEquals, regions[region.GetId()].GetMeta())
 	}
+}
+
+func (s *testClusterInfoSuite) TestRegionGetStores3C(c *C) {
+	cluster, regions := s.setUpTestCluster(c)
 
 	for _, region := range regions {
 		for _, store := range cluster.GetRegionStores(region) {
@@ -154,6 +252,10 @@ func (s *testClusterInfoSuite) TestRegionHeartbeat(c *C) {
 			c.Assert(peer.GetId(), Not(Equals), region.GetLeader().GetId())
 		}
 	}
+}
+
+func (s *testClusterInfoSuite) TestRegionGetStoresInfo3C(c *C) {
+	cluster, _ := s.setUpTestCluster(c)
 
 	for _, store := range cluster.core.Stores.GetStores() {
 		c.Assert(store.GetLeaderCount(), Equals, cluster.core.Regions.GetStoreLeaderCount(store.GetID()))
