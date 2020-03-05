@@ -19,12 +19,18 @@ import (
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 )
 
+// Region Task represents a task related to region for region-workers.
+// There're some tasks, such as
+// `TaskTypeRegionGen` which will cause the worker to generate a snapshot according to Region id,
+// `TaskTypeRegionApply` which will apply a snapshot to the region that id equals RegionId,
+// `TaskTypeRegionDestroy` which will clean up the key range from StartKey to EndKey.
+// When region-workers receive a Task, it would handle it according to its type. The type is not in RegionTask but in Task.Tp. RegionTask is the data field of Task.
 type RegionTask struct {
-	RegionId uint64
-	Notifier chan<- *eraftpb.Snapshot
-	Status   *snap.JobStatus
+	RegionId uint64                   // specify the region which the task is for.
+	Notifier chan<- *eraftpb.Snapshot // useful in `TaskTypeRegionGen`, when it finishes snapshot generating, it notifies notifier.
+	Status   *snap.JobStatus          // useful in `TaskTypeRegionApply` to see if the job is canceled
 	StartKey []byte
-	EndKey   []byte
+	EndKey   []byte // `StartKey` and `EndKey` are useful in `TaskTypeRegionDestroy` to destroy certain range of region.
 }
 
 type regionTaskHandler struct {
