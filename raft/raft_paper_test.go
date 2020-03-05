@@ -272,13 +272,9 @@ func TestCandidateFallback2A(t *testing.T) {
 }
 
 func TestFollowerElectionTimeoutRandomized2A(t *testing.T) {
-	SetLogger(discardLogger)
-	defer SetLogger(defaultLogger)
 	testNonleaderElectionTimeoutRandomized(t, StateFollower)
 }
 func TestCandidateElectionTimeoutRandomized2A(t *testing.T) {
-	SetLogger(discardLogger)
-	defer SetLogger(defaultLogger)
 	testNonleaderElectionTimeoutRandomized(t, StateCandidate)
 }
 
@@ -313,13 +309,9 @@ func testNonleaderElectionTimeoutRandomized(t *testing.T, state StateType) {
 }
 
 func TestFollowersElectionTimeoutNonconflict2A(t *testing.T) {
-	SetLogger(discardLogger)
-	defer SetLogger(defaultLogger)
 	testNonleadersElectionTimeoutNonconflict(t, StateFollower)
 }
 func TestCandidatesElectionTimeoutNonconflict2A(t *testing.T) {
-	SetLogger(discardLogger)
-	defer SetLogger(defaultLogger)
 	testNonleadersElectionTimeoutNonconflict(t, StateCandidate)
 }
 
