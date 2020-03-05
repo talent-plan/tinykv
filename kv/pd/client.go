@@ -26,7 +26,7 @@ import (
 	"time"
 
 	"github.com/juju/errors"
-	"github.com/pingcap-incubator/tinykv/kv/util/log"
+	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"google.golang.org/grpc"

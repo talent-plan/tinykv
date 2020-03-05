@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 
 	"github.com/Connor1996/badger"
-	"github.com/pingcap-incubator/tinykv/kv/util/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
+	"github.com/pingcap-incubator/tinykv/log"
 )
 
 // Engines keeps references to and data for the engines used by unistore.

@@ -18,7 +18,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/pingcap-incubator/tinykv/kv/util/log"
+	"github.com/pingcap-incubator/tinykv/log"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
