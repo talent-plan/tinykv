@@ -122,7 +122,7 @@ func (m *MockPDClient) AllocID(ctx context.Context) (uint64, error) {
 	return ret, nil
 }
 
-func (m *MockPDClient) Bootstrap(ctx context.Context, store *metapb.Store, region *metapb.Region) (*pdpb.BootstrapResponse, error) {
+func (m *MockPDClient) Bootstrap(ctx context.Context, store *metapb.Store) (*pdpb.BootstrapResponse, error) {
 	m.Lock()
 	defer m.Unlock()
 
@@ -140,7 +140,6 @@ func (m *MockPDClient) Bootstrap(ctx context.Context, store *metapb.Store, regio
 	}
 
 	m.stores[store.GetId()] = NewStore(store)
-	m.addRegionLocked(region)
 	m.bootstrapped = true
 	return resp, nil
 }
