@@ -52,7 +52,7 @@ func newStoreMeta() *storeMeta {
 	}
 }
 
-func (m *storeMeta) setRegion(region *metapb.Region, peer *Peer) {
+func (m *storeMeta) setRegion(region *metapb.Region, peer *peer) {
 	m.regions[region.Id] = region
 	peer.SetRegion(region)
 }
@@ -106,7 +106,7 @@ type Transport interface {
 /// loadPeers loads peers in this store. It scans the db engine, loads all regions
 /// and their peers from it, and schedules snapshot worker if necessary.
 /// WARN: This store should not be used before initialized.
-func (bs *RaftBatchSystem) loadPeers() ([]*peerFsm, error) {
+func (bs *RaftBatchSystem) loadPeers() ([]*peer, error) {
 	// Scan region meta to get saved regions.
 	startKey := meta.RegionMetaMinKey
 	endKey := meta.RegionMetaMaxKey
@@ -115,7 +115,7 @@ func (bs *RaftBatchSystem) loadPeers() ([]*peerFsm, error) {
 	storeID := ctx.store.Id
 
 	var totalCount, tombStoneCount, applyingCount int
-	var regionPeers []*peerFsm
+	var regionPeers []*peer
 
 	t := time.Now()
 	kvWB := new(engine_util.WriteBatch)
@@ -162,7 +162,7 @@ func (bs *RaftBatchSystem) loadPeers() ([]*peerFsm, error) {
 				continue
 			}
 
-			peer, err := createPeerFsm(storeID, ctx.cfg, ctx.regionTaskSender, ctx.engine, region)
+			peer, err := createPeer(storeID, ctx.cfg, ctx.regionTaskSender, ctx.engine, region)
 			if err != nil {
 				return err
 			}
@@ -183,7 +183,7 @@ func (bs *RaftBatchSystem) loadPeers() ([]*peerFsm, error) {
 	// schedule applying snapshot after raft write batch were written.
 	for _, region := range applyingRegions {
 		log.Infof("region %d is applying snapshot", region.Id)
-		peer, err := createPeerFsm(storeID, ctx.cfg, ctx.regionTaskSender, ctx.engine, region)
+		peer, err := createPeer(storeID, ctx.cfg, ctx.regionTaskSender, ctx.engine, region)
 		if err != nil {
 			return nil, err
 		}
@@ -282,7 +282,7 @@ func (bs *RaftBatchSystem) start(
 	return nil
 }
 
-func (bs *RaftBatchSystem) startWorkers(peers []*peerFsm) {
+func (bs *RaftBatchSystem) startWorkers(peers []*peer) {
 	ctx := bs.ctx
 	workers := bs.workers
 	router := bs.router
@@ -295,7 +295,7 @@ func (bs *RaftBatchSystem) startWorkers(peers []*peerFsm) {
 	go sw.run(bs.closeCh, bs.wg)
 	router.sendStore(message.Msg{Type: message.MsgTypeStoreStart, Data: ctx.store})
 	for i := 0; i < len(peers); i++ {
-		regionID := peers[i].peer.regionId
+		regionID := peers[i].regionId
 		_ = router.send(regionID, message.Msg{RegionID: regionID, Type: message.MsgTypeStart})
 	}
 	engines := ctx.engine

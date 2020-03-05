@@ -186,11 +186,11 @@ func (l *Logger) Fatalf(format string, v ...interface{}) {
 }
 
 func (l *Logger) Panic(v ...interface{}) {
-	_log.Panic(v...)
+	l._log.Panic(v...)
 }
 
 func (l *Logger) Panicf(format string, v ...interface{}) {
-	_log.Panicf(format, v...)
+	l._log.Panicf(format, v...)
 }
 
 func (l *Logger) Error(v ...interface{}) {

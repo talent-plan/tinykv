@@ -58,7 +58,7 @@ func NewInvokeContext(store *PeerStorage) *InvokeContext {
 	ctx := &InvokeContext{
 		RegionID:   store.region.GetId(),
 		RaftState:  store.raftState,
-		ApplyState: store.applyState,
+		ApplyState: *store.applyState(),
 		lastTerm:   store.lastTerm,
 	}
 	return ctx
@@ -111,12 +111,10 @@ var _ raft.Storage = new(PeerStorage)
 type PeerStorage struct {
 	Engines *engine_util.Engines
 
-	peerID           uint64
-	region           *metapb.Region
-	raftState        rspb.RaftLocalState
-	applyState       rspb.RaftApplyState
-	appliedIndexTerm uint64
-	lastTerm         uint64
+	peerID    uint64
+	region    *metapb.Region
+	raftState rspb.RaftLocalState
+	lastTerm  uint64
 
 	snapState    snap.SnapState
 	regionSched  chan<- worker.Task
@@ -149,7 +147,6 @@ func NewPeerStorage(engines *engine_util.Engines, region *metapb.Region, regionS
 		region:      region,
 		Tag:         tag,
 		raftState:   *raftState,
-		applyState:  *applyState,
 		lastTerm:    lastTerm,
 		regionSched: regionSched,
 	}, nil
@@ -205,7 +202,7 @@ func (ps *PeerStorage) LastIndex() (uint64, error) {
 }
 
 func (ps *PeerStorage) FirstIndex() (uint64, error) {
-	return firstIndex(&ps.applyState), nil
+	return ps.applyState().TruncatedState.Index + 1, nil
 }
 
 func (ps *PeerStorage) Snapshot() (eraftpb.Snapshot, error) {
@@ -281,19 +278,20 @@ func (ps *PeerStorage) checkRange(low, high uint64) error {
 }
 
 func (ps *PeerStorage) truncatedIndex() uint64 {
-	return ps.applyState.TruncatedState.Index
+	return ps.applyState().TruncatedState.Index
 }
 
 func (ps *PeerStorage) truncatedTerm() uint64 {
-	return ps.applyState.TruncatedState.Term
+	return ps.applyState().TruncatedState.Term
 }
 
 func (ps *PeerStorage) AppliedIndex() uint64 {
-	return ps.applyState.AppliedIndex
+	return ps.applyState().AppliedIndex
 }
 
-func firstIndex(applyState *rspb.RaftApplyState) uint64 {
-	return applyState.TruncatedState.Index + 1
+func (ps *PeerStorage) applyState() *rspb.RaftApplyState {
+	state, _ := meta.GetApplyState(ps.Engines.Kv, ps.region.GetId())
+	return state
 }
 
 func (ps *PeerStorage) validateSnap(snap *eraftpb.Snapshot) bool {
@@ -485,12 +483,14 @@ func (ps *PeerStorage) ApplySnapshot(ctx *InvokeContext, snap *eraftpb.Snapshot,
 
 	ctx.RaftState.LastIndex = lastIdx
 	ctx.lastTerm = snap.Metadata.Term
-	ctx.ApplyState.AppliedIndex = lastIdx
 
+	ctx.ApplyState.AppliedIndex = lastIdx
 	// The snapshot only contains log which index > applied index, so
 	// here the truncate state's (index, term) is in snapshot metadata.
-	ctx.ApplyState.TruncatedState.Index = lastIdx
-	ctx.ApplyState.TruncatedState.Term = snap.Metadata.Term
+	ctx.ApplyState.TruncatedState = &rspb.RaftTruncatedState{
+		Index: lastIdx,
+		Term:  snap.Metadata.Term,
+	}
 
 	log.Debugf("%v apply snapshot for region %v with state %v ok", ps.Tag, snapData.Region, ctx.ApplyState)
 
@@ -513,6 +513,7 @@ func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (*ApplySnapResult, erro
 			return nil, err
 		}
 		snapshotIdx = ctx.RaftState.LastIndex
+		ctx.saveApplyStateTo(kvWB)
 	}
 
 	if len(ready.Entries) != 0 {
@@ -540,16 +541,10 @@ func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (*ApplySnapResult, erro
 		}
 	}
 
-	// only when apply snapshot
-	if !proto.Equal(&ctx.ApplyState, &ps.applyState) {
-		ctx.saveApplyStateTo(kvWB)
-	}
-
 	kvWB.MustWriteToDB(ps.Engines.Kv)
 	raftWB.MustWriteToDB(ps.Engines.Raft)
 
 	ps.raftState = ctx.RaftState
-	ps.applyState = ctx.ApplyState
 	ps.lastTerm = ctx.lastTerm
 
 	// If we apply snapshot ok, we should update some infos like applied index too.

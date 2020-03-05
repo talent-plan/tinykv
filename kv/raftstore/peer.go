@@ -18,6 +18,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/raft"
+	"github.com/pingcap/errors"
 )
 
 func NotifyStaleReq(term uint64, cb *message.Callback) {
@@ -30,7 +31,70 @@ func NotifyReqRegionRemoved(regionId uint64, cb *message.Callback) {
 	cb.Done(resp)
 }
 
-type Peer struct {
+// If we create the peer actively, like bootstrap/split/merge region, we should
+// use this function to create the peer. The region must contain the peer info
+// for this store.
+func createPeer(storeID uint64, cfg *config.Config, sched chan<- worker.Task,
+	engines *engine_util.Engines, region *metapb.Region) (*peer, error) {
+	metaPeer := util.FindPeer(region, storeID)
+	if metaPeer == nil {
+		return nil, errors.Errorf("find no peer for store %d in region %v", storeID, region)
+	}
+	log.Infof("region %v create peer with ID %d", region, metaPeer.Id)
+	return NewPeer(storeID, cfg, engines, region, sched, metaPeer)
+}
+
+// The peer can be created from another node with raft membership changes, and we only
+// know the region_id and peer_id when creating this replicated peer, the region info
+// will be retrieved later after applying snapshot.
+func replicatePeer(storeID uint64, cfg *config.Config, sched chan<- worker.Task,
+	engines *engine_util.Engines, regionID uint64, metaPeer *metapb.Peer) (*peer, error) {
+	// We will remove tombstone key when apply snapshot
+	log.Infof("[region %v] replicates peer with ID %d", regionID, metaPeer.GetId())
+	region := &metapb.Region{
+		Id:          regionID,
+		RegionEpoch: &metapb.RegionEpoch{},
+	}
+	return NewPeer(storeID, cfg, engines, region, sched, metaPeer)
+}
+
+func (p *peer) drop() {
+	p.Stop()
+}
+
+func (p *peer) regionID() uint64 {
+	return p.regionId
+}
+
+func (p *peer) region() *metapb.Region {
+	return p.Store().region
+}
+
+func (p *peer) storeID() uint64 {
+	return p.Meta.StoreId
+}
+
+func (p *peer) peerID() uint64 {
+	return p.Meta.Id
+}
+
+func (p *peer) stop() {
+	p.stopped = true
+}
+
+func (p *peer) scheduleApplyingSnapshot() {
+	p.Store().ScheduleApplyingSnapshot()
+}
+
+func (p *peer) tag() string {
+	return p.Tag
+}
+
+type peer struct {
+	stopped  bool
+	hasReady bool
+	ticker   *ticker
+
 	Meta           *metapb.Peer
 	regionId       uint64
 	RaftGroup      *raft.RawNode
@@ -64,13 +128,13 @@ type Peer struct {
 }
 
 func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, region *metapb.Region, regionSched chan<- worker.Task,
-	peer *metapb.Peer) (*Peer, error) {
-	if peer.GetId() == util.InvalidID {
+	meta *metapb.Peer) (*peer, error) {
+	if meta.GetId() == util.InvalidID {
 		return nil, fmt.Errorf("invalid peer id")
 	}
-	tag := fmt.Sprintf("[region %v] %v", region.GetId(), peer.GetId())
+	tag := fmt.Sprintf("[region %v] %v", region.GetId(), meta.GetId())
 
-	ps, err := NewPeerStorage(engines, region, regionSched, peer.GetId(), tag)
+	ps, err := NewPeerStorage(engines, region, regionSched, meta.GetId(), tag)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +142,7 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 	appliedIndex := ps.AppliedIndex()
 
 	raftCfg := &raft.Config{
-		ID:            peer.GetId(),
+		ID:            meta.GetId(),
 		ElectionTick:  cfg.RaftElectionTimeoutTicks,
 		HeartbeatTick: cfg.RaftHeartbeatTicks,
 		Applied:       appliedIndex,
@@ -89,8 +153,8 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 	if err != nil {
 		return nil, err
 	}
-	p := &Peer{
-		Meta:                  peer,
+	p := &peer{
+		Meta:                  meta,
 		regionId:              region.GetId(),
 		RaftGroup:             raftGroup,
 		peerStorage:           ps,
@@ -99,6 +163,7 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 		PeersStartPendingTime: make(map[uint64]time.Time),
 		Tag:                   tag,
 		LastApplyingIdx:       appliedIndex,
+		ticker:                newTicker(region.GetId(), cfg),
 	}
 
 	// If this region has only one peer and I am the one, campaign directly.
@@ -112,15 +177,15 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 	return p, nil
 }
 
-func (p *Peer) insertPeerCache(peer *metapb.Peer) {
+func (p *peer) insertPeerCache(peer *metapb.Peer) {
 	p.peerCache[peer.GetId()] = peer
 }
 
-func (p *Peer) removePeerCache(peerID uint64) {
+func (p *peer) removePeerCache(peerID uint64) {
 	delete(p.peerCache, peerID)
 }
 
-func (p *Peer) getPeerFromCache(peerID uint64) *metapb.Peer {
+func (p *peer) getPeerFromCache(peerID uint64) *metapb.Peer {
 	if peer, ok := p.peerCache[peerID]; ok {
 		return peer
 	}
@@ -133,12 +198,12 @@ func (p *Peer) getPeerFromCache(peerID uint64) *metapb.Peer {
 	return nil
 }
 
-func (p *Peer) nextProposalIndex() uint64 {
+func (p *peer) nextProposalIndex() uint64 {
 	return p.RaftGroup.Raft.RaftLog.LastIndex() + 1
 }
 
 /// Tries to destroy itself. Returns a job (if needed) to do more cleaning tasks.
-func (p *Peer) MaybeDestroy() bool {
+func (p *peer) MaybeDestroy() bool {
 	if p.PendingRemove {
 		log.Infof("%v is being destroyed, skip", p.Tag)
 		return false
@@ -157,7 +222,7 @@ func (p *Peer) MaybeDestroy() bool {
 /// 1. Set the region to tombstone;
 /// 2. Clear data;
 /// 3. Notify all pending requests.
-func (p *Peer) Destroy(engine *engine_util.Engines, keepData bool) error {
+func (p *peer) Destroy(engine *engine_util.Engines, keepData bool) error {
 	start := time.Now()
 	region := p.Region()
 	log.Infof("%v begin to destroy", p.Tag)
@@ -194,11 +259,11 @@ func (p *Peer) Destroy(engine *engine_util.Engines, keepData bool) error {
 	return nil
 }
 
-func (p *Peer) isInitialized() bool {
+func (p *peer) isInitialized() bool {
 	return p.peerStorage.isInitialized()
 }
 
-func (p *Peer) Region() *metapb.Region {
+func (p *peer) Region() *metapb.Region {
 	return p.peerStorage.Region()
 }
 
@@ -206,40 +271,40 @@ func (p *Peer) Region() *metapb.Region {
 ///
 /// This will update the region of the peer, caller must ensure the region
 /// has been preserved in a durable device.
-func (p *Peer) SetRegion(region *metapb.Region) {
+func (p *peer) SetRegion(region *metapb.Region) {
 	p.Store().SetRegion(region)
 }
 
-func (p *Peer) PeerId() uint64 {
+func (p *peer) PeerId() uint64 {
 	return p.Meta.GetId()
 }
 
-func (p *Peer) LeaderId() uint64 {
+func (p *peer) LeaderId() uint64 {
 	return p.RaftGroup.Raft.Lead
 }
 
-func (p *Peer) IsLeader() bool {
+func (p *peer) IsLeader() bool {
 	return p.RaftGroup.Raft.State == raft.StateLeader
 }
 
-func (p *Peer) GetRole() raft.StateType {
+func (p *peer) GetRole() raft.StateType {
 	return p.RaftGroup.Raft.State
 }
 
-func (p *Peer) Store() *PeerStorage {
+func (p *peer) Store() *PeerStorage {
 	return p.peerStorage
 }
 
-func (p *Peer) IsApplyingSnapshot() bool {
+func (p *peer) IsApplyingSnapshot() bool {
 	return p.Store().IsApplyingSnapshot()
 }
 
 /// Returns `true` if the raft group has replicated a snapshot but not committed it yet.
-func (p *Peer) HasPendingSnapshot() bool {
+func (p *peer) HasPendingSnapshot() bool {
 	return p.RaftGroup.GetSnap() != nil
 }
 
-func (p *Peer) Send(trans Transport, msgs []eraftpb.Message) {
+func (p *peer) Send(trans Transport, msgs []eraftpb.Message) {
 	for _, msg := range msgs {
 		err := p.sendRaftMessage(msg, trans)
 		if err != nil {
@@ -249,7 +314,7 @@ func (p *Peer) Send(trans Transport, msgs []eraftpb.Message) {
 }
 
 /// Steps the raft message.
-func (p *Peer) Step(m *eraftpb.Message) error {
+func (p *peer) Step(m *eraftpb.Message) error {
 	if p.IsLeader() && m.GetFrom() != util.InvalidID {
 		p.PeerHeartbeats[m.GetFrom()] = time.Now()
 	}
@@ -257,7 +322,7 @@ func (p *Peer) Step(m *eraftpb.Message) error {
 }
 
 /// Checks and updates `peer_heartbeats` for the peer.
-func (p *Peer) CheckPeers() {
+func (p *peer) CheckPeers() {
 	if !p.IsLeader() {
 		if len(p.PeerHeartbeats) > 0 {
 			p.PeerHeartbeats = make(map[uint64]time.Time)
@@ -278,7 +343,7 @@ func (p *Peer) CheckPeers() {
 }
 
 /// Collects all down peers.
-func (p *Peer) CollectDownPeers(maxDuration time.Duration) []*pdpb.PeerStats {
+func (p *peer) CollectDownPeers(maxDuration time.Duration) []*pdpb.PeerStats {
 	downPeers := make([]*pdpb.PeerStats, 0)
 	for _, peer := range p.Region().GetPeers() {
 		if peer.GetId() == p.Meta.GetId() {
@@ -299,7 +364,7 @@ func (p *Peer) CollectDownPeers(maxDuration time.Duration) []*pdpb.PeerStats {
 }
 
 /// Collects all pending peers and update `peers_start_pending_time`.
-func (p *Peer) CollectPendingPeers() []*metapb.Peer {
+func (p *peer) CollectPendingPeers() []*metapb.Peer {
 	pendingPeers := make([]*metapb.Peer, 0, len(p.Region().GetPeers()))
 	truncatedIdx := p.Store().truncatedIndex()
 	for id, progress := range p.RaftGroup.GetProgress() {
@@ -320,7 +385,7 @@ func (p *Peer) CollectPendingPeers() []*metapb.Peer {
 	return pendingPeers
 }
 
-func (p *Peer) clearPeersStartPendingTime() {
+func (p *peer) clearPeersStartPendingTime() {
 	for id := range p.PeersStartPendingTime {
 		delete(p.PeersStartPendingTime, id)
 	}
@@ -328,7 +393,7 @@ func (p *Peer) clearPeersStartPendingTime() {
 
 /// Returns `true` if any new peer catches up with the leader in replicating logs.
 /// And updates `PeersStartPendingTime` if needed.
-func (p *Peer) AnyNewPeerCatchUp(peerId uint64) bool {
+func (p *peer) AnyNewPeerCatchUp(peerId uint64) bool {
 	if len(p.PeersStartPendingTime) == 0 {
 		return false
 	}
@@ -351,7 +416,7 @@ func (p *Peer) AnyNewPeerCatchUp(peerId uint64) bool {
 	return false
 }
 
-func (p *Peer) ReadyToHandlePendingSnap() bool {
+func (p *peer) ReadyToHandlePendingSnap() bool {
 	// If apply worker is still working, written apply state may be overwritten
 	// by apply worker. So we have to wait here.
 	// Please note that committed_index can't be used here. When applying a snapshot,
@@ -360,7 +425,7 @@ func (p *Peer) ReadyToHandlePendingSnap() bool {
 	return p.LastApplyingIdx == p.Store().AppliedIndex()
 }
 
-func (p *Peer) TakeApplyProposals() *MsgApplyProposal {
+func (p *peer) TakeApplyProposals() *MsgApplyProposal {
 	if len(p.applyProposals) == 0 {
 		return nil
 	}
@@ -373,7 +438,7 @@ func (p *Peer) TakeApplyProposals() *MsgApplyProposal {
 	}
 }
 
-func (p *Peer) HandleRaftReady(msgs []message.Msg, pdScheduler chan<- worker.Task, trans Transport) (*ApplySnapResult, []message.Msg) {
+func (p *peer) HandleRaftReady(msgs []message.Msg, pdScheduler chan<- worker.Task, trans Transport) (*ApplySnapResult, []message.Msg) {
 	if p.PendingRemove {
 		return nil, msgs
 	}
@@ -437,11 +502,9 @@ func (p *Peer) HandleRaftReady(msgs []message.Msg, pdScheduler chan<- worker.Tas
 	if applySnapResult != nil {
 		/// Register self to applyMsgs so that the peer is then usable.
 		msgs = append(msgs, message.NewPeerMsg(message.MsgTypeApplyRefresh, p.regionId, &MsgApplyRefresh{
-			id:               p.PeerId(),
-			term:             p.Term(),
-			applyState:       p.Store().applyState,
-			appliedIndexTerm: p.Store().appliedIndexTerm,
-			region:           p.Region(),
+			id:     p.PeerId(),
+			term:   p.Term(),
+			region: p.Region(),
 		}))
 
 		// Snapshot's metadata has been applied.
@@ -469,7 +532,7 @@ func (p *Peer) HandleRaftReady(msgs []message.Msg, pdScheduler chan<- worker.Tas
 	return applySnapResult, msgs
 }
 
-func (p *Peer) MaybeCampaign(parentIsLeader bool) bool {
+func (p *peer) MaybeCampaign(parentIsLeader bool) bool {
 	// The peer campaigned when it was created, no need to do it again.
 	if len(p.Region().GetPeers()) <= 1 || !parentIsLeader {
 		return false
@@ -481,15 +544,15 @@ func (p *Peer) MaybeCampaign(parentIsLeader bool) bool {
 	return true
 }
 
-func (p *Peer) Term() uint64 {
+func (p *peer) Term() uint64 {
 	return p.RaftGroup.Raft.Term
 }
 
-func (p *Peer) Stop() {
+func (p *peer) Stop() {
 	p.Store().CancelApplyingSnap()
 }
 
-func (p *Peer) HeartbeatPd(pdScheduler chan<- worker.Task) {
+func (p *peer) HeartbeatPd(pdScheduler chan<- worker.Task) {
 	pdScheduler <- worker.Task{
 		Tp: worker.TaskTypePDHeartbeat,
 		Data: &runner.PdRegionHeartbeatTask{
@@ -502,7 +565,7 @@ func (p *Peer) HeartbeatPd(pdScheduler chan<- worker.Task) {
 	}
 }
 
-func (p *Peer) sendRaftMessage(msg eraftpb.Message, trans Transport) error {
+func (p *peer) sendRaftMessage(msg eraftpb.Message, trans Transport) error {
 	sendMsg := new(rspb.RaftMessage)
 	sendMsg.RegionId = p.regionId
 	// set current epoch
@@ -537,15 +600,12 @@ func (p *Peer) sendRaftMessage(msg eraftpb.Message, trans Transport) error {
 	return trans.Send(sendMsg)
 }
 
-func (p *Peer) PostApply(kv *badger.DB, applyState rspb.RaftApplyState, appliedIndexTerm uint64, sizeDiffHint uint64) bool {
+func (p *peer) PostApply(kv *badger.DB, appliedIndex uint64, sizeDiffHint uint64) bool {
 	hasReady := false
 	if p.IsApplyingSnapshot() {
 		panic("should not applying snapshot")
 	}
-	p.RaftGroup.AdvanceApply(applyState.AppliedIndex)
-
-	p.Store().applyState = applyState
-	p.Store().appliedIndexTerm = appliedIndexTerm
+	p.RaftGroup.AdvanceApply(appliedIndex)
 
 	diff := p.SizeDiffHint + sizeDiffHint
 	if diff > 0 {
@@ -564,7 +624,7 @@ func (p *Peer) PostApply(kv *badger.DB, applyState rspb.RaftApplyState, appliedI
 // Propose a request.
 //
 // Return true means the request has been proposed successfully.
-func (p *Peer) Propose(kv *badger.DB, cfg *config.Config, cb *message.Callback, req *raft_cmdpb.RaftCmdRequest, errResp *raft_cmdpb.RaftCmdResponse) bool {
+func (p *peer) Propose(kv *badger.DB, cfg *config.Config, cb *message.Callback, req *raft_cmdpb.RaftCmdRequest, errResp *raft_cmdpb.RaftCmdResponse) bool {
 	if p.PendingRemove {
 		return false
 	}
@@ -598,7 +658,7 @@ func (p *Peer) Propose(kv *badger.DB, cfg *config.Config, cb *message.Callback, 
 	return true
 }
 
-func (p *Peer) PostPropose(index, term uint64, isConfChange bool, cb *message.Callback) {
+func (p *peer) PostPropose(index, term uint64, isConfChange bool, cb *message.Callback) {
 	proposal := &proposal{
 		isConfChange: isConfChange,
 		index:        index,
@@ -614,7 +674,7 @@ func (p *Peer) PostPropose(index, term uint64, isConfChange bool, cb *message.Ca
 /// 2. it's a follower, and it does not lag behind the leader a lot.
 ///    If a snapshot is involved between it and the Raft leader, it's not healthy since
 ///    it cannot works as a node in the quorum to receive replicating logs from leader.
-func (p *Peer) countHealthyNode(progress map[uint64]raft.Progress) int {
+func (p *peer) countHealthyNode(progress map[uint64]raft.Progress) int {
 	healthy := 0
 	for _, pr := range progress {
 		if pr.Match >= p.Store().truncatedIndex() {
@@ -636,7 +696,7 @@ func (p *Peer) countHealthyNode(progress map[uint64]raft.Progress) int {
 ///    Then at least '(total - 1)/2 + 1' other nodes (the node about to be removed is excluded)
 ///    need to be up to date for now. If 'allow_remove_leader' is false then
 ///    the peer to be removed should not be the leader.
-func (p *Peer) checkConfChange(cfg *config.Config, cmd *raft_cmdpb.RaftCmdRequest) error {
+func (p *peer) checkConfChange(cfg *config.Config, cmd *raft_cmdpb.RaftCmdRequest) error {
 	changePeer := GetChangePeerCmd(cmd)
 	changeType := changePeer.GetChangeType()
 	peer := changePeer.GetPeer()
@@ -677,13 +737,13 @@ func Quorum(total int) int {
 	return total/2 + 1
 }
 
-func (p *Peer) transferLeader(peer *metapb.Peer) {
+func (p *peer) transferLeader(peer *metapb.Peer) {
 	log.Infof("%v transfer leader to %v", p.Tag, peer)
 
 	p.RaftGroup.TransferLeader(peer.GetId())
 }
 
-func (p *Peer) ProposeNormal(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest) (uint64, error) {
+func (p *peer) ProposeNormal(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest) (uint64, error) {
 	data, err := req.Marshal()
 	if err != nil {
 		return 0, err
@@ -704,7 +764,7 @@ func (p *Peer) ProposeNormal(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest)
 }
 
 // Return true if the transfer leader request is accepted.
-func (p *Peer) ProposeTransferLeader(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest, cb *message.Callback) bool {
+func (p *peer) ProposeTransferLeader(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest, cb *message.Callback) bool {
 	transferLeader := getTransferLeaderCmd(req)
 	peer := transferLeader.Peer
 
@@ -721,7 +781,7 @@ func (p *Peer) ProposeTransferLeader(cfg *config.Config, req *raft_cmdpb.RaftCmd
 // 2. Removing the leader is not allowed in the configuration;
 // 3. The conf change makes the raft group not healthy;
 // 4. The conf change is dropped by raft group internally.
-func (p *Peer) ProposeConfChange(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest) (uint64, error) {
+func (p *peer) ProposeConfChange(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest) (uint64, error) {
 	if p.RaftGroup.Raft.PendingConfIndex > p.Store().AppliedIndex() {
 		log.Infof("%v there is a pending conf change, try later", p.Tag)
 		return 0, fmt.Errorf("%v there is a pending conf change, try later", p.Tag)
@@ -766,7 +826,7 @@ const (
 	RequestPolicy_Invalid
 )
 
-func (p *Peer) inspect(req *raft_cmdpb.RaftCmdRequest) (RequestPolicy, error) {
+func (p *peer) inspect(req *raft_cmdpb.RaftCmdRequest) (RequestPolicy, error) {
 	if req.AdminRequest != nil {
 		if GetChangePeerCmd(req) != nil {
 			return RequestPolicy_ProposeConfChange, nil

@@ -159,13 +159,24 @@ func (l *RaftLog) truncateAndAppend(ents []pb.Entry) {
 func (l *RaftLog) maybeCompact() {
 	// Your Code Here 2C
 	// TODO: Delete Start
-	fi, err := l.storage.FirstIndex()
-	if err != nil {
-		panic(err)
-	}
-	ft, err := l.storage.Term(fi - 1)
-	if err != nil {
-		panic(err)
+	var fi, ft uint64
+	var err error
+	for {
+		fi, err = l.storage.FirstIndex()
+		if err != nil {
+			panic(err)
+		}
+		ft, err = l.storage.Term(fi - 1)
+		if err == ErrCompacted {
+			if i, _ := l.storage.FirstIndex(); i != fi {
+				// storage does compact after getting first index, so retry
+				continue
+			}
+		}
+		if err != nil {
+			panic(err)
+		}
+		break
 	}
 	compactSize := fi - l.offset
 	if compactSize > 0 && compactSize < uint64(len(l.entries)) {

@@ -333,9 +333,9 @@ func (r *Raft) sendAppend(to uint64) bool {
 		}
 		m.Snapshot = &snapshot
 		sindex, sterm := snapshot.Metadata.Index, snapshot.Metadata.Term
-		r.logger.Debugf("%d [firstindex: %d, commit: %d] sent snapshot[index: %d, term: %d] to %d [%s]",
+		r.logger.Debugf("%d [firstindex: %d, commit: %d] sent snapshot[index: %d, term: %d] to %d [%v]",
 			r.id, r.RaftLog.firstIndex(), r.RaftLog.committed, sindex, sterm, to, pr)
-		r.logger.Debugf("%d paused sending replication messages to %d [%s]", r.id, to, pr)
+		r.logger.Debugf("%d paused sending replication messages to %d [%v]", r.id, to, pr)
 	} else {
 		m.MsgType = pb.MessageType_MsgAppend
 		m.Index = pr.Next - 1
