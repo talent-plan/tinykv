@@ -114,7 +114,7 @@ func (c *Cluster) Start() {
 		Id:      1,
 		Address: "",
 	}
-	resp, err := c.pdClient.Bootstrap(context.TODO(), store, firstRegion)
+	resp, err := c.pdClient.Bootstrap(context.TODO(), store)
 	if err != nil {
 		panic(err)
 	}
