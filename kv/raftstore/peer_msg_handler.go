@@ -206,7 +206,13 @@ func (d *peerMsgHandler) onApplyResult(res *MsgApplyRes) {
 	if d.stopped {
 		return
 	}
-	d.peer.PostApply(res.sizeDiffHint)
+
+	diff := d.peer.SizeDiffHint + res.sizeDiffHint
+	if diff > 0 {
+		d.peer.SizeDiffHint = diff
+	} else {
+		d.peer.SizeDiffHint = 0
+	}
 	// TODO: Delete End
 }
 

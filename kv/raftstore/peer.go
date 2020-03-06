@@ -571,19 +571,6 @@ func (p *peer) sendRaftMessage(msg eraftpb.Message, trans Transport) error {
 	return trans.Send(sendMsg)
 }
 
-func (p *peer) PostApply(sizeDiffHint uint64) {
-	if p.IsApplyingSnapshot() {
-		panic("should not applying snapshot")
-	}
-
-	diff := p.SizeDiffHint + sizeDiffHint
-	if diff > 0 {
-		p.SizeDiffHint = diff
-	} else {
-		p.SizeDiffHint = 0
-	}
-}
-
 // Propose a request.
 //
 // Return true means the request has been proposed successfully.
