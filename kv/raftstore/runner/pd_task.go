@@ -24,7 +24,6 @@ type PdAskBatchSplitTask struct {
 type PdRegionHeartbeatTask struct {
 	Region          *metapb.Region
 	Peer            *metapb.Peer
-	DownPeers       []*pdpb.PeerStats
 	PendingPeers    []*metapb.Peer
 	ApproximateSize *uint64
 }

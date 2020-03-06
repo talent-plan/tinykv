@@ -14,7 +14,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/raft"
@@ -341,27 +340,6 @@ func (p *peer) CheckPeers() {
 	}
 }
 
-/// Collects all down peers.
-func (p *peer) CollectDownPeers(maxDuration time.Duration) []*pdpb.PeerStats {
-	downPeers := make([]*pdpb.PeerStats, 0)
-	for _, peer := range p.Region().GetPeers() {
-		if peer.GetId() == p.Meta.GetId() {
-			continue
-		}
-		if hb, ok := p.PeerHeartbeats[peer.GetId()]; ok {
-			elapsed := time.Since(hb)
-			if elapsed > maxDuration {
-				stats := &pdpb.PeerStats{
-					Peer:        peer,
-					DownSeconds: uint64(elapsed.Seconds()),
-				}
-				downPeers = append(downPeers, stats)
-			}
-		}
-	}
-	return downPeers
-}
-
 /// Collects all pending peers and update `peers_start_pending_time`.
 func (p *peer) CollectPendingPeers() []*metapb.Peer {
 	pendingPeers := make([]*metapb.Peer, 0, len(p.Region().GetPeers()))
@@ -552,7 +530,6 @@ func (p *peer) HeartbeatPd(pdScheduler chan<- worker.Task) {
 		Data: &runner.PdRegionHeartbeatTask{
 			Region:          p.Region(),
 			Peer:            p.Meta,
-			DownPeers:       p.CollectDownPeers(time.Minute * 5),
 			PendingPeers:    p.CollectPendingPeers(),
 			ApproximateSize: p.ApproximateSize,
 		},

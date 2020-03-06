@@ -19,7 +19,6 @@ import (
 	"testing"
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	. "github.com/pingcap/check"
 )
 
@@ -41,12 +40,11 @@ func (s *testRegionSuite) TestRegionInfo(c *C) {
 	region := &metapb.Region{
 		Peers: peers,
 	}
-	downPeer, pendingPeer := peers[0], peers[1]
+	pendingPeer := peers[1]
 
 	info := NewRegionInfo(
 		region,
 		peers[0],
-		WithDownPeers([]*pdpb.PeerStats{{Peer: downPeer}}),
 		WithPendingPeers([]*metapb.Peer{pendingPeer}))
 
 	r := info.Clone()
@@ -56,8 +54,6 @@ func (s *testRegionSuite) TestRegionInfo(c *C) {
 		c.Assert(r.GetPeer(i), Equals, r.meta.Peers[i])
 	}
 	c.Assert(r.GetPeer(n), IsNil)
-	c.Assert(r.GetDownPeer(n), IsNil)
-	c.Assert(r.GetDownPeer(downPeer.GetId()), DeepEquals, downPeer)
 	c.Assert(r.GetPendingPeer(n), IsNil)
 	c.Assert(r.GetPendingPeer(pendingPeer.GetId()), DeepEquals, pendingPeer)
 

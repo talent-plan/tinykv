@@ -301,21 +301,6 @@ func (s *testCoordinatorSuite) TestReplica(c *C) {
 	c.Assert(dispatchHeartbeat(c, co, region, stream), IsNil)
 	waitNoResponse(c, stream)
 
-	// Peer in store 3 is down, remove peer in store 3 and add peer to store 4.
-	c.Assert(tc.setStoreDown(3), IsNil)
-	downPeer := &pdpb.PeerStats{
-		Peer:        region.GetStorePeer(3),
-		DownSeconds: 24 * 60 * 60,
-	}
-	region = region.Clone(
-		core.WithDownPeers(append(region.GetDownPeers(), downPeer)),
-	)
-	c.Assert(dispatchHeartbeat(c, co, region, stream), IsNil)
-	region = waitAddPeer(c, stream, region, 4)
-	region = region.Clone(core.WithDownPeers(nil))
-	c.Assert(dispatchHeartbeat(c, co, region, stream), IsNil)
-	waitNoResponse(c, stream)
-
 	// Remove peer from store 4.
 	c.Assert(tc.addLeaderRegion(2, 1, 2, 3, 4), IsNil)
 	region = tc.GetRegion(2)
