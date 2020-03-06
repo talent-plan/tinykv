@@ -246,19 +246,12 @@ message GetMembersResponse {
     Member etcd_leader = 4;
 }
 
-message PeerStats {
-    metapb.Peer peer = 1;
-    uint64 down_seconds = 2;
-}
-
 message RegionHeartbeatRequest {
     RequestHeader header = 1;
 
     metapb.Region region = 2;
     // Leader Peer sending the heartbeat.
     metapb.Peer leader = 3;
-    // Leader considers that these peers are down.
-    repeated PeerStats down_peers = 4;
     // Pending peers are the peers that the leader can't consider as
     // working followers.
     repeated metapb.Peer pending_peers = 5;

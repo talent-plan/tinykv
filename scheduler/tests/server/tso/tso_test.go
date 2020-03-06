@@ -71,7 +71,7 @@ func (s *testTsoSuite) testGetTimestamp(c *C, n int) *pdpb.Timestamp {
 	return res
 }
 
-func (s *testTsoSuite) TestTso(c *C) {
+func (s *testTsoSuite) TestTso3C(c *C) {
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
@@ -98,7 +98,7 @@ func (s *testTsoSuite) TestTso(c *C) {
 	wg.Wait()
 }
 
-func (s *testTsoSuite) TestTsoCount0(c *C) {
+func (s *testTsoSuite) TestTsoWithoutCount3C(c *C) {
 	var err error
 	cluster, err := tests.NewTestCluster(1)
 	defer cluster.Destroy()

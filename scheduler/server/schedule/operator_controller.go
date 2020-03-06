@@ -126,61 +126,6 @@ func (oc *OperatorController) getNextPushOperatorTime(step operator.OpStep, now 
 	return now.Add(nextTime)
 }
 
-// pollNeedDispatchRegion returns the region need to dispatch,
-// "next" is true to indicate that it may exist in next attempt,
-// and false is the end for the poll.
-func (oc *OperatorController) pollNeedDispatchRegion() (r *core.RegionInfo, next bool) {
-	oc.Lock()
-	defer oc.Unlock()
-	if oc.opNotifierQueue.Len() == 0 {
-		return nil, false
-	}
-	item := heap.Pop(&oc.opNotifierQueue).(*operatorWithTime)
-	regionID := item.op.RegionID()
-	op, ok := oc.operators[regionID]
-	if !ok || op == nil {
-		return nil, true
-	}
-	r = oc.cluster.GetRegion(regionID)
-	if r == nil {
-		_ = oc.removeOperatorLocked(op)
-		log.Debug("remove operator because region disappeared",
-			zap.Uint64("region-id", op.RegionID()),
-			zap.Stringer("operator", op))
-		oc.opRecords.Put(op, pdpb.OperatorStatus_CANCEL)
-		return nil, true
-	}
-	step := op.Check(r)
-	if step == nil {
-		return r, true
-	}
-	now := time.Now()
-	if now.Before(item.time) {
-		heap.Push(&oc.opNotifierQueue, item)
-		return nil, false
-	}
-
-	// pushes with new notify time.
-	item.time = oc.getNextPushOperatorTime(step, now)
-	heap.Push(&oc.opNotifierQueue, item)
-	return r, true
-}
-
-// PushOperators periodically pushes the unfinished operator to the executor(TiKV).
-func (oc *OperatorController) PushOperators() {
-	for {
-		r, next := oc.pollNeedDispatchRegion()
-		if !next {
-			break
-		}
-		if r == nil {
-			continue
-		}
-
-		oc.Dispatch(r, DispatchFromNotifierQueue)
-	}
-}
-
 // AddOperator adds operators to the running operators.
 func (oc *OperatorController) AddOperator(ops ...*operator.Operator) bool {
 	oc.Lock()

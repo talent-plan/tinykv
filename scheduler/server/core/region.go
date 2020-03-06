@@ -32,7 +32,6 @@ type RegionInfo struct {
 	learners        []*metapb.Peer
 	voters          []*metapb.Peer
 	leader          *metapb.Peer
-	downPeers       []*pdpb.PeerStats
 	pendingPeers    []*metapb.Peer
 	approximateSize int64
 	approximateKeys int64
@@ -78,7 +77,6 @@ func RegionFromHeartbeat(heartbeat *pdpb.RegionHeartbeatRequest) *RegionInfo {
 	region := &RegionInfo{
 		meta:            heartbeat.GetRegion(),
 		leader:          heartbeat.GetLeader(),
-		downPeers:       heartbeat.GetDownPeers(),
 		pendingPeers:    heartbeat.GetPendingPeers(),
 		approximateSize: int64(regionSize),
 		approximateKeys: int64(heartbeat.GetApproximateKeys()),
@@ -91,10 +89,6 @@ func RegionFromHeartbeat(heartbeat *pdpb.RegionHeartbeatRequest) *RegionInfo {
 
 // Clone returns a copy of current regionInfo.
 func (r *RegionInfo) Clone(opts ...RegionCreateOption) *RegionInfo {
-	downPeers := make([]*pdpb.PeerStats, 0, len(r.downPeers))
-	for _, peer := range r.downPeers {
-		downPeers = append(downPeers, proto.Clone(peer).(*pdpb.PeerStats))
-	}
 	pendingPeers := make([]*metapb.Peer, 0, len(r.pendingPeers))
 	for _, peer := range r.pendingPeers {
 		pendingPeers = append(pendingPeers, proto.Clone(peer).(*metapb.Peer))
@@ -103,7 +97,6 @@ func (r *RegionInfo) Clone(opts ...RegionCreateOption) *RegionInfo {
 	region := &RegionInfo{
 		meta:            proto.Clone(r.meta).(*metapb.Region),
 		leader:          proto.Clone(r.leader).(*metapb.Peer),
-		downPeers:       downPeers,
 		pendingPeers:    pendingPeers,
 		approximateSize: r.approximateSize,
 		approximateKeys: r.approximateKeys,
@@ -132,26 +125,6 @@ func (r *RegionInfo) GetPeer(peerID uint64) *metapb.Peer {
 	for _, peer := range r.meta.GetPeers() {
 		if peer.GetId() == peerID {
 			return peer
-		}
-	}
-	return nil
-}
-
-// GetDownPeer returns the down peer with specified peer id.
-func (r *RegionInfo) GetDownPeer(peerID uint64) *metapb.Peer {
-	for _, down := range r.downPeers {
-		if down.GetPeer().GetId() == peerID {
-			return down.GetPeer()
-		}
-	}
-	return nil
-}
-
-// GetDownVoter returns the down voter with specified peer id.
-func (r *RegionInfo) GetDownVoter(peerID uint64) *metapb.Peer {
-	for _, down := range r.downPeers {
-		if down.GetPeer().GetId() == peerID {
-			return down.GetPeer()
 		}
 	}
 	return nil
@@ -291,11 +264,6 @@ func (r *RegionInfo) GetApproximateKeys() int64 {
 // GetInterval returns the interval information of the region.
 func (r *RegionInfo) GetInterval() *pdpb.TimeInterval {
 	return r.interval
-}
-
-// GetDownPeers returns the down peers of the region.
-func (r *RegionInfo) GetDownPeers() []*pdpb.PeerStats {
-	return r.downPeers
 }
 
 // GetPendingPeers returns the pending peers of the region.

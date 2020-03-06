@@ -15,7 +15,6 @@ package core
 
 import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 )
 
 // RegionOption is used to select region.
@@ -24,26 +23,19 @@ type RegionOption func(region *RegionInfo) bool
 // HealthRegion checks if the region is healthy.
 func HealthRegion() RegionOption {
 	return func(region *RegionInfo) bool {
-		return len(region.downPeers) == 0 && len(region.pendingPeers) == 0 && len(region.learners) == 0
+		return len(region.pendingPeers) == 0 && len(region.learners) == 0
 	}
 }
 
 // HealthRegionAllowPending checks if the region is healthy with allowing the pending peer.
 func HealthRegionAllowPending() RegionOption {
 	return func(region *RegionInfo) bool {
-		return len(region.downPeers) == 0 && len(region.learners) == 0
+		return len(region.learners) == 0
 	}
 }
 
 // RegionCreateOption used to create region.
 type RegionCreateOption func(region *RegionInfo)
-
-// WithDownPeers sets the down peers for the region.
-func WithDownPeers(downPeers []*pdpb.PeerStats) RegionCreateOption {
-	return func(region *RegionInfo) {
-		region.downPeers = downPeers
-	}
-}
 
 // WithPendingPeers sets the pending peers for the region.
 func WithPendingPeers(pengdingPeers []*metapb.Peer) RegionCreateOption {
@@ -56,6 +48,13 @@ func WithPendingPeers(pengdingPeers []*metapb.Peer) RegionCreateOption {
 func WithLeader(leader *metapb.Peer) RegionCreateOption {
 	return func(region *RegionInfo) {
 		region.leader = leader
+	}
+}
+
+// WithLearners adds learner to the region
+func WithLearners(learner []*metapb.Peer) RegionCreateOption {
+	return func(region *RegionInfo) {
+		region.learners = append(region.learners, learner...)
 	}
 }
 
