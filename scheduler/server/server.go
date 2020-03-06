@@ -373,15 +373,6 @@ func (s *Server) bootstrapCluster(req *pdpb.BootstrapRequest) (*pdpb.BootstrapRe
 	}
 	ops = append(ops, clientv3.OpPut(storePath, string(storeValue)))
 
-	regionValue, err := req.GetRegion().Marshal()
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-
-	// Set region meta with region id.
-	regionPath := makeRegionKey(clusterRootPath, req.GetRegion().GetId())
-	ops = append(ops, clientv3.OpPut(regionPath, string(regionValue)))
-
 	// TODO: we must figure out a better way to handle bootstrap failed, maybe intervene manually.
 	bootstrapCmp := clientv3.Compare(clientv3.CreateRevision(clusterRootPath), "=", 0)
 	resp, err := kv.NewSlowLogTxn(s.client).If(bootstrapCmp).Then(ops...).Commit()
@@ -394,14 +385,6 @@ func (s *Server) bootstrapCluster(req *pdpb.BootstrapRequest) (*pdpb.BootstrapRe
 	}
 
 	log.Info("bootstrap cluster ok", zap.Uint64("cluster-id", clusterID))
-	err = s.storage.SaveRegion(req.GetRegion())
-	if err != nil {
-		log.Warn("save the bootstrap region failed", zap.Error(err))
-	}
-	err = s.storage.Flush()
-	if err != nil {
-		log.Warn("flush the bootstrap region failed", zap.Error(err))
-	}
 	if err := s.cluster.start(); err != nil {
 		return nil, err
 	}

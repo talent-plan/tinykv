@@ -378,7 +378,7 @@ func TestDuelingCandidates2B(t *testing.T) {
 	// 3 will be follower again since both 1 and 2 rejects its vote request since 3 does not have a long enough log
 	nt.send(pb.Message{From: 3, To: 3, MsgType: pb.MessageType_MsgHup})
 
-	wlog := newLog(&MemoryStorage{ents: []pb.Entry{{}, {Data: nil, Term: 1, Index: 1}}}, raftLogger)
+	wlog := newLog(&MemoryStorage{ents: []pb.Entry{{}, {Data: nil, Term: 1, Index: 1}}})
 	wlog.committed = 1
 	tests := []struct {
 		sm      *Raft
@@ -388,7 +388,7 @@ func TestDuelingCandidates2B(t *testing.T) {
 	}{
 		{a, StateFollower, 2, wlog},
 		{b, StateFollower, 2, wlog},
-		{c, StateFollower, 2, newLog(NewMemoryStorage(), raftLogger)},
+		{c, StateFollower, 2, newLog(NewMemoryStorage())},
 	}
 
 	for i, tt := range tests {
@@ -435,7 +435,7 @@ func TestCandidateConcede2B(t *testing.T) {
 	if g := a.Term; g != 1 {
 		t.Errorf("term = %d, want %d", g, 1)
 	}
-	wlog := newLog(&MemoryStorage{ents: []pb.Entry{{}, {Data: nil, Term: 1, Index: 1}, {Term: 1, Index: 2, Data: data}}}, raftLogger)
+	wlog := newLog(&MemoryStorage{ents: []pb.Entry{{}, {Data: nil, Term: 1, Index: 1}, {Term: 1, Index: 2, Data: data}}})
 	wlog.committed = 2
 	wantLog := ltoa(wlog)
 	for i, p := range tt.peers {
@@ -478,7 +478,7 @@ func TestOldMessages2B(t *testing.T) {
 				{Data: nil, Term: 2, Index: 2}, {Data: nil, Term: 3, Index: 3},
 				{Data: []byte("somedata"), Term: 3, Index: 4},
 			},
-		}, raftLogger)
+		})
 	ilog.committed = 4
 	base := ltoa(ilog)
 	for i, p := range tt.peers {
@@ -512,9 +512,9 @@ func TestProposal2B(t *testing.T) {
 		tt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 		tt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: data}}})
 
-		wantLog := newLog(NewMemoryStorage(), raftLogger)
+		wantLog := newLog(NewMemoryStorage())
 		if tt.success {
-			wantLog = newLog(&MemoryStorage{ents: []pb.Entry{{}, {Data: nil, Term: 1, Index: 1}, {Term: 1, Index: 2, Data: data}}}, raftLogger)
+			wantLog = newLog(&MemoryStorage{ents: []pb.Entry{{}, {Data: nil, Term: 1, Index: 1}, {Term: 1, Index: 2, Data: data}}})
 			wantLog.committed = 2
 		}
 		base := ltoa(wantLog)
@@ -666,7 +666,7 @@ func TestRecvMessageType_MsgRequestVote2A(t *testing.T) {
 		sm := newTestRaft(1, []uint64{1}, 10, 1, NewMemoryStorage())
 		sm.State = tt.state
 		sm.Vote = tt.voteFor
-		sm.RaftLog = newLog(&MemoryStorage{ents: []pb.Entry{{}, {Index: 1, Term: 2}, {Index: 2, Term: 2}}}, raftLogger)
+		sm.RaftLog = newLog(&MemoryStorage{ents: []pb.Entry{{}, {Index: 1, Term: 2}, {Index: 2, Term: 2}}})
 
 		// raft.Term is greater than or equal to raft.RaftLog.lastTerm. In this
 		// test we're only testing MessageType_MsgRequestVote responses when the campaigning node
@@ -979,7 +979,7 @@ func TestRecvMessageType_MsgBeat2A(t *testing.T) {
 
 	for i, tt := range tests {
 		sm := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
-		sm.RaftLog = newLog(&MemoryStorage{ents: []pb.Entry{{}, {Index: 1, Term: 0}, {Index: 2, Term: 1}}}, raftLogger)
+		sm.RaftLog = newLog(&MemoryStorage{ents: []pb.Entry{{}, {Index: 1, Term: 0}, {Index: 2, Term: 1}}})
 		sm.Term = 1
 		sm.State = tt.state
 		sm.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgBeat})

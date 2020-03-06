@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/Connor1996/badger"
-	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
+	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 )
@@ -114,7 +114,7 @@ func (c *Cluster) Start() {
 		Id:      1,
 		Address: "",
 	}
-	resp, err := c.pdClient.Bootstrap(context.TODO(), store, firstRegion)
+	resp, err := c.pdClient.Bootstrap(context.TODO(), store)
 	if err != nil {
 		panic(err)
 	}

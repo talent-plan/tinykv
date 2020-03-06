@@ -7,9 +7,9 @@ import (
 	"sync"
 
 	"github.com/google/btree"
-	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
+	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
@@ -122,7 +122,7 @@ func (m *MockPDClient) AllocID(ctx context.Context) (uint64, error) {
 	return ret, nil
 }
 
-func (m *MockPDClient) Bootstrap(ctx context.Context, store *metapb.Store, region *metapb.Region) (*pdpb.BootstrapResponse, error) {
+func (m *MockPDClient) Bootstrap(ctx context.Context, store *metapb.Store) (*pdpb.BootstrapResponse, error) {
 	m.Lock()
 	defer m.Unlock()
 
@@ -140,7 +140,6 @@ func (m *MockPDClient) Bootstrap(ctx context.Context, store *metapb.Store, regio
 	}
 
 	m.stores[store.GetId()] = NewStore(store)
-	m.addRegionLocked(region)
 	m.bootstrapped = true
 	return resp, nil
 }

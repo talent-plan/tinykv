@@ -4,10 +4,10 @@ import (
 	"context"
 
 	"github.com/Connor1996/badger"
-	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/worker"
+	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
@@ -117,7 +117,6 @@ func (r *pdTaskHandler) onHeartbeat(t *PdRegionHeartbeatTask) {
 	req := &pdpb.RegionHeartbeatRequest{
 		Region:          t.Region,
 		Leader:          t.Peer,
-		DownPeers:       t.DownPeers,
 		PendingPeers:    t.PendingPeers,
 		ApproximateSize: uint64(size),
 	}

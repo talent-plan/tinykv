@@ -106,7 +106,6 @@ message BootstrapRequest {
     RequestHeader header = 1;
 
     metapb.Store store = 2;
-    metapb.Region region = 3;
 }
 
 message BootstrapResponse {
