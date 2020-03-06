@@ -2,15 +2,13 @@ syntax = "proto3";
 package pdpb;
 
 import "metapb.proto";
-import "eraftpb.proto";
+import "raftpb.proto";
 
 import "gogoproto/gogo.proto";
 
 option (gogoproto.sizer_all) = true;
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.unmarshaler_all) = true;
-
-option java_package = "org.tikv.kvproto";
 
 service PD {
     // GetMembers get the member list of this cluster. It does not require
@@ -268,26 +266,11 @@ message RegionHeartbeatRequest {
 
 message ChangePeer {
     metapb.Peer peer = 1;
-    eraftpb.ConfChangeType change_type = 2;
+    raftpb.ConfChangeType change_type = 2;
 }
 
 message TransferLeader {
     metapb.Peer peer = 1;
-}
-
-message Merge {
-    metapb.Region target = 1;
-}
-
-message SplitRegion {
-    CheckPolicy policy = 1;
-    repeated bytes keys = 2;
-}
-
-enum CheckPolicy {
-    SCAN = 0;
-    APPROXIMATE = 1;
-    USEKEY = 2;
 }
 
 message RegionHeartbeatResponse {
@@ -315,9 +298,6 @@ message RegionHeartbeatResponse {
     metapb.RegionEpoch region_epoch = 5;
     // Leader of the region at the moment of the corresponding request was made.
     metapb.Peer target_peer = 6;
-    Merge merge = 7;
-    // PD sends split_region to let TiKV split a region into two regions.
-    SplitRegion split_region = 8;
 }
 
 message AskSplitRequest {

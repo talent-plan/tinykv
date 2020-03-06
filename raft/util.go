@@ -23,7 +23,7 @@ import (
 	"sort"
 	"strings"
 
-	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	pb "github.com/pingcap-incubator/tinykv/proto/pkg/raftpb"
 )
 
 func min(a, b uint64) uint64 {

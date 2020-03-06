@@ -15,7 +15,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/worker"
 	"github.com/pingcap-incubator/tinykv/log"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/raftpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 )
 
@@ -27,7 +27,7 @@ import (
 // When region-worker receive a Task, it would handle it according to task type. The type is not in RegionTask but in Task.Tp. RegionTask is the data field of Task.
 type RegionTask struct {
 	RegionId uint64                   // specify the region which the task is for.
-	Notifier chan<- *eraftpb.Snapshot // useful in `TaskTypeRegionGen`, when it finishes snapshot generating, it notifies notifier.
+	Notifier chan<- *raftpb.Snapshot // useful in `TaskTypeRegionGen`, when it finishes snapshot generating, it notifies notifier.
 	Status   *snap.JobStatus          // useful in `TaskTypeRegionApply` to see if the job is canceled
 	StartKey []byte
 	EndKey   []byte // `StartKey` and `EndKey` are useful in `TaskTypeRegionDestroy` to destroy certain range of region.
@@ -67,7 +67,7 @@ type snapContext struct {
 }
 
 // handleGen handles the task of generating snapshot of the Region.
-func (snapCtx *snapContext) handleGen(regionId uint64, notifier chan<- *eraftpb.Snapshot) {
+func (snapCtx *snapContext) handleGen(regionId uint64, notifier chan<- *raftpb.Snapshot) {
 	snap, err := doSnapshot(snapCtx.engines, snapCtx.mgr, regionId)
 	if err != nil {
 		log.Errorf("failed to generate snapshot!!!, [regionId: %d, err : %v]", regionId, err)
@@ -190,7 +190,7 @@ func getAppliedIdxTermForSnapshot(raft *badger.DB, kv *badger.Txn, regionId uint
 	return idx, term, nil
 }
 
-func doSnapshot(engines *engine_util.Engines, mgr *snap.SnapManager, regionId uint64) (*eraftpb.Snapshot, error) {
+func doSnapshot(engines *engine_util.Engines, mgr *snap.SnapManager, regionId uint64) (*raftpb.Snapshot, error) {
 	log.Debugf("begin to generate a snapshot. [regionId: %d]", regionId)
 
 	txn := engines.Kv.NewTransaction(false)
@@ -219,8 +219,8 @@ func doSnapshot(engines *engine_util.Engines, mgr *snap.SnapManager, regionId ui
 
 	region := regionState.GetRegion()
 	confState := util.ConfStateFromRegion(region)
-	snapshot := &eraftpb.Snapshot{
-		Metadata: &eraftpb.SnapshotMetadata{
+	snapshot := &raftpb.Snapshot{
+		Metadata: &raftpb.SnapshotMetadata{
 			Index:     key.Index,
 			Term:      key.Term,
 			ConfState: &confState,

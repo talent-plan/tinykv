@@ -21,7 +21,7 @@ import (
 	"reflect"
 	"testing"
 
-	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	pb "github.com/pingcap-incubator/tinykv/proto/pkg/raftpb"
 )
 
 // nextEnts returns the appliable entries and updates the applied index

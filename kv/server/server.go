@@ -6,14 +6,15 @@ import (
 
 	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/inner_server"
+	"github.com/pingcap-incubator/tinykv/kv/inner_server/raft_server"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/commands"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/latches"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/coprocessor"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/tinykvpb"
 )
 
-var _ tikvpb.TikvServer = new(Server)
+var _ tinykvpb.TinyKvServer = new(Server)
 
 // Server is a TinyKV server, it 'faces outwards', sending and receiving messages from clients such as TinySQL.
 type Server struct {
@@ -33,7 +34,7 @@ func (server *Server) Run(cmd commands.Command) (interface{}, error) {
 	return commands.RunCommand(cmd, server.innerServer, server.Latches)
 }
 
-// The below functions are Server's gRPC API (implements TikvServer).
+// The below functions are Server's gRPC API (implements TinyKvServer).
 
 // TODO: delete the bodies of the below functions.
 
@@ -167,12 +168,12 @@ func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*
 	return response, nil
 }
 
-// Raft commands (tikv <-> tikv); these are trivially forwarded to innerServer.
-func (server *Server) Raft(stream tikvpb.Tikv_RaftServer) error {
+// Raft commands (tinykv <-> tinykv); these are trivially forwarded to innerServer.
+func (server *Server) Raft(stream tinykvpb.TinyKv_RaftServer) error {
 	return server.innerServer.Raft(stream)
 }
 
-func (server *Server) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
+func (server *Server) Snapshot(stream tinykvpb.TinyKv_SnapshotServer) error {
 	return server.innerServer.Snapshot(stream)
 }
 
@@ -189,7 +190,7 @@ func rawRegionError(err error, resp interface{}) bool {
 		return false
 	}
 	respValue := reflect.ValueOf(resp)
-	if regionErr, ok := err.(*inner_server.RegionError); ok {
+	if regionErr, ok := err.(*raft_server.RegionError); ok {
 		respValue.FieldByName("RegionError").Set(reflect.ValueOf(regionErr.RequestErr))
 	} else {
 		respValue.FieldByName("Error").Set(reflect.ValueOf(err.Error()))

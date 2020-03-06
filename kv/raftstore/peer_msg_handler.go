@@ -11,7 +11,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/worker"
 	"github.com/pingcap-incubator/tinykv/log"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/raftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
@@ -455,7 +455,7 @@ func (d *peerMsgHandler) onReadyChangePeer(cp *execResultChangePeer) {
 	d.ctx.storeMeta.setRegion(cp.region, d.peer)
 	peerID := cp.peer.Id
 	switch changeType {
-	case eraftpb.ConfChangeType_AddNode:
+	case raftpb.ConfChangeType_AddNode:
 		// Add this peer to cache and heartbeats.
 		now := time.Now()
 		d.peer.PeerHeartbeats[peerID] = now
@@ -463,7 +463,7 @@ func (d *peerMsgHandler) onReadyChangePeer(cp *execResultChangePeer) {
 			d.peer.PeersStartPendingTime[peerID] = now
 		}
 		d.peer.insertPeerCache(cp.peer)
-	case eraftpb.ConfChangeType_RemoveNode:
+	case raftpb.ConfChangeType_RemoveNode:
 		// Remove this peer from cache.
 		delete(d.peer.PeerHeartbeats, peerID)
 		if d.peer.IsLeader() {
@@ -485,7 +485,7 @@ func (d *peerMsgHandler) onReadyChangePeer(cp *execResultChangePeer) {
 	myPeerID := d.peerID()
 
 	// We only care remove itself now.
-	if changeType == eraftpb.ConfChangeType_RemoveNode && cp.peer.StoreId == d.storeID() {
+	if changeType == raftpb.ConfChangeType_RemoveNode && cp.peer.StoreId == d.storeID() {
 		if myPeerID == peerID {
 			d.destroyPeer()
 		} else {

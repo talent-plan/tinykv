@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/raftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockhbstream"
@@ -733,7 +733,7 @@ func waitAddPeer(c *C, stream mockhbstream.HeartbeatStream, region *core.RegionI
 	testutil.WaitUntil(c, func(c *C) bool {
 		if res = stream.Recv(); res != nil {
 			return res.GetRegionId() == region.GetID() &&
-				res.GetChangePeer().GetChangeType() == eraftpb.ConfChangeType_AddNode &&
+				res.GetChangePeer().GetChangeType() == raftpb.ConfChangeType_AddNode &&
 				res.GetChangePeer().GetPeer().GetStoreId() == storeID
 		}
 		return false
@@ -749,7 +749,7 @@ func waitRemovePeer(c *C, stream mockhbstream.HeartbeatStream, region *core.Regi
 	testutil.WaitUntil(c, func(c *C) bool {
 		if res = stream.Recv(); res != nil {
 			return res.GetRegionId() == region.GetID() &&
-				res.GetChangePeer().GetChangeType() == eraftpb.ConfChangeType_RemoveNode &&
+				res.GetChangePeer().GetChangeType() == raftpb.ConfChangeType_RemoveNode &&
 				res.GetChangePeer().GetPeer().GetStoreId() == storeID
 		}
 		return false

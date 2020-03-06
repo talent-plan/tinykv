@@ -12,7 +12,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/worker"
 	"github.com/pingcap-incubator/tinykv/log"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/raftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
@@ -122,7 +122,7 @@ type peer struct {
 	PendingRemove bool
 
 	// If a snapshot is being applied asynchronously, messages should not be sent.
-	pendingMessages []eraftpb.Message
+	pendingMessages []raftpb.Message
 }
 
 func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, region *metapb.Region, regionSched chan<- worker.Task,
@@ -302,7 +302,7 @@ func (p *peer) HasPendingSnapshot() bool {
 	return p.RaftGroup.GetSnap() != nil
 }
 
-func (p *peer) Send(trans Transport, msgs []eraftpb.Message) {
+func (p *peer) Send(trans Transport, msgs []raftpb.Message) {
 	for _, msg := range msgs {
 		err := p.sendRaftMessage(msg, trans)
 		if err != nil {
@@ -312,7 +312,7 @@ func (p *peer) Send(trans Transport, msgs []eraftpb.Message) {
 }
 
 /// Steps the raft message.
-func (p *peer) Step(m *eraftpb.Message) error {
+func (p *peer) Step(m *raftpb.Message) error {
 	if p.IsLeader() && m.GetFrom() != util.InvalidID {
 		p.PeerHeartbeats[m.GetFrom()] = time.Now()
 	}
@@ -446,10 +446,10 @@ func (p *peer) HandleRaftReady(msgs []message.Msg, pdScheduler chan<- worker.Tas
 
 	ready := p.RaftGroup.Ready()
 	// TODO: workaround for:
-	//   in kvproto/eraftpb, we use *SnapshotMetadata
+	//   in kvproto/raftpb, we use *SnapshotMetadata
 	//   but in etcd, they use SnapshotMetadata
 	if ready.Snapshot.GetMetadata() == nil {
-		ready.Snapshot.Metadata = &eraftpb.SnapshotMetadata{}
+		ready.Snapshot.Metadata = &raftpb.SnapshotMetadata{}
 	}
 
 	// The leader can write to disk and replicate to the followers concurrently
@@ -536,7 +536,7 @@ func (p *peer) HeartbeatPd(pdScheduler chan<- worker.Task) {
 	}
 }
 
-func (p *peer) sendRaftMessage(msg eraftpb.Message, trans Transport) error {
+func (p *peer) sendRaftMessage(msg raftpb.Message, trans Transport) error {
 	sendMsg := new(rspb.RaftMessage)
 	sendMsg.RegionId = p.regionId
 	// set current epoch
@@ -659,9 +659,9 @@ func (p *peer) checkConfChange(cfg *config.Config, cmd *raft_cmdpb.RaftCmdReques
 	}
 
 	switch changeType {
-	case eraftpb.ConfChangeType_AddNode:
+	case raftpb.ConfChangeType_AddNode:
 		progress[peer.Id] = raft.Progress{}
-	case eraftpb.ConfChangeType_RemoveNode:
+	case raftpb.ConfChangeType_RemoveNode:
 		if _, ok := progress[peer.Id]; ok {
 			delete(progress, peer.Id)
 		} else {
@@ -747,7 +747,7 @@ func (p *peer) ProposeConfChange(cfg *config.Config, req *raft_cmdpb.RaftCmdRequ
 	}
 
 	changePeer := GetChangePeerCmd(req)
-	var cc eraftpb.ConfChange
+	var cc raftpb.ConfChange
 	cc.ChangeType = changePeer.ChangeType
 	cc.NodeId = changePeer.Peer.Id
 	cc.Context = data

@@ -3,9 +3,7 @@ package raft_cmdpb;
 
 import "metapb.proto";
 import "errorpb.proto";
-import "eraftpb.proto";
-
-option java_package = "org.tikv.kvproto";
+import "raftpb.proto";
 
 message GetRequest {
     string cf = 1;
@@ -63,7 +61,7 @@ message Response {
 
 message ChangePeerRequest {
     // This can be only called in internal RaftStore now.
-    eraftpb.ConfChangeType change_type = 1;
+    raftpb.ConfChangeType change_type = 1;
     metapb.Peer peer = 2;
 }
 

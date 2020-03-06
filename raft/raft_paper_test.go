@@ -32,7 +32,7 @@ import (
 	"sort"
 	"testing"
 
-	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	pb "github.com/pingcap-incubator/tinykv/proto/pkg/raftpb"
 )
 
 func TestFollowerUpdateTermFromMessage2A(t *testing.T) {

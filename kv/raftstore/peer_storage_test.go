@@ -8,7 +8,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/raftpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/raft"
 	"github.com/stretchr/testify/assert"
@@ -26,7 +26,7 @@ func newTestPeerStorage(t *testing.T) *PeerStorage {
 	return peerStore
 }
 
-func newTestPeerStorageFromEnts(t *testing.T, ents []eraftpb.Entry) *PeerStorage {
+func newTestPeerStorageFromEnts(t *testing.T, ents []raftpb.Entry) *PeerStorage {
 	peerStore := newTestPeerStorage(t)
 	kvWB := new(engine_util.WriteBatch)
 	ctx := NewInvokeContext(peerStore)
@@ -50,8 +50,8 @@ func cleanUpTestData(peerStore *PeerStorage) {
 	}
 }
 
-func newTestEntry(index, term uint64) eraftpb.Entry {
-	return eraftpb.Entry{
+func newTestEntry(index, term uint64) raftpb.Entry {
+	return raftpb.Entry{
 		Index: index,
 		Term:  term,
 		Data:  []byte{0},
@@ -59,7 +59,7 @@ func newTestEntry(index, term uint64) eraftpb.Entry {
 }
 
 func TestPeerStorageTerm(t *testing.T) {
-	ents := []eraftpb.Entry{
+	ents := []raftpb.Entry{
 		newTestEntry(3, 3), newTestEntry(4, 4), newTestEntry(5, 5),
 	}
 	tests := []struct {
@@ -84,7 +84,7 @@ func TestPeerStorageTerm(t *testing.T) {
 	}
 }
 
-func appendEnts(t *testing.T, peerStore *PeerStorage, ents []eraftpb.Entry) {
+func appendEnts(t *testing.T, peerStore *PeerStorage, ents []raftpb.Entry) {
 	ctx := NewInvokeContext(peerStore)
 	raftWB := new(engine_util.WriteBatch)
 	require.Nil(t, peerStore.Append(ctx, ents, raftWB))
@@ -140,12 +140,12 @@ func getMetaKeyCount(t *testing.T, peerStore *PeerStorage) int {
 }
 
 func TestPeerStorageClearMeta(t *testing.T) {
-	peerStore := newTestPeerStorageFromEnts(t, []eraftpb.Entry{
+	peerStore := newTestPeerStorageFromEnts(t, []raftpb.Entry{
 		newTestEntry(3, 3),
 		newTestEntry(4, 4),
 	})
 	defer cleanUpTestData(peerStore)
-	appendEnts(t, peerStore, []eraftpb.Entry{
+	appendEnts(t, peerStore, []raftpb.Entry{
 		newTestEntry(5, 5),
 		newTestEntry(6, 6),
 	})
@@ -159,7 +159,7 @@ func TestPeerStorageClearMeta(t *testing.T) {
 }
 
 func TestPeerStorageEntries(t *testing.T) {
-	ents := []eraftpb.Entry{
+	ents := []raftpb.Entry{
 		newTestEntry(3, 3),
 		newTestEntry(4, 4),
 		newTestEntry(5, 5),
@@ -168,15 +168,15 @@ func TestPeerStorageEntries(t *testing.T) {
 	tests := []struct {
 		low     uint64
 		high    uint64
-		entries []eraftpb.Entry
+		entries []raftpb.Entry
 		err     error
 	}{
 		{2, 6, nil, raft.ErrCompacted},
 		{3, 4, nil, raft.ErrCompacted},
-		{4, 5, []eraftpb.Entry{
+		{4, 5, []raftpb.Entry{
 			newTestEntry(4, 4),
 		}, nil},
-		{4, 6, []eraftpb.Entry{
+		{4, 6, []raftpb.Entry{
 			newTestEntry(4, 4),
 			newTestEntry(5, 5),
 		}, nil},
@@ -195,7 +195,7 @@ func TestPeerStorageEntries(t *testing.T) {
 }
 
 func TestPeerStorageCompact(t *testing.T) {
-	ents := []eraftpb.Entry{
+	ents := []raftpb.Entry{
 		newTestEntry(3, 3), newTestEntry(4, 4), newTestEntry(5, 5)}
 	tests := []struct {
 		idx uint64
@@ -226,40 +226,40 @@ func TestPeerStorageCompact(t *testing.T) {
 }
 
 func TestPeerStorageAppend(t *testing.T) {
-	ents := []eraftpb.Entry{
+	ents := []raftpb.Entry{
 		newTestEntry(3, 3), newTestEntry(4, 4), newTestEntry(5, 5)}
 	tests := []struct {
-		appends []eraftpb.Entry
-		results []eraftpb.Entry
+		appends []raftpb.Entry
+		results []raftpb.Entry
 	}{
 		{
-			[]eraftpb.Entry{newTestEntry(3, 3), newTestEntry(4, 4), newTestEntry(5, 5)},
-			[]eraftpb.Entry{newTestEntry(4, 4), newTestEntry(5, 5)},
+			[]raftpb.Entry{newTestEntry(3, 3), newTestEntry(4, 4), newTestEntry(5, 5)},
+			[]raftpb.Entry{newTestEntry(4, 4), newTestEntry(5, 5)},
 		},
 		{
-			[]eraftpb.Entry{newTestEntry(3, 3), newTestEntry(4, 6), newTestEntry(5, 6)},
-			[]eraftpb.Entry{newTestEntry(4, 6), newTestEntry(5, 6)},
+			[]raftpb.Entry{newTestEntry(3, 3), newTestEntry(4, 6), newTestEntry(5, 6)},
+			[]raftpb.Entry{newTestEntry(4, 6), newTestEntry(5, 6)},
 		},
 		{
-			[]eraftpb.Entry{
+			[]raftpb.Entry{
 				newTestEntry(3, 3),
 				newTestEntry(4, 4),
 				newTestEntry(5, 5),
 				newTestEntry(6, 5),
 			},
-			[]eraftpb.Entry{newTestEntry(4, 4), newTestEntry(5, 5), newTestEntry(6, 5)},
+			[]raftpb.Entry{newTestEntry(4, 4), newTestEntry(5, 5), newTestEntry(6, 5)},
 		},
 		// truncate incoming entries, truncate the existing entries and append
 		{
-			[]eraftpb.Entry{newTestEntry(2, 3), newTestEntry(3, 3), newTestEntry(4, 5)},
-			[]eraftpb.Entry{newTestEntry(4, 5)},
+			[]raftpb.Entry{newTestEntry(2, 3), newTestEntry(3, 3), newTestEntry(4, 5)},
+			[]raftpb.Entry{newTestEntry(4, 5)},
 		},
 		// truncate the existing entries and append
-		{[]eraftpb.Entry{newTestEntry(4, 5)}, []eraftpb.Entry{newTestEntry(4, 5)}},
+		{[]raftpb.Entry{newTestEntry(4, 5)}, []raftpb.Entry{newTestEntry(4, 5)}},
 		// direct append
 		{
-			[]eraftpb.Entry{newTestEntry(6, 5)},
-			[]eraftpb.Entry{newTestEntry(4, 4), newTestEntry(5, 5), newTestEntry(6, 5)},
+			[]raftpb.Entry{newTestEntry(6, 5)},
+			[]raftpb.Entry{newTestEntry(4, 4), newTestEntry(5, 5), newTestEntry(6, 5)},
 		},
 	}
 	for _, tt := range tests {

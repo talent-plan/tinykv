@@ -10,7 +10,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/log"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/raftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap/errors"
@@ -428,14 +428,14 @@ func (m *MockPDClient) makeRegionHeartbeatResponse(op *Operator, resp *pdpb.Regi
 		add := op.Data.(OpAddPeer)
 		if !add.pending {
 			resp.ChangePeer = &pdpb.ChangePeer{
-				ChangeType: eraftpb.ConfChangeType_AddNode,
+				ChangeType: raftpb.ConfChangeType_AddNode,
 				Peer:       add.peer,
 			}
 		}
 	case OperatorTypeRemovePeer:
 		remove := op.Data.(OpRemovePeer)
 		resp.ChangePeer = &pdpb.ChangePeer{
-			ChangeType: eraftpb.ConfChangeType_RemoveNode,
+			ChangeType: raftpb.ConfChangeType_RemoveNode,
 			Peer:       remove.peer,
 		}
 	case OperatorTypeTransferLeader:

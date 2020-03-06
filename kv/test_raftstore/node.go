@@ -16,7 +16,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/log"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/raftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
@@ -80,7 +80,7 @@ func (t *MockTransport) Send(msg *raft_serverpb.RaftMessage) error {
 	fromStore := msg.GetFromPeer().GetStoreId()
 	toStore := msg.GetToPeer().GetStoreId()
 
-	isSnapshot := msg.GetMessage().GetMsgType() == eraftpb.MessageType_MsgSnapshot
+	isSnapshot := msg.GetMessage().GetMsgType() == raftpb.MessageType_MsgSnapshot
 	if isSnapshot {
 		snapshot := msg.Message.Snapshot
 		key, err := snap.SnapKeyFromSnap(snapshot)

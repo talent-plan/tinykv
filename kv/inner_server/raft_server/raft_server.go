@@ -1,4 +1,4 @@
-package inner_server
+package raft_server
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/dbreader"
+	"github.com/pingcap-incubator/tinykv/kv/inner_server"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
@@ -18,7 +18,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/tinykvpb"
 	"github.com/pingcap/errors"
 )
 
@@ -76,12 +76,12 @@ func NewRaftInnerServer(conf *config.Config) *RaftInnerServer {
 	return &RaftInnerServer{engines: engines, raftConfig: conf}
 }
 
-func (ris *RaftInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
+func (ris *RaftInnerServer) Write(ctx *kvrpcpb.Context, batch []inner_server.Modify) error {
 	var reqs []*raft_cmdpb.Request
 	for _, m := range batch {
 		switch m.Type {
-		case ModifyTypePut:
-			put := m.Data.(Put)
+		case inner_server.ModifyTypePut:
+			put := m.Data.(inner_server.Put)
 			reqs = append(reqs, &raft_cmdpb.Request{
 				CmdType: raft_cmdpb.CmdType_Put,
 				Put: &raft_cmdpb.PutRequest{
@@ -89,8 +89,8 @@ func (ris *RaftInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
 					Key:   put.Key,
 					Value: put.Value,
 				}})
-		case ModifyTypeDelete:
-			delete := m.Data.(Delete)
+		case inner_server.ModifyTypeDelete:
+			delete := m.Data.(inner_server.Delete)
 			reqs = append(reqs, &raft_cmdpb.Request{
 				CmdType: raft_cmdpb.CmdType_Delete,
 				Delete: &raft_cmdpb.DeleteRequest{
@@ -118,7 +118,7 @@ func (ris *RaftInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
 	return ris.checkResponse(cb.WaitResp(), len(reqs))
 }
 
-func (ris *RaftInnerServer) Reader(ctx *kvrpcpb.Context) (dbreader.DBReader, error) {
+func (ris *RaftInnerServer) Reader(ctx *kvrpcpb.Context) (inner_server.DBReader, error) {
 	header := &raft_cmdpb.RaftRequestHeader{
 		RegionId:    ctx.RegionId,
 		Peer:        ctx.Peer,
@@ -150,10 +150,10 @@ func (ris *RaftInnerServer) Reader(ctx *kvrpcpb.Context) (dbreader.DBReader, err
 	if len(resp.Responses) != 1 {
 		panic("wrong response count for snap cmd")
 	}
-	return dbreader.NewRegionReader(cb.Txn, *resp.Responses[0].GetSnap().Region), nil
+	return NewRegionReader(cb.Txn, *resp.Responses[0].GetSnap().Region), nil
 }
 
-func (ris *RaftInnerServer) Raft(stream tikvpb.Tikv_RaftServer) error {
+func (ris *RaftInnerServer) Raft(stream tinykvpb.TinyKv_RaftServer) error {
 	for {
 		msg, err := stream.Recv()
 		if err != nil {
@@ -163,7 +163,7 @@ func (ris *RaftInnerServer) Raft(stream tikvpb.Tikv_RaftServer) error {
 	}
 }
 
-func (ris *RaftInnerServer) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
+func (ris *RaftInnerServer) Snapshot(stream tinykvpb.TinyKv_SnapshotServer) error {
 	var err error
 	done := make(chan struct{})
 	ris.snapWorker.Sender() <- worker.Task{

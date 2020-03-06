@@ -17,7 +17,7 @@ package raft
 import (
 	"errors"
 
-	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	pb "github.com/pingcap-incubator/tinykv/proto/pkg/raftpb"
 )
 
 // TODO: Delete Start

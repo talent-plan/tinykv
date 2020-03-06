@@ -1,16 +1,14 @@
 syntax = "proto3";
 package raft_serverpb;
 
-import "eraftpb.proto";
+import "raftpb.proto";
 import "metapb.proto";
-
-option java_package = "org.tikv.kvproto";
 
 message RaftMessage {
     uint64 region_id = 1;
     metapb.Peer from_peer = 2;
     metapb.Peer to_peer = 3;
-    eraftpb.Message message = 4;
+    raftpb.Message message = 4;
     metapb.RegionEpoch region_epoch = 5;
     // true means to_peer is a tombstone peer and it should remove itself.
     bool is_tombstone = 6;
@@ -59,7 +57,7 @@ message StoreIdent {
 }
 
 message RaftLocalState {
-    eraftpb.HardState hard_state = 1;
+    raftpb.HardState hard_state = 1;
     uint64 last_index = 2;
 }
 

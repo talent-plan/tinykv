@@ -17,7 +17,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/util"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/log"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/raftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap/errors"
@@ -46,7 +46,7 @@ const (
 type SnapState struct {
 	StateType SnapStateType
 	Status    *JobStatus
-	Receiver  chan *eraftpb.Snapshot
+	Receiver  chan *raftpb.Snapshot
 }
 
 const (
@@ -85,7 +85,7 @@ func (k SnapKey) String() string {
 	return fmt.Sprintf("%d_%d_%d", k.RegionID, k.Term, k.Index)
 }
 
-func SnapKeyFromRegionSnap(regionID uint64, snap *eraftpb.Snapshot) SnapKey {
+func SnapKeyFromRegionSnap(regionID uint64, snap *raftpb.Snapshot) SnapKey {
 	return SnapKey{
 		RegionID: regionID,
 		Term:     snap.Metadata.Term,
@@ -93,7 +93,7 @@ func SnapKeyFromRegionSnap(regionID uint64, snap *eraftpb.Snapshot) SnapKey {
 	}
 }
 
-func SnapKeyFromSnap(snap *eraftpb.Snapshot) (SnapKey, error) {
+func SnapKeyFromSnap(snap *raftpb.Snapshot) (SnapKey, error) {
 	data := new(rspb.RaftSnapshotData)
 	err := data.Unmarshal(snap.Data)
 	if err != nil {

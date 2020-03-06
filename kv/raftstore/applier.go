@@ -12,7 +12,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/log"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/raftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
@@ -28,7 +28,7 @@ type MsgApplyProposal struct {
 type MsgApplyCommitted struct {
 	regionId uint64
 	term     uint64
-	entries  []eraftpb.Entry
+	entries  []raftpb.Entry
 }
 
 type proposal struct {
@@ -53,7 +53,7 @@ type MsgApplyRes struct {
 type execResult = interface{}
 
 type execResultChangePeer struct {
-	confChange *eraftpb.ConfChange
+	confChange *raftpb.ConfChange
 	peer       *metapb.Peer
 	region     *metapb.Region
 }
@@ -387,7 +387,7 @@ func (ac *applyContext) flush() {
 }
 
 /// Handles all the committed_entries, namely, applies the committed entries.
-func (a *applier) handleRaftCommittedEntries(aCtx *applyContext, committedEntries []eraftpb.Entry) {
+func (a *applier) handleRaftCommittedEntries(aCtx *applyContext, committedEntries []raftpb.Entry) {
 	if len(committedEntries) == 0 {
 		return
 	}
@@ -410,9 +410,9 @@ func (a *applier) handleRaftCommittedEntries(aCtx *applyContext, committedEntrie
 		}
 		var res applyResult
 		switch entry.EntryType {
-		case eraftpb.EntryType_EntryNormal:
+		case raftpb.EntryType_EntryNormal:
 			res = a.handleRaftEntryNormal(aCtx, entry)
-		case eraftpb.EntryType_EntryConfChange:
+		case raftpb.EntryType_EntryConfChange:
 			res = a.handleRaftEntryConfChange(aCtx, entry)
 		}
 		switch res.tp {
@@ -429,7 +429,7 @@ func (a *applier) writeApplyState(wb *engine_util.WriteBatch) {
 	wb.SetMsg(meta.ApplyStateKey(a.region.Id), &a.applyState)
 }
 
-func (a *applier) handleRaftEntryNormal(aCtx *applyContext, entry *eraftpb.Entry) applyResult {
+func (a *applier) handleRaftEntryNormal(aCtx *applyContext, entry *raftpb.Entry) applyResult {
 	index := entry.Index
 	term := entry.Term
 	if len(entry.Data) > 0 {
@@ -455,10 +455,10 @@ func (a *applier) handleRaftEntryNormal(aCtx *applyContext, entry *eraftpb.Entry
 	return applyResult{}
 }
 
-func (a *applier) handleRaftEntryConfChange(aCtx *applyContext, entry *eraftpb.Entry) applyResult {
+func (a *applier) handleRaftEntryConfChange(aCtx *applyContext, entry *raftpb.Entry) applyResult {
 	index := entry.Index
 	term := entry.Term
-	confChange := new(eraftpb.ConfChange)
+	confChange := new(raftpb.ConfChange)
 	if err := confChange.Unmarshal(entry.Data); err != nil {
 		panic(err)
 	}
@@ -471,7 +471,7 @@ func (a *applier) handleRaftEntryConfChange(aCtx *applyContext, entry *eraftpb.E
 	case applyResultTypeNone:
 		// If failed, tell Raft that the `ConfChange` was aborted.
 		return applyResult{tp: applyResultTypeExecResult, data: &execResultChangePeer{
-			confChange: new(eraftpb.ConfChange),
+			confChange: new(raftpb.ConfChange),
 		}}
 	case applyResultTypeExecResult:
 		cp := result.data.(*execResultChangePeer)
@@ -740,7 +740,7 @@ func (a *applier) execChangePeer(aCtx *applyContext, req *raft_cmdpb.AdminReques
 	region.RegionEpoch.ConfVer++
 
 	switch changeType {
-	case eraftpb.ConfChangeType_AddNode:
+	case raftpb.ConfChangeType_AddNode:
 		if p := util.FindPeer(region, storeID); p != nil {
 			errMsg := fmt.Sprintf("%s can't add duplicated peer, peer %s, region %s",
 				a.tag, p, a.region)
@@ -750,7 +750,7 @@ func (a *applier) execChangePeer(aCtx *applyContext, req *raft_cmdpb.AdminReques
 		}
 		region.Peers = append(region.Peers, peer)
 		log.Infof("%s add peer successfully, peer %s, region %s", a.tag, peer, a.region)
-	case eraftpb.ConfChangeType_RemoveNode:
+	case raftpb.ConfChangeType_RemoveNode:
 		if p := util.RemovePeer(region, storeID); p != nil {
 			if !util.PeerEqual(p, peer) {
 				errMsg := fmt.Sprintf("%s ignore remove unmatched peer, expected_peer %s, got_peer %s",
@@ -786,7 +786,7 @@ func (a *applier) execChangePeer(aCtx *applyContext, req *raft_cmdpb.AdminReques
 	result = applyResult{
 		tp: applyResultTypeExecResult,
 		data: &execResultChangePeer{
-			confChange: new(eraftpb.ConfChange),
+			confChange: new(raftpb.ConfChange),
 			region:     region,
 			peer:       peer,
 		},

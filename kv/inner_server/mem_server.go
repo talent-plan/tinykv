@@ -6,11 +6,10 @@ import (
 
 	"github.com/Connor1996/badger/y"
 	"github.com/petar/GoLLRB/llrb"
-	"github.com/pingcap-incubator/tinykv/kv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/tinykvpb"
 )
 
 // MemInnerServer is a simple inner server backed by memory for testing. Data is not written to disk, nor sent to other
@@ -29,11 +28,11 @@ func NewMemInnerServer() *MemInnerServer {
 	}
 }
 
-func (is *MemInnerServer) Raft(stream tikvpb.Tikv_RaftServer) error {
+func (is *MemInnerServer) Raft(stream tinykvpb.TinyKv_RaftServer) error {
 	return nil
 }
 
-func (is *MemInnerServer) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
+func (is *MemInnerServer) Snapshot(stream tinykvpb.TinyKv_SnapshotServer) error {
 	return nil
 }
 
@@ -45,7 +44,7 @@ func (is *MemInnerServer) Stop() error {
 	return nil
 }
 
-func (is *MemInnerServer) Reader(ctx *kvrpcpb.Context) (dbreader.DBReader, error) {
+func (is *MemInnerServer) Reader(ctx *kvrpcpb.Context) (DBReader, error) {
 	return &memReader{is}, nil
 }
 

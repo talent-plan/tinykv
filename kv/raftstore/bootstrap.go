@@ -6,7 +6,7 @@ import (
 	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/raftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap/errors"
@@ -118,7 +118,7 @@ func writeInitialApplyState(kvWB *engine_util.WriteBatch, regionID uint64) {
 
 func writeInitialRaftState(raftWB *engine_util.WriteBatch, regionID uint64) {
 	raftState := &rspb.RaftLocalState{
-		HardState: &eraftpb.HardState{
+		HardState: &raftpb.HardState{
 			Term:   meta.RaftInitLogTerm,
 			Commit: meta.RaftInitLogIndex,
 		},

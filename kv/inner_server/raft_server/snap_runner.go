@@ -1,4 +1,4 @@
-package inner_server
+package raft_server
 
 import (
 	"bytes"
@@ -12,7 +12,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/worker"
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/tinykvpb"
 	"github.com/pingcap/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
@@ -25,7 +25,7 @@ type sendSnapTask struct {
 }
 
 type recvSnapTask struct {
-	stream   tikvpb.Tikv_SnapshotServer
+	stream   tinykvpb.TinyKv_SnapshotServer
 	callback func(error)
 }
 
@@ -86,7 +86,7 @@ func (r *snapRunner) sendSnap(addr string, msg *raft_serverpb.RaftMessage) error
 	if err != nil {
 		return err
 	}
-	client := tikvpb.NewTikvClient(cc)
+	client := tinykvpb.NewTinyKvClient(cc)
 	stream, err := client.Snapshot(context.TODO())
 	if err != nil {
 		return err
@@ -127,7 +127,7 @@ func (r *snapRunner) recv(t recvSnapTask) {
 	t.callback(err)
 }
 
-func (r *snapRunner) recvSnap(stream tikvpb.Tikv_SnapshotServer) (*raft_serverpb.RaftMessage, error) {
+func (r *snapRunner) recvSnap(stream tinykvpb.TinyKv_SnapshotServer) (*raft_serverpb.RaftMessage, error) {
 	head, err := stream.Recv()
 	if err != nil {
 		return nil, err

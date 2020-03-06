@@ -1,13 +1,13 @@
-package inner_server
+package standalone_server
 
 import (
 	"github.com/Connor1996/badger"
 	kvConfig "github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/dbreader"
+	"github.com/pingcap-incubator/tinykv/kv/inner_server"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/tinykvpb"
 	"github.com/pingcap/errors"
 )
 
@@ -24,11 +24,11 @@ func NewStandAloneInnerServer(conf *kvConfig.Config) *StandAloneInnerServer {
 	}
 }
 
-func (is *StandAloneInnerServer) Raft(stream tikvpb.Tikv_RaftServer) error {
+func (is *StandAloneInnerServer) Raft(stream tinykvpb.TinyKv_RaftServer) error {
 	return nil
 }
 
-func (is *StandAloneInnerServer) Snapshot(stream tikvpb.Tikv_SnapshotServer) error {
+func (is *StandAloneInnerServer) Snapshot(stream tinykvpb.TinyKv_SnapshotServer) error {
 	return nil
 }
 
@@ -40,22 +40,22 @@ func (is *StandAloneInnerServer) Stop() error {
 	return is.db.Close()
 }
 
-func (is *StandAloneInnerServer) Reader(ctx *kvrpcpb.Context) (dbreader.DBReader, error) {
+func (is *StandAloneInnerServer) Reader(ctx *kvrpcpb.Context) (inner_server.DBReader, error) {
 	txn := is.db.NewTransaction(false)
-	reader := dbreader.NewBadgerReader(txn)
+	reader := NewBadgerReader(txn)
 	return reader, nil
 }
 
-func (is *StandAloneInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
+func (is *StandAloneInnerServer) Write(ctx *kvrpcpb.Context, batch []inner_server.Modify) error {
 	return is.db.Update(func(txn *badger.Txn) error {
 		for _, op := range batch {
 			var err error
 			switch op.Type {
-			case ModifyTypePut:
-				put := op.Data.(Put)
+			case inner_server.ModifyTypePut:
+				put := op.Data.(inner_server.Put)
 				err = txn.Set(engine_util.KeyWithCF(put.Cf, put.Key), put.Value)
-			case ModifyTypeDelete:
-				delete := op.Data.(Delete)
+			case inner_server.ModifyTypeDelete:
+				delete := op.Data.(inner_server.Delete)
 				err = txn.Delete(engine_util.KeyWithCF(delete.Cf, delete.Key))
 			default:
 				err = errors.New("Unsupported modify type")
@@ -66,4 +66,24 @@ func (is *StandAloneInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) err
 		}
 		return nil
 	})
+}
+
+type BadgerReader struct {
+	txn *badger.Txn
+}
+
+func NewBadgerReader(txn *badger.Txn) *BadgerReader {
+	return &BadgerReader{txn}
+}
+
+func (b *BadgerReader) GetCF(cf string, key []byte) ([]byte, error) {
+	return engine_util.GetCFFromTxn(b.txn, cf, key)
+}
+
+func (b *BadgerReader) IterCF(cf string) engine_util.DBIterator {
+	return engine_util.NewCFIterator(cf, b.txn)
+}
+
+func (b *BadgerReader) Close() {
+	b.txn.Discard()
 }
