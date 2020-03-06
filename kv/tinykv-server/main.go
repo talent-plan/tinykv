@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/BurntSushi/toml"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/inner_server"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
@@ -22,9 +21,8 @@ import (
 )
 
 var (
-	configPath = flag.String("config", "", "config file path")
-	pdAddr     = flag.String("pd", "", "pd address")
-	storeAddr  = flag.String("addr", "", "store address")
+	pdAddr    = flag.String("pd", "", "pd address")
+	storeAddr = flag.String("addr", "", "store address")
 )
 
 const (
@@ -34,7 +32,7 @@ const (
 
 func main() {
 	flag.Parse()
-	conf := loadConfig()
+	conf := config.NewDefaultConfig()
 	if *pdAddr != "" {
 		conf.PDAddr = *pdAddr
 	}
@@ -52,9 +50,12 @@ func main() {
 
 	var innerServer inner_server.InnerServer
 	if conf.Raft {
-		innerServer = setupRaftInnerServer(pdClient, conf)
+		innerServer = inner_server.NewRaftInnerServer(conf)
 	} else {
-		innerServer = setupStandAloneInnerServer(pdClient, conf)
+		innerServer = inner_server.NewStandAloneInnerServer(conf)
+	}
+	if err := innerServer.Start(pdClient); err != nil {
+		log.Fatal(err)
 	}
 	tikvServer := server.NewServer(innerServer)
 
@@ -82,35 +83,6 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Info("Server stopped.")
-}
-
-func loadConfig() *config.Config {
-	conf := config.NewDefaultConfig()
-	if *configPath != "" {
-		_, err := toml.DecodeFile(*configPath, conf)
-		if err != nil {
-			panic(err)
-		}
-	}
-	return conf
-}
-
-func setupRaftInnerServer(pdClient pd.Client, conf *config.Config) inner_server.InnerServer {
-	innerServer := inner_server.NewRaftInnerServer(conf)
-	if err := innerServer.Start(pdClient); err != nil {
-		log.Fatal(err)
-	}
-
-	return innerServer
-}
-
-func setupStandAloneInnerServer(pdClient pd.Client, conf *config.Config) inner_server.InnerServer {
-	innerServer := inner_server.NewStandAloneInnerServer(conf)
-	if err := innerServer.Start(pdClient); err != nil {
-		log.Fatal(err)
-	}
-
-	return innerServer
 }
 
 func handleSignal(grpcServer *grpc.Server) {

@@ -35,7 +35,7 @@ type peerMsgHandler struct {
 	ctx     *GlobalContext
 }
 
-func newRaftMsgHandler(peer *peer, applyCh chan []message.Msg, ctx *GlobalContext) *peerMsgHandler {
+func newPeerMsgHandler(peer *peer, applyCh chan []message.Msg, ctx *GlobalContext) *peerMsgHandler {
 	return &peerMsgHandler{
 		peer:    peer,
 		applyCh: applyCh,
@@ -153,9 +153,7 @@ func (d *peerMsgHandler) reportSnapshotStatus(toPeerID uint64, status raft.Snaps
 }
 
 func (d *peerMsgHandler) HandleRaftReady() {
-	hasReady := d.hasReady
-	d.hasReady = false
-	if !hasReady || d.stopped {
+	if d.stopped {
 		return
 	}
 
@@ -196,13 +194,11 @@ func (d *peerMsgHandler) onRaftBaseTick() {
 	// a value that is larger than last index.
 	if d.peer.IsApplyingSnapshot() || d.peer.HasPendingSnapshot() {
 		// need to check if snapshot is applied.
-		d.hasReady = true
 		d.ticker.schedule(PeerTickRaft)
 		return
 	}
 	// TODO: make Tick returns bool to indicate if there is ready.
 	d.peer.RaftGroup.Tick()
-	d.hasReady = d.peer.RaftGroup.HasReady()
 	d.ticker.schedule(PeerTickRaft)
 }
 
@@ -226,9 +222,7 @@ func (d *peerMsgHandler) onApplyResult(res *MsgApplyRes) {
 	if d.stopped {
 		return
 	}
-	if d.peer.PostApply(d.ctx.engine.Kv, res.appliedIndex, res.sizeDiffHint) {
-		d.hasReady = true
-	}
+	d.peer.PostApply(res.sizeDiffHint)
 	// TODO: Delete End
 }
 
@@ -273,7 +267,6 @@ func (d *peerMsgHandler) onRaftMsg(msg *rspb.RaftMessage) error {
 	if d.peer.AnyNewPeerCatchUp(msg.FromPeer.Id) {
 		d.peer.HeartbeatPd(d.ctx.pdTaskSender)
 	}
-	d.hasReady = true
 	return nil
 }
 
@@ -587,7 +580,6 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 		// New peer derive write flow from parent region,
 		// this will be used by balance write flow.
 		campaigned := newPeer.MaybeCampaign(isLeader)
-		newPeer.hasReady = newPeer.hasReady || campaigned
 
 		if isLeader {
 			// The new peer is likely to become leader, send a heartbeat immediately to reduce
@@ -648,6 +640,8 @@ func (d *peerMsgHandler) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) e
 }
 
 func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *message.Callback) {
+	// Your Code Here (2B).
+	// TODO: Delete Start
 	err := d.preProposeRaftCommand(msg)
 	if err != nil {
 		cb.Done(ErrResp(err))
@@ -665,9 +659,8 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 	// command log entry can't be committed.
 	resp := &raft_cmdpb.RaftCmdResponse{}
 	BindRespTerm(resp, d.peer.Term())
-	if d.peer.Propose(d.ctx.engine.Kv, d.ctx.cfg, cb, msg, resp) {
-		d.hasReady = true
-	}
+	d.peer.Propose(d.ctx.engine.Kv, d.ctx.cfg, cb, msg, resp)
+	// TODO: Delete End
 }
 
 func (d *peerMsgHandler) findSiblingRegion() (result *metapb.Region) {

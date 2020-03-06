@@ -8,12 +8,12 @@ import (
 )
 
 type Config struct {
-	StoreAddr string `toml:"store-addr"`
-	Raft      bool   `toml:"raft"`
-	PDAddr    string `toml:"pd-addr"`
-	LogLevel  string `toml:"log-level"`
+	StoreAddr string
+	Raft      bool
+	PDAddr    string
+	LogLevel  string
 
-	DBPath string `toml:"db-path"` // Directory to store the data in. Should exist and be writable.
+	DBPath string // Directory to store the data in. Should exist and be writable.
 
 	// raft_base_tick_interval is a base tick interval (ms).
 	RaftBaseTickInterval     time.Duration

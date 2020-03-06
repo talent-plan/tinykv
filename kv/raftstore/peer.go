@@ -91,9 +91,8 @@ func (p *peer) tag() string {
 }
 
 type peer struct {
-	stopped  bool
-	hasReady bool
-	ticker   *ticker
+	stopped bool
+	ticker  *ticker
 
 	Meta           *metapb.Peer
 	regionId       uint64
@@ -161,9 +160,9 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 		peerCache:             make(map[uint64]*metapb.Peer),
 		PeerHeartbeats:        make(map[uint64]time.Time),
 		PeersStartPendingTime: make(map[uint64]time.Time),
-		Tag:                   tag,
-		LastApplyingIdx:       appliedIndex,
-		ticker:                newTicker(region.GetId(), cfg),
+		Tag:             tag,
+		LastApplyingIdx: appliedIndex,
+		ticker:          newTicker(region.GetId(), cfg),
 	}
 
 	// If this region has only one peer and I am the one, campaign directly.
@@ -461,13 +460,13 @@ func (p *peer) HandleRaftReady(msgs []message.Msg, pdScheduler chan<- worker.Tas
 		return nil, msgs
 	}
 
-	if !p.RaftGroup.HasReadySince(p.LastApplyingIdx) {
+	if !p.RaftGroup.HasReady() {
 		return nil, msgs
 	}
 
 	log.Debugf("%v handle raft ready", p.Tag)
 
-	ready := p.RaftGroup.ReadySince(p.LastApplyingIdx)
+	ready := p.RaftGroup.Ready()
 	// TODO: workaround for:
 	//   in kvproto/eraftpb, we use *SnapshotMetadata
 	//   but in etcd, they use SnapshotMetadata
@@ -524,11 +523,6 @@ func (p *peer) HandleRaftReady(msgs []message.Msg, pdScheduler chan<- worker.Tas
 	}
 
 	p.RaftGroup.Advance(ready)
-	if applySnapResult != nil {
-		// Because we only handle raft ready when not applying snapshot, so following
-		// line won't be called twice for the same snapshot.
-		p.RaftGroup.AdvanceApply(p.LastApplyingIdx)
-	}
 	return applySnapResult, msgs
 }
 
@@ -600,12 +594,10 @@ func (p *peer) sendRaftMessage(msg eraftpb.Message, trans Transport) error {
 	return trans.Send(sendMsg)
 }
 
-func (p *peer) PostApply(kv *badger.DB, appliedIndex uint64, sizeDiffHint uint64) bool {
-	hasReady := false
+func (p *peer) PostApply(sizeDiffHint uint64) {
 	if p.IsApplyingSnapshot() {
 		panic("should not applying snapshot")
 	}
-	p.RaftGroup.AdvanceApply(appliedIndex)
 
 	diff := p.SizeDiffHint + sizeDiffHint
 	if diff > 0 {
@@ -613,12 +605,6 @@ func (p *peer) PostApply(kv *badger.DB, appliedIndex uint64, sizeDiffHint uint64
 	} else {
 		p.SizeDiffHint = 0
 	}
-
-	if p.HasPendingSnapshot() && p.ReadyToHandlePendingSnap() {
-		hasReady = true
-	}
-
-	return hasReady
 }
 
 // Propose a request.

@@ -11,15 +11,15 @@ type MsgType int64
 
 const (
 	MsgTypeNull                  MsgType = 0
-	MsgTypeRaftMessage           MsgType = 1
-	MsgTypeRaftCmd               MsgType = 2
-	MsgTypeSplitRegion           MsgType = 3
-	MsgTypeRegionApproximateSize MsgType = 5
-	MsgTypeGcSnap                MsgType = 10
-	MsgTypeTick                  MsgType = 12
-	MsgTypeSnapStatus            MsgType = 13
-	MsgTypeStart                 MsgType = 14
-	MsgTypeApplyRes              MsgType = 15
+	MsgTypeStart                 MsgType = 1
+	MsgTypeTick                  MsgType = 2
+	MsgTypeRaftMessage           MsgType = 3
+	MsgTypeRaftCmd               MsgType = 4
+	MsgTypeApplyRes              MsgType = 5
+	MsgTypeSnapStatus            MsgType = 6
+	MsgTypeGcSnap                MsgType = 7
+	MsgTypeSplitRegion           MsgType = 8
+	MsgTypeRegionApproximateSize MsgType = 9
 
 	MsgTypeStoreRaftMessage MsgType = 101
 	MsgTypeStoreTick        MsgType = 106
