@@ -20,7 +20,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
-	"github.com/pingcap-incubator/tinykv/raft"
 )
 
 type MockTransport struct {
@@ -81,10 +80,7 @@ func (t *MockTransport) Send(msg *raft_serverpb.RaftMessage) error {
 	fromStore := msg.GetFromPeer().GetStoreId()
 	toStore := msg.GetToPeer().GetStoreId()
 
-	regionID := msg.GetRegionId()
-	toPeerID := msg.GetToPeer().GetId()
 	isSnapshot := msg.GetMessage().GetMsgType() == eraftpb.MessageType_MsgSnapshot
-
 	if isSnapshot {
 		snapshot := msg.Message.Snapshot
 		key, err := snap.SnapKeyFromSnap(snapshot)
@@ -124,12 +120,6 @@ func (t *MockTransport) Send(msg *raft_serverpb.RaftMessage) error {
 		return errors.New(fmt.Sprintf("store %d is closed", toStore))
 	}
 	router.SendRaftMessage(msg)
-	if isSnapshot {
-		err := router.ReportSnapshotStatus(regionID, toPeerID, raft.SnapshotFinish)
-		if err != nil {
-			return err
-		}
-	}
 
 	for _, filter := range t.filters {
 		filter.After()

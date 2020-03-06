@@ -26,13 +26,6 @@ import (
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
-type SnapshotStatus int
-
-const (
-	SnapshotFinish  SnapshotStatus = 1
-	SnapshotFailure SnapshotStatus = 2
-)
-
 func min(a, b uint64) uint64 {
 	if a > b {
 		return b
@@ -126,7 +119,7 @@ func (p uint64Slice) Less(i, j int) bool { return p[i] < p[j] }
 func (p uint64Slice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
 func IsLocalMsg(msgt pb.MessageType) bool {
-	return msgt == pb.MessageType_MsgHup || msgt == pb.MessageType_MsgBeat || msgt == pb.MessageType_MsgSnapStatus
+	return msgt == pb.MessageType_MsgHup || msgt == pb.MessageType_MsgBeat
 }
 
 func IsResponseMsg(msgt pb.MessageType) bool {

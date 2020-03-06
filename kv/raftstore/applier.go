@@ -46,7 +46,6 @@ type MsgApplyRefresh struct {
 
 type MsgApplyRes struct {
 	regionID     uint64
-	appliedIndex uint64
 	execResults  []execResult
 	sizeDiffHint uint64
 }
@@ -369,9 +368,8 @@ func (ac *applyContext) finishFor(d *applier, results []execResult) {
 	}
 	ac.commitOpt(d, false)
 	res := &MsgApplyRes{
-		regionID:     d.region.Id,
-		appliedIndex: d.applyState.AppliedIndex,
-		execResults:  results,
+		regionID:    d.region.Id,
+		execResults: results,
 	}
 	ac.applyTaskResList = append(ac.applyTaskResList, res)
 }

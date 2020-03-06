@@ -2,7 +2,7 @@ module github.com/pingcap-incubator/tinykv
 
 require (
 	github.com/BurntSushi/toml v0.3.1
-	github.com/Connor1996/badger v1.5.1-0.20200302104252-6a1b02b1cb4c
+	github.com/Connor1996/badger v1.5.1-0.20200306031920-9bbcbd8ba570
 	github.com/coocood/badger v1.5.1-0.20191220113928-eaffd0ec7a8c // indirect
 	github.com/coreos/pkg v0.0.0-20180928190104-399ea9e2e55f
 	github.com/docker/go-units v0.4.0

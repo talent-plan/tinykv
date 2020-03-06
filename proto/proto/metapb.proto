@@ -28,13 +28,6 @@ message Store {
     // Address to handle client requests (kv, cop, etc.)
     string address = 2;
     StoreState state = 3;
-    // string version = 5;
-    // // Address to handle peer requests (raft messages from other store).
-    // // Empty means same as address.
-    // string peer_address = 6;
-    // // Status address provides the HTTP service for external components
-    // string status_address = 7;
-    // string git_hash = 8;
 }
 
 message RegionEpoch {

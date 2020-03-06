@@ -742,7 +742,6 @@ func (r *Raft) stepLeader(m pb.Message) error {
 		if pr.Match < r.RaftLog.LastIndex() {
 			r.sendAppend(m.From)
 		}
-	case pb.MessageType_MsgSnapStatus:
 	case pb.MessageType_MsgTransferLeader:
 		leadTransferee := m.From
 		lastLeadTransferee := r.leadTransferee

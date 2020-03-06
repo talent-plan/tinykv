@@ -16,6 +16,9 @@ package server
 import (
 	"context"
 	"fmt"
+	"math/rand"
+	"sync"
+
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockid"
@@ -23,8 +26,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
 	. "github.com/pingcap/check"
-	"math/rand"
-	"sync"
 )
 
 const (
@@ -399,7 +400,7 @@ func (s *testClusterSuite) TestConcurrentHandleRegion3C(c *C) {
 	s.svr.cluster.Unlock()
 	var stores []*metapb.Store
 	for _, addr := range storeAddrs {
-		store := s.newStore(c, 0, addr, "2.1.0")
+		store := s.newStore(c, 0, addr)
 		stores = append(stores, store)
 		_, err := putStore(c, s.grpcPDClient, s.svr.clusterID, store)
 		c.Assert(err, IsNil)
@@ -577,7 +578,7 @@ func (s *baseCluster) newPeer(c *C, storeID uint64, peerID uint64) *metapb.Peer 
 	}
 }
 
-func (s *baseCluster) newStore(c *C, storeID uint64, addr string, version string) *metapb.Store {
+func (s *baseCluster) newStore(c *C, storeID uint64, addr string) *metapb.Store {
 	if storeID == 0 {
 		storeID = s.allocID(c)
 	}
@@ -659,7 +660,7 @@ func (s *baseCluster) newIsBootstrapRequest(clusterID uint64) *pdpb.IsBootstrapp
 }
 
 func (s *baseCluster) newBootstrapRequest(c *C, clusterID uint64, storeAddr string) *pdpb.BootstrapRequest {
-	store := s.newStore(c, 0, storeAddr, "2.1.0")
+	store := s.newStore(c, 0, storeAddr)
 
 	req := &pdpb.BootstrapRequest{
 		Header: testutil.NewRequestHeader(clusterID),
@@ -808,26 +809,26 @@ func (s *baseCluster) testPutStore(c *C, clusterID uint64, store *metapb.Store) 
 	c.Assert(err, IsNil)
 
 	// Put new store with a duplicated address when old store is up will fail.
-	_, err = putStore(c, s.grpcPDClient, clusterID, s.newStore(c, 0, store.GetAddress(), "2.1.0"))
+	_, err = putStore(c, s.grpcPDClient, clusterID, s.newStore(c, 0, store.GetAddress()))
 	c.Assert(err, NotNil)
 
 	// Put new store with a duplicated address when old store is offline will fail.
 	s.resetStoreState(c, store.GetId(), metapb.StoreState_Offline)
-	_, err = putStore(c, s.grpcPDClient, clusterID, s.newStore(c, 0, store.GetAddress(), "2.1.0"))
+	_, err = putStore(c, s.grpcPDClient, clusterID, s.newStore(c, 0, store.GetAddress()))
 	c.Assert(err, NotNil)
 
 	// Put new store with a duplicated address when old store is tombstone is OK.
 	s.resetStoreState(c, store.GetId(), metapb.StoreState_Tombstone)
-	_, err = putStore(c, s.grpcPDClient, clusterID, s.newStore(c, 0, store.GetAddress(), "2.1.0"))
+	_, err = putStore(c, s.grpcPDClient, clusterID, s.newStore(c, 0, store.GetAddress()))
 	c.Assert(err, IsNil)
 
 	// Put a new store.
-	_, err = putStore(c, s.grpcPDClient, clusterID, s.newStore(c, 0, "127.0.0.1:12345", "2.1.0"))
+	_, err = putStore(c, s.grpcPDClient, clusterID, s.newStore(c, 0, "127.0.0.1:12345"))
 	c.Assert(err, IsNil)
 
 	// Put an existed store with duplicated address with other old stores.
 	s.resetStoreState(c, store.GetId(), metapb.StoreState_Up)
-	_, err = putStore(c, s.grpcPDClient, clusterID, s.newStore(c, store.GetId(), "127.0.0.1:12345", "2.1.0"))
+	_, err = putStore(c, s.grpcPDClient, clusterID, s.newStore(c, store.GetId(), "127.0.0.1:12345"))
 	c.Assert(err, NotNil)
 }
 

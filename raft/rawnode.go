@@ -16,6 +16,7 @@ package raft
 
 import (
 	"errors"
+
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
@@ -75,18 +76,14 @@ type Ready struct {
 }
 
 // TODO: Delete method
-func newReady(r *Raft, prevSoftSt *SoftState, prevHardSt pb.HardState, sinceIdx *uint64) Ready {
+func newReady(r *Raft, prevSoftSt *SoftState, prevHardSt pb.HardState) Ready {
 	rd := Ready{
-		Entries: r.RaftLog.unstableEntries(),
+		Entries:          r.RaftLog.unstableEntries(),
+		CommittedEntries: r.RaftLog.nextEnts(),
 	}
 	if len(r.msgs) != 0 {
 		rd.Messages = r.msgs
 		r.msgs = nil
-	}
-	if sinceIdx != nil {
-		rd.CommittedEntries = r.RaftLog.nextEntsSince(*sinceIdx)
-	} else {
-		rd.CommittedEntries = r.RaftLog.nextEnts()
 	}
 	if softSt := r.softState(); !softSt.equal(prevSoftSt) {
 		rd.SoftState = softSt
@@ -211,15 +208,10 @@ func (rn *RawNode) Step(m pb.Message) error {
 func (rn *RawNode) Ready() Ready {
 	// Your Code Here 2C
 	// TODO: Delete Start
-	rd := newReady(rn.Raft, rn.prevSoftSt, rn.prevHardSt, nil)
+	rd := newReady(rn.Raft, rn.prevSoftSt, rn.prevHardSt)
 	rn.Raft.msgs = nil
 	return rd
 	// TODO: Delete End
-}
-
-// TODO: Delete method
-func (rn *RawNode) ReadySince(appliedIdx uint64) Ready {
-	return newReady(rn.Raft, rn.prevSoftSt, rn.prevHardSt, &appliedIdx)
 }
 
 // HasReady called when RawNode user need to check if any Ready pending.
@@ -243,25 +235,6 @@ func (rn *RawNode) HasReady() bool {
 	// TODO: Delete End
 }
 
-// TODO: Delete method
-// HasReadySince called when RawNode user need to check if any Ready pending since appliedIdx.
-func (rn *RawNode) HasReadySince(appliedIdx uint64) bool {
-	r := rn.Raft
-	if !r.softState().equal(rn.prevSoftSt) {
-		return true
-	}
-	if hardSt := r.hardState(); !IsEmptyHardState(hardSt) && !isHardStateEqual(hardSt, rn.prevHardSt) {
-		return true
-	}
-	if snap := rn.GetSnap(); snap != nil && !IsEmptySnap(snap) {
-		return true
-	}
-	if len(r.msgs) > 0 || len(r.RaftLog.unstableEntries()) > 0 || r.RaftLog.hasNextEntsSince(appliedIdx) {
-		return true
-	}
-	return false
-}
-
 // Advance notifies the RawNode that the application has applied and saved progress in the
 // last Ready results.
 func (rn *RawNode) Advance(rd Ready) {
@@ -273,7 +246,9 @@ func (rn *RawNode) Advance(rd Ready) {
 	if !IsEmptyHardState(rd.HardState) {
 		rn.prevHardSt = rd.HardState
 	}
-
+	if rn.prevHardSt.Commit != 0 {
+		rn.Raft.RaftLog.appliedTo(rn.prevHardSt.Commit)
+	}
 	if len(rd.Entries) > 0 {
 		e := rd.Entries[len(rd.Entries)-1]
 		rn.Raft.RaftLog.stableTo(e.Index, e.Term)
@@ -281,13 +256,6 @@ func (rn *RawNode) Advance(rd Ready) {
 	if !IsEmptySnap(&rd.Snapshot) {
 		rn.Raft.RaftLog.stableSnapTo(rd.Snapshot.Metadata.Index)
 	}
-	// TODO: Delete End
-}
-
-func (rn *RawNode) AdvanceApply(applied uint64) {
-	// Your Code Here 2C
-	// TODO: Delete Start
-	rn.Raft.RaftLog.appliedTo(applied)
 	// TODO: Delete End
 }
 
@@ -307,14 +275,6 @@ func (rn *RawNode) GetProgress() map[uint64]Progress {
 // TODO: Delete method
 func (rn *RawNode) GetSnap() *pb.Snapshot {
 	return rn.Raft.GetSnap()
-}
-
-// TODO: Delete method
-// ReportSnapshot reports the status of the sent snapshot.
-func (rn *RawNode) ReportSnapshot(id uint64, status SnapshotStatus) {
-	rej := status == SnapshotFailure
-
-	_ = rn.Raft.Step(pb.Message{MsgType: pb.MessageType_MsgSnapStatus, From: id, Reject: rej})
 }
 
 // TODO: Delete method

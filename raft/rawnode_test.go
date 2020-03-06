@@ -30,21 +30,6 @@ func (s *ignoreSizeHintMemStorage) Entries(lo, hi uint64, maxSize uint64) ([]pb.
 	return s.MemoryStorage.Entries(lo, hi)
 }
 
-// appliedCursor extracts from the Ready the highest index the client has
-// applied (once the Ready is confirmed via Advance). If no information is
-// contained in the Ready, returns zero.
-func appliedCursor(rd *Ready) uint64 {
-	if n := len(rd.CommittedEntries); n > 0 {
-		return rd.CommittedEntries[n-1].Index
-	}
-	if !IsEmptySnap(&rd.Snapshot) {
-		if index := rd.Snapshot.Metadata.Index; index > 0 {
-			return index
-		}
-	}
-	return 0
-}
-
 // TestRawNodeProposeAndConfChange ensures that RawNode.Propose and RawNode.ProposeConfChange
 // send the given proposal and ConfChange to the underlying raft.
 func TestRawNodeProposeAndConfChange3A(t *testing.T) {
@@ -57,9 +42,6 @@ func TestRawNodeProposeAndConfChange3A(t *testing.T) {
 	rd := rawNode.Ready()
 	s.Append(rd.Entries)
 	rawNode.Advance(rd)
-	if idx := appliedCursor(&rd); idx > 0 {
-		rawNode.AdvanceApply(idx)
-	}
 
 	if d := rawNode.Ready(); !IsEmptyHardState(d.HardState) || len(d.Entries) > 0 {
 		t.Fatalf("expected empty hard state: %#v", d)
@@ -108,9 +90,6 @@ func TestRawNodeProposeAddDuplicateNode3A(t *testing.T) {
 	rd := rawNode.Ready()
 	s.Append(rd.Entries)
 	rawNode.Advance(rd)
-	if idx := appliedCursor(&rd); idx > 0 {
-		rawNode.AdvanceApply(idx)
-	}
 
 	rawNode.Campaign()
 	for {
@@ -118,15 +97,9 @@ func TestRawNodeProposeAddDuplicateNode3A(t *testing.T) {
 		s.Append(rd.Entries)
 		if rd.SoftState.Lead == rawNode.Raft.id {
 			rawNode.Advance(rd)
-			if idx := appliedCursor(&rd); idx > 0 {
-				rawNode.AdvanceApply(idx)
-			}
 			break
 		}
 		rawNode.Advance(rd)
-		if idx := appliedCursor(&rd); idx > 0 {
-			rawNode.AdvanceApply(idx)
-		}
 	}
 
 	proposeConfChangeAndApply := func(cc pb.ConfChange) {
@@ -141,9 +114,6 @@ func TestRawNodeProposeAddDuplicateNode3A(t *testing.T) {
 			}
 		}
 		rawNode.Advance(rd)
-		if idx := appliedCursor(&rd); idx > 0 {
-			rawNode.AdvanceApply(idx)
-		}
 	}
 
 	cc1 := pb.ConfChange{ChangeType: pb.ConfChangeType_AddNode, NodeId: 1}
@@ -197,9 +167,6 @@ func TestRawNodeStart2C(t *testing.T) {
 	rd := rawNode.Ready()
 	storage.Append(rd.Entries)
 	rawNode.Advance(rd)
-	if idx := appliedCursor(&rd); idx > 0 {
-		rawNode.AdvanceApply(idx)
-	}
 
 	rawNode.Propose([]byte("foo"))
 	rd = rawNode.Ready()
@@ -211,9 +178,6 @@ func TestRawNodeStart2C(t *testing.T) {
 	}
 	storage.Append(rd.Entries)
 	rawNode.Advance(rd)
-	if idx := appliedCursor(&rd); idx > 0 {
-		rawNode.AdvanceApply(idx)
-	}
 
 	if rawNode.HasReady() {
 		t.Errorf("unexpected Ready: %+v", rawNode.Ready())
@@ -245,9 +209,6 @@ func TestRawNodeRestart2C(t *testing.T) {
 		t.Errorf("g = %+v,\n             w   %+v", rd, want)
 	}
 	rawNode.Advance(rd)
-	if idx := appliedCursor(&rd); idx > 0 {
-		rawNode.AdvanceApply(idx)
-	}
 	if rawNode.HasReady() {
 		t.Errorf("unexpected Ready: %+v", rawNode.Ready())
 	}
@@ -284,9 +245,6 @@ func TestRawNodeRestartFromSnapshot2C(t *testing.T) {
 		t.Errorf("g = %+v,\n             w   %+v", rd, want)
 	} else {
 		rawNode.Advance(rd)
-		if idx := appliedCursor(&rd); idx > 0 {
-			rawNode.AdvanceApply(idx)
-		}
 	}
 	if rawNode.HasReady() {
 		t.Errorf("unexpected Ready: %+v", rawNode.HasReady())
