@@ -170,11 +170,11 @@ func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*
 
 // Raft commands (tinykv <-> tinykv); these are trivially forwarded to innerServer.
 func (server *Server) Raft(stream tinykvpb.TinyKv_RaftServer) error {
-	return server.innerServer.Raft(stream)
+	return server.innerServer.(*raft_server.RaftInnerServer).Raft(stream)
 }
 
 func (server *Server) Snapshot(stream tinykvpb.TinyKv_SnapshotServer) error {
-	return server.innerServer.Snapshot(stream)
+	return server.innerServer.(*raft_server.RaftInnerServer).Snapshot(stream)
 }
 
 // SQL push down commands.

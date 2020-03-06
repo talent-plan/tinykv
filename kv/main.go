@@ -14,7 +14,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/inner_server"
 	"github.com/pingcap-incubator/tinykv/kv/inner_server/raft_server"
 	"github.com/pingcap-incubator/tinykv/kv/inner_server/standalone_server"
-	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/server"
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tinykvpb"
@@ -40,18 +39,13 @@ func main() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 	log.Infof("conf %v", conf)
 
-	pdClient, err := pd.NewClient(strings.Split(conf.PDAddr, ","), "")
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	var innerServer inner_server.InnerServer
 	if conf.Raft {
 		innerServer = raft_server.NewRaftInnerServer(conf)
 	} else {
 		innerServer = standalone_server.NewStandAloneInnerServer(conf)
 	}
-	if err := innerServer.Start(pdClient); err != nil {
+	if err := innerServer.Start(); err != nil {
 		log.Fatal(err)
 	}
 	server := server.NewServer(innerServer)

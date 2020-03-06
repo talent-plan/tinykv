@@ -9,7 +9,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/tinykvpb"
 )
 
 // MemInnerServer is a simple inner server backed by memory for testing. Data is not written to disk, nor sent to other
@@ -26,14 +25,6 @@ func NewMemInnerServer() *MemInnerServer {
 		CfLock:    llrb.New(),
 		CfWrite:   llrb.New(),
 	}
-}
-
-func (is *MemInnerServer) Raft(stream tinykvpb.TinyKv_RaftServer) error {
-	return nil
-}
-
-func (is *MemInnerServer) Snapshot(stream tinykvpb.TinyKv_SnapshotServer) error {
-	return nil
 }
 
 func (is *MemInnerServer) Start(pdClient pd.Client) error {

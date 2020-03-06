@@ -237,6 +237,7 @@ github.com/pingcap/parser v0.0.0-20190903084634-0daf3f706c76 h1:q8d5NIRT/Urmb5wo
 github.com/pingcap/parser v0.0.0-20190903084634-0daf3f706c76/go.mod h1:1FNvfp9+J0wvc4kl8eGNh7Rqrxveg15jJoWo/a0uHwA=
 github.com/pingcap/pd v0.0.0-20190712044914-75a1f9f3062b h1:oS9PftxQqgcRouKhhdaB52tXhVLEP7Ng3Qqsd6Z18iY=
 github.com/pingcap/pd v0.0.0-20190712044914-75a1f9f3062b/go.mod h1:3DlDlFT7EF64A1bmb/tulZb6wbPSagm5G4p1AlhaEDs=
+github.com/pingcap/pd v2.1.19+incompatible h1:N/8HOd5yptSJZ1LdBa1bcvYOH9YCetvX4cg5fsGf9+c=
 github.com/pingcap/tidb v1.1.0-beta.0.20190904060835-0872b65ff1f9 h1:Fg4wHf1wd50v0RR+GPIIGrcnCVI/LSXKUYoB5ON1t6k=
 github.com/pingcap/tidb v1.1.0-beta.0.20190904060835-0872b65ff1f9/go.mod h1:vLe4ZQRrNZ98B0W6BMZJ2MFlGuLNhMO0gYLL7o7QHiE=
 github.com/pingcap/tidb-tools v2.1.3-0.20190321065848-1e8b48f5c168+incompatible h1:MkWCxgZpJBgY2f4HtwWMMFzSBb3+JPzeJgF3VrXE/bU=

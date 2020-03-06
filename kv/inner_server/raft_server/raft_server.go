@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/pingcap-incubator/tinykv/kv/config"
@@ -16,7 +17,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tinykvpb"
 	"github.com/pingcap/errors"
@@ -25,9 +25,8 @@ import (
 // RaftInnerServer is an InnerServer (see tikv/server.go) backed by a Raft node. It is part of a Raft network.
 // By using Raft, reads and writes are consistent with other nodes in the TinyKV instance.
 type RaftInnerServer struct {
-	engines    *engine_util.Engines
-	raftConfig *config.Config
-	storeMeta  metapb.Store
+	engines *engine_util.Engines
+	config  *config.Config
 
 	node          *raftstore.Node
 	snapManager   *snap.SnapManager
@@ -73,7 +72,7 @@ func NewRaftInnerServer(conf *config.Config) *RaftInnerServer {
 	kvDB := engine_util.CreateDB("kv", conf)
 	engines := engine_util.NewEngines(kvDB, raftDB, kvPath, raftPath)
 
-	return &RaftInnerServer{engines: engines, raftConfig: conf}
+	return &RaftInnerServer{engines: engines, config: conf}
 }
 
 func (ris *RaftInnerServer) Write(ctx *kvrpcpb.Context, batch []inner_server.Modify) error {
@@ -180,39 +179,33 @@ func (ris *RaftInnerServer) Snapshot(stream tinykvpb.TinyKv_SnapshotServer) erro
 	return err
 }
 
-func (ris *RaftInnerServer) GetRaftstoreRouter() *raftstore.RaftstoreRouter {
-	return ris.raftRouter
-}
-
-func (ris *RaftInnerServer) GetStoreMeta() *metapb.Store {
-	return &ris.storeMeta
-}
-
-func (ris *RaftInnerServer) Start(pdClient pd.Client) error {
-	ris.resolveWorker = worker.NewWorker("resolver", &ris.wg)
-	ris.snapWorker = worker.NewWorker("snap-worker", &ris.wg)
-
-	cfg := ris.raftConfig
-	router, batchSystem := raftstore.CreateRaftBatchSystem(cfg)
-
-	ris.snapManager = snap.NewSnapManager(cfg.DBPath + "snap")
-	ris.batchSystem = batchSystem
-	ris.raftRouter = raftstore.NewRaftstoreRouter(router) // TODO: init with local reader
-	ris.node = raftstore.NewNode(ris.batchSystem, &ris.storeMeta, ris.raftConfig, pdClient)
-
-	resolveSender := ris.resolveWorker.Sender()
-	raftClient := newRaftClient(cfg)
-	trans := NewServerTransport(raftClient, resolveSender, ris.raftRouter, resolveSender)
-
-	resolveRunner := newResolverRunner(pdClient)
-
-	ris.resolveWorker.Start(resolveRunner)
-	err := ris.node.Start(context.TODO(), ris.engines, trans, ris.snapManager, ris.raftRouter)
+func (ris *RaftInnerServer) Start() error {
+	cfg := ris.config
+	pdClient, err := pd.NewClient(strings.Split(cfg.PDAddr, ","), "")
 	if err != nil {
 		return err
 	}
-	snapRunner := newSnapRunner(ris.snapManager, ris.raftConfig, ris.raftRouter)
+	ris.raftRouter, ris.batchSystem = raftstore.CreateRaftBatchSystem(cfg)
+
+	ris.resolveWorker = worker.NewWorker("resolver", &ris.wg)
+	resolveSender := ris.resolveWorker.Sender()
+	resolveRunner := newResolverRunner(pdClient)
+	ris.resolveWorker.Start(resolveRunner)
+
+	ris.snapManager = snap.NewSnapManager(cfg.DBPath + "snap")
+	ris.snapWorker = worker.NewWorker("snap-worker", &ris.wg)
+	snapSender := ris.snapWorker.Sender()
+	snapRunner := newSnapRunner(ris.snapManager, ris.config, ris.raftRouter)
 	ris.snapWorker.Start(snapRunner)
+
+	raftClient := newRaftClient(cfg)
+	trans := NewServerTransport(raftClient, snapSender, ris.raftRouter, resolveSender)
+
+	ris.node = raftstore.NewNode(ris.batchSystem, ris.config, pdClient)
+	err = ris.node.Start(context.TODO(), ris.engines, trans, ris.snapManager)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }

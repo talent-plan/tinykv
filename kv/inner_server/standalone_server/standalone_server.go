@@ -2,12 +2,10 @@ package standalone_server
 
 import (
 	"github.com/Connor1996/badger"
-	kvConfig "github.com/pingcap-incubator/tinykv/kv/config"
+	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/inner_server"
-	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/tinykvpb"
 	"github.com/pingcap/errors"
 )
 
@@ -17,22 +15,14 @@ type StandAloneInnerServer struct {
 	db *badger.DB
 }
 
-func NewStandAloneInnerServer(conf *kvConfig.Config) *StandAloneInnerServer {
+func NewStandAloneInnerServer(conf *config.Config) *StandAloneInnerServer {
 	db := engine_util.CreateDB("kv", conf)
 	return &StandAloneInnerServer{
 		db: db,
 	}
 }
 
-func (is *StandAloneInnerServer) Raft(stream tinykvpb.TinyKv_RaftServer) error {
-	return nil
-}
-
-func (is *StandAloneInnerServer) Snapshot(stream tinykvpb.TinyKv_SnapshotServer) error {
-	return nil
-}
-
-func (is *StandAloneInnerServer) Start(pdClient pd.Client) error {
+func (is *StandAloneInnerServer) Start() error {
 	return nil
 }
 
