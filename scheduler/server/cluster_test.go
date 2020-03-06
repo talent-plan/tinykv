@@ -955,8 +955,6 @@ func (s *testClusterSuite) TestGetPDMembers(c *C) {
 	c.Assert(len(resp.GetMembers()), Not(Equals), 0)
 }
 
-
-
 var _ = Suite(&testGetStoresSuite{})
 
 type testGetStoresSuite struct {

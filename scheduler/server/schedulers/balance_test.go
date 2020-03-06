@@ -31,7 +31,6 @@ func newTestReplication(mso *mockoption.ScheduleOptions, maxReplicas int) {
 	mso.MaxReplicas = maxReplicas
 }
 
-
 var _ = Suite(&testBalanceRegionSchedulerSuite{})
 
 type testBalanceRegionSchedulerSuite struct {
