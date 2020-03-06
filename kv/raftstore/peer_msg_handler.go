@@ -15,7 +15,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
-	"github.com/pingcap-incubator/tinykv/raft"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/btree"
 	"github.com/pingcap/errors"
 )
@@ -69,10 +68,6 @@ func (d *peerMsgHandler) HandleMsgs(msg message.Msg) {
 		d.onGCSnap(gcSnap.Snaps)
 	case message.MsgTypeStart:
 		d.startTicker()
-	case message.MsgTypeSnapStatus:
-		status := msg.Data.(*message.MsgSnapStatus)
-		// Report snapshot status to the corresponding peer.
-		d.reportSnapshotStatus(status.ToPeerID, status.SnapshotStatus)
 	}
 }
 
@@ -139,17 +134,6 @@ func (d *peerMsgHandler) onGCSnap(snaps []snap.SnapKeyWithSending) {
 			d.ctx.snapMgr.DeleteSnapshot(key, a, false)
 		}
 	}
-}
-
-func (d *peerMsgHandler) reportSnapshotStatus(toPeerID uint64, status raft.SnapshotStatus) {
-	toPeer := d.peer.getPeerFromCache(toPeerID)
-	if toPeer == nil {
-		// If to_peer is gone, ignore this snapshot status
-		log.Warnf("%s peer %d not found, ignore snapshot status %v", d.tag(), toPeerID, status)
-		return
-	}
-	log.Infof("%s report snapshot status %s %v", d.tag(), toPeer, status)
-	d.peer.RaftGroup.ReportSnapshot(toPeerID, status)
 }
 
 func (d *peerMsgHandler) HandleRaftReady() {

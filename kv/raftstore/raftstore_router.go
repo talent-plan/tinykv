@@ -4,7 +4,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
-	"github.com/pingcap-incubator/tinykv/raft"
 )
 
 type RaftstoreRouter struct {
@@ -29,11 +28,4 @@ func (r *RaftstoreRouter) SendRaftCommand(req *raft_cmdpb.RaftCmdRequest, cb *me
 		Callback: cb,
 	}
 	return r.router.sendRaftCommand(msg)
-}
-
-func (r *RaftstoreRouter) ReportSnapshotStatus(regionID uint64, toPeerID uint64, status raft.SnapshotStatus) error {
-	return r.router.send(regionID, message.NewMsg(message.MsgTypeSnapStatus, &message.MsgSnapStatus{
-		ToPeerID:       toPeerID,
-		SnapshotStatus: status,
-	}))
 }

@@ -278,14 +278,6 @@ func (rn *RawNode) GetSnap() *pb.Snapshot {
 }
 
 // TODO: Delete method
-// ReportSnapshot reports the status of the sent snapshot.
-func (rn *RawNode) ReportSnapshot(id uint64, status SnapshotStatus) {
-	rej := status == SnapshotFailure
-
-	_ = rn.Raft.Step(pb.Message{MsgType: pb.MessageType_MsgSnapStatus, From: id, Reject: rej})
-}
-
-// TODO: Delete method
 // TransferLeader tries to transfer leadership to the given transferee.
 func (rn *RawNode) TransferLeader(transferee uint64) {
 	_ = rn.Raft.Step(pb.Message{MsgType: pb.MessageType_MsgTransferLeader, From: transferee})

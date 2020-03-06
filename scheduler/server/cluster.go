@@ -587,8 +587,7 @@ func (c *RaftCluster) putStore(store *metapb.Store) error {
 	} else {
 		// Update an existed store.
 		s = s.Clone(
-			core.SetStoreAddress(store.Address, store.StatusAddress, store.PeerAddress),
-			core.SetStoreVersion(store.GitHash, store.Version),
+			core.SetStoreAddress(store.Address),
 		)
 	}
 	return c.putStoreLocked(s)

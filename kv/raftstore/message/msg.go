@@ -4,7 +4,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
-	"github.com/pingcap-incubator/tinykv/raft"
 )
 
 type MsgType int64
@@ -16,7 +15,6 @@ const (
 	MsgTypeRaftMessage           MsgType = 3
 	MsgTypeRaftCmd               MsgType = 4
 	MsgTypeApplyRes              MsgType = 5
-	MsgTypeSnapStatus            MsgType = 6
 	MsgTypeGcSnap                MsgType = 7
 	MsgTypeSplitRegion           MsgType = 8
 	MsgTypeRegionApproximateSize MsgType = 9
@@ -57,9 +55,4 @@ type MsgSplitRegion struct {
 	RegionEpoch *metapb.RegionEpoch
 	SplitKeys   [][]byte
 	Callback    *Callback
-}
-
-type MsgSnapStatus struct {
-	ToPeerID       uint64
-	SnapshotStatus raft.SnapshotStatus
 }

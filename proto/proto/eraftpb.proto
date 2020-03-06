@@ -61,8 +61,6 @@ enum MessageType {
     MsgHeartbeat = 8;
     // 'MessageType_MsgHeartbeatResponse' is a response to 'MessageType_MsgHeartbeat'.
     MsgHeartbeatResponse = 9;
-    // 'MessageType_MsgSnapStatus' tells the result of snapshot install message.
-    MsgSnapStatus = 10;
     // 'MessageType_MsgTransferLeader' requests the leader to transfer its leadership.
     MsgTransferLeader = 11;
     // 'MessageType_MsgTimeoutNow' send from the leader to the leadership transfer target, to let

@@ -113,6 +113,11 @@ func commit(applyCh chan<- []message.Msg, entries []eraftpb.Entry, regionID uint
 	applyCh <- []message.Msg{msg}
 }
 
+func checkApplyIndex(t *testing.T, engines *engine_util.Engines, expected uint64) {
+	state, _ := meta.GetApplyState(engines.Kv, 1)
+	require.Equal(t, state.AppliedIndex, expected)
+}
+
 func TestHandleRaftCommittedEntries(t *testing.T) {
 	engines := util.NewTestEngines()
 	defer engines.Destroy()
@@ -180,7 +185,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	require.True(t, bytes.Equal(resp.GetResponses()[2].GetGet().Value, []byte("v3")))
 
 	applyRes := fetchApplyRes(router.peerSender)
-	require.Equal(t, applyRes.appliedIndex, uint64(7))
+	checkApplyIndex(t, engines, uint64(7))
 
 	cb = message.NewCallback()
 	entry = NewEntryBuilder(8, 2).
@@ -193,7 +198,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	require.True(t, resp.GetHeader().GetError() == nil)
 	applyRes = fetchApplyRes(router.peerSender)
 	require.Equal(t, applyRes.regionID, uint64(1))
-	require.Equal(t, applyRes.appliedIndex, uint64(8))
+	checkApplyIndex(t, engines, uint64(8))
 	require.Equal(t, len(applyRes.execResults), 0)
 
 	cb = message.NewCallback()
@@ -209,7 +214,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	require.Nil(t, err)
 	require.True(t, bytes.Equal(val, []byte("v11")))
 	applyRes = fetchApplyRes(router.peerSender)
-	require.Equal(t, applyRes.appliedIndex, uint64(9))
+	checkApplyIndex(t, engines, uint64(9))
 
 	cb = message.NewCallback()
 	entry = NewEntryBuilder(10, 2).
@@ -220,7 +225,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError().GetEpochNotMatch() != nil)
 	applyRes = fetchApplyRes(router.peerSender)
-	require.Equal(t, applyRes.appliedIndex, uint64(10))
+	checkApplyIndex(t, engines, uint64(10))
 
 	cb = message.NewCallback()
 	entry = NewEntryBuilder(11, 2).
@@ -232,7 +237,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError().GetKeyNotInRegion() != nil)
 	applyRes = fetchApplyRes(router.peerSender)
-	require.Equal(t, applyRes.appliedIndex, uint64(11))
+	checkApplyIndex(t, engines, uint64(11))
 	val, err = engine_util.GetCF(engines.Kv, engine_util.CfDefault, []byte("k3"))
 	require.Nil(t, err)
 	// a write batch should be atomic
@@ -253,7 +258,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError() == nil)
 	applyRes = fetchApplyRes(router.peerSender)
-	require.Equal(t, applyRes.appliedIndex, uint64(12))
+	checkApplyIndex(t, engines, uint64(12))
 
 	cb1 = message.NewCallback()
 	entry1 := NewEntryBuilder(13, 3).

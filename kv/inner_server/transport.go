@@ -6,9 +6,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/worker"
 	"github.com/pingcap-incubator/tinykv/log"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
-	"github.com/pingcap-incubator/tinykv/raft"
 )
 
 type ServerTransport struct {
@@ -42,7 +40,6 @@ func (t *ServerTransport) SendStore(storeID uint64, msg *raft_serverpb.RaftMessa
 	}
 	if _, ok := t.resolving.Load(storeID); ok {
 		log.Debugf("store address is being resolved, msg dropped. storeID: %v, msg: %s", storeID, msg)
-		t.ReportUnreachable(msg)
 		return
 	}
 	log.Debug("begin to resolve store address. storeID: %v", storeID)
@@ -56,7 +53,6 @@ func (t *ServerTransport) Resolve(storeID uint64, msg *raft_serverpb.RaftMessage
 		t.resolving.Delete(storeID)
 		if err != nil {
 			log.Errorf("resolve store address failed. storeID: %v, err: %v", storeID, err)
-			t.ReportUnreachable(msg)
 			return
 		}
 		t.raftClient.InsertAddr(storeID, addr)
@@ -84,11 +80,10 @@ func (t *ServerTransport) WriteData(storeID uint64, addr string, msg *raft_serve
 
 func (t *ServerTransport) SendSnapshotSock(addr string, msg *raft_serverpb.RaftMessage) {
 	callback := func(err error) {
-		if err != nil {
-			t.ReportSnapshotStatus(msg, raft.SnapshotFailure)
-		} else {
-			t.ReportSnapshotStatus(msg, raft.SnapshotFinish)
-		}
+		regionID := msg.GetRegionId()
+		toPeerID := msg.GetToPeer().GetId()
+		toStoreID := msg.GetToPeer().GetStoreId()
+		log.Debugf("send snapshot. toPeerID: %v, toStoreID: %v, regionID: %v, status: %v", toPeerID, toStoreID, regionID, err)
 	}
 
 	task := worker.Task{
@@ -100,23 +95,6 @@ func (t *ServerTransport) SendSnapshotSock(addr string, msg *raft_serverpb.RaftM
 		},
 	}
 	t.snapScheduler <- task
-}
-
-func (t *ServerTransport) ReportSnapshotStatus(msg *raft_serverpb.RaftMessage, status raft.SnapshotStatus) {
-	regionID := msg.GetRegionId()
-	toPeerID := msg.GetToPeer().GetId()
-	toStoreID := msg.GetToPeer().GetStoreId()
-	log.Debugf("send snapshot. toPeerID: %v, regionID: %v, status: %v", toPeerID, regionID, status)
-	if err := t.raftRouter.ReportSnapshotStatus(regionID, toPeerID, status); err != nil {
-		log.Errorf("report snapshot to peer fails. toPeerID: %v, toStoreID: %v, regionID: %v, err: %v", toPeerID, toStoreID, regionID, err)
-	}
-}
-
-func (t *ServerTransport) ReportUnreachable(msg *raft_serverpb.RaftMessage) {
-	if msg.GetMessage().GetMsgType() == eraftpb.MessageType_MsgSnapshot {
-		t.ReportSnapshotStatus(msg, raft.SnapshotFailure)
-		return
-	}
 }
 
 func (t *ServerTransport) Flush() {

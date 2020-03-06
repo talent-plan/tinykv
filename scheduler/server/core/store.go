@@ -129,11 +129,6 @@ func (s *StoreInfo) GetAddress() string {
 	return s.meta.GetAddress()
 }
 
-// GetVersion returns the version of the store.
-func (s *StoreInfo) GetVersion() string {
-	return s.meta.GetVersion()
-}
-
 // GetID returns the ID of the store.
 func (s *StoreInfo) GetID() uint64 {
 	return s.meta.GetId()
