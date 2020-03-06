@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 
 	"github.com/pingcap/errors"
@@ -69,21 +70,38 @@ func (pr *router) send(regionID uint64, msg message.Msg) error {
 	return nil
 }
 
-func (pr *router) sendRaftCommand(cmd *message.MsgRaftCmd) error {
-	regionID := cmd.Request.Header.RegionId
-	return pr.send(regionID, message.NewPeerMsg(message.MsgTypeRaftCmd, regionID, cmd))
-}
-
-func (pr *router) sendRaftMessage(msg *raft_serverpb.RaftMessage) error {
-	regionID := msg.RegionId
-	if pr.send(regionID, message.NewPeerMsg(message.MsgTypeRaftMessage, regionID, msg)) != nil {
-		pr.sendStore(message.NewPeerMsg(message.MsgTypeStoreRaftMessage, regionID, msg))
-	}
-	return nil
-}
-
 func (pr *router) sendStore(msg message.Msg) {
 	pr.storeSender <- msg
 }
 
 var errPeerNotFound = errors.New("peer not found")
+
+type RaftstoreRouter struct {
+	router *router
+}
+
+func NewRaftstoreRouter(router *router) *RaftstoreRouter {
+	return &RaftstoreRouter{router: router}
+}
+
+func (r *RaftstoreRouter) Send(regionID uint64, msg message.Msg) error {
+	return r.router.send(regionID, msg)
+}
+
+func (r *RaftstoreRouter) SendRaftMessage(msg *raft_serverpb.RaftMessage) error {
+	regionID := msg.RegionId
+	if r.router.send(regionID, message.NewPeerMsg(message.MsgTypeRaftMessage, regionID, msg)) != nil {
+		r.router.sendStore(message.NewPeerMsg(message.MsgTypeStoreRaftMessage, regionID, msg))
+	}
+	return nil
+
+}
+
+func (r *RaftstoreRouter) SendRaftCommand(req *raft_cmdpb.RaftCmdRequest, cb *message.Callback) error {
+	cmd := &message.MsgRaftCmd{
+		Request:  req,
+		Callback: cb,
+	}
+	regionID := req.Header.RegionId
+	return r.router.send(regionID, message.NewPeerMsg(message.MsgTypeRaftCmd, regionID, cmd))
+}
