@@ -47,7 +47,7 @@ func (s *testBalanceRegionSchedulerSuite) TearDownSuite(c *C) {
 	s.cancel()
 }
 
-func (s *testBalanceRegionSchedulerSuite) TestReplicas1(c *C) {
+func (s *testBalanceRegionSchedulerSuite) TestReplicas13C(c *C) {
 	opt := mockoption.NewScheduleOptions()
 	tc := mockcluster.NewCluster(opt)
 	oc := schedule.NewOperatorController(s.ctx, nil, nil)
@@ -80,7 +80,7 @@ func (s *testBalanceRegionSchedulerSuite) TestReplicas1(c *C) {
 	c.Assert(sb.Schedule(tc), NotNil)
 }
 
-func (s *testBalanceRegionSchedulerSuite) TestReplicas3(c *C) {
+func (s *testBalanceRegionSchedulerSuite) TestReplicas33C(c *C) {
 	opt := mockoption.NewScheduleOptions()
 	tc := mockcluster.NewCluster(opt)
 	oc := schedule.NewOperatorController(s.ctx, nil, nil)
@@ -125,7 +125,7 @@ func (s *testBalanceRegionSchedulerSuite) TestReplicas3(c *C) {
 	c.Assert(sb.Schedule(tc), IsNil)
 }
 
-func (s *testBalanceRegionSchedulerSuite) TestReplicas5(c *C) {
+func (s *testBalanceRegionSchedulerSuite) TestReplicas53C(c *C) {
 	opt := mockoption.NewScheduleOptions()
 	tc := mockcluster.NewCluster(opt)
 	oc := schedule.NewOperatorController(s.ctx, nil, nil)
@@ -163,7 +163,7 @@ func (s *testBalanceRegionSchedulerSuite) TestReplicas5(c *C) {
 	testutil.CheckTransferPeer(c, sb.Schedule(tc), operator.OpBalance, 11, 6)
 }
 
-func (s *testBalanceRegionSchedulerSuite) TestStoreWeight(c *C) {
+func (s *testBalanceRegionSchedulerSuite) TestStoreWeight3C(c *C) {
 	opt := mockoption.NewScheduleOptions()
 	tc := mockcluster.NewCluster(opt)
 	oc := schedule.NewOperatorController(s.ctx, nil, nil)
@@ -188,7 +188,7 @@ func (s *testBalanceRegionSchedulerSuite) TestStoreWeight(c *C) {
 	testutil.CheckTransferPeer(c, sb.Schedule(tc), operator.OpBalance, 1, 3)
 }
 
-func (s *testBalanceRegionSchedulerSuite) TestReplacePendingRegion(c *C) {
+func (s *testBalanceRegionSchedulerSuite) TestReplacePendingRegion3C(c *C) {
 	opt := mockoption.NewScheduleOptions()
 	tc := mockcluster.NewCluster(opt)
 	oc := schedule.NewOperatorController(s.ctx, nil, nil)
@@ -228,7 +228,7 @@ type testBalanceSpeedCase struct {
 	expectedResult bool
 }
 
-func (s *testBalanceSpeedSuite) TestShouldBalance(c *C) {
+func (s *testBalanceSpeedSuite) TestShouldBalance3C(c *C) {
 	tests := []testBalanceSpeedCase{
 		// all store capacity is 1024MB
 		// size = count * 10
@@ -272,6 +272,18 @@ func (s *testBalanceSpeedSuite) TestShouldBalance(c *C) {
 		kind := core.NewScheduleKind(core.RegionKind)
 		c.Assert(shouldBalance(tc, source, target, region, kind, ""), Equals, t.expectedResult)
 	}
+}
+
+func (s *testBalanceSpeedSuite) TestTolerantRatio3C(c *C) {
+	opt := mockoption.NewScheduleOptions()
+	tc := mockcluster.NewCluster(opt)
+	// create a region to control average region size.
+	tc.AddLeaderRegion(1, 1, 2)
+	regionSize := int64(96 * 1024)
+	region := tc.GetRegion(1).Clone(core.SetApproximateSize(regionSize))
+
+	c.Assert(getTolerantResource(tc, region, core.ScheduleKind{Resource: core.LeaderKind}), Equals, int64(leaderTolerantSizeRatio))
+	c.Assert(getTolerantResource(tc, region, core.ScheduleKind{Resource: core.RegionKind}), Equals, int64(getTolerantRatio(tc)*float64(regionSize)))
 }
 
 var _ = Suite(&testBalanceLeaderSchedulerSuite{})
@@ -347,18 +359,6 @@ func (s *testBalanceLeaderSchedulerSuite) TestBalanceLeaderScheduleStrategy(c *C
 	s.tc.AddLeaderStore(4, 10, 100)
 	s.tc.AddLeaderRegion(1, 1, 2, 3, 4)
 	c.Check(s.schedule(), IsNil)
-}
-
-func (s *testBalanceSpeedSuite) TestTolerantRatio(c *C) {
-	opt := mockoption.NewScheduleOptions()
-	tc := mockcluster.NewCluster(opt)
-	// create a region to control average region size.
-	tc.AddLeaderRegion(1, 1, 2)
-	regionSize := int64(96 * 1024)
-	region := tc.GetRegion(1).Clone(core.SetApproximateSize(regionSize))
-
-	c.Assert(getTolerantResource(tc, region, core.ScheduleKind{Resource: core.LeaderKind}), Equals, int64(leaderTolerantSizeRatio))
-	c.Assert(getTolerantResource(tc, region, core.ScheduleKind{Resource: core.RegionKind}), Equals, int64(getTolerantRatio(tc)*float64(regionSize)))
 }
 
 func (s *testBalanceLeaderSchedulerSuite) TestBalanceLeaderTolerantRatio(c *C) {
