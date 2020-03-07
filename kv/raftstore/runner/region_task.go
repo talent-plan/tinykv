@@ -15,8 +15,8 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/worker"
 	"github.com/pingcap-incubator/tinykv/log"
-	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 )
 
 // Region Task represents a task related to region for region-worker.
@@ -26,9 +26,9 @@ import (
 // `TaskTypeRegionDestroy` which will clean up the key range from StartKey to EndKey.
 // When region-worker receive a Task, it would handle it according to task type. The type is not in RegionTask but in Task.Tp. RegionTask is the data field of Task.
 type RegionTask struct {
-	RegionId uint64                  // specify the region which the task is for.
+	RegionId uint64                   // specify the region which the task is for.
 	Notifier chan<- *eraftpb.Snapshot // useful in `TaskTypeRegionGen`, when it finishes snapshot generating, it notifies notifier.
-	Status   *snap.JobStatus         // useful in `TaskTypeRegionApply` to see if the job is canceled
+	Status   *snap.JobStatus          // useful in `TaskTypeRegionApply` to see if the job is canceled
 	StartKey []byte
 	EndKey   []byte // `StartKey` and `EndKey` are useful in `TaskTypeRegionDestroy` to destroy certain range of region.
 }
