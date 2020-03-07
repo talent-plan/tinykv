@@ -16,10 +16,9 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/log"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/raftpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
 type MockTransport struct {
@@ -80,7 +79,7 @@ func (t *MockTransport) Send(msg *raft_serverpb.RaftMessage) error {
 	fromStore := msg.GetFromPeer().GetStoreId()
 	toStore := msg.GetToPeer().GetStoreId()
 
-	isSnapshot := msg.GetMessage().GetMsgType() == raftpb.MessageType_MsgSnapshot
+	isSnapshot := msg.GetMessage().GetMsgType() == eraftpb.MessageType_MsgSnapshot
 	if isSnapshot {
 		snapshot := msg.Message.Snapshot
 		key, err := snap.SnapKeyFromSnap(snapshot)
@@ -149,12 +148,11 @@ func (c *NodeSimulator) RunStore(cfg *config.Config, engine *engine_util.Engines
 	c.Lock()
 	defer c.Unlock()
 
-	router, batchSystem := raftstore.CreateRaftBatchSystem(cfg)
-	raftRouter := raftstore.NewRaftstoreRouter(router)
+	raftRouter, batchSystem := raftstore.CreateRaftBatchSystem(cfg)
 	snapManager := snap.NewSnapManager(cfg.DBPath + "/snap")
-	node := raftstore.NewNode(batchSystem, &metapb.Store{}, cfg, c.pdClient)
+	node := raftstore.NewNode(batchSystem, cfg, c.pdClient)
 
-	err := node.Start(ctx, engine, c.trans, snapManager, raftRouter)
+	err := node.Start(ctx, engine, c.trans, snapManager)
 	if err != nil {
 		return err
 	}

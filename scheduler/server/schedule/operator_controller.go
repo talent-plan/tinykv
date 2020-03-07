@@ -22,7 +22,7 @@ import (
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/raftpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/cache"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/operator"
@@ -267,7 +267,7 @@ func (oc *OperatorController) SendScheduleCommand(region *core.RegionInfo, step 
 		}
 		cmd := &pdpb.RegionHeartbeatResponse{
 			ChangePeer: &pdpb.ChangePeer{
-				ChangeType: raftpb.ConfChangeType_AddNode,
+				ChangeType: eraftpb.ConfChangeType_AddNode,
 				Peer: &metapb.Peer{
 					Id:      st.PeerID,
 					StoreId: st.ToStore,
@@ -278,7 +278,7 @@ func (oc *OperatorController) SendScheduleCommand(region *core.RegionInfo, step 
 	case operator.RemovePeer:
 		cmd := &pdpb.RegionHeartbeatResponse{
 			ChangePeer: &pdpb.ChangePeer{
-				ChangeType: raftpb.ConfChangeType_RemoveNode,
+				ChangeType: eraftpb.ConfChangeType_RemoveNode,
 				Peer:       region.GetStorePeer(st.FromStore),
 			},
 		}

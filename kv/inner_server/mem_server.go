@@ -6,7 +6,6 @@ import (
 
 	"github.com/Connor1996/badger/y"
 	"github.com/petar/GoLLRB/llrb"
-	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
@@ -27,7 +26,7 @@ func NewMemInnerServer() *MemInnerServer {
 	}
 }
 
-func (is *MemInnerServer) Start(pdClient pd.Client) error {
+func (is *MemInnerServer) Start() error {
 	return nil
 }
 

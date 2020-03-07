@@ -20,7 +20,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/raftpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -137,7 +137,7 @@ func TestApplies(t *testing.T) {
 	regionRunner := NewRegionTaskHandler(engines, mgr)
 	regionWorker.Start(regionRunner)
 	genAndApplySnap := func(regionId uint64) {
-		tx := make(chan *raftpb.Snapshot, 1)
+		tx := make(chan *eraftpb.Snapshot, 1)
 		tsk := &worker.Task{
 			Tp: worker.TaskTypeRegionGen,
 			Data: &RegionTask{

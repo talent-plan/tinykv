@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"github.com/pingcap-incubator/tinykv/log"
-	pb "github.com/pingcap-incubator/tinykv/proto/pkg/raftpb"
+	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
 // None is a placeholder node ID used when there is no leader.
@@ -584,7 +584,7 @@ func (r *Raft) poll(id uint64, t pb.MessageType, v bool) (granted int) {
 }
 
 // Step the entrance of handle message, see `MessageType`
-// on `raftpb.proto` for what msgs should be handled
+// on `eraftpb.proto` for what msgs should be handled
 func (r *Raft) Step(m pb.Message) error {
 	// Your Code Here 2A
 	// TODO: Delete Start

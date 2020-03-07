@@ -6,7 +6,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/raftpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap/errors"
 )
 
@@ -42,8 +42,8 @@ func GetApplyState(db *badger.DB, regionId uint64) (*rspb.RaftApplyState, error)
 	return applyState, nil
 }
 
-func GetRaftEntry(db *badger.DB, regionId, idx uint64) (*raftpb.Entry, error) {
-	entry := new(raftpb.Entry)
+func GetRaftEntry(db *badger.DB, regionId, idx uint64) (*eraftpb.Entry, error) {
+	entry := new(eraftpb.Entry)
 	if err := engine_util.GetMsg(db, RaftLogKey(regionId, idx), entry); err != nil {
 		return nil, err
 	}
@@ -64,7 +64,7 @@ func InitRaftLocalState(raftEngine *badger.DB, region *metapb.Region) (*rspb.Raf
 	}
 	if err == badger.ErrKeyNotFound {
 		raftState = new(rspb.RaftLocalState)
-		raftState.HardState = new(raftpb.HardState)
+		raftState.HardState = new(eraftpb.HardState)
 		if len(region.Peers) > 0 {
 			// new split region
 			raftState.LastIndex = RaftInitLogIndex

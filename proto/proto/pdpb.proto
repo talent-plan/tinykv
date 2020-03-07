@@ -2,7 +2,7 @@ syntax = "proto3";
 package pdpb;
 
 import "metapb.proto";
-import "raftpb.proto";
+import "eraftpb.proto";
 
 import "gogoproto/gogo.proto";
 
@@ -266,7 +266,7 @@ message RegionHeartbeatRequest {
 
 message ChangePeer {
     metapb.Peer peer = 1;
-    raftpb.ConfChangeType change_type = 2;
+    eraftpb.ConfChangeType change_type = 2;
 }
 
 message TransferLeader {

@@ -9,7 +9,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/raftpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap/errors"
 )
 
@@ -25,10 +25,10 @@ const InvalidID uint64 = 0
 // Heartbeat message for the store of that peer to check whether to create a new peer
 // when receiving these messages, or just to wait for a pending region split to perform
 // later.
-func IsInitialMsg(msg *raftpb.Message) bool {
-	return msg.MsgType == raftpb.MessageType_MsgRequestVote ||
+func IsInitialMsg(msg *eraftpb.Message) bool {
+	return msg.MsgType == eraftpb.MessageType_MsgRequestVote ||
 		// the peer has not been known to this leader, it may exist or not.
-		(msg.MsgType == raftpb.MessageType_MsgHeartbeat && msg.Commit == RaftInvalidIndex)
+		(msg.MsgType == eraftpb.MessageType_MsgHeartbeat && msg.Commit == RaftInvalidIndex)
 }
 
 /// Check if key in region range [`start_key`, `end_key`).
@@ -63,16 +63,16 @@ func IsEpochStale(epoch *metapb.RegionEpoch, checkEpoch *metapb.RegionEpoch) boo
 	return epoch.Version < checkEpoch.Version || epoch.ConfVer < checkEpoch.ConfVer
 }
 
-func IsVoteMessage(msg *raftpb.Message) bool {
+func IsVoteMessage(msg *eraftpb.Message) bool {
 	tp := msg.GetMsgType()
-	return tp == raftpb.MessageType_MsgRequestVote
+	return tp == eraftpb.MessageType_MsgRequestVote
 }
 
 /// `is_first_vote_msg` checks `msg` is the first vote message or not. It's used for
 /// when the message is received but there is no such region in `Store::region_peers` and the
 /// region overlaps with others. In this case we should put `msg` into `pending_votes` instead of
 /// create the peer.
-func IsFirstVoteMessage(msg *raftpb.Message) bool {
+func IsFirstVoteMessage(msg *eraftpb.Message) bool {
 	return IsVoteMessage(msg) && msg.Term == meta.RaftInitLogTerm+1
 }
 
@@ -150,7 +150,7 @@ func RemovePeer(region *metapb.Region, storeID uint64) *metapb.Peer {
 	return nil
 }
 
-func ConfStateFromRegion(region *metapb.Region) (confState raftpb.ConfState) {
+func ConfStateFromRegion(region *metapb.Region) (confState eraftpb.ConfState) {
 	for _, p := range region.Peers {
 		confState.Nodes = append(confState.Nodes, p.GetId())
 	}

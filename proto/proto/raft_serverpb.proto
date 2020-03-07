@@ -1,14 +1,14 @@
 syntax = "proto3";
 package raft_serverpb;
 
-import "raftpb.proto";
+import "eraftpb.proto";
 import "metapb.proto";
 
 message RaftMessage {
     uint64 region_id = 1;
     metapb.Peer from_peer = 2;
     metapb.Peer to_peer = 3;
-    raftpb.Message message = 4;
+    eraftpb.Message message = 4;
     metapb.RegionEpoch region_epoch = 5;
     // true means to_peer is a tombstone peer and it should remove itself.
     bool is_tombstone = 6;
@@ -57,7 +57,7 @@ message StoreIdent {
 }
 
 message RaftLocalState {
-    raftpb.HardState hard_state = 1;
+    eraftpb.HardState hard_state = 1;
     uint64 last_index = 2;
 }
 

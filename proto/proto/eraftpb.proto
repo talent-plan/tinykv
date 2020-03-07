@@ -1,5 +1,5 @@
 syntax = "proto3";
-package raftpb;
+package eraftpb;
 
 enum EntryType {
     EntryNormal = 0;

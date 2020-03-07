@@ -5,7 +5,7 @@ import (
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/raftpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -45,18 +45,18 @@ func TestCheckKeyInRegion(t *testing.T) {
 
 func TestIsInitialMsg(t *testing.T) {
 	type MsgInfo struct {
-		MessageType  raftpb.MessageType
+		MessageType  eraftpb.MessageType
 		Commit       uint64
 		IsInitialMsg bool
 	}
 	tbl := []MsgInfo{
-		{MessageType: raftpb.MessageType_MsgRequestVote, Commit: RaftInvalidIndex, IsInitialMsg: true},
-		{MessageType: raftpb.MessageType_MsgHeartbeat, Commit: RaftInvalidIndex, IsInitialMsg: true},
-		{MessageType: raftpb.MessageType_MsgHeartbeat, Commit: 100, IsInitialMsg: false},
-		{MessageType: raftpb.MessageType_MsgAppend, Commit: 100, IsInitialMsg: false},
+		{MessageType: eraftpb.MessageType_MsgRequestVote, Commit: RaftInvalidIndex, IsInitialMsg: true},
+		{MessageType: eraftpb.MessageType_MsgHeartbeat, Commit: RaftInvalidIndex, IsInitialMsg: true},
+		{MessageType: eraftpb.MessageType_MsgHeartbeat, Commit: 100, IsInitialMsg: false},
+		{MessageType: eraftpb.MessageType_MsgAppend, Commit: 100, IsInitialMsg: false},
 	}
 	for _, m := range tbl {
-		msg := new(raftpb.Message)
+		msg := new(eraftpb.Message)
 		msg.MsgType = m.MessageType
 		msg.Commit = m.Commit
 		assert.Equal(t, IsInitialMsg(msg), m.IsInitialMsg)

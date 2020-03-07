@@ -15,17 +15,17 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/raftpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
 type EntryBuilder struct {
-	entry raftpb.Entry
+	entry eraftpb.Entry
 	req   raft_cmdpb.RaftCmdRequest
 }
 
 func NewEntryBuilder(index uint64, term uint64) *EntryBuilder {
 	return &EntryBuilder{
-		entry: raftpb.Entry{
+		entry: eraftpb.Entry{
 			Index: index,
 			Term:  term,
 		},
@@ -81,7 +81,7 @@ func (b *EntryBuilder) epoch(confVer, version uint64) *EntryBuilder {
 	return b
 }
 
-func (b *EntryBuilder) build(applyCh chan<- []message.Msg, peerID, regionID uint64, callback *message.Callback) *raftpb.Entry {
+func (b *EntryBuilder) build(applyCh chan<- []message.Msg, peerID, regionID uint64, callback *message.Callback) *eraftpb.Entry {
 	prop := &proposal{
 		isConfChange: false,
 		index:        b.entry.Index,
@@ -103,7 +103,7 @@ func (b *EntryBuilder) build(applyCh chan<- []message.Msg, peerID, regionID uint
 	return &b.entry
 }
 
-func commit(applyCh chan<- []message.Msg, entries []raftpb.Entry, regionID uint64) {
+func commit(applyCh chan<- []message.Msg, entries []eraftpb.Entry, regionID uint64) {
 	apply := &MsgApplyCommitted{
 		regionId: regionID,
 		term:     entries[0].Term,
@@ -123,7 +123,8 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	defer engines.Destroy()
 
 	cfg := config.NewDefaultConfig()
-	router, _ := CreateRaftBatchSystem(cfg)
+	raftRouter, _ := CreateRaftBatchSystem(cfg)
+	router := raftRouter.router
 	ctx := &GlobalContext{
 		cfg:    cfg,
 		engine: engines,
@@ -163,7 +164,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 		put(engine_util.CfDefault, []byte("k3"), []byte("v3")).
 		epoch(1, 3).
 		build(applyCh, 3, 1, cb)
-	commit(applyCh, []raftpb.Entry{*entry}, 1)
+	commit(applyCh, []eraftpb.Entry{*entry}, 1)
 	resp := cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError() == nil)
 	require.Equal(t, len(resp.GetResponses()), 3)
@@ -176,7 +177,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 		get(engine_util.CfDefault, []byte("k3")).
 		epoch(1, 3).
 		build(applyCh, 3, 1, cb)
-	commit(applyCh, []raftpb.Entry{*entry}, 1)
+	commit(applyCh, []eraftpb.Entry{*entry}, 1)
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError() == nil)
 	require.Equal(t, len(resp.GetResponses()), 3)
@@ -193,7 +194,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 		delete(engine_util.CfDefault, []byte("k2")).
 		epoch(1, 3).
 		build(applyCh, 3, 1, cb)
-	commit(applyCh, []raftpb.Entry{*entry}, 1)
+	commit(applyCh, []eraftpb.Entry{*entry}, 1)
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError() == nil)
 	applyRes = fetchApplyRes(router.peerSender)
@@ -206,7 +207,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 		snap().
 		epoch(1, 3).
 		build(applyCh, 3, 1, cb)
-	commit(applyCh, []raftpb.Entry{*entry}, 1)
+	commit(applyCh, []eraftpb.Entry{*entry}, 1)
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError() == nil)
 	require.Equal(t, len(resp.GetResponses()), 1)
@@ -221,7 +222,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 		put(engine_util.CfDefault, []byte("k2"), []byte("v2")).
 		epoch(1, 1).
 		build(applyCh, 3, 1, cb)
-	commit(applyCh, []raftpb.Entry{*entry}, 1)
+	commit(applyCh, []eraftpb.Entry{*entry}, 1)
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError().GetEpochNotMatch() != nil)
 	applyRes = fetchApplyRes(router.peerSender)
@@ -233,7 +234,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 		put(engine_util.CfDefault, []byte("k5"), []byte("v5")).
 		epoch(1, 3).
 		build(applyCh, 3, 1, cb)
-	commit(applyCh, []raftpb.Entry{*entry}, 1)
+	commit(applyCh, []eraftpb.Entry{*entry}, 1)
 	resp = cb.WaitResp()
 	require.True(t, resp.GetHeader().GetError().GetKeyNotInRegion() != nil)
 	applyRes = fetchApplyRes(router.peerSender)
@@ -252,7 +253,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 		delete(engine_util.CfWrite, []byte("k1")).
 		epoch(1, 3).
 		build(applyCh, 3, 1, cb)
-	commit(applyCh, []raftpb.Entry{*entry}, 1)
+	commit(applyCh, []eraftpb.Entry{*entry}, 1)
 	resp1 := cb1.WaitResp()
 	require.True(t, resp1.GetHeader().GetError().GetStaleCommand() != nil)
 	resp = cb.WaitResp()
@@ -270,7 +271,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 		get(engine_util.CfDefault, []byte("k10")).
 		epoch(1, 3).
 		build(applyCh, 3, 1, cb)
-	commit(applyCh, []raftpb.Entry{*entry1, *entry2}, 1)
+	commit(applyCh, []eraftpb.Entry{*entry1, *entry2}, 1)
 	resp1 = cb1.WaitResp()
 	require.True(t, resp1.GetHeader().GetError() == nil)
 	resp = cb.WaitResp()
