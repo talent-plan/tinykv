@@ -1,4 +1,4 @@
-package dbreader
+package raft_server
 
 import (
 	"github.com/Connor1996/badger"
@@ -6,12 +6,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 )
-
-type DBReader interface {
-	GetCF(cf string, key []byte) ([]byte, error)
-	IterCF(cf string) engine_util.DBIterator
-	Close()
-}
 
 type RegionReader struct {
 	txn    *badger.Txn
@@ -38,26 +32,6 @@ func (r *RegionReader) IterCF(cf string) engine_util.DBIterator {
 
 func (r *RegionReader) Close() {
 	r.txn.Discard()
-}
-
-type BadgerReader struct {
-	txn *badger.Txn
-}
-
-func NewBadgerReader(txn *badger.Txn) *BadgerReader {
-	return &BadgerReader{txn}
-}
-
-func (b *BadgerReader) GetCF(cf string, key []byte) ([]byte, error) {
-	return engine_util.GetCFFromTxn(b.txn, cf, key)
-}
-
-func (b *BadgerReader) IterCF(cf string) engine_util.DBIterator {
-	return engine_util.NewCFIterator(cf, b.txn)
-}
-
-func (b *BadgerReader) Close() {
-	b.txn.Discard()
 }
 
 // RegionIterator wraps a db iterator and only allow it to iterate in the region. It behaves as if underlying

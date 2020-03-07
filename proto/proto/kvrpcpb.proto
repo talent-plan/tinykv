@@ -9,10 +9,7 @@ option (gogoproto.marshaler_all) = true;
 option (gogoproto.sizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 
-option java_package = "org.tikv.kvproto";
-
 // Raw commands.
-
 message RawGetRequest {
     Context context = 1;
     bytes key = 2;

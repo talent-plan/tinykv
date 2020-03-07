@@ -1,5 +1,5 @@
 syntax = "proto3";
-package tikvpb;
+package tinykvpb;
 
 import "kvrpcpb.proto";
 import "raft_serverpb.proto";
@@ -11,11 +11,9 @@ option (gogoproto.sizer_all) = true;
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 
-option java_package = "org.tikv.kvproto";
-
 // Serve as a distributed kv database. See the request and response definitions in
 // kvrpcpb.proto
-service Tikv {
+service TinyKv {
     // KV commands with mvcc/txn supported.
     rpc KvGet(kvrpcpb.GetRequest) returns (kvrpcpb.GetResponse) {}
     rpc KvScan(kvrpcpb.ScanRequest) returns (kvrpcpb.ScanResponse) {}

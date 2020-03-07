@@ -7,8 +7,6 @@ option (gogoproto.marshaler_all) = true;
 option (gogoproto.sizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 
-option java_package = "org.tikv.kvproto";
-
 message Cluster {
     uint64 id = 1;
     // max peer count for a region.

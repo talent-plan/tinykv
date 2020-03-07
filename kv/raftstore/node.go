@@ -2,7 +2,6 @@ package raftstore
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/Connor1996/badger"
@@ -24,24 +23,23 @@ type Node struct {
 	clusterID uint64
 	store     *metapb.Store
 	cfg       *config.Config
-	storeWg   *sync.WaitGroup
 	system    *RaftBatchSystem
 	pdClient  pd.Client
 }
 
-func NewNode(system *RaftBatchSystem, store *metapb.Store, cfg *config.Config, pdClient pd.Client) *Node {
-	store.Address = cfg.StoreAddr
+func NewNode(system *RaftBatchSystem, cfg *config.Config, pdClient pd.Client) *Node {
 	return &Node{
 		clusterID: pdClient.GetClusterID((context.TODO())),
-		store:     store,
-		cfg:       cfg,
-		storeWg:   &sync.WaitGroup{},
-		system:    system,
-		pdClient:  pdClient,
+		store: &metapb.Store{
+			Address: cfg.StoreAddr,
+		},
+		cfg:      cfg,
+		system:   system,
+		pdClient: pdClient,
 	}
 }
 
-func (n *Node) Start(ctx context.Context, engines *engine_util.Engines, trans Transport, snapMgr *snap.SnapManager, router *RaftstoreRouter) error {
+func (n *Node) Start(ctx context.Context, engines *engine_util.Engines, trans Transport, snapMgr *snap.SnapManager) error {
 	storeID, err := n.checkStore(engines)
 	if err != nil {
 		return err

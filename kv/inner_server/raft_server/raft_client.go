@@ -1,4 +1,4 @@
-package inner_server
+package raft_server
 
 import (
 	"context"
@@ -8,14 +8,14 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/tikvpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/tinykvpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 )
 
 type raftConn struct {
 	streamMu sync.Mutex
-	stream   tikvpb.Tikv_RaftClient
+	stream   tinykvpb.TinyKv_RaftClient
 	ctx      context.Context
 	cancel   context.CancelFunc
 }
@@ -32,7 +32,7 @@ func newRaftConn(addr string, cfg *config.Config) (*raftConn, error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	stream, err := tikvpb.NewTikvClient(cc).Raft(ctx)
+	stream, err := tinykvpb.NewTinyKvClient(cc).Raft(ctx)
 	if err != nil {
 		cancel()
 		return nil, err

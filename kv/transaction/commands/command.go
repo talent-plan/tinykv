@@ -6,6 +6,7 @@ import (
 	"reflect"
 
 	"github.com/pingcap-incubator/tinykv/kv/inner_server"
+	"github.com/pingcap-incubator/tinykv/kv/inner_server/raft_server"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/latches"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/mvcc"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
@@ -104,7 +105,7 @@ func (ro ReadOnly) PrepareWrites(txn *mvcc.MvccTxn) (interface{}, error) {
 // muse have a `RegionError` field; the response is returned. If the error is not a region error, then regionError returns
 // nil and the error.
 func regionError(err error, resp interface{}) (interface{}, error) {
-	if regionErr, ok := err.(*inner_server.RegionError); ok {
+	if regionErr, ok := err.(*raft_server.RegionError); ok {
 		respValue := reflect.ValueOf(resp)
 		respValue.FieldByName("RegionError").Set(reflect.ValueOf(regionErr.RequestErr))
 		return resp, nil

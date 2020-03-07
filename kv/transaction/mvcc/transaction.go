@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 
-	"github.com/pingcap-incubator/tinykv/kv/dbreader"
 	"github.com/pingcap-incubator/tinykv/kv/inner_server"
 	"github.com/pingcap-incubator/tinykv/kv/util/codec"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
@@ -19,11 +18,11 @@ type MvccTxn struct {
 
 // A 'transaction' which will only read from the DB.
 type RoTxn struct {
-	Reader  dbreader.DBReader
+	Reader  inner_server.DBReader
 	StartTS *uint64
 }
 
-func NewTxn(reader dbreader.DBReader) MvccTxn {
+func NewTxn(reader inner_server.DBReader) MvccTxn {
 	return MvccTxn{
 		RoTxn: RoTxn{Reader: reader},
 	}

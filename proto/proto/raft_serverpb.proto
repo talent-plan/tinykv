@@ -4,8 +4,6 @@ package raft_serverpb;
 import "eraftpb.proto";
 import "metapb.proto";
 
-option java_package = "org.tikv.kvproto";
-
 message RaftMessage {
     uint64 region_id = 1;
     metapb.Peer from_peer = 2;

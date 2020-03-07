@@ -324,7 +324,7 @@ func (bs *RaftBatchSystem) shutDown() {
 	workers.wg.Wait()
 }
 
-func CreateRaftBatchSystem(cfg *config.Config) (*router, *RaftBatchSystem) {
+func CreateRaftBatchSystem(cfg *config.Config) (*RaftstoreRouter, *RaftBatchSystem) {
 	storeSender, storeState := newStoreState(cfg)
 	router := newRouter(storeSender)
 	raftBatchSystem := &RaftBatchSystem{
@@ -334,5 +334,5 @@ func CreateRaftBatchSystem(cfg *config.Config) (*router, *RaftBatchSystem) {
 		closeCh:    make(chan struct{}),
 		wg:         new(sync.WaitGroup),
 	}
-	return router, raftBatchSystem
+	return NewRaftstoreRouter(router), raftBatchSystem
 }

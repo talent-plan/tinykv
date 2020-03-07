@@ -9,8 +9,6 @@ option (gogoproto.marshaler_all) = true;
 option (gogoproto.sizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 
-option java_package = "org.tikv.kvproto";
-
 
 // [start, end)
 message KeyRange {
@@ -24,11 +22,6 @@ message Request {
     bytes data = 3;
     uint64 start_ts = 7;
     repeated KeyRange ranges = 4;
-
-    // If cache is enabled, TiKV returns cache hit instead of data if
-    // its last version matches this `cache_if_match_version`.
-    bool is_cache_enabled = 5;
-    uint64 cache_if_match_version = 6;
 }
 
 message Response {
@@ -37,29 +30,5 @@ message Response {
     kvrpcpb.LockInfo locked = 3;
     string other_error = 4;
     KeyRange range = 5;
-    ExecDetails exec_details = 6;
-
-    bool is_cache_hit = 7;
-    uint64 cache_last_version = 8;
 }
 
-message ExecDetails {
-    HandleTime handle_time = 1;// set when ctx.handle_time = true or meet slow query
-    ScanDetail scan_detail = 2;// set when ctx.scan_detail = true or meet slow query
-}
-
-message HandleTime {
-    int64 wait_ms = 1; // time in queue
-    int64 process_ms = 2; // process time without wait time.
-}
-
-message ScanInfo {
-    int64 total = 1; // total count
-    int64 processed = 2; // processed count
-}
-
-message ScanDetail {
-    ScanInfo write = 1;
-    ScanInfo lock = 2;
-    ScanInfo data = 3;
-}

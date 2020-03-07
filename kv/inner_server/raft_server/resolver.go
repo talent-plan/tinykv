@@ -1,9 +1,10 @@
-package inner_server
+package raft_server
 
 import (
 	"context"
-	"github.com/pingcap-incubator/tinykv/kv/worker"
 	"time"
+
+	"github.com/pingcap-incubator/tinykv/kv/worker"
 
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
