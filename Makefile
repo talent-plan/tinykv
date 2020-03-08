@@ -49,3 +49,6 @@ ci: default test
 
 format:
 	@gofmt -s -w `find . -name '*.go' -type f ! -path '*/_tools/*' -print`
+
+lab1:
+	go test -count=1 ./kv/server
