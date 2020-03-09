@@ -331,32 +331,32 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 
 		if split {
 			r := cluster.GetRegion([]byte(""))
-			if r.GetId() == 1 {
+			if len(r.GetEndKey()) == 0 {
 				t.Fatalf("region is not split")
 			}
 		}
 	}
 }
 
-// func TestBasic3A(t *testing.T) {
-// 	// Test: one client (3A) ...
-// 	GenericTest(t, "3A", 1, false, false, false, -1, false, false)
-// }
+func TestBasic2B(t *testing.T) {
+	// Test: one client (2B) ...
+	GenericTest(t, "2B", 1, false, false, false, -1, false, false)
+}
 
-// func TestConcurrent3A(t *testing.T) {
-// 	// Test: many clients (3A) ...
-// 	GenericTest(t, "3A", 5, false, false, false, -1, false, false)
-// }
+func TestConcurrent2B(t *testing.T) {
+	// Test: many clients (2B) ...
+	GenericTest(t, "2B", 5, false, false, false, -1, false, false)
+}
 
-// func TestUnreliable3A(t *testing.T) {
-// 	// Test: unreliable net, many clients (3A) ...
-// 	GenericTest(t, "3A", 5, true, false, false, -1, false, false)
-// }
+func TestUnreliable2B(t *testing.T) {
+	// Test: unreliable net, many clients (2B) ...
+	GenericTest(t, "2B", 5, true, false, false, -1, false, false)
+}
 
 // Submit a request in the minority partition and check that the requests
 // doesn't go through until the partition heals.  The leader in the original
 // network ends up in the minority partition.
-func TestOnePartition3A(t *testing.T) {
+func TestOnePartition2B(t *testing.T) {
 	cfg := config.NewTestConfig()
 	cluster := NewTestCluster(5, cfg)
 	cluster.Start()
@@ -396,42 +396,42 @@ func TestOnePartition3A(t *testing.T) {
 	MustGetEqual(cluster.engines[1], []byte("k1"), []byte("changed"))
 }
 
-// func TestManyPartitionsOneClient3A(t *testing.T) {
-// 	// Test: partitions, one client (3A) ...
-// 	GenericTest(t, "3A", 1, false, false, true, -1, false, false)
-// }
-
-// func TestManyPartitionsManyClients3A(t *testing.T) {
-// 	// Test: partitions, many clients (3A) ...
-// 	GenericTest(t, "3A", 5, false, false, true, -1, false, false)
-// }
-
-// func TestPersistOneClient3A(t *testing.T) {
-// 	// Test: restarts, one client (3A) ...
-// 	GenericTest(t, "3A", 1, false, true, false, -1, false, false)
-// }
-
-// func TestPersistConcurrent3A(t *testing.T) {
-// 	// Test: restarts, many clients (3A) ...
-// 	GenericTest(t, "3A", 5, false, true, false, -1, false, false)
-// }
-
-// func TestPersistConcurrentUnreliable3A(t *testing.T) {
-// 	// Test: unreliable net, restarts, many clients (3A) ...
-// 	GenericTest(t, "3A", 5, true, true, false, -1, false, false)
-// }
-
-// func TestPersistPartition3A(t *testing.T) {
-// 	// Test: restarts, partitions, many clients (3A) ...
-// 	GenericTest(t, "3A", 5, false, true, true, -1, false, false)
-// }
-
-func TestPersistPartitionUnreliable3A(t *testing.T) {
-	// Test: unreliable net, restarts, partitions, many clients (3A) ...
-	GenericTest(t, "3A", 5, true, true, true, -1, false, false)
+func TestManyPartitionsOneClient2B(t *testing.T) {
+	// Test: partitions, one client (2B) ...
+	GenericTest(t, "2B", 1, false, false, true, -1, false, false)
 }
 
-func TestOneSnapshot3B(t *testing.T) {
+func TestManyPartitionsManyClients2B(t *testing.T) {
+	// Test: partitions, many clients (2B) ...
+	GenericTest(t, "2B", 5, false, false, true, -1, false, false)
+}
+
+func TestPersistOneClient2B(t *testing.T) {
+	// Test: restarts, one client (2B) ...
+	GenericTest(t, "2B", 1, false, true, false, -1, false, false)
+}
+
+func TestPersistConcurrent2B(t *testing.T) {
+	// Test: restarts, many clients (2B) ...
+	GenericTest(t, "2B", 5, false, true, false, -1, false, false)
+}
+
+func TestPersistConcurrentUnreliable2B(t *testing.T) {
+	// Test: unreliable net, restarts, many clients (2B) ...
+	GenericTest(t, "2B", 5, true, true, false, -1, false, false)
+}
+
+func TestPersistPartition2B(t *testing.T) {
+	// Test: restarts, partitions, many clients (2B) ...
+	GenericTest(t, "2B", 5, false, true, true, -1, false, false)
+}
+
+func TestPersistPartitionUnreliable2B(t *testing.T) {
+	// Test: unreliable net, restarts, partitions, many clients (3A) ...
+	GenericTest(t, "2B", 5, true, true, true, -1, false, false)
+}
+
+func TestOneSnapshot2C(t *testing.T) {
 	cfg := config.NewTestConfig()
 	cfg.RaftLogGcCountLimit = 10
 	cluster := NewTestCluster(3, cfg)
@@ -494,29 +494,29 @@ func TestOneSnapshot3B(t *testing.T) {
 	}
 }
 
-// func TestSnapshotRecover3B(t *testing.T) {
-// 	// Test: restarts, snapshots, one client (3B) ...
-// 	GenericTest(t, "3B", 1, false, true, false, 100, false, false)
-// }
+func TestSnapshotRecover2C(t *testing.T) {
+	// Test: restarts, snapshots, one client (2C) ...
+	GenericTest(t, "2C", 1, false, true, false, 100, false, false)
+}
 
-// func TestSnapshotRecoverManyClients3B(t *testing.T) {
-// 	// Test: restarts, snapshots, many clients (3B) ...
-// 	GenericTest(t, "3B", 20, false, true, false, 100, false, false)
-// }
+func TestSnapshotRecoverManyClients2C(t *testing.T) {
+	// Test: restarts, snapshots, many clients (2C) ...
+	GenericTest(t, "2C", 20, false, true, false, 100, false, false)
+}
 
-// func TestSnapshotUnreliable3B(t *testing.T) {
-// 	// Test: unreliable net, snapshots, many clients (3B) ...
-// 	GenericTest(t, "3B", 5, true, false, false, 100, false, false)
-// }
+func TestSnapshotUnreliable2C(t *testing.T) {
+	// Test: unreliable net, snapshots, many clients (2C) ...
+	GenericTest(t, "2C", 5, true, false, false, 100, false, false)
+}
 
-// func TestSnapshotUnreliableRecover3B(t *testing.T) {
-// 	// Test: unreliable net, restarts, snapshots, many clients (3B) ...
-// 	GenericTest(t, "3B", 5, true, true, false, 100, false, false)
-// }
+func TestSnapshotUnreliableRecover2C(t *testing.T) {
+	// Test: unreliable net, restarts, snapshots, many clients (2C) ...
+	GenericTest(t, "2C", 5, true, true, false, 100, false, false)
+}
 
-func TestSnapshotUnreliableRecoverConcurrentPartition3B(t *testing.T) {
-	// Test: unreliable net, restarts, partitions, snapshots, many clients (3B) ...
-	GenericTest(t, "3B", 5, true, true, true, 100, false, false)
+func TestSnapshotUnreliableRecoverConcurrentPartition2C(t *testing.T) {
+	// Test: unreliable net, restarts, partitions, snapshots, many clients (2C) ...
+	GenericTest(t, "2C", 5, true, true, true, 100, false, false)
 }
 
 func TestBasicConfChange3B(t *testing.T) {
@@ -580,37 +580,37 @@ func TestBasicConfChange3B(t *testing.T) {
 	MustGetNone(cluster.engines[3], []byte("k4"))
 }
 
-// func TestConfChangeRecover3B(t *testing.T) {
-// 	// Test: restarts, snapshots, conf change, one client (3B) ...
-// 	GenericTest(t, "3B", 1, false, true, false, -1, true, false)
-// }
+func TestConfChangeRecover3B(t *testing.T) {
+	// Test: restarts, snapshots, conf change, one client (3B) ...
+	GenericTest(t, "3B", 1, false, true, false, -1, true, false)
+}
 
-// func TestConfChangeRecoverManyClients3B(t *testing.T) {
-// 	// Test: restarts, snapshots, conf change, many clients (3B) ...
-// 	GenericTest(t, "3B", 20, false, true, false, -1, true, false)
-// }
+func TestConfChangeRecoverManyClients3B(t *testing.T) {
+	// Test: restarts, snapshots, conf change, many clients (3B) ...
+	GenericTest(t, "3B", 20, false, true, false, -1, true, false)
+}
 
-// func TestConfChangeUnreliable3B(t *testing.T) {
-// 	// Test: unreliable net, snapshots, conf change, many clients (3B) ...
-// 	GenericTest(t, "3B", 5, true, false, false, -1, true, false)
-// }
+func TestConfChangeUnreliable3B(t *testing.T) {
+	// Test: unreliable net, snapshots, conf change, many clients (3B) ...
+	GenericTest(t, "3B", 5, true, false, false, -1, true, false)
+}
 
-// func TestConfChangeUnreliableRecover3B(t *testing.T) {
-// 	// Test: unreliable net, restarts, snapshots, conf change, many clients (3B) ...
-// 	GenericTest(t, "3B", 5, true, true, false, -1, true, false)
-// }
+func TestConfChangeUnreliableRecover3B(t *testing.T) {
+	// Test: unreliable net, restarts, snapshots, conf change, many clients (3B) ...
+	GenericTest(t, "3B", 5, true, true, false, -1, true, false)
+}
 
-// func TestConfChangeSnapshotUnreliableRecover3B(t *testing.T) {
-// 	// Test: unreliable net, restarts, snapshots, conf change, many clients (3B) ...
-// 	GenericTest(t, "3B", 5, true, true, false, 100, true, false)
-// }
+func TestConfChangeSnapshotUnreliableRecover3B(t *testing.T) {
+	// Test: unreliable net, restarts, snapshots, conf change, many clients (3B) ...
+	GenericTest(t, "3B", 5, true, true, false, 100, true, false)
+}
 
 func TestConfChangeSnapshotUnreliableRecoverConcurrentPartition3B(t *testing.T) {
 	// Test: unreliable net, restarts, partitions, snapshots, conf change, many clients (3B) ...
 	GenericTest(t, "3B", 5, true, true, true, 100, true, false)
 }
 
-func TestOneSplit(t *testing.T) {
+func TestOneSplit3B(t *testing.T) {
 	cfg := config.NewTestConfig()
 	cfg.RegionMaxSize = 800
 	cfg.RegionSplitSize = 500
@@ -656,30 +656,30 @@ func TestOneSplit(t *testing.T) {
 	MustGetEqual(cluster.engines[5], []byte("k100"), []byte("v100"))
 }
 
-// func TestSplitRecover3B(t *testing.T) {
-// 	// Test: restarts, snapshots, conf change, one client (3B) ...
-// 	GenericTest(t, "3B", 1, false, true, false, -1, false, true)
-// }
+func TestSplitRecover3B(t *testing.T) {
+	// Test: restarts, snapshots, conf change, one client (3B) ...
+	GenericTest(t, "3B", 1, false, true, false, -1, false, true)
+}
 
-// func TestSplitRecoverManyClients3B(t *testing.T) {
-// 	// Test: restarts, snapshots, conf change, many clients (3B) ...
-// 	GenericTest(t, "3B", 20, false, true, false, -1, false, true)
-// }
+func TestSplitRecoverManyClients3B(t *testing.T) {
+	// Test: restarts, snapshots, conf change, many clients (3B) ...
+	GenericTest(t, "3B", 20, false, true, false, -1, false, true)
+}
 
-// func TestSplitUnreliable3B(t *testing.T) {
-// 	// Test: unreliable net, snapshots, conf change, many clients (3B) ...
-// 	GenericTest(t, "3B", 5, true, false, false, -1, false, true)
-// }
+func TestSplitUnreliable3B(t *testing.T) {
+	// Test: unreliable net, snapshots, conf change, many clients (3B) ...
+	GenericTest(t, "3B", 5, true, false, false, -1, false, true)
+}
 
-// func TestSplitUnreliableRecover3B(t *testing.T) {
-// 	// Test: unreliable net, restarts, snapshots, conf change, many clients (3B) ...
-// 	GenericTest(t, "3B", 5, true, true, false, -1, false, true)
-// }
+func TestSplitUnreliableRecover3B(t *testing.T) {
+	// Test: unreliable net, restarts, snapshots, conf change, many clients (3B) ...
+	GenericTest(t, "3B", 5, true, true, false, -1, false, true)
+}
 
-// func TestSplitConfChangeSnapshotUnreliableRecover3B(t *testing.T) {
-// 	// Test: unreliable net, restarts, snapshots, conf change, many clients (3B) ...
-// 	GenericTest(t, "3B", 5, true, true, false, 100, true, true)
-// }
+func TestSplitConfChangeSnapshotUnreliableRecover3B(t *testing.T) {
+	// Test: unreliable net, restarts, snapshots, conf change, many clients (3B) ...
+	GenericTest(t, "3B", 5, true, true, false, 100, true, true)
+}
 
 func TestSplitConfChangeSnapshotUnreliableRecoverConcurrentPartition3B(t *testing.T) {
 	// Test: unreliable net, restarts, partitions, snapshots, conf change, many clients (3B) ...

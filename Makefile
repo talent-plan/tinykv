@@ -51,4 +51,15 @@ format:
 	@gofmt -s -w `find . -name '*.go' -type f ! -path '*/_tools/*' -print`
 
 lab1:
-	go test -count=1 ./kv/server
+	go test -count=1 ./kv/server -run 1 
+
+lab2: lab2a lab2b lab2c
+
+lab2a:
+	go test -count=1 ./raft -run 2A
+
+lab2b:
+	go test -count=1 ./kv/test_raftstore -run 2B
+
+lab2c:
+	go test -count=1 ./raft ./kv/test_raftstore -run 2C

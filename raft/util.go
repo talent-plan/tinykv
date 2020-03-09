@@ -104,14 +104,12 @@ func mustTemp(pre, body string) string {
 func ltoa(l *RaftLog) string {
 	s := fmt.Sprintf("committed: %d\n", l.committed)
 	s += fmt.Sprintf("applied:  %d\n", l.applied)
-	for i, e := range l.allEntries() {
+	for i, e := range l.entries {
 		s += fmt.Sprintf("#%d: %+v\n", i, e)
 	}
 	return s
 }
 
-// TODO: Delete Start
-// uint64Slice implements sort interface
 type uint64Slice []uint64
 
 func (p uint64Slice) Len() int           { return len(p) }
@@ -129,5 +127,3 @@ func IsResponseMsg(msgt pb.MessageType) bool {
 func isHardStateEqual(a, b pb.HardState) bool {
 	return a.Term == b.Term && a.Vote == b.Vote && a.Commit == b.Commit
 }
-
-// TODO: Delete End

@@ -76,9 +76,6 @@ type applyWorker struct {
 	pr      *router
 	applyCh chan []message.Msg
 	ctx     *GlobalContext
-
-	// TODO: Delete this
-	applyCtx *applyContext
 }
 
 func newApplyWorker(ctx *GlobalContext, ch chan []message.Msg, pr *router) *applyWorker {
@@ -86,8 +83,6 @@ func newApplyWorker(ctx *GlobalContext, ch chan []message.Msg, pr *router) *appl
 		pr:      pr,
 		applyCh: ch,
 		ctx:     ctx,
-		// TODO: Delete this
-		applyCtx: newApplyContext("", ctx.engine, pr.peerSender, ctx.cfg),
 	}
 }
 
@@ -104,9 +99,7 @@ func (aw *applyWorker) run(wg *sync.WaitGroup) {
 			if ps == nil {
 				continue
 			}
-			ps.apply.handleTask(aw.applyCtx, msg)
+			ps.apply.handleTask(msg)
 		}
-		// TODO: Delete this
-		aw.applyCtx.flush()
 	}
 }
