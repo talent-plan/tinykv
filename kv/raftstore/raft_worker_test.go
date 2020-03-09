@@ -135,6 +135,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
 	go aw.run(wg)
+	defer wg.Wait()
 
 	region := &metapb.Region{
 		Id: 1,
@@ -278,6 +279,8 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	require.True(t, resp.GetHeader().GetError() == nil)
 	require.Equal(t, len(resp.GetResponses()), 1)
 	require.True(t, bytes.Equal(resp.GetResponses()[0].GetGet().Value, []byte("v10")))
+
+	applyCh <- nil
 }
 
 func fetchApplyRes(raftCh <-chan message.Msg) *MsgApplyRes {
