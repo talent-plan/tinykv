@@ -116,26 +116,6 @@ func (s *Storage) DeleteStore(store *metapb.Store) error {
 	return s.Remove(s.storePath(store.GetId()))
 }
 
-// LoadRegion loads one regoin from storage.
-func (s *Storage) LoadRegion(regionID uint64, region *metapb.Region) (bool, error) {
-	return loadProto(s.Base, regionPath(regionID), region)
-}
-
-// LoadRegions loads all regions from storage to RegionsInfo.
-func (s *Storage) LoadRegions(f func(region *RegionInfo) []*RegionInfo) error {
-	return loadRegions(s.Base, f)
-}
-
-// SaveRegion saves one region to storage.
-func (s *Storage) SaveRegion(region *metapb.Region) error {
-	return saveProto(s.Base, regionPath(region.GetId()), region)
-}
-
-// DeleteRegion deletes one region from storage.
-func (s *Storage) DeleteRegion(region *metapb.Region) error {
-	return deleteRegion(s.Base, region)
-}
-
 // LoadStores loads all stores from storage to StoresInfo.
 func (s *Storage) LoadStores(f func(store *StoreInfo)) error {
 	nextID := uint64(0)
@@ -256,47 +236,4 @@ func saveProto(s kv.Base, key string, msg proto.Message) error {
 		return errors.WithStack(err)
 	}
 	return s.Save(key, string(value))
-}
-
-func loadRegions(kv kv.Base, f func(region *RegionInfo) []*RegionInfo) error {
-	nextID := uint64(0)
-	endKey := regionPath(math.MaxUint64)
-
-	// Since the region key may be very long, using a larger rangeLimit will cause
-	// the message packet to exceed the grpc message size limit (4MB). Here we use
-	// a variable rangeLimit to work around.
-	rangeLimit := maxKVRangeLimit
-	for {
-		startKey := regionPath(nextID)
-		_, res, err := kv.LoadRange(startKey, endKey, rangeLimit)
-		if err != nil {
-			if rangeLimit /= 2; rangeLimit >= minKVRangeLimit {
-				continue
-			}
-			return err
-		}
-
-		for _, s := range res {
-			region := &metapb.Region{}
-			if err := region.Unmarshal([]byte(s)); err != nil {
-				return errors.WithStack(err)
-			}
-
-			nextID = region.GetId() + 1
-			overlaps := f(NewRegionInfo(region, nil))
-			for _, item := range overlaps {
-				if err := deleteRegion(kv, item.GetMeta()); err != nil {
-					return err
-				}
-			}
-		}
-
-		if len(res) < rangeLimit {
-			return nil
-		}
-	}
-}
-
-func deleteRegion(kv kv.Base, region *metapb.Region) error {
-	return kv.Remove(regionPath(region.GetId()))
 }

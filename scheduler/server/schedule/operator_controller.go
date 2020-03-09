@@ -15,7 +15,6 @@ package schedule
 
 import (
 	"container/heap"
-	"container/list"
 	"context"
 	"fmt"
 	"sync"
@@ -40,7 +39,6 @@ const (
 )
 
 var (
-	historyKeepTime    = 5 * time.Minute
 	slowNotifyInterval = 5 * time.Second
 	fastNotifyInterval = 2 * time.Second
 )
@@ -57,7 +55,6 @@ type OperatorController struct {
 	cluster         opt.Cluster
 	operators       map[uint64]*operator.Operator
 	hbStreams       HeartbeatStreams
-	histories       *list.List
 	counts          map[operator.OpKind]uint64
 	opRecords       *OperatorRecords
 	opNotifierQueue operatorQueue
@@ -70,7 +67,6 @@ func NewOperatorController(ctx context.Context, cluster opt.Cluster, hbStreams H
 		cluster:         cluster,
 		operators:       make(map[uint64]*operator.Operator),
 		hbStreams:       hbStreams,
-		histories:       list.New(),
 		counts:          make(map[operator.OpKind]uint64),
 		opRecords:       NewOperatorRecords(ctx),
 		opNotifierQueue: make(operatorQueue, 0),
@@ -113,7 +109,6 @@ func (oc *OperatorController) Dispatch(region *core.RegionInfo, source string) {
 		}
 		if op.IsFinish() && oc.RemoveOperator(op) {
 			log.Info("operator finish", zap.Uint64("region-id", region.GetID()), zap.Duration("takes", op.RunningTime()), zap.Reflect("operator", op))
-			oc.pushHistory(op)
 			oc.opRecords.Put(op, pdpb.OperatorStatus_SUCCESS)
 		} else if timeout && oc.RemoveOperator(op) {
 			log.Info("operator timeout", zap.Uint64("region-id", region.GetID()), zap.Duration("takes", op.RunningTime()), zap.Reflect("operator", op))
@@ -129,61 +124,6 @@ func (oc *OperatorController) getNextPushOperatorTime(step operator.OpStep, now 
 		nextTime = fastNotifyInterval
 	}
 	return now.Add(nextTime)
-}
-
-// pollNeedDispatchRegion returns the region need to dispatch,
-// "next" is true to indicate that it may exist in next attempt,
-// and false is the end for the poll.
-func (oc *OperatorController) pollNeedDispatchRegion() (r *core.RegionInfo, next bool) {
-	oc.Lock()
-	defer oc.Unlock()
-	if oc.opNotifierQueue.Len() == 0 {
-		return nil, false
-	}
-	item := heap.Pop(&oc.opNotifierQueue).(*operatorWithTime)
-	regionID := item.op.RegionID()
-	op, ok := oc.operators[regionID]
-	if !ok || op == nil {
-		return nil, true
-	}
-	r = oc.cluster.GetRegion(regionID)
-	if r == nil {
-		_ = oc.removeOperatorLocked(op)
-		log.Debug("remove operator because region disappeared",
-			zap.Uint64("region-id", op.RegionID()),
-			zap.Stringer("operator", op))
-		oc.opRecords.Put(op, pdpb.OperatorStatus_CANCEL)
-		return nil, true
-	}
-	step := op.Check(r)
-	if step == nil {
-		return r, true
-	}
-	now := time.Now()
-	if now.Before(item.time) {
-		heap.Push(&oc.opNotifierQueue, item)
-		return nil, false
-	}
-
-	// pushes with new notify time.
-	item.time = oc.getNextPushOperatorTime(step, now)
-	heap.Push(&oc.opNotifierQueue, item)
-	return r, true
-}
-
-// PushOperators periodically pushes the unfinished operator to the executor(TiKV).
-func (oc *OperatorController) PushOperators() {
-	for {
-		r, next := oc.pollNeedDispatchRegion()
-		if !next {
-			break
-		}
-		if r == nil {
-			continue
-		}
-
-		oc.Dispatch(r, DispatchFromNotifierQueue)
-	}
 }
 
 // AddOperator adds operators to the running operators.
@@ -346,41 +286,6 @@ func (oc *OperatorController) SendScheduleCommand(region *core.RegionInfo, step 
 	default:
 		log.Error("unknown operator step", zap.Reflect("step", step))
 	}
-}
-
-func (oc *OperatorController) pushHistory(op *operator.Operator) {
-	oc.Lock()
-	defer oc.Unlock()
-	for _, h := range op.History() {
-		oc.histories.PushFront(h)
-	}
-}
-
-// PruneHistory prunes a part of operators' history.
-func (oc *OperatorController) PruneHistory() {
-	oc.Lock()
-	defer oc.Unlock()
-	p := oc.histories.Back()
-	for p != nil && time.Since(p.Value.(operator.OpHistory).FinishTime) > historyKeepTime {
-		prev := p.Prev()
-		oc.histories.Remove(p)
-		p = prev
-	}
-}
-
-// GetHistory gets operators' history.
-func (oc *OperatorController) GetHistory(start time.Time) []operator.OpHistory {
-	oc.RLock()
-	defer oc.RUnlock()
-	histories := make([]operator.OpHistory, 0, oc.histories.Len())
-	for p := oc.histories.Front(); p != nil; p = p.Next() {
-		history := p.Value.(operator.OpHistory)
-		if history.FinishTime.Before(start) {
-			break
-		}
-		histories = append(histories, history)
-	}
-	return histories
 }
 
 // updateCounts updates resource counts using current pending operators.

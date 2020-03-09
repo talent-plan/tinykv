@@ -9,6 +9,8 @@ github.com/Connor1996/badger v1.5.1-0.20200220043901-cee19f7bcf4f h1:xNCYfucq8Er
 github.com/Connor1996/badger v1.5.1-0.20200220043901-cee19f7bcf4f/go.mod h1:eDy3lZfjgEs4EC8pePI7y/Qx509ylx/S94y/dimtkxc=
 github.com/Connor1996/badger v1.5.1-0.20200302104252-6a1b02b1cb4c h1:5BlmQypu3/umx1JZw5sE5lv1zdPMRl1NQLUYCvoRgUk=
 github.com/Connor1996/badger v1.5.1-0.20200302104252-6a1b02b1cb4c/go.mod h1:eDy3lZfjgEs4EC8pePI7y/Qx509ylx/S94y/dimtkxc=
+github.com/Connor1996/badger v1.5.1-0.20200306031920-9bbcbd8ba570 h1:fDz4LQTBQynUkcYDLzVQ8nz4HKoRu4zga7/MGXV/e8s=
+github.com/Connor1996/badger v1.5.1-0.20200306031920-9bbcbd8ba570/go.mod h1:eDy3lZfjgEs4EC8pePI7y/Qx509ylx/S94y/dimtkxc=
 github.com/DataDog/zstd v1.4.1 h1:3oxKN3wbHibqx897utPC2LTQU4J+IHWWJO+glkAkpFM=
 github.com/DataDog/zstd v1.4.1/go.mod h1:1jcaCB/ufaK+sKp1NBhlGmpz41jOoPQ35bpF36t7BBo=
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=
@@ -235,6 +237,7 @@ github.com/pingcap/parser v0.0.0-20190903084634-0daf3f706c76 h1:q8d5NIRT/Urmb5wo
 github.com/pingcap/parser v0.0.0-20190903084634-0daf3f706c76/go.mod h1:1FNvfp9+J0wvc4kl8eGNh7Rqrxveg15jJoWo/a0uHwA=
 github.com/pingcap/pd v0.0.0-20190712044914-75a1f9f3062b h1:oS9PftxQqgcRouKhhdaB52tXhVLEP7Ng3Qqsd6Z18iY=
 github.com/pingcap/pd v0.0.0-20190712044914-75a1f9f3062b/go.mod h1:3DlDlFT7EF64A1bmb/tulZb6wbPSagm5G4p1AlhaEDs=
+github.com/pingcap/pd v2.1.19+incompatible h1:N/8HOd5yptSJZ1LdBa1bcvYOH9YCetvX4cg5fsGf9+c=
 github.com/pingcap/tidb v1.1.0-beta.0.20190904060835-0872b65ff1f9 h1:Fg4wHf1wd50v0RR+GPIIGrcnCVI/LSXKUYoB5ON1t6k=
 github.com/pingcap/tidb v1.1.0-beta.0.20190904060835-0872b65ff1f9/go.mod h1:vLe4ZQRrNZ98B0W6BMZJ2MFlGuLNhMO0gYLL7o7QHiE=
 github.com/pingcap/tidb-tools v2.1.3-0.20190321065848-1e8b48f5c168+incompatible h1:MkWCxgZpJBgY2f4HtwWMMFzSBb3+JPzeJgF3VrXE/bU=

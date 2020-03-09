@@ -193,12 +193,6 @@ func adjustInt64(v *int64, defValue int64) {
 	}
 }
 
-func adjustFloat64(v *float64, defValue float64) {
-	if *v == 0 {
-		*v = defValue
-	}
-}
-
 func adjustDuration(v *typeutil.Duration, defValue time.Duration) {
 	if v.Duration == 0 {
 		v.Duration = defValue

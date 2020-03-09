@@ -66,7 +66,6 @@ type RaftCluster struct {
 	id      id.Allocator
 
 	prepareChecker *prepareChecker
-	changedRegions chan *core.RegionInfo
 
 	coordinator *coordinator
 
@@ -136,7 +135,6 @@ func (c *RaftCluster) initCluster(id id.Allocator, opt *config.ScheduleOption, s
 	c.storage = storage
 	c.id = id
 	c.prepareChecker = newPrepareChecker()
-	c.changedRegions = make(chan *core.RegionInfo, defaultChangedRegionsLimit)
 }
 
 func (c *RaftCluster) start() error {
@@ -187,16 +185,6 @@ func (c *RaftCluster) loadClusterInfo() (*RaftCluster, error) {
 		zap.Int("count", c.getStoreCount()),
 		zap.Duration("cost", time.Since(start)),
 	)
-
-	start = time.Now()
-
-	if err := c.storage.LoadRegions(c.core.PutRegion); err != nil {
-		return nil, err
-	}
-	log.Info("load regions",
-		zap.Int("count", c.core.GetRegionCount()),
-		zap.Duration("cost", time.Since(start)),
-	)
 	return c, nil
 }
 
@@ -214,7 +202,6 @@ func (c *RaftCluster) runBackgroundJobs(interval time.Duration) {
 			return
 		case <-ticker.C:
 			c.checkStores()
-			c.coordinator.opController.PruneHistory()
 		}
 	}
 }
@@ -306,13 +293,13 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 	// Save to storage if meta is updated.
 	// Save to cache if meta or leader is updated, or contains any down/pending peer.
 	// Mark isNew if the region in cache does not have leader.
-	var saveKV, saveCache, isNew bool
+	var saveCache, isNew bool
 	if origin == nil {
 		log.Debug("insert new region",
 			zap.Uint64("region-id", region.GetID()),
 			zap.Stringer("meta-region", core.RegionToHexMeta(region.GetMeta())),
 		)
-		saveKV, saveCache, isNew = true, true, true
+		saveCache, isNew = true, true
 	} else {
 		r := region.GetRegionEpoch()
 		o := origin.GetRegionEpoch()
@@ -327,7 +314,7 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 				zap.Uint64("old-version", o.GetVersion()),
 				zap.Uint64("new-version", r.GetVersion()),
 			)
-			saveKV, saveCache = true, true
+			saveCache = true
 		}
 		if r.GetConfVer() > o.GetConfVer() {
 			log.Info("region ConfVer changed",
@@ -336,7 +323,7 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 				zap.Uint64("old-confver", o.GetConfVer()),
 				zap.Uint64("new-confver", r.GetConfVer()),
 			)
-			saveKV, saveCache = true, true
+			saveCache = true
 		}
 		if region.GetLeader().GetId() != origin.GetLeader().GetId() {
 			if origin.GetLeader().GetId() == 0 {
@@ -350,14 +337,14 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 			}
 			saveCache = true
 		}
-		if len(region.GetDownPeers()) > 0 || len(region.GetPendingPeers()) > 0 {
+		if len(region.GetPendingPeers()) > 0 {
 			saveCache = true
 		}
-		if len(origin.GetDownPeers()) > 0 || len(origin.GetPendingPeers()) > 0 {
+		if len(origin.GetPendingPeers()) > 0 {
 			saveCache = true
 		}
 		if len(region.GetPeers()) != len(origin.GetPeers()) {
-			saveKV, saveCache = true, true
+			saveCache = true
 		}
 
 		if region.GetApproximateSize() != origin.GetApproximateSize() ||
@@ -366,20 +353,6 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 		}
 	}
 
-	if saveKV && c.storage != nil {
-		if err := c.storage.SaveRegion(region.GetMeta()); err != nil {
-			// Not successfully saved to storage is not fatal, it only leads to longer warm-up
-			// after restart. Here we only log the error then go on updating cache.
-			log.Error("failed to save region to storage",
-				zap.Uint64("region-id", region.GetID()),
-				zap.Stringer("region-meta", core.RegionToHexMeta(region.GetMeta())),
-				zap.Error(err))
-		}
-		select {
-		case c.changedRegions <- region:
-		default:
-		}
-	}
 	if !saveCache && !isNew {
 		return nil
 	}
@@ -391,17 +364,7 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 	}
 
 	if saveCache {
-		overlaps := c.core.PutRegion(region)
-		if c.storage != nil {
-			for _, item := range overlaps {
-				if err := c.storage.DeleteRegion(item.GetMeta()); err != nil {
-					log.Error("failed to delete region from storage",
-						zap.Uint64("region-id", item.GetID()),
-						zap.Stringer("region-meta", core.RegionToHexMeta(item.GetMeta())),
-						zap.Error(err))
-				}
-			}
-		}
+		c.core.PutRegion(region)
 
 		// Update related stores.
 		if origin != nil {
@@ -430,10 +393,6 @@ func makeStoreKey(clusterRootPath string, storeID uint64) string {
 	return path.Join(clusterRootPath, "s", fmt.Sprintf("%020d", storeID))
 }
 
-func makeRegionKey(clusterRootPath string, regionID uint64) string {
-	return path.Join(clusterRootPath, "r", fmt.Sprintf("%020d", regionID))
-}
-
 func makeRaftClusterStatusPrefix(clusterRootPath string) string {
 	return path.Join(clusterRootPath, "status")
 }
@@ -450,29 +409,6 @@ func checkBootstrapRequest(clusterID uint64, req *pdpb.BootstrapRequest) error {
 		return errors.Errorf("missing store meta for bootstrap %d", clusterID)
 	} else if storeMeta.GetId() == 0 {
 		return errors.New("invalid zero store id")
-	}
-
-	regionMeta := req.GetRegion()
-	if regionMeta == nil {
-		return errors.Errorf("missing region meta for bootstrap %d", clusterID)
-	} else if len(regionMeta.GetStartKey()) > 0 || len(regionMeta.GetEndKey()) > 0 {
-		// first region start/end key must be empty
-		return errors.Errorf("invalid first region key range, must all be empty for bootstrap %d", clusterID)
-	} else if regionMeta.GetId() == 0 {
-		return errors.New("invalid zero region id")
-	}
-
-	peers := regionMeta.GetPeers()
-	if len(peers) != 1 {
-		return errors.Errorf("invalid first region peer count %d, must be 1 for bootstrap %d", len(peers), clusterID)
-	}
-
-	peer := peers[0]
-	if peer.GetStoreId() != storeMeta.GetId() {
-		return errors.Errorf("invalid peer store id %d != %d for bootstrap %d", peer.GetStoreId(), storeMeta.GetId(), clusterID)
-	}
-	if peer.GetId() == 0 {
-		return errors.New("invalid zero peer id")
 	}
 
 	return nil
@@ -651,8 +587,7 @@ func (c *RaftCluster) putStore(store *metapb.Store) error {
 	} else {
 		// Update an existed store.
 		s = s.Clone(
-			core.SetStoreAddress(store.Address, store.StatusAddress, store.PeerAddress),
-			core.SetStoreVersion(store.GitHash, store.Version),
+			core.SetStoreAddress(store.Address),
 		)
 	}
 	return c.putStoreLocked(s)
@@ -896,10 +831,6 @@ func (c *RaftCluster) AllocPeer(storeID uint64) (*metapb.Peer, error) {
 	return peer, nil
 }
 
-func (c *RaftCluster) changedRegionNotifier() <-chan *core.RegionInfo {
-	return c.changedRegions
-}
-
 // GetConfig gets config from cluster.
 func (c *RaftCluster) GetConfig() *metapb.Cluster {
 	c.RLock()
@@ -961,11 +892,6 @@ func (c *RaftCluster) isPrepared() bool {
 func (c *RaftCluster) putRegion(region *core.RegionInfo) error {
 	c.Lock()
 	defer c.Unlock()
-	if c.storage != nil {
-		if err := c.storage.SaveRegion(region.GetMeta()); err != nil {
-			return err
-		}
-	}
 	c.core.PutRegion(region)
 	return nil
 }

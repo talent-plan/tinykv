@@ -9,18 +9,16 @@ import (
 	"time"
 
 	"github.com/Connor1996/badger"
-	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/message"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore/snap"
+	"github.com/pingcap-incubator/tinykv/kv/raftstore"
+	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
+	"github.com/pingcap-incubator/tinykv/kv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
+	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
-	"github.com/pingcap-incubator/tinykv/raft"
 )
 
 type MockTransport struct {
@@ -81,10 +79,7 @@ func (t *MockTransport) Send(msg *raft_serverpb.RaftMessage) error {
 	fromStore := msg.GetFromPeer().GetStoreId()
 	toStore := msg.GetToPeer().GetStoreId()
 
-	regionID := msg.GetRegionId()
-	toPeerID := msg.GetToPeer().GetId()
 	isSnapshot := msg.GetMessage().GetMsgType() == eraftpb.MessageType_MsgSnapshot
-
 	if isSnapshot {
 		snapshot := msg.Message.Snapshot
 		key, err := snap.SnapKeyFromSnap(snapshot)
@@ -124,12 +119,6 @@ func (t *MockTransport) Send(msg *raft_serverpb.RaftMessage) error {
 		return errors.New(fmt.Sprintf("store %d is closed", toStore))
 	}
 	router.SendRaftMessage(msg)
-	if isSnapshot {
-		err := router.ReportSnapshotStatus(regionID, toPeerID, raft.SnapshotFinish)
-		if err != nil {
-			return err
-		}
-	}
 
 	for _, filter := range t.filters {
 		filter.After()
@@ -159,12 +148,11 @@ func (c *NodeSimulator) RunStore(cfg *config.Config, engine *engine_util.Engines
 	c.Lock()
 	defer c.Unlock()
 
-	router, batchSystem := raftstore.CreateRaftBatchSystem(cfg)
-	raftRouter := raftstore.NewRaftstoreRouter(router)
+	raftRouter, batchSystem := raftstore.CreateRaftBatchSystem(cfg)
 	snapManager := snap.NewSnapManager(cfg.DBPath + "/snap")
-	node := raftstore.NewNode(batchSystem, &metapb.Store{}, cfg, c.pdClient)
+	node := raftstore.NewNode(batchSystem, cfg, c.pdClient)
 
-	err := node.Start(ctx, engine, c.trans, snapManager, raftRouter)
+	err := node.Start(ctx, engine, c.trans, snapManager)
 	if err != nil {
 		return err
 	}

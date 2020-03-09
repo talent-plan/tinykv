@@ -26,7 +26,7 @@ import (
 	"time"
 
 	"github.com/juju/errors"
-	"github.com/ngaut/log"
+	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"google.golang.org/grpc"
@@ -37,7 +37,7 @@ import (
 type Client interface {
 	GetClusterID(ctx context.Context) uint64
 	AllocID(ctx context.Context) (uint64, error)
-	Bootstrap(ctx context.Context, store *metapb.Store, region *metapb.Region) (*pdpb.BootstrapResponse, error)
+	Bootstrap(ctx context.Context, store *metapb.Store) (*pdpb.BootstrapResponse, error)
 	IsBootstrapped(ctx context.Context) (bool, error)
 	PutStore(ctx context.Context, store *metapb.Store) error
 	GetStore(ctx context.Context, storeID uint64) (*metapb.Store, error)
@@ -398,13 +398,12 @@ func (c *client) AllocID(ctx context.Context) (uint64, error) {
 	return resp.GetId(), nil
 }
 
-func (c *client) Bootstrap(ctx context.Context, store *metapb.Store, region *metapb.Region) (resp *pdpb.BootstrapResponse, err error) {
+func (c *client) Bootstrap(ctx context.Context, store *metapb.Store) (resp *pdpb.BootstrapResponse, err error) {
 	err = c.doRequest(ctx, func(ctx context.Context, client pdpb.PDClient) error {
 		var err1 error
 		resp, err1 = client.Bootstrap(ctx, &pdpb.BootstrapRequest{
 			Header: c.requestHeader(),
 			Store:  store,
-			Region: region,
 		})
 		return err1
 	})

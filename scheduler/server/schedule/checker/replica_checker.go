@@ -63,10 +63,6 @@ func NewReplicaChecker(cluster opt.Cluster, n ...string) *ReplicaChecker {
 
 // Check verifies a region's replicas, creating an operator.Operator if need.
 func (r *ReplicaChecker) Check(region *core.RegionInfo) *operator.Operator {
-	if op := r.checkDownPeer(region); op != nil {
-		op.SetPriorityLevel(core.HighPriority)
-		return op
-	}
 	if op := r.checkOfflinePeer(region); op != nil {
 		op.SetPriorityLevel(core.HighPriority)
 		return op
@@ -148,30 +144,6 @@ func (r *ReplicaChecker) selectWorstPeer(region *core.RegionInfo) *metapb.Peer {
 		return nil
 	}
 	return region.GetStorePeer(worstStore.GetID())
-}
-
-func (r *ReplicaChecker) checkDownPeer(region *core.RegionInfo) *operator.Operator {
-	for _, stats := range region.GetDownPeers() {
-		peer := stats.GetPeer()
-		if peer == nil {
-			continue
-		}
-		storeID := peer.GetStoreId()
-		store := r.cluster.GetStore(storeID)
-		if store == nil {
-			log.Warn("lost the store, maybe you are recovering the PD cluster", zap.Uint64("store-id", storeID))
-			return nil
-		}
-		if store.DownTime() < r.cluster.GetMaxStoreDownTime() {
-			continue
-		}
-		if stats.GetDownSeconds() < uint64(r.cluster.GetMaxStoreDownTime().Seconds()) {
-			continue
-		}
-
-		return r.fixPeer(region, peer, downStatus)
-	}
-	return nil
 }
 
 func (r *ReplicaChecker) checkOfflinePeer(region *core.RegionInfo) *operator.Operator {

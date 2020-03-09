@@ -28,10 +28,10 @@ import (
 func nextEnts(r *Raft, s *MemoryStorage) (ents []pb.Entry) {
 	// Transfer all unstable entries to "stable" storage.
 	s.Append(r.RaftLog.unstableEntries())
-	r.RaftLog.stableTo(r.RaftLog.LastIndex(), r.RaftLog.lastTerm())
+	r.RaftLog.stabled = r.RaftLog.LastIndex()
 
 	ents = r.RaftLog.nextEnts()
-	r.RaftLog.appliedTo(r.RaftLog.committed)
+	r.RaftLog.applied = r.RaftLog.committed
 	return ents
 }
 
@@ -378,7 +378,7 @@ func TestDuelingCandidates2B(t *testing.T) {
 	// 3 will be follower again since both 1 and 2 rejects its vote request since 3 does not have a long enough log
 	nt.send(pb.Message{From: 3, To: 3, MsgType: pb.MessageType_MsgHup})
 
-	wlog := newLog(&MemoryStorage{ents: []pb.Entry{{}, {Data: nil, Term: 1, Index: 1}}}, raftLogger)
+	wlog := newLog(&MemoryStorage{ents: []pb.Entry{{}, {Data: nil, Term: 1, Index: 1}}})
 	wlog.committed = 1
 	tests := []struct {
 		sm      *Raft
@@ -388,7 +388,7 @@ func TestDuelingCandidates2B(t *testing.T) {
 	}{
 		{a, StateFollower, 2, wlog},
 		{b, StateFollower, 2, wlog},
-		{c, StateFollower, 2, newLog(NewMemoryStorage(), raftLogger)},
+		{c, StateFollower, 2, newLog(NewMemoryStorage())},
 	}
 
 	for i, tt := range tests {
@@ -435,7 +435,7 @@ func TestCandidateConcede2B(t *testing.T) {
 	if g := a.Term; g != 1 {
 		t.Errorf("term = %d, want %d", g, 1)
 	}
-	wlog := newLog(&MemoryStorage{ents: []pb.Entry{{}, {Data: nil, Term: 1, Index: 1}, {Term: 1, Index: 2, Data: data}}}, raftLogger)
+	wlog := newLog(&MemoryStorage{ents: []pb.Entry{{}, {Data: nil, Term: 1, Index: 1}, {Term: 1, Index: 2, Data: data}}})
 	wlog.committed = 2
 	wantLog := ltoa(wlog)
 	for i, p := range tt.peers {
@@ -478,7 +478,7 @@ func TestOldMessages2B(t *testing.T) {
 				{Data: nil, Term: 2, Index: 2}, {Data: nil, Term: 3, Index: 3},
 				{Data: []byte("somedata"), Term: 3, Index: 4},
 			},
-		}, raftLogger)
+		})
 	ilog.committed = 4
 	base := ltoa(ilog)
 	for i, p := range tt.peers {
@@ -512,9 +512,9 @@ func TestProposal2B(t *testing.T) {
 		tt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 		tt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: data}}})
 
-		wantLog := newLog(NewMemoryStorage(), raftLogger)
+		wantLog := newLog(NewMemoryStorage())
 		if tt.success {
-			wantLog = newLog(&MemoryStorage{ents: []pb.Entry{{}, {Data: nil, Term: 1, Index: 1}, {Term: 1, Index: 2, Data: data}}}, raftLogger)
+			wantLog = newLog(&MemoryStorage{ents: []pb.Entry{{}, {Data: nil, Term: 1, Index: 1}, {Term: 1, Index: 2, Data: data}}})
 			wantLog.committed = 2
 		}
 		base := ltoa(wantLog)
@@ -604,7 +604,7 @@ func TestHandleHeartbeat2B(t *testing.T) {
 		storage.Append([]pb.Entry{{Index: 1, Term: 1}, {Index: 2, Term: 2}, {Index: 3, Term: 3}})
 		sm := newTestRaft(1, []uint64{1, 2}, 5, 1, storage)
 		sm.becomeFollower(2, 2)
-		sm.RaftLog.commitTo(commit)
+		sm.RaftLog.committed = commit
 		sm.handleHeartbeat(tt.m)
 		if sm.RaftLog.committed != tt.wCommit {
 			t.Errorf("#%d: committed = %d, want %d", i, sm.RaftLog.committed, tt.wCommit)
@@ -666,7 +666,7 @@ func TestRecvMessageType_MsgRequestVote2A(t *testing.T) {
 		sm := newTestRaft(1, []uint64{1}, 10, 1, NewMemoryStorage())
 		sm.State = tt.state
 		sm.Vote = tt.voteFor
-		sm.RaftLog = newLog(&MemoryStorage{ents: []pb.Entry{{}, {Index: 1, Term: 2}, {Index: 2, Term: 2}}}, raftLogger)
+		sm.RaftLog = newLog(&MemoryStorage{ents: []pb.Entry{{}, {Index: 1, Term: 2}, {Index: 2, Term: 2}}})
 
 		// raft.Term is greater than or equal to raft.RaftLog.lastTerm. In this
 		// test we're only testing MessageType_MsgRequestVote responses when the campaigning node
@@ -676,7 +676,11 @@ func TestRecvMessageType_MsgRequestVote2A(t *testing.T) {
 		// what the recipient node does when receiving a message with a
 		// different term number, so we simply initialize both term numbers to
 		// be the same.
-		term := max(sm.RaftLog.lastTerm(), tt.logTerm)
+		lterm, err := sm.RaftLog.Term(sm.RaftLog.LastIndex())
+		if err != nil {
+			t.Fatalf("unexpected error %v", err)
+		}
+		term := max(lterm, tt.logTerm)
 		sm.Term = term
 		sm.Step(pb.Message{MsgType: msgType, Term: term, From: 2, Index: tt.index, LogTerm: tt.logTerm})
 
@@ -902,58 +906,6 @@ func TestDisruptiveFollower2A(t *testing.T) {
 	}
 }
 
-func TestLeaderAppResp2B(t *testing.T) {
-	// initial progress: match = 0; next = 3
-	tests := []struct {
-		index  uint64
-		reject bool
-		// progress
-		wmatch uint64
-		wnext  uint64
-		// message
-		wmsgNum    int
-		windex     uint64
-		wcommitted uint64
-	}{
-		{2, true, 0, 2, 1, 1, 0},  // denied resp; leader does not commit;
-		{2, false, 2, 3, 2, 2, 2}, // accept resp; leader commits; broadcast with commit index
-		{0, false, 0, 3, 0, 0, 0}, // ignore heartbeat replies
-	}
-
-	for i, tt := range tests {
-		// sm term is 1 after it becomes the leader.
-		// thus the last log term must be 1 to be committed.
-		sm := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
-		sm.RaftLog = newLog(&MemoryStorage{ents: []pb.Entry{{}, {Index: 1, Term: 0}, {Index: 2, Term: 1}}}, raftLogger)
-		sm.becomeCandidate()
-		sm.becomeLeader()
-		sm.readMessages()
-		sm.Step(pb.Message{From: 2, MsgType: pb.MessageType_MsgAppendResponse, Index: tt.index, Term: sm.Term, Reject: tt.reject, RejectHint: tt.index})
-
-		p := sm.Prs[2]
-		if p.Match != tt.wmatch {
-			t.Errorf("#%d match = %d, want %d", i, p.Match, tt.wmatch)
-		}
-		if p.Next != tt.wnext {
-			t.Errorf("#%d next = %d, want %d", i, p.Next, tt.wnext)
-		}
-
-		msgs := sm.readMessages()
-
-		if len(msgs) != tt.wmsgNum {
-			t.Errorf("#%d msgNum = %d, want %d", i, len(msgs), tt.wmsgNum)
-		}
-		for j, msg := range msgs {
-			if msg.Index != tt.windex {
-				t.Errorf("#%d.%d index = %d, want %d", i, j, msg.Index, tt.windex)
-			}
-			if msg.Commit != tt.wcommitted {
-				t.Errorf("#%d.%d commit = %d, want %d", i, j, msg.Commit, tt.wcommitted)
-			}
-		}
-	}
-}
-
 // When the leader receives a heartbeat tick, it should
 // send a MessageType_MsgHeartbeat with m.Index = 0, m.LogTerm=0 and empty entries.
 func TestBcastBeat2B(t *testing.T) {
@@ -1027,7 +979,7 @@ func TestRecvMessageType_MsgBeat2A(t *testing.T) {
 
 	for i, tt := range tests {
 		sm := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
-		sm.RaftLog = newLog(&MemoryStorage{ents: []pb.Entry{{}, {Index: 1, Term: 0}, {Index: 2, Term: 1}}}, raftLogger)
+		sm.RaftLog = newLog(&MemoryStorage{ents: []pb.Entry{{}, {Index: 1, Term: 0}, {Index: 2, Term: 1}}})
 		sm.Term = 1
 		sm.State = tt.state
 		sm.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgBeat})
@@ -1049,8 +1001,9 @@ func TestLeaderIncreaseNext2B(t *testing.T) {
 	// previous entries + noop entry + propose + 1
 	wnext := uint64(len(previousEnts)) + 1 + 1 + 1
 
-	sm := newTestRaft(1, []uint64{1, 2}, 10, 1, NewMemoryStorage())
-	sm.RaftLog.append(previousEnts...)
+	storage := NewMemoryStorage()
+	storage.Append(previousEnts)
+	sm := newTestRaft(1, []uint64{1, 2}, 10, 1, storage)
 	nt := newNetwork(sm, nil, nil)
 	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 
@@ -1090,9 +1043,9 @@ func TestRestoreSnapshot2B(t *testing.T) {
 func TestRestoreIgnoreSnapshot2B(t *testing.T) {
 	previousEnts := []pb.Entry{{Term: 1, Index: 1}, {Term: 1, Index: 2}, {Term: 1, Index: 3}}
 	storage := NewMemoryStorage()
+	storage.Append(previousEnts)
 	sm := newTestRaft(1, []uint64{1, 2}, 10, 1, storage)
-	sm.RaftLog.append(previousEnts...)
-	sm.RaftLog.commitTo(3)
+	sm.RaftLog.committed = 3
 
 	commit := uint64(1)
 	s := pb.Snapshot{
@@ -1128,7 +1081,7 @@ func TestProvideSnap2B(t *testing.T) {
 	sm.readMessages() // clear message
 
 	// force set the next of node 2, so that node 2 needs a snapshot
-	sm.Prs[2].Next = sm.RaftLog.firstIndex()
+	sm.Prs[2].Next = 0
 	sm.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgAppendResponse, Index: sm.Prs[2].Next - 1, Reject: true})
 
 	msgs := sm.readMessages()

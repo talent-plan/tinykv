@@ -36,7 +36,7 @@ proto:
 	GO111MODULE=on go build ./proto/pkg/...
 
 kv:
-	$(GOBUILD) -o bin/tinykv-server kv/tinykv-server/main.go
+	$(GOBUILD) -o bin/tinykv-server kv/main.go
 
 scheduler:
 	$(GOBUILD) -o bin/pd-server scheduler/cmd/pd-server/main.go

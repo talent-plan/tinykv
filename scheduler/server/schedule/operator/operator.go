@@ -297,46 +297,6 @@ func (o *Operator) IsTimeout() bool {
 	return false
 }
 
-// OpHistory is used to log and visualize completed operators.
-type OpHistory struct {
-	FinishTime time.Time
-	From, To   uint64
-	Kind       core.ResourceKind
-}
-
-// History transfers the operator's steps to operator histories.
-func (o *Operator) History() []OpHistory {
-	now := time.Now()
-	var histories []OpHistory
-	var addPeerStores, removePeerStores []uint64
-	for _, step := range o.steps {
-		switch s := step.(type) {
-		case TransferLeader:
-			histories = append(histories, OpHistory{
-				FinishTime: now,
-				From:       s.FromStore,
-				To:         s.ToStore,
-				Kind:       core.LeaderKind,
-			})
-		case AddPeer:
-			addPeerStores = append(addPeerStores, s.ToStore)
-		case RemovePeer:
-			removePeerStores = append(removePeerStores, s.FromStore)
-		}
-	}
-	for i := range addPeerStores {
-		if i < len(removePeerStores) {
-			histories = append(histories, OpHistory{
-				FinishTime: now,
-				From:       removePeerStores[i],
-				To:         addPeerStores[i],
-				Kind:       core.RegionKind,
-			})
-		}
-	}
-	return histories
-}
-
 // CreateAddPeerOperator creates an operator that adds a new peer.
 func CreateAddPeerOperator(desc string, region *core.RegionInfo, peerID uint64, toStoreID uint64, kind OpKind) *Operator {
 	steps := CreateAddPeerSteps(toStoreID, peerID)

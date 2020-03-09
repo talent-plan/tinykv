@@ -16,9 +16,11 @@ package raft
 
 import (
 	"errors"
+
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
+// TODO: Delete Start
 // ErrStepLocalMsg is returned when try to step a local raft message
 var ErrStepLocalMsg = errors.New("raft: cannot step raft local message")
 
@@ -26,12 +28,7 @@ var ErrStepLocalMsg = errors.New("raft: cannot step raft local message")
 // but there is no peer found in raft.Prs for that node.
 var ErrStepPeerNotFound = errors.New("raft: cannot step as peer not found")
 
-type SnapshotStatus int
-
-const (
-	SnapshotFinish  SnapshotStatus = 1
-	SnapshotFailure SnapshotStatus = 2
-)
+// TODO: Delete End
 
 // SoftState provides state that is useful for logging and debugging.
 // The state is volatile and does not need to be persisted to the WAL.
@@ -40,6 +37,7 @@ type SoftState struct {
 	RaftState StateType
 }
 
+// TODO: Delete method
 func (a *SoftState) equal(b *SoftState) bool {
 	return a.Lead == b.Lead && a.RaftState == b.RaftState
 }
@@ -77,18 +75,15 @@ type Ready struct {
 	Messages []pb.Message
 }
 
-func newReady(r *Raft, prevSoftSt *SoftState, prevHardSt pb.HardState, sinceIdx *uint64) Ready {
+// TODO: Delete method
+func newReady(r *Raft, prevSoftSt *SoftState, prevHardSt pb.HardState) Ready {
 	rd := Ready{
-		Entries: r.RaftLog.unstableEntries(),
+		Entries:          r.RaftLog.unstableEntries(),
+		CommittedEntries: r.RaftLog.nextEnts(),
 	}
 	if len(r.msgs) != 0 {
 		rd.Messages = r.msgs
 		r.msgs = nil
-	}
-	if sinceIdx != nil {
-		rd.CommittedEntries = r.RaftLog.nextEntsSince(*sinceIdx)
-	} else {
-		rd.CommittedEntries = r.RaftLog.nextEnts()
 	}
 	if softSt := r.softState(); !softSt.equal(prevSoftSt) {
 		rd.SoftState = softSt
@@ -102,80 +97,67 @@ func newReady(r *Raft, prevSoftSt *SoftState, prevHardSt pb.HardState, sinceIdx 
 	return rd
 }
 
-// RawNode is a thread-unsafe Node.
-// The methods of this struct correspond to the methods of Node and are described
-// more fully there.
+// RawNode is a wrapper of Raft.
 type RawNode struct {
-	Raft       *Raft
+	Raft *Raft
+	// Your Code Here 2C
+	// TODO: Delete Start
 	prevSoftSt *SoftState
 	prevHardSt pb.HardState
+	// TODO: Delete End
 }
 
 // NewRawNode returns a new RawNode given configuration and a list of raft peers.
 func NewRawNode(config *Config) (*RawNode, error) {
+	// Your Code Here 2C
+	// TODO: Delete Start
 	if config.ID == 0 {
 		panic("config.ID must not be zero")
 	}
 	r := newRaft(config)
 	rn := &RawNode{
-		Raft: r,
+		Raft:       r,
+		prevSoftSt: r.softState(),
+		prevHardSt: r.hardState(),
 	}
-	lastIndex, err := config.Storage.LastIndex()
-	if err != nil {
-		panic(err)
-	}
-	// If the log is empty, this is a new RawNode (like StartNode); otherwise it's
-	// restoring an existing RawNode (like RestartNode).
-	if lastIndex == 0 {
-		r.becomeFollower(1, None)
-		peers := config.peers
-		ents := make([]pb.Entry, len(peers))
-		for i, peer := range peers {
-			cc := pb.ConfChange{ChangeType: pb.ConfChangeType_AddNode, NodeId: peer}
-			data, err := cc.Marshal()
-			if err != nil {
-				panic("unexpected marshal error")
-			}
-			ents[i] = pb.Entry{EntryType: pb.EntryType_EntryConfChange, Term: 1, Index: uint64(i + 1), Data: data}
-		}
-		r.RaftLog.append(ents...)
-		r.RaftLog.committed = uint64(len(ents))
-	}
-
-	// Set the initial hard and soft states after performing all initialization.
-	rn.prevSoftSt = r.softState()
-	if lastIndex == 0 {
-		rn.prevHardSt = pb.HardState{}
-	} else {
-		rn.prevHardSt = r.hardState()
-	}
-
 	return rn, nil
+	// TODO: Delete End
 }
 
 // Tick advances the internal logical clock by a single tick.
 func (rn *RawNode) Tick() {
+	// Your Code Here 2C
+	// TODO: Delete Start
 	rn.Raft.tick()
+	// TODO: Delete End
 }
 
 // Campaign causes this RawNode to transition to candidate state.
 func (rn *RawNode) Campaign() error {
+	// Your Code Here 2C
+	// TODO: Delete Start
 	return rn.Raft.Step(pb.Message{
 		MsgType: pb.MessageType_MsgHup,
 	})
+	// TODO: Delete End
 }
 
 // Propose proposes data be appended to the raft log.
 func (rn *RawNode) Propose(data []byte) error {
+	// Your Code Here 2C
+	// TODO: Delete Start
 	ent := pb.Entry{Data: data}
 	return rn.Raft.Step(pb.Message{
 		MsgType: pb.MessageType_MsgPropose,
 		From:    rn.Raft.id,
 		Entries: []*pb.Entry{&ent}})
+	// TODO: Delete End
 }
 
 // ProposeConfChange proposes a config change.
-func (rn *RawNode) ProposeConfChange(ctx []byte, cc pb.ConfChange) error {
+func (rn *RawNode) ProposeConfChange(cc pb.ConfChange) error {
+	// Your Code Here 3A
+	// TODO: Delete Start
 	data, err := cc.Marshal()
 	if err != nil {
 		return err
@@ -185,10 +167,13 @@ func (rn *RawNode) ProposeConfChange(ctx []byte, cc pb.ConfChange) error {
 		MsgType: pb.MessageType_MsgPropose,
 		Entries: []*pb.Entry{&ent},
 	})
+	// TODO: Delete End
 }
 
 // ApplyConfChange applies a config change to the local node.
 func (rn *RawNode) ApplyConfChange(cc pb.ConfChange) *pb.ConfState {
+	// Your Code Here 3A
+	// TODO: Delete Start
 	if cc.NodeId == None {
 		return &pb.ConfState{Nodes: nodes(rn.Raft)}
 	}
@@ -201,10 +186,13 @@ func (rn *RawNode) ApplyConfChange(cc pb.ConfChange) *pb.ConfState {
 		panic("unexpected conf type")
 	}
 	return &pb.ConfState{Nodes: nodes(rn.Raft)}
+	// TODO: Delete End
 }
 
 // Step advances the state machine using the given message.
 func (rn *RawNode) Step(m pb.Message) error {
+	// Your Code Here 2C
+	// TODO: Delete Start
 	// ignore unexpected local messages receiving over network
 	if IsLocalMsg(m.MsgType) {
 		return ErrStepLocalMsg
@@ -213,21 +201,23 @@ func (rn *RawNode) Step(m pb.Message) error {
 		return rn.Raft.Step(m)
 	}
 	return ErrStepPeerNotFound
+	// TODO: Delete End
 }
 
 // Ready returns the current point-in-time state of this RawNode.
 func (rn *RawNode) Ready() Ready {
-	rd := newReady(rn.Raft, rn.prevSoftSt, rn.prevHardSt, nil)
+	// Your Code Here 2C
+	// TODO: Delete Start
+	rd := newReady(rn.Raft, rn.prevSoftSt, rn.prevHardSt)
 	rn.Raft.msgs = nil
 	return rd
-}
-
-func (rn *RawNode) ReadySince(appliedIdx uint64) Ready {
-	return newReady(rn.Raft, rn.prevSoftSt, rn.prevHardSt, &appliedIdx)
+	// TODO: Delete End
 }
 
 // HasReady called when RawNode user need to check if any Ready pending.
 func (rn *RawNode) HasReady() bool {
+	// Your Code Here 2C
+	// TODO: Delete Start
 	r := rn.Raft
 	if !r.softState().equal(rn.prevSoftSt) {
 		return true
@@ -242,36 +232,23 @@ func (rn *RawNode) HasReady() bool {
 		return true
 	}
 	return false
-}
-
-// HasReadySince called when RawNode user need to check if any Ready pending since appliedIdx.
-func (rn *RawNode) HasReadySince(appliedIdx uint64) bool {
-	r := rn.Raft
-	if !r.softState().equal(rn.prevSoftSt) {
-		return true
-	}
-	if hardSt := r.hardState(); !IsEmptyHardState(hardSt) && !isHardStateEqual(hardSt, rn.prevHardSt) {
-		return true
-	}
-	if snap := rn.GetSnap(); snap != nil && !IsEmptySnap(snap) {
-		return true
-	}
-	if len(r.msgs) > 0 || len(r.RaftLog.unstableEntries()) > 0 || r.RaftLog.hasNextEntsSince(appliedIdx) {
-		return true
-	}
-	return false
+	// TODO: Delete End
 }
 
 // Advance notifies the RawNode that the application has applied and saved progress in the
 // last Ready results.
 func (rn *RawNode) Advance(rd Ready) {
+	// Your Code Here 2C
+	// TODO: Delete Start
 	if rd.SoftState != nil {
 		rn.prevSoftSt = rd.SoftState
 	}
 	if !IsEmptyHardState(rd.HardState) {
 		rn.prevHardSt = rd.HardState
 	}
-
+	if rn.prevHardSt.Commit != 0 {
+		rn.Raft.RaftLog.appliedTo(rn.prevHardSt.Commit)
+	}
 	if len(rd.Entries) > 0 {
 		e := rd.Entries[len(rd.Entries)-1]
 		rn.Raft.RaftLog.stableTo(e.Index, e.Term)
@@ -279,12 +256,10 @@ func (rn *RawNode) Advance(rd Ready) {
 	if !IsEmptySnap(&rd.Snapshot) {
 		rn.Raft.RaftLog.stableSnapTo(rd.Snapshot.Metadata.Index)
 	}
+	// TODO: Delete End
 }
 
-func (rn *RawNode) AdvanceApply(applied uint64) {
-	rn.Raft.RaftLog.appliedTo(applied)
-}
-
+// TODO: Delete method
 // GetProgress return the the Progress of this node and its peers, if this
 // node is leader.
 func (rn *RawNode) GetProgress() map[uint64]Progress {
@@ -297,17 +272,12 @@ func (rn *RawNode) GetProgress() map[uint64]Progress {
 	return prs
 }
 
+// TODO: Delete method
 func (rn *RawNode) GetSnap() *pb.Snapshot {
 	return rn.Raft.GetSnap()
 }
 
-// ReportSnapshot reports the status of the sent snapshot.
-func (rn *RawNode) ReportSnapshot(id uint64, status SnapshotStatus) {
-	rej := status == SnapshotFailure
-
-	_ = rn.Raft.Step(pb.Message{MsgType: pb.MessageType_MsgSnapStatus, From: id, Reject: rej})
-}
-
+// TODO: Delete method
 // TransferLeader tries to transfer leadership to the given transferee.
 func (rn *RawNode) TransferLeader(transferee uint64) {
 	_ = rn.Raft.Step(pb.Message{MsgType: pb.MessageType_MsgTransferLeader, From: transferee})

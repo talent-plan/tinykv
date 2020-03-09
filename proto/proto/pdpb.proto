@@ -10,8 +10,6 @@ option (gogoproto.sizer_all) = true;
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 
-option java_package = "org.tikv.kvproto";
-
 service PD {
     // GetMembers get the member list of this cluster. It does not require
     // the cluster_id in request matchs the id of this cluster.
@@ -106,7 +104,6 @@ message BootstrapRequest {
     RequestHeader header = 1;
 
     metapb.Store store = 2;
-    metapb.Region region = 3;
 }
 
 message BootstrapResponse {
@@ -247,19 +244,12 @@ message GetMembersResponse {
     Member etcd_leader = 4;
 }
 
-message PeerStats {
-    metapb.Peer peer = 1;
-    uint64 down_seconds = 2;
-}
-
 message RegionHeartbeatRequest {
     RequestHeader header = 1;
 
     metapb.Region region = 2;
     // Leader Peer sending the heartbeat.
     metapb.Peer leader = 3;
-    // Leader considers that these peers are down.
-    repeated PeerStats down_peers = 4;
     // Pending peers are the peers that the leader can't consider as
     // working followers.
     repeated metapb.Peer pending_peers = 5;
@@ -281,21 +271,6 @@ message ChangePeer {
 
 message TransferLeader {
     metapb.Peer peer = 1;
-}
-
-message Merge {
-    metapb.Region target = 1;
-}
-
-message SplitRegion {
-    CheckPolicy policy = 1;
-    repeated bytes keys = 2;
-}
-
-enum CheckPolicy {
-    SCAN = 0;
-    APPROXIMATE = 1;
-    USEKEY = 2;
 }
 
 message RegionHeartbeatResponse {
@@ -323,9 +298,6 @@ message RegionHeartbeatResponse {
     metapb.RegionEpoch region_epoch = 5;
     // Leader of the region at the moment of the corresponding request was made.
     metapb.Peer target_peer = 6;
-    Merge merge = 7;
-    // PD sends split_region to let TiKV split a region into two regions.
-    SplitRegion split_region = 8;
 }
 
 message AskSplitRequest {

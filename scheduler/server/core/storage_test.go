@@ -14,13 +14,11 @@
 package core
 
 import (
-	"fmt"
 	"math"
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
 	. "github.com/pingcap/check"
-	"github.com/pkg/errors"
 )
 
 var _ = Suite(&testKVSuite{})
@@ -55,22 +53,6 @@ func (s *testKVSuite) TestBasic(c *C) {
 	c.Assert(ok, IsTrue)
 	c.Assert(err, IsNil)
 	c.Assert(newStore, DeepEquals, store)
-
-	region := &metapb.Region{Id: 123}
-	ok, err = storage.LoadRegion(123, region)
-	c.Assert(ok, IsFalse)
-	c.Assert(err, IsNil)
-	c.Assert(storage.SaveRegion(region), IsNil)
-	newRegion := &metapb.Region{}
-	ok, err = storage.LoadRegion(123, newRegion)
-	c.Assert(ok, IsTrue)
-	c.Assert(err, IsNil)
-	c.Assert(newRegion, DeepEquals, region)
-	err = storage.DeleteRegion(region)
-	c.Assert(err, IsNil)
-	ok, err = storage.LoadRegion(123, newRegion)
-	c.Assert(ok, IsFalse)
-	c.Assert(err, IsNil)
 }
 
 func mustSaveStores(c *C, s *Storage, n int) []*metapb.Store {
@@ -118,47 +100,6 @@ func (s *testKVSuite) TestStoreWeight(c *C) {
 	}
 }
 
-func mustSaveRegions(c *C, s *Storage, n int) []*metapb.Region {
-	regions := make([]*metapb.Region, 0, n)
-	for i := 0; i < n; i++ {
-		region := newTestRegionMeta(uint64(i))
-		regions = append(regions, region)
-	}
-
-	for _, region := range regions {
-		c.Assert(s.SaveRegion(region), IsNil)
-	}
-
-	return regions
-}
-
-func (s *testKVSuite) TestLoadRegions(c *C) {
-	storage := NewStorage(kv.NewMemoryKV())
-	cache := NewRegionsInfo()
-
-	n := 10
-	regions := mustSaveRegions(c, storage, n)
-	c.Assert(storage.LoadRegions(cache.SetRegion), IsNil)
-
-	c.Assert(cache.GetRegionCount(), Equals, n)
-	for _, region := range cache.GetMetaRegions() {
-		c.Assert(region, DeepEquals, regions[region.GetId()])
-	}
-}
-
-func (s *testKVSuite) TestLoadRegionsExceedRangeLimit(c *C) {
-	storage := NewStorage(&KVWithMaxRangeLimit{Base: kv.NewMemoryKV(), rangeLimit: 500})
-	cache := NewRegionsInfo()
-
-	n := 1000
-	regions := mustSaveRegions(c, storage, n)
-	c.Assert(storage.LoadRegions(cache.SetRegion), IsNil)
-	c.Assert(cache.GetRegionCount(), Equals, n)
-	for _, region := range cache.GetMetaRegions() {
-		c.Assert(region, DeepEquals, regions[region.GetId()])
-	}
-}
-
 func (s *testKVSuite) TestLoadGCSafePoint(c *C) {
 	storage := NewStorage(kv.NewMemoryKV())
 	testData := []uint64{0, 1, 2, 233, 2333, 23333333333, math.MaxUint64}
@@ -172,25 +113,5 @@ func (s *testKVSuite) TestLoadGCSafePoint(c *C) {
 		safePoint1, err := storage.LoadGCSafePoint()
 		c.Assert(err, IsNil)
 		c.Assert(safePoint, Equals, safePoint1)
-	}
-}
-
-type KVWithMaxRangeLimit struct {
-	kv.Base
-	rangeLimit int
-}
-
-func (kv *KVWithMaxRangeLimit) LoadRange(key, endKey string, limit int) ([]string, []string, error) {
-	if limit > kv.rangeLimit {
-		return nil, nil, errors.Errorf("limit %v exceed max rangeLimit %v", limit, kv.rangeLimit)
-	}
-	return kv.Base.LoadRange(key, endKey, limit)
-}
-
-func newTestRegionMeta(regionID uint64) *metapb.Region {
-	return &metapb.Region{
-		Id:       regionID,
-		StartKey: []byte(fmt.Sprintf("%20d", regionID)),
-		EndKey:   []byte(fmt.Sprintf("%20d", regionID+1)),
 	}
 }

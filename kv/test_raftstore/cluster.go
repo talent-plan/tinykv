@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/Connor1996/badger"
-	"github.com/ngaut/log"
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/dbreader"
-	"github.com/pingcap-incubator/tinykv/kv/tikv/raftstore"
+	"github.com/pingcap-incubator/tinykv/kv/inner_server/raft_server"
+	"github.com/pingcap-incubator/tinykv/kv/raftstore"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
+	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 )
@@ -114,7 +114,7 @@ func (c *Cluster) Start() {
 		Id:      1,
 		Address: "",
 	}
-	resp, err := c.pdClient.Bootstrap(context.TODO(), store, firstRegion)
+	resp, err := c.pdClient.Bootstrap(context.TODO(), store)
 	if err != nil {
 		panic(err)
 	}
@@ -370,7 +370,7 @@ func (c *Cluster) Scan(start, end []byte) [][]byte {
 			panic("resp.Responses[0].CmdType != raft_cmdpb.CmdType_Snap")
 		}
 		region := resp.Responses[0].GetSnap().Region
-		iter := dbreader.NewRegionReader(txn, *region).IterCF(engine_util.CfDefault)
+		iter := raft_server.NewRegionReader(txn, *region).IterCF(engine_util.CfDefault)
 		for iter.Seek(key); iter.Valid(); iter.Next() {
 			if engine_util.ExceedEndKey(iter.Item().Key(), end) {
 				break
