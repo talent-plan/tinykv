@@ -364,8 +364,8 @@ func TestOnePartition2B(t *testing.T) {
 
 	region := cluster.GetRegion([]byte(""))
 	leader := cluster.LeaderOfRegion(region.GetId())
-	var s1 []uint64 = []uint64{leader.GetStoreId()}
-	var s2 []uint64
+	s1 := []uint64{leader.GetStoreId()}
+	s2 := []uint64{}
 	for _, p := range region.GetPeers() {
 		if p.GetId() == leader.GetId() {
 			continue
