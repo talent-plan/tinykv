@@ -254,9 +254,6 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 			// won't return until that server discovers a new term
 			// has started.
 			cluster.ClearFilters()
-			if unreliable {
-				cluster.AddFilter(&DropFilter{})
-			}
 			// wait for a while so that we have a new term
 			time.Sleep(electionTimeout)
 		}
