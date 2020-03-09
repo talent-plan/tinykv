@@ -47,7 +47,7 @@ func (r *Raft) readMessages() []pb.Message {
 	return msgs
 }
 
-func TestProgressLeader2B(t *testing.T) {
+func TestProgressLeader2AB(t *testing.T) {
 	r := newTestRaft(1, []uint64{1, 2}, 5, 1, NewMemoryStorage())
 	r.becomeCandidate()
 	r.becomeLeader()
@@ -64,7 +64,7 @@ func TestProgressLeader2B(t *testing.T) {
 	}
 }
 
-func TestLeaderElection2A(t *testing.T) {
+func TestLeaderElection2AA(t *testing.T) {
 	var cfg func(*Config)
 	candState := StateCandidate
 	candTerm := uint64(1)
@@ -101,7 +101,7 @@ func TestLeaderElection2A(t *testing.T) {
 // testLeaderCycle verifies that each node in a cluster can campaign
 // and be elected in turn. This ensures that elections work when not
 // starting from a clean slate (as they do in TestLeaderElection)
-func TestLeaderCycle2A(t *testing.T) {
+func TestLeaderCycle2AA(t *testing.T) {
 	var cfg func(*Config)
 	n := newNetworkWithConfig(cfg, nil, nil, nil)
 	for campaignerID := uint64(1); campaignerID <= 3; campaignerID++ {
@@ -125,7 +125,7 @@ func TestLeaderCycle2A(t *testing.T) {
 // newly-elected leader does *not* have the newest (i.e. highest term)
 // log entries, and must overwrite higher-term log entries with
 // lower-term ones.
-func TestLeaderElectionOverwriteNewerLogs2B(t *testing.T) {
+func TestLeaderElectionOverwriteNewerLogs2AB(t *testing.T) {
 	var cfg func(*Config)
 	// This network represents the results of the following sequence of
 	// events:
@@ -186,7 +186,7 @@ func TestLeaderElectionOverwriteNewerLogs2B(t *testing.T) {
 	}
 }
 
-func TestVoteFromAnyState2A(t *testing.T) {
+func TestVoteFromAnyState2AA(t *testing.T) {
 	vt := pb.MessageType_MsgRequestVote
 	vt_resp := pb.MessageType_MsgRequestVoteResponse
 	for st := StateType(0); st <= StateLeader; st++ {
@@ -245,7 +245,7 @@ func TestVoteFromAnyState2A(t *testing.T) {
 	}
 }
 
-func TestLogReplication2B(t *testing.T) {
+func TestLogReplication2AB(t *testing.T) {
 	tests := []struct {
 		*network
 		msgs       []pb.Message
@@ -304,7 +304,7 @@ func TestLogReplication2B(t *testing.T) {
 	}
 }
 
-func TestSingleNodeCommit2B(t *testing.T) {
+func TestSingleNodeCommit2AB(t *testing.T) {
 	tt := newNetwork(nil)
 	tt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 	tt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: []byte("some data")}}})
@@ -318,7 +318,7 @@ func TestSingleNodeCommit2B(t *testing.T) {
 
 // TestCommitWithoutNewTermEntry tests the entries could be committed
 // when leader changes with noop entry and no new proposal comes in.
-func TestCommitWithoutNewTermEntry2B(t *testing.T) {
+func TestCommitWithoutNewTermEntry2AB(t *testing.T) {
 	tt := newNetwork(nil, nil, nil, nil, nil)
 	tt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 
@@ -348,7 +348,7 @@ func TestCommitWithoutNewTermEntry2B(t *testing.T) {
 	}
 }
 
-func TestDuelingCandidates2B(t *testing.T) {
+func TestDuelingCandidates2AB(t *testing.T) {
 	a := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
 	b := newTestRaft(2, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
 	c := newTestRaft(3, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
@@ -410,7 +410,7 @@ func TestDuelingCandidates2B(t *testing.T) {
 	}
 }
 
-func TestCandidateConcede2B(t *testing.T) {
+func TestCandidateConcede2AB(t *testing.T) {
 	tt := newNetwork(nil, nil, nil)
 	tt.isolate(1)
 
@@ -450,7 +450,7 @@ func TestCandidateConcede2B(t *testing.T) {
 	}
 }
 
-func TestSingleNodeCandidate2A(t *testing.T) {
+func TestSingleNodeCandidate2AA(t *testing.T) {
 	tt := newNetwork(nil)
 	tt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 
@@ -460,7 +460,7 @@ func TestSingleNodeCandidate2A(t *testing.T) {
 	}
 }
 
-func TestOldMessages2B(t *testing.T) {
+func TestOldMessages2AB(t *testing.T) {
 	tt := newNetwork(nil, nil, nil)
 	// make 0 leader @ term 3
 	tt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
@@ -493,7 +493,7 @@ func TestOldMessages2B(t *testing.T) {
 	}
 }
 
-func TestProposal2B(t *testing.T) {
+func TestProposal2AB(t *testing.T) {
 	tests := []struct {
 		*network
 		success bool
@@ -540,7 +540,7 @@ func TestProposal2B(t *testing.T) {
 // 2. If an existing entry conflicts with a new one (same index but different terms),
 //    delete the existing entry and all that follow it; append any new entries not already in the log.
 // 3. If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry).
-func TestHandleMessageType_MsgAppend2B(t *testing.T) {
+func TestHandleMessageType_MsgAppend2AB(t *testing.T) {
 	tests := []struct {
 		m       pb.Message
 		wIndex  uint64
@@ -589,7 +589,7 @@ func TestHandleMessageType_MsgAppend2B(t *testing.T) {
 }
 
 // TestHandleHeartbeat ensures that the follower commits to the commit in the message.
-func TestHandleHeartbeat2B(t *testing.T) {
+func TestHandleHeartbeat2AA(t *testing.T) {
 	commit := uint64(2)
 	tests := []struct {
 		m       pb.Message
@@ -619,7 +619,7 @@ func TestHandleHeartbeat2B(t *testing.T) {
 	}
 }
 
-func TestRecvMessageType_MsgRequestVote2A(t *testing.T) {
+func TestRecvMessageType_MsgRequestVote2AA(t *testing.T) {
 	msgType := pb.MessageType_MsgRequestVote
 	msgRespType := pb.MessageType_MsgRequestVoteResponse
 	tests := []struct {
@@ -698,7 +698,7 @@ func TestRecvMessageType_MsgRequestVote2A(t *testing.T) {
 	}
 }
 
-func TestAllServerStepdown2B(t *testing.T) {
+func TestAllServerStepdown2AB(t *testing.T) {
 	tests := []struct {
 		state StateType
 
@@ -752,11 +752,11 @@ func TestAllServerStepdown2B(t *testing.T) {
 	}
 }
 
-func TestCandidateResetTermMessageType_MsgHeartbeat2A(t *testing.T) {
+func TestCandidateResetTermMessageType_MsgHeartbeat2AA(t *testing.T) {
 	testCandidateResetTerm(t, pb.MessageType_MsgHeartbeat)
 }
 
-func TestCandidateResetTermMessageType_MsgAppend2A(t *testing.T) {
+func TestCandidateResetTermMessageType_MsgAppend2AA(t *testing.T) {
 	testCandidateResetTerm(t, pb.MessageType_MsgAppend)
 }
 
@@ -819,7 +819,7 @@ func testCandidateResetTerm(t *testing.T, mt pb.MessageType) {
 // to become a candidate with an increased term. Then, the
 // candiate's response to late leader heartbeat forces the leader
 // to step down.
-func TestDisruptiveFollower2A(t *testing.T) {
+func TestDisruptiveFollower2AA(t *testing.T) {
 	n1 := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
 	n2 := newTestRaft(2, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
 	n3 := newTestRaft(3, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
@@ -908,7 +908,7 @@ func TestDisruptiveFollower2A(t *testing.T) {
 
 // When the leader receives a heartbeat tick, it should
 // send a MessageType_MsgHeartbeat with m.Index = 0, m.LogTerm=0 and empty entries.
-func TestBcastBeat2B(t *testing.T) {
+func TestBcastBeat2AB(t *testing.T) {
 	offset := uint64(1000)
 	// make a state machine with log.offset = 1000
 	s := pb.Snapshot{
@@ -966,7 +966,7 @@ func TestBcastBeat2B(t *testing.T) {
 }
 
 // tests the output of the state machine when receiving MessageType_MsgBeat
-func TestRecvMessageType_MsgBeat2A(t *testing.T) {
+func TestRecvMessageType_MsgBeat2AA(t *testing.T) {
 	tests := []struct {
 		state StateType
 		wMsg  int
@@ -996,7 +996,7 @@ func TestRecvMessageType_MsgBeat2A(t *testing.T) {
 	}
 }
 
-func TestLeaderIncreaseNext2B(t *testing.T) {
+func TestLeaderIncreaseNext2AB(t *testing.T) {
 	previousEnts := []pb.Entry{{Term: 1, Index: 1}, {Term: 1, Index: 2}, {Term: 1, Index: 3}}
 	// previous entries + noop entry + propose + 1
 	wnext := uint64(len(previousEnts)) + 1 + 1 + 1
@@ -1015,7 +1015,7 @@ func TestLeaderIncreaseNext2B(t *testing.T) {
 	}
 }
 
-func TestRestoreSnapshot2B(t *testing.T) {
+func TestRestoreSnapshot2C(t *testing.T) {
 	s := pb.Snapshot{
 		Metadata: &pb.SnapshotMetadata{
 			Index:     11, // magic number
@@ -1040,7 +1040,7 @@ func TestRestoreSnapshot2B(t *testing.T) {
 	}
 }
 
-func TestRestoreIgnoreSnapshot2B(t *testing.T) {
+func TestRestoreIgnoreSnapshot2C(t *testing.T) {
 	previousEnts := []pb.Entry{{Term: 1, Index: 1}, {Term: 1, Index: 2}, {Term: 1, Index: 3}}
 	storage := NewMemoryStorage()
 	storage.Append(previousEnts)
@@ -1063,7 +1063,7 @@ func TestRestoreIgnoreSnapshot2B(t *testing.T) {
 	}
 }
 
-func TestProvideSnap2B(t *testing.T) {
+func TestProvideSnap2C(t *testing.T) {
 	// restore the state machine from a snapshot so it has a compacted log and a snapshot
 	s := pb.Snapshot{
 		Metadata: &pb.SnapshotMetadata{
@@ -1094,7 +1094,7 @@ func TestProvideSnap2B(t *testing.T) {
 	}
 }
 
-func TestRestoreFromSnapMsg2B(t *testing.T) {
+func TestRestoreFromSnapMsg2C(t *testing.T) {
 	s := pb.Snapshot{
 		Metadata: &pb.SnapshotMetadata{
 			Index:     11, // magic number
@@ -1112,7 +1112,7 @@ func TestRestoreFromSnapMsg2B(t *testing.T) {
 	}
 }
 
-func TestSlowNodeRestore2B(t *testing.T) {
+func TestSlowNodeRestore2C(t *testing.T) {
 	nt := newNetwork(nil, nil, nil)
 	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 
@@ -1172,7 +1172,7 @@ func TestRemoveNode3A(t *testing.T) {
 	}
 }
 
-func TestCampaignWhileLeader2A(t *testing.T) {
+func TestCampaignWhileLeader2AA(t *testing.T) {
 	cfg := newTestConfig(1, []uint64{1}, 5, 1, NewMemoryStorage())
 	r := newRaft(cfg)
 	if r.State != StateFollower {
@@ -1261,7 +1261,7 @@ func TestCommitAfterRemoveNode3A(t *testing.T) {
 
 // TestLeaderTransferToUpToDateNode verifies transferring should succeed
 // if the transferee has the most up-to-date log entries when transfer starts.
-func TestLeaderTransferToUpToDateNode3C(t *testing.T) {
+func TestLeaderTransferToUpToDateNode3A(t *testing.T) {
 	nt := newNetwork(nil, nil, nil)
 	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 
@@ -1289,7 +1289,7 @@ func TestLeaderTransferToUpToDateNode3C(t *testing.T) {
 // Not like TestLeaderTransferToUpToDateNode, where the leader transfer message
 // is sent to the leader, in this test case every leader transfer message is sent
 // to the follower.
-func TestLeaderTransferToUpToDateNodeFromFollower3C(t *testing.T) {
+func TestLeaderTransferToUpToDateNodeFromFollower3A(t *testing.T) {
 	nt := newNetwork(nil, nil, nil)
 	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 
@@ -1312,7 +1312,7 @@ func TestLeaderTransferToUpToDateNodeFromFollower3C(t *testing.T) {
 	checkLeaderTransferState(t, lead, StateLeader, 1)
 }
 
-func TestLeaderTransferToSlowFollower3C(t *testing.T) {
+func TestLeaderTransferToSlowFollower3A(t *testing.T) {
 	nt := newNetwork(nil, nil, nil)
 	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 
@@ -1331,7 +1331,7 @@ func TestLeaderTransferToSlowFollower3C(t *testing.T) {
 	checkLeaderTransferState(t, lead, StateFollower, 3)
 }
 
-func TestLeaderTransferAfterSnapshot3C(t *testing.T) {
+func TestLeaderTransferAfterSnapshot3A(t *testing.T) {
 	nt := newNetwork(nil, nil, nil)
 	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 
@@ -1356,7 +1356,7 @@ func TestLeaderTransferAfterSnapshot3C(t *testing.T) {
 	checkLeaderTransferState(t, lead, StateFollower, 3)
 }
 
-func TestLeaderTransferToSelf3C(t *testing.T) {
+func TestLeaderTransferToSelf3A(t *testing.T) {
 	nt := newNetwork(nil, nil, nil)
 	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 
@@ -1367,7 +1367,7 @@ func TestLeaderTransferToSelf3C(t *testing.T) {
 	checkLeaderTransferState(t, lead, StateLeader, 1)
 }
 
-func TestLeaderTransferToNonExistingNode3C(t *testing.T) {
+func TestLeaderTransferToNonExistingNode3A(t *testing.T) {
 	nt := newNetwork(nil, nil, nil)
 	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 
@@ -1377,7 +1377,7 @@ func TestLeaderTransferToNonExistingNode3C(t *testing.T) {
 	checkLeaderTransferState(t, lead, StateLeader, 1)
 }
 
-func TestLeaderTransferReceiveHigherTermVote3C(t *testing.T) {
+func TestLeaderTransferReceiveHigherTermVote3A(t *testing.T) {
 	nt := newNetwork(nil, nil, nil)
 	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 
@@ -1392,7 +1392,7 @@ func TestLeaderTransferReceiveHigherTermVote3C(t *testing.T) {
 	checkLeaderTransferState(t, lead, StateFollower, 2)
 }
 
-func TestLeaderTransferRemoveNode3C(t *testing.T) {
+func TestLeaderTransferRemoveNode3A(t *testing.T) {
 	nt := newNetwork(nil, nil, nil)
 	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 
@@ -1405,7 +1405,7 @@ func TestLeaderTransferRemoveNode3C(t *testing.T) {
 }
 
 // TestLeaderTransferBack verifies leadership can transfer back to self when last transfer is pending.
-func TestLeaderTransferBack3C(t *testing.T) {
+func TestLeaderTransferBack3A(t *testing.T) {
 	nt := newNetwork(nil, nil, nil)
 	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 
@@ -1423,7 +1423,7 @@ func TestLeaderTransferBack3C(t *testing.T) {
 
 // TestLeaderTransferSecondTransferToAnotherNode verifies leader can transfer to another node
 // when last transfer is pending.
-func TestLeaderTransferSecondTransferToAnotherNode3C(t *testing.T) {
+func TestLeaderTransferSecondTransferToAnotherNode3A(t *testing.T) {
 	nt := newNetwork(nil, nil, nil)
 	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 
@@ -1448,7 +1448,7 @@ func checkLeaderTransferState(t *testing.T, r *Raft, state StateType, lead uint6
 // a node that has been removed from the group, nothing happens.
 // (previously, if the node also got votes, it would panic as it
 // transitioned to StateLeader)
-func TestTransferNonMember3C(t *testing.T) {
+func TestTransferNonMember3A(t *testing.T) {
 	r := newTestRaft(1, []uint64{2, 3, 4}, 5, 1, NewMemoryStorage())
 	r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgTimeoutNow})
 
@@ -1461,7 +1461,7 @@ func TestTransferNonMember3C(t *testing.T) {
 
 // TestSplitVote verifies that after split vote, cluster can complete
 // election in next round.
-func TestSplitVote2A(t *testing.T) {
+func TestSplitVote2AA(t *testing.T) {
 	n1 := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
 	n2 := newTestRaft(2, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
 	n3 := newTestRaft(3, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())

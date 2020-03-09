@@ -157,7 +157,7 @@ func TestRawNodeProposeAddDuplicateNode3A(t *testing.T) {
 
 // TestRawNodeStart ensures that a node can be started correctly, and can accept and commit
 // proposals.
-func TestRawNodeStart2C(t *testing.T) {
+func TestRawNodeStart2AC(t *testing.T) {
 	storage := NewMemoryStorage()
 	rawNode, err := NewRawNode(newTestConfig(1, []uint64{1}, 10, 1, storage))
 	if err != nil {
@@ -184,7 +184,7 @@ func TestRawNodeStart2C(t *testing.T) {
 	}
 }
 
-func TestRawNodeRestart2C(t *testing.T) {
+func TestRawNodeRestart2AC(t *testing.T) {
 	entries := []pb.Entry{
 		{Term: 1, Index: 1},
 		{Term: 1, Index: 2, Data: []byte("foo")},
