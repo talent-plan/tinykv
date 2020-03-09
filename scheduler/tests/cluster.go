@@ -105,10 +105,11 @@ func (s *TestServer) Stop() error {
 func (s *TestServer) Destroy() error {
 	s.Lock()
 	defer s.Unlock()
+	dir := s.server.GetConfig().DataDir
 	if s.state == Running {
 		s.server.Close()
 	}
-	if err := os.RemoveAll(s.server.GetConfig().DataDir); err != nil {
+	if err := os.RemoveAll(dir); err != nil {
 		return err
 	}
 	s.state = Destroy
