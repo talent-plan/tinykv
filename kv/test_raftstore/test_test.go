@@ -362,38 +362,49 @@ func TestOnePartition2B(t *testing.T) {
 	cluster.Start()
 	defer cluster.Shutdown()
 
-	regionID := cluster.GetRegion([]byte("")).GetId()
-	// transfer leader to (1, 1)
-	peer := NewPeer(1, 1)
-	cluster.MustTransferLeader(regionID, peer)
+	region := cluster.GetRegion([]byte(""))
+	leader := cluster.LeaderOfRegion(region.GetId())
+	var s1 []uint64 = []uint64{leader.GetStoreId()}
+	var s2 []uint64
+	for _, p := range region.GetPeers() {
+		if p.GetId() == leader.GetId() {
+			continue
+		}
+		if len(s1) < 3 {
+			s1 = append(s1, p.GetStoreId())
+		} else {
+			s2 = append(s2, p.GetStoreId())
+		}
+	}
 
 	// leader in majority, partition doesn't affect write/read
 	cluster.AddFilter(&PartitionFilter{
-		s1: []uint64{1, 2, 3},
-		s2: []uint64{4, 5},
+		s1: s1,
+		s2: s2,
 	})
 	cluster.MustPut([]byte("k1"), []byte("v1"))
 	cluster.MustGet([]byte("k1"), []byte("v1"))
-	MustGetNone(cluster.engines[4], []byte("k1"))
-	MustGetNone(cluster.engines[5], []byte("k1"))
-	cluster.MustTransferLeader(regionID, peer)
+	MustGetNone(cluster.engines[s2[0]], []byte("k1"))
+	MustGetNone(cluster.engines[s2[1]], []byte("k1"))
 	cluster.ClearFilters()
 
 	// old leader in minority, new leader should be elected
+	s2 = append(s2, s1[2])
+	s1 = s1[:2]
 	cluster.AddFilter(&PartitionFilter{
-		s1: []uint64{1, 2},
-		s2: []uint64{3, 4, 5},
+		s1: s1,
+		s2: s2,
 	})
 	cluster.MustGet([]byte("k1"), []byte("v1"))
 	cluster.MustPut([]byte("k1"), []byte("changed"))
-	MustGetEqual(cluster.engines[1], []byte("k1"), []byte("v1"))
-	MustGetEqual(cluster.engines[2], []byte("k1"), []byte("v1"))
+	MustGetEqual(cluster.engines[s1[0]], []byte("k1"), []byte("v1"))
+	MustGetEqual(cluster.engines[s1[1]], []byte("k1"), []byte("v1"))
 	cluster.ClearFilters()
 
 	// when partition heals, old leader should sync data
 	cluster.MustPut([]byte("k2"), []byte("v2"))
-	MustGetEqual(cluster.engines[1], []byte("k2"), []byte("v2"))
-	MustGetEqual(cluster.engines[1], []byte("k1"), []byte("changed"))
+	MustGetEqual(cluster.engines[s1[0]], []byte("k2"), []byte("v2"))
+	MustGetEqual(cluster.engines[s1[0]], []byte("k1"), []byte("changed"))
 }
 
 // func TestManyPartitionsOneClient2B(t *testing.T) {
