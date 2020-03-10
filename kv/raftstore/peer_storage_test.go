@@ -194,37 +194,6 @@ func TestPeerStorageEntries(t *testing.T) {
 	}
 }
 
-func TestPeerStorageCompact(t *testing.T) {
-	ents := []eraftpb.Entry{
-		newTestEntry(3, 3), newTestEntry(4, 4), newTestEntry(5, 5)}
-	tests := []struct {
-		idx uint64
-		err error
-	}{
-		{2, raft.ErrCompacted},
-		{3, raft.ErrCompacted},
-		{4, nil},
-		{5, nil},
-	}
-	peerStore := newTestPeerStorageFromEnts(t, ents)
-	defer cleanUpTestData(peerStore)
-	for _, tt := range tests {
-		ctx := NewInvokeContext(peerStore)
-		term, err := peerStore.Term(tt.idx)
-		if err == nil {
-			err = CompactRaftLog(peerStore.Tag, &ctx.ApplyState, tt.idx, term)
-		}
-		if tt.err == nil {
-			assert.Nil(t, err)
-			kvWB := new(engine_util.WriteBatch)
-			ctx.saveApplyStateTo(kvWB)
-			require.Nil(t, peerStore.Engines.WriteKV(kvWB))
-		} else {
-			assert.NotNil(t, err)
-		}
-	}
-}
-
 func TestPeerStorageAppend(t *testing.T) {
 	ents := []eraftpb.Entry{
 		newTestEntry(3, 3), newTestEntry(4, 4), newTestEntry(5, 5)}

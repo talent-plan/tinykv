@@ -57,10 +57,6 @@ func replicatePeer(storeID uint64, cfg *config.Config, sched chan<- worker.Task,
 	return NewPeer(storeID, cfg, engines, region, sched, metaPeer)
 }
 
-func (p *peer) drop() {
-	p.Stop()
-}
-
 func (p *peer) regionID() uint64 {
 	return p.regionId
 }
@@ -206,12 +202,6 @@ func (p *peer) MaybeDestroy() bool {
 		log.Infof("%v is being destroyed, skip", p.Tag)
 		return false
 	}
-	if p.IsApplyingSnapshot() {
-		if !p.Store().CancelApplyingSnap() {
-			log.Infof("%v stale peer %v is applying snapshot", p.Tag, p.Meta.Id)
-			return false
-		}
-	}
 	p.PendingRemove = true
 	return true
 }
@@ -243,9 +233,7 @@ func (p *peer) Destroy(engine *engine_util.Engines, keepData bool) error {
 	if p.Store().isInitialized() && !keepData {
 		// If we meet panic when deleting data and raft log, the dirty data
 		// will be cleared by a newer snapshot applying or restart.
-		if err := p.Store().ClearData(); err != nil {
-			log.Errorf("%v failed to schedule clear data worker.Task %v", p.Tag, err)
-		}
+		p.Store().ClearData()
 	}
 
 	for _, proposal := range p.applyProposals {
@@ -518,10 +506,6 @@ func (p *peer) MaybeCampaign(parentIsLeader bool) bool {
 
 func (p *peer) Term() uint64 {
 	return p.RaftGroup.Raft.Term
-}
-
-func (p *peer) Stop() {
-	p.Store().CancelApplyingSnap()
 }
 
 func (p *peer) HeartbeatPd(pdScheduler chan<- worker.Task) {
