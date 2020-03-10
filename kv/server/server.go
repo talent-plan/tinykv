@@ -18,11 +18,11 @@ var _ tinykvpb.TinyKvServer = new(Server)
 
 // Server is a TinyKV server, it 'faces outwards', sending and receiving messages from clients such as TinySQL.
 type Server struct {
-	innerServer storage.InnerServer
+	innerServer storage.Storage
 	Latches     *latches.Latches
 }
 
-func NewServer(innerServer storage.InnerServer) *Server {
+func NewServer(innerServer storage.Storage) *Server {
 	return &Server{
 		innerServer: innerServer,
 		Latches:     latches.NewLatches(),
@@ -170,11 +170,11 @@ func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*
 
 // Raft commands (tinykv <-> tinykv); these are trivially forwarded to innerServer.
 func (server *Server) Raft(stream tinykvpb.TinyKv_RaftServer) error {
-	return server.innerServer.(*raft_server.RaftInnerServer).Raft(stream)
+	return server.innerServer.(*raft_server.RaftStorage).Raft(stream)
 }
 
 func (server *Server) Snapshot(stream tinykvpb.TinyKv_SnapshotServer) error {
-	return server.innerServer.(*raft_server.RaftInnerServer).Snapshot(stream)
+	return server.innerServer.(*raft_server.RaftStorage).Snapshot(stream)
 }
 
 // SQL push down commands.

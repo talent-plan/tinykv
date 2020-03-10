@@ -8,11 +8,11 @@ import (
 	"sync"
 
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/snap"
+	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
@@ -22,9 +22,9 @@ import (
 	"github.com/pingcap/errors"
 )
 
-// RaftInnerServer is an InnerServer (see tikv/server.go) backed by a Raft node. It is part of a Raft network.
+// RaftStorage is an Storage (see tikv/server.go) backed by a Raft node. It is part of a Raft network.
 // By using Raft, reads and writes are consistent with other nodes in the TinyKV instance.
-type RaftInnerServer struct {
+type RaftStorage struct {
 	engines *engine_util.Engines
 	config  *config.Config
 
@@ -46,7 +46,7 @@ func (re *RegionError) Error() string {
 	return re.RequestErr.String()
 }
 
-func (ris *RaftInnerServer) checkResponse(resp *raft_cmdpb.RaftCmdResponse, reqCount int) error {
+func (ris *RaftStorage) checkResponse(resp *raft_cmdpb.RaftCmdResponse, reqCount int) error {
 	if resp.Header.Error != nil {
 		return &RegionError{RequestErr: resp.Header.Error}
 	}
@@ -57,8 +57,8 @@ func (ris *RaftInnerServer) checkResponse(resp *raft_cmdpb.RaftCmdResponse, reqC
 	return nil
 }
 
-// NewRaftInnerServer creates a new inner server backed by a raftstore.
-func NewRaftInnerServer(conf *config.Config) *RaftInnerServer {
+// NewRaftStorage creates a new inner server backed by a raftstore.
+func NewRaftStorage(conf *config.Config) *RaftStorage {
 	dbPath := conf.DBPath
 	kvPath := filepath.Join(dbPath, "kv")
 	raftPath := filepath.Join(dbPath, "raft")
@@ -72,10 +72,10 @@ func NewRaftInnerServer(conf *config.Config) *RaftInnerServer {
 	kvDB := engine_util.CreateDB("kv", conf)
 	engines := engine_util.NewEngines(kvDB, raftDB, kvPath, raftPath)
 
-	return &RaftInnerServer{engines: engines, config: conf}
+	return &RaftStorage{engines: engines, config: conf}
 }
 
-func (ris *RaftInnerServer) Write(ctx *kvrpcpb.Context, batch []storage.Modify) error {
+func (ris *RaftStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) error {
 	var reqs []*raft_cmdpb.Request
 	for _, m := range batch {
 		switch m.Type {
@@ -117,7 +117,7 @@ func (ris *RaftInnerServer) Write(ctx *kvrpcpb.Context, batch []storage.Modify) 
 	return ris.checkResponse(cb.WaitResp(), len(reqs))
 }
 
-func (ris *RaftInnerServer) Reader(ctx *kvrpcpb.Context) (storage.DBReader, error) {
+func (ris *RaftStorage) Reader(ctx *kvrpcpb.Context) (storage.DBReader, error) {
 	header := &raft_cmdpb.RaftRequestHeader{
 		RegionId:    ctx.RegionId,
 		Peer:        ctx.Peer,
@@ -152,7 +152,7 @@ func (ris *RaftInnerServer) Reader(ctx *kvrpcpb.Context) (storage.DBReader, erro
 	return NewRegionReader(cb.Txn, *resp.Responses[0].GetSnap().Region), nil
 }
 
-func (ris *RaftInnerServer) Raft(stream tinykvpb.TinyKv_RaftServer) error {
+func (ris *RaftStorage) Raft(stream tinykvpb.TinyKv_RaftServer) error {
 	for {
 		msg, err := stream.Recv()
 		if err != nil {
@@ -162,7 +162,7 @@ func (ris *RaftInnerServer) Raft(stream tinykvpb.TinyKv_RaftServer) error {
 	}
 }
 
-func (ris *RaftInnerServer) Snapshot(stream tinykvpb.TinyKv_SnapshotServer) error {
+func (ris *RaftStorage) Snapshot(stream tinykvpb.TinyKv_SnapshotServer) error {
 	var err error
 	done := make(chan struct{})
 	ris.snapWorker.Sender() <- worker.Task{
@@ -179,7 +179,7 @@ func (ris *RaftInnerServer) Snapshot(stream tinykvpb.TinyKv_SnapshotServer) erro
 	return err
 }
 
-func (ris *RaftInnerServer) Start() error {
+func (ris *RaftStorage) Start() error {
 	cfg := ris.config
 	pdClient, err := pd.NewClient(strings.Split(cfg.PDAddr, ","), "")
 	if err != nil {
@@ -210,7 +210,7 @@ func (ris *RaftInnerServer) Start() error {
 	return nil
 }
 
-func (ris *RaftInnerServer) Stop() error {
+func (ris *RaftStorage) Stop() error {
 	ris.snapWorker.Stop()
 	ris.node.Stop()
 	ris.resolveWorker.Stop()

@@ -5,9 +5,9 @@ import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
 
-// InnerServer represents the internal-facing server part of TinyKV, it handles sending and receiving from other
+// Storage represents the internal-facing server part of TinyKV, it handles sending and receiving from other
 // TinyKV nodes. As part of that responsibility, it also reads and writes data to disk (or semi-permanent memory).
-type InnerServer interface {
+type Storage interface {
 	Start() error
 	Stop() error
 	Write(ctx *kvrpcpb.Context, batch []Modify) error

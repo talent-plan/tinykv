@@ -9,34 +9,34 @@ import (
 	"github.com/pingcap/errors"
 )
 
-// StandAloneInnerServer is an InnerServer for a single-node TinyKV instance. It does not
+// StandAloneStorage is an Storage for a single-node TinyKV instance. It does not
 // communicate with other nodes and all data is stored locally.
-type StandAloneInnerServer struct {
+type StandAloneStorage struct {
 	db *badger.DB
 }
 
-func NewStandAloneInnerServer(conf *config.Config) *StandAloneInnerServer {
+func NewStandAloneStorage(conf *config.Config) *StandAloneStorage {
 	db := engine_util.CreateDB("kv", conf)
-	return &StandAloneInnerServer{
+	return &StandAloneStorage{
 		db: db,
 	}
 }
 
-func (is *StandAloneInnerServer) Start() error {
+func (is *StandAloneStorage) Start() error {
 	return nil
 }
 
-func (is *StandAloneInnerServer) Stop() error {
+func (is *StandAloneStorage) Stop() error {
 	return is.db.Close()
 }
 
-func (is *StandAloneInnerServer) Reader(ctx *kvrpcpb.Context) (storage.DBReader, error) {
+func (is *StandAloneStorage) Reader(ctx *kvrpcpb.Context) (storage.DBReader, error) {
 	txn := is.db.NewTransaction(false)
 	reader := NewBadgerReader(txn)
 	return reader, nil
 }
 
-func (is *StandAloneInnerServer) Write(ctx *kvrpcpb.Context, batch []storage.Modify) error {
+func (is *StandAloneStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) error {
 	return is.db.Update(func(txn *badger.Txn) error {
 		for _, op := range batch {
 			var err error

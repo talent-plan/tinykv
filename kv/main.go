@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/pingcap-incubator/tinykv/kv/config"
+	"github.com/pingcap-incubator/tinykv/kv/server"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/storage/raft_server"
 	"github.com/pingcap-incubator/tinykv/kv/storage/standalone_server"
-	"github.com/pingcap-incubator/tinykv/kv/server"
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tinykvpb"
 	"google.golang.org/grpc"
@@ -39,11 +39,11 @@ func main() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 	log.Infof("conf %v", conf)
 
-	var innerServer storage.InnerServer
+	var innerServer storage.Storage
 	if conf.Raft {
-		innerServer = raft_server.NewRaftInnerServer(conf)
+		innerServer = raft_server.NewRaftStorage(conf)
 	} else {
-		innerServer = standalone_server.NewStandAloneInnerServer(conf)
+		innerServer = standalone_server.NewStandAloneStorage(conf)
 	}
 	if err := innerServer.Start(); err != nil {
 		log.Fatal(err)

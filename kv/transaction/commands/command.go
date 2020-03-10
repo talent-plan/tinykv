@@ -26,7 +26,7 @@ type Command interface {
 }
 
 // Run runs a transactional command.
-func RunCommand(cmd Command, innerServer storage.InnerServer, latches *latches.Latches) (interface{}, error) {
+func RunCommand(cmd Command, innerServer storage.Storage, latches *latches.Latches) (interface{}, error) {
 	ctxt := cmd.Context()
 	var resp interface{}
 

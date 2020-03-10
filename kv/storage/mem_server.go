@@ -10,35 +10,35 @@ import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
 
-// MemInnerServer is a simple inner server backed by memory for testing. Data is not written to disk, nor sent to other
+// MemStorage is a simple inner server backed by memory for testing. Data is not written to disk, nor sent to other
 // nodes. It is intended for testing only.
-type MemInnerServer struct {
+type MemStorage struct {
 	CfDefault *llrb.LLRB
 	CfLock    *llrb.LLRB
 	CfWrite   *llrb.LLRB
 }
 
-func NewMemInnerServer() *MemInnerServer {
-	return &MemInnerServer{
+func NewMemStorage() *MemStorage {
+	return &MemStorage{
 		CfDefault: llrb.New(),
 		CfLock:    llrb.New(),
 		CfWrite:   llrb.New(),
 	}
 }
 
-func (is *MemInnerServer) Start() error {
+func (is *MemStorage) Start() error {
 	return nil
 }
 
-func (is *MemInnerServer) Stop() error {
+func (is *MemStorage) Stop() error {
 	return nil
 }
 
-func (is *MemInnerServer) Reader(ctx *kvrpcpb.Context) (DBReader, error) {
+func (is *MemStorage) Reader(ctx *kvrpcpb.Context) (DBReader, error) {
 	return &memReader{is}, nil
 }
 
-func (is *MemInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
+func (is *MemStorage) Write(ctx *kvrpcpb.Context, batch []Modify) error {
 	for _, m := range batch {
 		switch data := m.Data.(type) {
 		case Put:
@@ -67,7 +67,7 @@ func (is *MemInnerServer) Write(ctx *kvrpcpb.Context, batch []Modify) error {
 	return nil
 }
 
-func (is *MemInnerServer) Get(cf string, key []byte) []byte {
+func (is *MemStorage) Get(cf string, key []byte) []byte {
 	item := memItem{key: key}
 	var result llrb.Item
 	switch cf {
@@ -86,7 +86,7 @@ func (is *MemInnerServer) Get(cf string, key []byte) []byte {
 	return result.(memItem).value
 }
 
-func (is *MemInnerServer) Set(cf string, key []byte, value []byte) {
+func (is *MemStorage) Set(cf string, key []byte, value []byte) {
 	item := memItem{key, value, true}
 	switch cf {
 	case engine_util.CfDefault:
@@ -98,7 +98,7 @@ func (is *MemInnerServer) Set(cf string, key []byte, value []byte) {
 	}
 }
 
-func (is *MemInnerServer) HasChanged(cf string, key []byte) bool {
+func (is *MemStorage) HasChanged(cf string, key []byte) bool {
 	item := memItem{key: key}
 	var result llrb.Item
 	switch cf {
@@ -116,7 +116,7 @@ func (is *MemInnerServer) HasChanged(cf string, key []byte) bool {
 	return !result.(memItem).fresh
 }
 
-func (is *MemInnerServer) Len(cf string) int {
+func (is *MemStorage) Len(cf string) int {
 	switch cf {
 	case engine_util.CfDefault:
 		return is.CfDefault.Len()
@@ -129,9 +129,9 @@ func (is *MemInnerServer) Len(cf string) int {
 	return -1
 }
 
-// memReader is a DBReader which reads from a MemInnerServer.
+// memReader is a DBReader which reads from a MemStorage.
 type memReader struct {
-	inner *MemInnerServer
+	inner *MemStorage
 }
 
 func (mr *memReader) GetCF(cf string, key []byte) ([]byte, error) {
