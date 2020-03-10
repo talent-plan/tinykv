@@ -1,4 +1,4 @@
-package standalone_server
+package standalone_storage
 
 import (
 	"github.com/Connor1996/badger"

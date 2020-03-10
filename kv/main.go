@@ -14,7 +14,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/server"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/storage/raft_server"
-	"github.com/pingcap-incubator/tinykv/kv/storage/standalone_server"
+	"github.com/pingcap-incubator/tinykv/kv/storage/standalone_storage"
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tinykvpb"
 	"google.golang.org/grpc"
@@ -43,7 +43,7 @@ func main() {
 	if conf.Raft {
 		storage = raft_server.NewRaftStorage(conf)
 	} else {
-		storage = standalone_server.NewStandAloneStorage(conf)
+		storage = standalone_storage.NewStandAloneStorage(conf)
 	}
 	if err := storage.Start(); err != nil {
 		log.Fatal(err)

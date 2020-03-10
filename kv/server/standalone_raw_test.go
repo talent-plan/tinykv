@@ -8,7 +8,7 @@ import (
 	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
-	"github.com/pingcap-incubator/tinykv/kv/storage/standalone_server"
+	"github.com/pingcap-incubator/tinykv/kv/storage/standalone_storage"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/stretchr/testify/assert"
 )
@@ -17,7 +17,7 @@ const (
 	testPath = "standalone_raw_test"
 )
 
-func Set(is *standalone_server.StandAloneStorage, cf string, key []byte, value []byte) error {
+func Set(is *standalone_storage.StandAloneStorage, cf string, key []byte, value []byte) error {
 	return is.Write(nil, []storage.Modify{
 		{
 			Type: storage.ModifyTypePut,
@@ -30,7 +30,7 @@ func Set(is *standalone_server.StandAloneStorage, cf string, key []byte, value [
 	})
 }
 
-func get(is *standalone_server.StandAloneStorage, cf string, key []byte) ([]byte, error) {
+func get(is *standalone_storage.StandAloneStorage, cf string, key []byte) ([]byte, error) {
 	reader, err := is.Reader(nil)
 	if err != nil {
 		return nil, err
@@ -58,7 +58,7 @@ func cleanUpTestData(conf *config.Config) error {
 
 func TestRawGetLab1(t *testing.T) {
 	conf := newTestConfig()
-	is := standalone_server.NewStandAloneStorage(conf)
+	is := standalone_storage.NewStandAloneStorage(conf)
 	server := NewTestTiKVServer(is)
 	defer cleanUpTestData(conf)
 
@@ -76,7 +76,7 @@ func TestRawGetLab1(t *testing.T) {
 
 func TestRawGetNotFoundLab1(t *testing.T) {
 	conf := newTestConfig()
-	is := standalone_server.NewStandAloneStorage(conf)
+	is := standalone_storage.NewStandAloneStorage(conf)
 	server := NewTestTiKVServer(is)
 	defer cleanUpTestData(conf)
 
@@ -92,7 +92,7 @@ func TestRawGetNotFoundLab1(t *testing.T) {
 
 func TestRawPutLab1(t *testing.T) {
 	conf := newTestConfig()
-	is := standalone_server.NewStandAloneStorage(conf)
+	is := standalone_storage.NewStandAloneStorage(conf)
 	server := NewTestTiKVServer(is)
 	defer cleanUpTestData(conf)
 
@@ -112,7 +112,7 @@ func TestRawPutLab1(t *testing.T) {
 
 func TestRawGetAfterRawPutLab1(t *testing.T) {
 	conf := newTestConfig()
-	is := standalone_server.NewStandAloneStorage(conf)
+	is := standalone_storage.NewStandAloneStorage(conf)
 	server := NewTestTiKVServer(is)
 	defer cleanUpTestData(conf)
 
@@ -137,7 +137,7 @@ func TestRawGetAfterRawPutLab1(t *testing.T) {
 
 func TestRawGetAfterRawDeleteLab1(t *testing.T) {
 	conf := newTestConfig()
-	is := standalone_server.NewStandAloneStorage(conf)
+	is := standalone_storage.NewStandAloneStorage(conf)
 	server := NewTestTiKVServer(is)
 	defer cleanUpTestData(conf)
 
@@ -163,7 +163,7 @@ func TestRawGetAfterRawDeleteLab1(t *testing.T) {
 
 func TestRawDeleteLab1(t *testing.T) {
 	conf := newTestConfig()
-	is := standalone_server.NewStandAloneStorage(conf)
+	is := standalone_storage.NewStandAloneStorage(conf)
 	server := NewTestTiKVServer(is)
 	defer cleanUpTestData(conf)
 
@@ -183,7 +183,7 @@ func TestRawDeleteLab1(t *testing.T) {
 
 func TestRawScanLab1(t *testing.T) {
 	conf := newTestConfig()
-	is := standalone_server.NewStandAloneStorage(conf)
+	is := standalone_storage.NewStandAloneStorage(conf)
 	server := NewTestTiKVServer(is)
 	defer cleanUpTestData(conf)
 
@@ -214,7 +214,7 @@ func TestRawScanLab1(t *testing.T) {
 
 func TestRawScanAfterRawPutLab1(t *testing.T) {
 	conf := newTestConfig()
-	is := standalone_server.NewStandAloneStorage(conf)
+	is := standalone_storage.NewStandAloneStorage(conf)
 	server := NewTestTiKVServer(is)
 	defer cleanUpTestData(conf)
 
@@ -252,7 +252,7 @@ func TestRawScanAfterRawPutLab1(t *testing.T) {
 
 func TestRawScanAfterRawDeleteLab1(t *testing.T) {
 	conf := newTestConfig()
-	is := standalone_server.NewStandAloneStorage(conf)
+	is := standalone_storage.NewStandAloneStorage(conf)
 	server := NewTestTiKVServer(is)
 	defer cleanUpTestData(conf)
 
