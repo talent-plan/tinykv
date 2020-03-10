@@ -129,8 +129,6 @@ message AdminResponse {
 message RaftRequestHeader {
     uint64 region_id = 1;
     metapb.Peer peer = 2;
-    // 16 bytes, to distinguish request.  
-    bytes uuid = 3;
     metapb.RegionEpoch region_epoch = 4;
     uint64 term = 5;
 }
