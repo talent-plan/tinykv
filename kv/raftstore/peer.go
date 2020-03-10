@@ -202,6 +202,12 @@ func (p *peer) MaybeDestroy() bool {
 		log.Infof("%v is being destroyed, skip", p.Tag)
 		return false
 	}
+	if p.IsApplyingSnapshot() {
+		if !p.Store().CancelApplyingSnap() {
+			log.Infof("%v stale peer %v is applying snapshot", p.Tag, p.Meta.Id)
+			return false
+		}
+	}
 	p.PendingRemove = true
 	return true
 }

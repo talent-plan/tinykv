@@ -402,29 +402,28 @@ func WritePeerState(kvWB *engine_util.WriteBatch, region *metapb.Region, state r
 }
 
 // Apply the peer with given snapshot.
-func (ps *PeerStorage) ApplySnapshot(snap *eraftpb.Snapshot, kvWB *engine_util.WriteBatch, raftWB *engine_util.WriteBatch) (*rspb.RaftApplyState, *metapb.Region, error) {
+func (ps *PeerStorage) ApplySnapshot(snap *eraftpb.Snapshot, kvWB *engine_util.WriteBatch, raftWB *engine_util.WriteBatch) (*metapb.Region, error) {
 	log.Infof("%v begin to apply snapshot", ps.Tag)
 
 	snapData := new(rspb.RaftSnapshotData)
 	if err := snapData.Unmarshal(snap.Data); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	if snapData.Region.Id != ps.region.Id {
-		return nil, nil, fmt.Errorf("mismatch region id %v != %v", snapData.Region.Id, ps.region.Id)
+		return nil, fmt.Errorf("mismatch region id %v != %v", snapData.Region.Id, ps.region.Id)
 	}
 
 	if ps.isInitialized() {
 		// we can only delete the old data when the peer is initialized.
 		if err := ps.clearMeta(kvWB, raftWB); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
 
-	WritePeerState(kvWB, snapData.Region, rspb.PeerState_Applying)
-
 	ps.raftState.LastIndex = snap.Metadata.Index
 	ps.lastTerm = snap.Metadata.Term
+
 	applyState := &rspb.RaftApplyState{
 		AppliedIndex: snap.Metadata.Index,
 		// The snapshot only contains log which index > applied index, so
@@ -434,9 +433,11 @@ func (ps *PeerStorage) ApplySnapshot(snap *eraftpb.Snapshot, kvWB *engine_util.W
 			Term:  snap.Metadata.Term,
 		},
 	}
+	ps.saveApplyStateTo(kvWB, applyState)
+	WritePeerState(kvWB, snapData.Region, rspb.PeerState_Applying)
 
 	log.Debugf("%v apply snapshot for region %v with state %v ok", ps.Tag, snapData.Region, applyState)
-	return applyState, snapData.Region, nil
+	return snapData.Region, nil
 }
 
 /// Save memory states to disk.
@@ -453,7 +454,7 @@ func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (*ApplySnapResult, erro
 	var snapRegion *metapb.Region = nil
 	var applyRes *ApplySnapResult = nil
 	if !raft.IsEmptySnap(&ready.Snapshot) {
-		applySate, region, err := ps.ApplySnapshot(&ready.Snapshot, kvWB, raftWB)
+		region, err := ps.ApplySnapshot(&ready.Snapshot, kvWB, raftWB)
 		if err != nil {
 			return nil, err
 		}
@@ -463,7 +464,6 @@ func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (*ApplySnapResult, erro
 		}
 		snapshotIdx = ps.raftState.LastIndex
 		snapRegion = region
-		ps.saveApplyStateTo(kvWB, applySate)
 	}
 
 	if len(ready.Entries) != 0 {
@@ -531,6 +531,11 @@ func (ps *PeerStorage) ClearData() {
 			EndKey:   ps.region.GetEndKey(),
 		},
 	}
+}
+
+func (p *PeerStorage) CancelApplyingSnap() bool {
+	// Todo: currently it is a place holder
+	return true
 }
 
 // Check if the storage is applying a snapshot.
