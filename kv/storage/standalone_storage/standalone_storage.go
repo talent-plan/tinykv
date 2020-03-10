@@ -22,22 +22,22 @@ func NewStandAloneStorage(conf *config.Config) *StandAloneStorage {
 	}
 }
 
-func (is *StandAloneStorage) Start() error {
+func (s *StandAloneStorage) Start() error {
 	return nil
 }
 
-func (is *StandAloneStorage) Stop() error {
-	return is.db.Close()
+func (s *StandAloneStorage) Stop() error {
+	return s.db.Close()
 }
 
-func (is *StandAloneStorage) Reader(ctx *kvrpcpb.Context) (storage.StorageReader, error) {
-	txn := is.db.NewTransaction(false)
+func (s *StandAloneStorage) Reader(ctx *kvrpcpb.Context) (storage.StorageReader, error) {
+	txn := s.db.NewTransaction(false)
 	reader := NewBadgerReader(txn)
 	return reader, nil
 }
 
-func (is *StandAloneStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) error {
-	return is.db.Update(func(txn *badger.Txn) error {
+func (s *StandAloneStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) error {
+	return s.db.Update(func(txn *badger.Txn) error {
 		for _, op := range batch {
 			var err error
 			switch op.Type {

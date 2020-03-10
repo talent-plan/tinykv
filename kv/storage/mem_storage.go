@@ -26,40 +26,40 @@ func NewMemStorage() *MemStorage {
 	}
 }
 
-func (is *MemStorage) Start() error {
+func (s *MemStorage) Start() error {
 	return nil
 }
 
-func (is *MemStorage) Stop() error {
+func (s *MemStorage) Stop() error {
 	return nil
 }
 
-func (is *MemStorage) Reader(ctx *kvrpcpb.Context) (StorageReader, error) {
-	return &memReader{is}, nil
+func (s *MemStorage) Reader(ctx *kvrpcpb.Context) (StorageReader, error) {
+	return &memReader{s}, nil
 }
 
-func (is *MemStorage) Write(ctx *kvrpcpb.Context, batch []Modify) error {
+func (s *MemStorage) Write(ctx *kvrpcpb.Context, batch []Modify) error {
 	for _, m := range batch {
 		switch data := m.Data.(type) {
 		case Put:
 			item := memItem{data.Key, data.Value, false}
 			switch data.Cf {
 			case engine_util.CfDefault:
-				is.CfDefault.ReplaceOrInsert(item)
+				s.CfDefault.ReplaceOrInsert(item)
 			case engine_util.CfLock:
-				is.CfLock.ReplaceOrInsert(item)
+				s.CfLock.ReplaceOrInsert(item)
 			case engine_util.CfWrite:
-				is.CfWrite.ReplaceOrInsert(item)
+				s.CfWrite.ReplaceOrInsert(item)
 			}
 		case Delete:
 			item := memItem{key: data.Key}
 			switch data.Cf {
 			case engine_util.CfDefault:
-				is.CfDefault.Delete(item)
+				s.CfDefault.Delete(item)
 			case engine_util.CfLock:
-				is.CfLock.Delete(item)
+				s.CfLock.Delete(item)
 			case engine_util.CfWrite:
-				is.CfWrite.Delete(item)
+				s.CfWrite.Delete(item)
 			}
 		}
 	}
@@ -67,16 +67,16 @@ func (is *MemStorage) Write(ctx *kvrpcpb.Context, batch []Modify) error {
 	return nil
 }
 
-func (is *MemStorage) Get(cf string, key []byte) []byte {
+func (s *MemStorage) Get(cf string, key []byte) []byte {
 	item := memItem{key: key}
 	var result llrb.Item
 	switch cf {
 	case engine_util.CfDefault:
-		result = is.CfDefault.Get(item)
+		result = s.CfDefault.Get(item)
 	case engine_util.CfLock:
-		result = is.CfLock.Get(item)
+		result = s.CfLock.Get(item)
 	case engine_util.CfWrite:
-		result = is.CfWrite.Get(item)
+		result = s.CfWrite.Get(item)
 	}
 
 	if result == nil {
@@ -86,28 +86,28 @@ func (is *MemStorage) Get(cf string, key []byte) []byte {
 	return result.(memItem).value
 }
 
-func (is *MemStorage) Set(cf string, key []byte, value []byte) {
+func (s *MemStorage) Set(cf string, key []byte, value []byte) {
 	item := memItem{key, value, true}
 	switch cf {
 	case engine_util.CfDefault:
-		is.CfDefault.ReplaceOrInsert(item)
+		s.CfDefault.ReplaceOrInsert(item)
 	case engine_util.CfLock:
-		is.CfLock.ReplaceOrInsert(item)
+		s.CfLock.ReplaceOrInsert(item)
 	case engine_util.CfWrite:
-		is.CfWrite.ReplaceOrInsert(item)
+		s.CfWrite.ReplaceOrInsert(item)
 	}
 }
 
-func (is *MemStorage) HasChanged(cf string, key []byte) bool {
+func (s *MemStorage) HasChanged(cf string, key []byte) bool {
 	item := memItem{key: key}
 	var result llrb.Item
 	switch cf {
 	case engine_util.CfDefault:
-		result = is.CfDefault.Get(item)
+		result = s.CfDefault.Get(item)
 	case engine_util.CfLock:
-		result = is.CfLock.Get(item)
+		result = s.CfLock.Get(item)
 	case engine_util.CfWrite:
-		result = is.CfWrite.Get(item)
+		result = s.CfWrite.Get(item)
 	}
 	if result == nil {
 		return true
@@ -116,14 +116,14 @@ func (is *MemStorage) HasChanged(cf string, key []byte) bool {
 	return !result.(memItem).fresh
 }
 
-func (is *MemStorage) Len(cf string) int {
+func (s *MemStorage) Len(cf string) int {
 	switch cf {
 	case engine_util.CfDefault:
-		return is.CfDefault.Len()
+		return s.CfDefault.Len()
 	case engine_util.CfLock:
-		return is.CfLock.Len()
+		return s.CfLock.Len()
 	case engine_util.CfWrite:
-		return is.CfWrite.Len()
+		return s.CfWrite.Len()
 	}
 
 	return -1
