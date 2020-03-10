@@ -38,8 +38,8 @@ func get(is *standalone_server.StandAloneStorage, cf string, key []byte) ([]byte
 	return reader.GetCF(cf, key)
 }
 
-func NewTestTiKVServer(innerServer storage.Storage) *Server {
-	server := NewServer(innerServer)
+func NewTestTiKVServer(storage storage.Storage) *Server {
+	server := NewServer(storage)
 	return server
 }
 

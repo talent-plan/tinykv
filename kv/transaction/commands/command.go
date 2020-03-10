@@ -26,14 +26,14 @@ type Command interface {
 }
 
 // Run runs a transactional command.
-func RunCommand(cmd Command, innerServer storage.Storage, latches *latches.Latches) (interface{}, error) {
+func RunCommand(cmd Command, storage storage.Storage, latches *latches.Latches) (interface{}, error) {
 	ctxt := cmd.Context()
 	var resp interface{}
 
 	keysToWrite := cmd.WillWrite()
 	if keysToWrite == nil {
 		// The command is readonly or requires access to the DB to determine the keys it will write.
-		reader, err := innerServer.Reader(ctxt)
+		reader, err := storage.Reader(ctxt)
 		if err != nil {
 			return nil, err
 		}
@@ -51,7 +51,7 @@ func RunCommand(cmd Command, innerServer storage.Storage, latches *latches.Latch
 		latches.WaitForLatches(keysToWrite)
 		defer latches.ReleaseLatches(keysToWrite)
 
-		reader, err := innerServer.Reader(ctxt)
+		reader, err := storage.Reader(ctxt)
 		if err != nil {
 			return nil, err
 		}
@@ -67,7 +67,7 @@ func RunCommand(cmd Command, innerServer storage.Storage, latches *latches.Latch
 		latches.Validate(&txn, keysToWrite)
 
 		// Building the transaction succeeded without conflict, write all writes to backing storage.
-		err = innerServer.Write(ctxt, txn.Writes)
+		err = storage.Write(ctxt, txn.Writes)
 		if err != nil {
 			return nil, err
 		}

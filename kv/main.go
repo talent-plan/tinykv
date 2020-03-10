@@ -39,16 +39,16 @@ func main() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 	log.Infof("conf %v", conf)
 
-	var innerServer storage.Storage
+	var storage storage.Storage
 	if conf.Raft {
-		innerServer = raft_server.NewRaftStorage(conf)
+		storage = raft_server.NewRaftStorage(conf)
 	} else {
-		innerServer = standalone_server.NewStandAloneStorage(conf)
+		storage = standalone_server.NewStandAloneStorage(conf)
 	}
-	if err := innerServer.Start(); err != nil {
+	if err := storage.Start(); err != nil {
 		log.Fatal(err)
 	}
-	server := server.NewServer(innerServer)
+	server := server.NewServer(storage)
 
 	var alivePolicy = keepalive.EnforcementPolicy{
 		MinTime:             2 * time.Second, // If a client pings more than once every 2 seconds, terminate the connection
