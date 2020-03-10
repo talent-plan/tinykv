@@ -189,7 +189,7 @@ func rawRegionError(err error, resp interface{}) bool {
 	if err == nil {
 		return false
 	}
-	respValue := reflect.ValueOf(resp)
+	respValue := reflect.ValueOf(resp).Elem()
 	if regionErr, ok := err.(*raft_server.RegionError); ok {
 		respValue.FieldByName("RegionError").Set(reflect.ValueOf(regionErr.RequestErr))
 	} else {
