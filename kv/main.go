@@ -13,7 +13,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/server"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
-	"github.com/pingcap-incubator/tinykv/kv/storage/raft_server"
+	"github.com/pingcap-incubator/tinykv/kv/storage/raft_storage"
 	"github.com/pingcap-incubator/tinykv/kv/storage/standalone_storage"
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tinykvpb"
@@ -41,7 +41,7 @@ func main() {
 
 	var storage storage.Storage
 	if conf.Raft {
-		storage = raft_server.NewRaftStorage(conf)
+		storage = raft_storage.NewRaftStorage(conf)
 	} else {
 		storage = standalone_storage.NewStandAloneStorage(conf)
 	}

@@ -6,7 +6,7 @@ import (
 
 	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
-	"github.com/pingcap-incubator/tinykv/kv/storage/raft_server"
+	"github.com/pingcap-incubator/tinykv/kv/storage/raft_storage"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/commands"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/latches"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/coprocessor"
@@ -170,11 +170,11 @@ func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*
 
 // Raft commands (tinykv <-> tinykv); these are trivially forwarded to storage.
 func (server *Server) Raft(stream tinykvpb.TinyKv_RaftServer) error {
-	return server.storage.(*raft_server.RaftStorage).Raft(stream)
+	return server.storage.(*raft_storage.RaftStorage).Raft(stream)
 }
 
 func (server *Server) Snapshot(stream tinykvpb.TinyKv_SnapshotServer) error {
-	return server.storage.(*raft_server.RaftStorage).Snapshot(stream)
+	return server.storage.(*raft_storage.RaftStorage).Snapshot(stream)
 }
 
 // SQL push down commands.
@@ -190,7 +190,7 @@ func rawRegionError(err error, resp interface{}) bool {
 		return false
 	}
 	respValue := reflect.ValueOf(resp).Elem()
-	if regionErr, ok := err.(*raft_server.RegionError); ok {
+	if regionErr, ok := err.(*raft_storage.RegionError); ok {
 		respValue.FieldByName("RegionError").Set(reflect.ValueOf(regionErr.RequestErr))
 	} else {
 		respValue.FieldByName("Error").Set(reflect.ValueOf(err.Error()))
