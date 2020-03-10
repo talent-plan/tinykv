@@ -29,15 +29,13 @@ const (
 
 type peerMsgHandler struct {
 	*peer
-	applyCh chan []message.Msg
-	ctx     *GlobalContext
+	ctx *GlobalContext
 }
 
-func newPeerMsgHandler(peer *peer, applyCh chan []message.Msg, ctx *GlobalContext) *peerMsgHandler {
+func newPeerMsgHandler(peer *peer, ctx *GlobalContext) *peerMsgHandler {
 	return &peerMsgHandler{
-		peer:    peer,
-		applyCh: applyCh,
-		ctx:     ctx,
+		peer: peer,
+		ctx:  ctx,
 	}
 }
 
@@ -60,9 +58,6 @@ func (d *peerMsgHandler) HandleMsgs(msg message.Msg) {
 		d.proposeRaftCommand(raftCMD.Request, raftCMD.Callback)
 	case message.MsgTypeTick:
 		d.onTick()
-	case message.MsgTypeApplyRes:
-		res := msg.Data.(*MsgApplyRes)
-		d.onApplyResult(res)
 	case message.MsgTypeSplitRegion:
 		split := msg.Data.(*message.MsgSplitRegion)
 		log.Infof("%s on split with %v", d.peer.Tag, split.SplitKeys)
@@ -152,9 +147,6 @@ func (d *peerMsgHandler) startTicker() {
 }
 
 func (d *peerMsgHandler) onRaftBaseTick() {
-	if d.peer.PendingRemove {
-		return
-	}
 	// When having pending snapshot, if election timeout is met, it can't pass
 	// the pending conf change check because first index has been updated to
 	// a value that is larger than last index.
@@ -167,30 +159,7 @@ func (d *peerMsgHandler) onRaftBaseTick() {
 	d.ticker.schedule(PeerTickRaft)
 }
 
-func (d *peerMsgHandler) onApplyResult(res *MsgApplyRes) {
-	// handle executing committed log results
-	for _, result := range res.execResults {
-		switch x := result.(type) {
-		case *execResultChangePeer:
-			d.onReadyChangePeer(x)
-		case *execResultCompactLog:
-			d.onReadyCompactLog(x.firstIndex, x.truncatedIndex)
-		case *execResultSplitRegion:
-			d.onReadySplitRegion(x.derived, x.regions)
-		}
-	}
-	// Your Code Here (2B).
-}
-
-func (d *peerMsgHandler) onReadyChangePeer(cp *execResultChangePeer) {
-	// Your Code Here (3B).
-}
-
-func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*metapb.Region) {
-	// Your Code Here (3B).
-}
-
-func (d *peerMsgHandler) onReadyCompactLog(firstIndex uint64, truncatedIndex uint64) {
+func (d *peerMsgHandler) ScheduleCompactLog(firstIndex uint64, truncatedIndex uint64) {
 	raftLogGCTask := &runner.RaftLogGCTask{
 		RaftEngine: d.ctx.engine.Raft,
 		RegionID:   d.regionID(),
@@ -210,7 +179,7 @@ func (d *peerMsgHandler) onRaftMsg(msg *rspb.RaftMessage) error {
 	if !d.validateRaftMessage(msg) {
 		return nil
 	}
-	if d.peer.PendingRemove || d.stopped {
+	if d.stopped {
 		return nil
 	}
 	if msg.GetIsTombstone() {
@@ -456,7 +425,6 @@ func (d *peerMsgHandler) onRaftGCLogTick() {
 		return
 	}
 
-	// Have no idea why subtract 1 here, but original code did this by magic.
 	y.Assert(compactIdx > 0)
 	compactIdx -= 1
 	if compactIdx < firstIdx {

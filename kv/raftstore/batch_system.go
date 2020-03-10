@@ -187,7 +187,7 @@ func (bs *RaftBatchSystem) loadPeers() ([]*peer, error) {
 		if err != nil {
 			return nil, err
 		}
-		peer.scheduleApplyingSnapshot()
+		peer.peerStorage.ScheduleApplyingSnapshot()
 		ctx.storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region: region})
 		ctx.storeMeta.regions[region.Id] = region
 		regionPeers = append(regionPeers, peer)
@@ -286,11 +286,9 @@ func (bs *RaftBatchSystem) startWorkers(peers []*peer) {
 	ctx := bs.ctx
 	workers := bs.workers
 	router := bs.router
-	bs.wg.Add(3) // raftWorker, applyWorker, storeWorker
+	bs.wg.Add(2) // raftWorker, storeWorker
 	rw := newRaftWorker(ctx, router)
 	go rw.run(bs.closeCh, bs.wg)
-	aw := newApplyWorker(ctx, rw.applyCh, router)
-	go aw.run(bs.wg)
 	sw := newStoreWorker(ctx, bs.storeState)
 	go sw.run(bs.closeCh, bs.wg)
 	router.sendStore(message.Msg{Type: message.MsgTypeStoreStart, Data: ctx.store})

@@ -14,7 +14,6 @@ const (
 	MsgTypeTick                  MsgType = 2
 	MsgTypeRaftMessage           MsgType = 3
 	MsgTypeRaftCmd               MsgType = 4
-	MsgTypeApplyRes              MsgType = 5
 	MsgTypeGcSnap                MsgType = 7
 	MsgTypeSplitRegion           MsgType = 8
 	MsgTypeRegionApproximateSize MsgType = 9
@@ -22,10 +21,6 @@ const (
 	MsgTypeStoreRaftMessage MsgType = 101
 	MsgTypeStoreTick        MsgType = 106
 	MsgTypeStoreStart       MsgType = 107
-
-	MsgTypeApplyCommitted MsgType = 301
-	MsgTypeApplyRefresh   MsgType = 302
-	MsgTypeApplyProposal  MsgType = 303
 )
 
 type Msg struct {

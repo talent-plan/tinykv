@@ -79,23 +79,28 @@ func (p *peer) stop() {
 	p.stopped = true
 }
 
-func (p *peer) scheduleApplyingSnapshot() {
-	p.Store().ScheduleApplyingSnapshot()
-}
-
 func (p *peer) tag() string {
 	return p.Tag
+}
+
+type proposal struct {
+	// index + term for unique identification
+	index uint64
+	term  uint64
+	cb    *message.Callback
 }
 
 type peer struct {
 	stopped bool
 	ticker  *ticker
 
-	Meta           *metapb.Peer
-	regionId       uint64
-	RaftGroup      *raft.RawNode
-	peerStorage    *PeerStorage
-	applyProposals []*proposal
+	Meta        *metapb.Peer
+	regionId    uint64
+	RaftGroup   *raft.RawNode
+	peerStorage *PeerStorage
+
+	// Record the callback of the proposals
+	proposals []*proposal
 
 	peerCache map[uint64]*metapb.Peer
 
@@ -114,10 +119,7 @@ type peer struct {
 	Tag string
 
 	// Index of last scheduled committed raft log.
-	LastApplyingIdx  uint64
 	LastCompactedIdx uint64
-
-	PendingRemove bool
 
 	// If a snapshot is being applied asynchronously, messages should not be sent.
 	pendingMessages []eraftpb.Message
@@ -158,7 +160,6 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 		PeerHeartbeats:        make(map[uint64]time.Time),
 		PeersStartPendingTime: make(map[uint64]time.Time),
 		Tag:                   tag,
-		LastApplyingIdx:       appliedIndex,
 		ticker:                newTicker(region.GetId(), cfg),
 	}
 
@@ -200,7 +201,7 @@ func (p *peer) nextProposalIndex() uint64 {
 
 /// Tries to destroy itself. Returns a job (if needed) to do more cleaning tasks.
 func (p *peer) MaybeDestroy() bool {
-	if p.PendingRemove {
+	if p.stopped {
 		log.Infof("%v is being destroyed, skip", p.Tag)
 		return false
 	}
@@ -210,7 +211,6 @@ func (p *peer) MaybeDestroy() bool {
 			return false
 		}
 	}
-	p.PendingRemove = true
 	return true
 }
 
@@ -246,10 +246,10 @@ func (p *peer) Destroy(engine *engine_util.Engines, keepData bool) error {
 		}
 	}
 
-	for _, proposal := range p.applyProposals {
+	for _, proposal := range p.proposals {
 		NotifyReqRegionRemoved(region.Id, proposal.cb)
 	}
-	p.applyProposals = nil
+	p.proposals = nil
 
 	log.Infof("%v destroy itself, takes %v", p.Tag, time.Now().Sub(start))
 	return nil
@@ -384,15 +384,6 @@ func (p *peer) AnyNewPeerCatchUp(peerId uint64) bool {
 		}
 	}
 	return false
-}
-
-func (p *peer) ReadyToHandlePendingSnap() bool {
-	// If apply worker is still working, written apply state may be overwritten
-	// by apply worker. So we have to wait here.
-	// Please note that committed_index can't be used here. When applying a snapshot,
-	// a stale heartbeat can make the leader think follower has already applied
-	// the snapshot, and send remaining log entries, which may increase committed_index.
-	return p.LastApplyingIdx == p.Store().AppliedIndex()
 }
 
 func (p *peer) MaybeCampaign(parentIsLeader bool) bool {

@@ -111,7 +111,8 @@ var _ raft.Storage = new(PeerStorage)
 type PeerStorage struct {
 	Engines *engine_util.Engines
 
-	peerID    uint64
+	peerID uint64
+	// cache for the persistent states
 	region    *metapb.Region
 	raftState rspb.RaftLocalState
 	lastTerm  uint64
@@ -499,10 +500,6 @@ func (ps *PeerStorage) ApplySnapshot(ctx *InvokeContext, snap *eraftpb.Snapshot,
 }
 
 /// Save memory states to disk.
-///
-/// This function only write data to `ready_ctx`'s `WriteBatch`. It's caller's duty to write
-/// it explicitly to disk. If it's flushed to disk successfully, `post_ready` should be called
-/// to update the memory states properly.
 /// Do not modify ready in this function, this is a requirement to advance the ready object properly later.
 func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (*ApplySnapResult, error) {
 	kvWB, raftWB := new(engine_util.WriteBatch), new(engine_util.WriteBatch)
