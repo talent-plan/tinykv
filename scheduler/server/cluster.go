@@ -65,8 +65,6 @@ type RaftCluster struct {
 	storage *core.Storage
 	id      id.Allocator
 
-	prepareChecker *prepareChecker
-
 	coordinator *coordinator
 
 	wg   sync.WaitGroup
@@ -134,7 +132,6 @@ func (c *RaftCluster) initCluster(id id.Allocator, opt *config.ScheduleOption, s
 	c.opt = opt
 	c.storage = storage
 	c.id = id
-	c.prepareChecker = newPrepareChecker()
 }
 
 func (c *RaftCluster) start() error {
@@ -293,13 +290,13 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 	// Save to storage if meta is updated.
 	// Save to cache if meta or leader is updated, or contains any down/pending peer.
 	// Mark isNew if the region in cache does not have leader.
-	var saveCache, isNew bool
+	var saveCache bool
 	if origin == nil {
 		log.Debug("insert new region",
 			zap.Uint64("region-id", region.GetID()),
 			zap.Stringer("meta-region", core.RegionToHexMeta(region.GetMeta())),
 		)
-		saveCache, isNew = true, true
+		saveCache = true
 	} else {
 		r := region.GetRegionEpoch()
 		o := origin.GetRegionEpoch()
@@ -326,9 +323,7 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 			saveCache = true
 		}
 		if region.GetLeader().GetId() != origin.GetLeader().GetId() {
-			if origin.GetLeader().GetId() == 0 {
-				isNew = true
-			} else {
+			if origin.GetLeader().GetId() != 0 {
 				log.Info("leader changed",
 					zap.Uint64("region-id", region.GetID()),
 					zap.Uint64("from", origin.GetLeader().GetStoreId()),
@@ -353,17 +348,10 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 		}
 	}
 
-	if !saveCache && !isNew {
-		return nil
-	}
-
-	c.Lock()
-	defer c.Unlock()
-	if isNew {
-		c.prepareChecker.collect(region)
-	}
-
 	if saveCache {
+		c.Lock()
+		defer c.Unlock()
+
 		c.core.PutRegion(region)
 
 		// Update related stores.
@@ -882,60 +870,9 @@ func (c *RaftCluster) GetMaxReplicas() int {
 	return c.opt.GetMaxReplicas()
 }
 
-// isPrepared if the cluster information is collected
-func (c *RaftCluster) isPrepared() bool {
-	c.RLock()
-	defer c.RUnlock()
-	return c.prepareChecker.check(c)
-}
-
 func (c *RaftCluster) putRegion(region *core.RegionInfo) error {
 	c.Lock()
 	defer c.Unlock()
 	c.core.PutRegion(region)
 	return nil
-}
-
-type prepareChecker struct {
-	reactiveRegions map[uint64]int
-	start           time.Time
-	sum             int
-	isPrepared      bool
-}
-
-func newPrepareChecker() *prepareChecker {
-	return &prepareChecker{
-		start:           time.Now(),
-		reactiveRegions: make(map[uint64]int),
-	}
-}
-
-// Before starting up the scheduler, we need to take the proportion of the regions on each store into consideration.
-func (checker *prepareChecker) check(c *RaftCluster) bool {
-	if checker.isPrepared || time.Since(checker.start) > collectTimeout {
-		return true
-	}
-	// The number of active regions should be more than total region of all stores * collectFactor
-	if float64(c.core.Length())*collectFactor > float64(checker.sum) {
-		return false
-	}
-	for _, store := range c.GetStores() {
-		if !store.IsUp() {
-			continue
-		}
-		storeID := store.GetID()
-		// For each store, the number of active regions should be more than total region of the store * collectFactor
-		if float64(c.core.GetStoreRegionCount(storeID))*collectFactor > float64(checker.reactiveRegions[storeID]) {
-			return false
-		}
-	}
-	checker.isPrepared = true
-	return true
-}
-
-func (checker *prepareChecker) collect(region *core.RegionInfo) {
-	for _, p := range region.GetPeers() {
-		checker.reactiveRegions[p.GetStoreId()]++
-	}
-	checker.sum++
 }

@@ -123,18 +123,6 @@ func (c *coordinator) run() {
 	ticker := time.NewTicker(runSchedulerCheckInterval)
 	defer ticker.Stop()
 	log.Info("coordinator starts to collect cluster information")
-	for {
-		if c.shouldRun() {
-			log.Info("coordinator has finished cluster information preparation")
-			break
-		}
-		select {
-		case <-ticker.C:
-		case <-c.ctx.Done():
-			log.Info("coordinator stops running")
-			return
-		}
-	}
 	log.Info("coordinator starts to run schedulers")
 	var (
 		scheduleNames []string
@@ -231,10 +219,6 @@ func (c *coordinator) getSchedulers() []string {
 		names = append(names, name)
 	}
 	return names
-}
-
-func (c *coordinator) shouldRun() bool {
-	return c.cluster.isPrepared()
 }
 
 func (c *coordinator) addScheduler(scheduler schedule.Scheduler, args ...string) error {

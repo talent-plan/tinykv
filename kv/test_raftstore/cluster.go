@@ -391,34 +391,6 @@ func (c *Cluster) Scan(start, end []byte) [][]byte {
 	return values
 }
 
-func (c *Cluster) TransferLeader(regionID uint64, leader *metapb.Peer) {
-	region, _, err := c.pdClient.GetRegionByID(context.TODO(), regionID)
-	if err != nil {
-		panic(err)
-	}
-	epoch := region.RegionEpoch
-	transferLeader := NewAdminRequest(regionID, epoch, NewTransferLeaderCmd(leader))
-	resp, _ := c.CallCommandOnLeader(transferLeader, 5*time.Second)
-	if resp.AdminResponse.CmdType != raft_cmdpb.AdminCmdType_TransferLeader {
-		panic("resp.AdminResponse.CmdType != raft_cmdpb.AdminCmdType_TransferLeader")
-	}
-}
-
-func (c *Cluster) MustTransferLeader(regionID uint64, leader *metapb.Peer) {
-	timer := time.Now()
-	for {
-		currentLeader := c.LeaderOfRegion(regionID)
-		if currentLeader.Id == leader.Id &&
-			currentLeader.StoreId == leader.StoreId {
-			return
-		}
-		if time.Now().Sub(timer) > 5*time.Second {
-			panic(fmt.Sprintf("failed to transfer leader to [%d] %s", regionID, leader.String()))
-		}
-		c.TransferLeader(regionID, leader)
-	}
-}
-
 func (c *Cluster) MustAddPeer(regionID uint64, peer *metapb.Peer) {
 	c.pdClient.AddPeer(regionID, peer)
 	c.MustHavePeer(regionID, peer)
