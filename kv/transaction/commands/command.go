@@ -5,8 +5,8 @@ package commands
 import (
 	"reflect"
 
-	"github.com/pingcap-incubator/tinykv/kv/inner_server"
-	"github.com/pingcap-incubator/tinykv/kv/inner_server/raft_server"
+	"github.com/pingcap-incubator/tinykv/kv/storage"
+	"github.com/pingcap-incubator/tinykv/kv/storage/raft_server"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/latches"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/mvcc"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
@@ -26,7 +26,7 @@ type Command interface {
 }
 
 // Run runs a transactional command.
-func RunCommand(cmd Command, innerServer inner_server.InnerServer, latches *latches.Latches) (interface{}, error) {
+func RunCommand(cmd Command, innerServer storage.InnerServer, latches *latches.Latches) (interface{}, error) {
 	ctxt := cmd.Context()
 	var resp interface{}
 

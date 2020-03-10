@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/inner_server"
-	"github.com/pingcap-incubator/tinykv/kv/inner_server/raft_server"
-	"github.com/pingcap-incubator/tinykv/kv/inner_server/standalone_server"
+	"github.com/pingcap-incubator/tinykv/kv/storage"
+	"github.com/pingcap-incubator/tinykv/kv/storage/raft_server"
+	"github.com/pingcap-incubator/tinykv/kv/storage/standalone_server"
 	"github.com/pingcap-incubator/tinykv/kv/server"
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tinykvpb"
@@ -39,7 +39,7 @@ func main() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 	log.Infof("conf %v", conf)
 
-	var innerServer inner_server.InnerServer
+	var innerServer storage.InnerServer
 	if conf.Raft {
 		innerServer = raft_server.NewRaftInnerServer(conf)
 	} else {

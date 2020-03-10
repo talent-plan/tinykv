@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/pingcap-incubator/tinykv/kv/inner_server"
+	"github.com/pingcap-incubator/tinykv/kv/storage"
 
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
@@ -12,7 +12,7 @@ import (
 )
 
 func TestGet(t *testing.T) {
-	mem := inner_server.NewMemInnerServer()
+	mem := storage.NewMemInnerServer()
 	server := NewServer(mem)
 	mem.Set(engine_util.CfDefault, []byte{99}, []byte{42})
 
@@ -26,7 +26,7 @@ func TestGet(t *testing.T) {
 }
 
 func TestPut(t *testing.T) {
-	mem := inner_server.NewMemInnerServer()
+	mem := storage.NewMemInnerServer()
 	server := NewServer(mem)
 
 	var req kvrpcpb.RawPutRequest
@@ -41,7 +41,7 @@ func TestPut(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
-	mem := inner_server.NewMemInnerServer()
+	mem := storage.NewMemInnerServer()
 	server := NewServer(mem)
 	mem.Set(engine_util.CfDefault, []byte{99}, []byte{42})
 
@@ -55,7 +55,7 @@ func TestDelete(t *testing.T) {
 }
 
 func TestScan(t *testing.T) {
-	mem := inner_server.NewMemInnerServer()
+	mem := storage.NewMemInnerServer()
 	server := NewServer(mem)
 	mem.Set(engine_util.CfDefault, []byte{99}, []byte{42})
 	mem.Set(engine_util.CfDefault, []byte{101}, []byte{42, 2})

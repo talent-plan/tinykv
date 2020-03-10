@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/inner_server"
+	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
@@ -75,12 +75,12 @@ func NewRaftInnerServer(conf *config.Config) *RaftInnerServer {
 	return &RaftInnerServer{engines: engines, config: conf}
 }
 
-func (ris *RaftInnerServer) Write(ctx *kvrpcpb.Context, batch []inner_server.Modify) error {
+func (ris *RaftInnerServer) Write(ctx *kvrpcpb.Context, batch []storage.Modify) error {
 	var reqs []*raft_cmdpb.Request
 	for _, m := range batch {
 		switch m.Type {
-		case inner_server.ModifyTypePut:
-			put := m.Data.(inner_server.Put)
+		case storage.ModifyTypePut:
+			put := m.Data.(storage.Put)
 			reqs = append(reqs, &raft_cmdpb.Request{
 				CmdType: raft_cmdpb.CmdType_Put,
 				Put: &raft_cmdpb.PutRequest{
@@ -88,8 +88,8 @@ func (ris *RaftInnerServer) Write(ctx *kvrpcpb.Context, batch []inner_server.Mod
 					Key:   put.Key,
 					Value: put.Value,
 				}})
-		case inner_server.ModifyTypeDelete:
-			delete := m.Data.(inner_server.Delete)
+		case storage.ModifyTypeDelete:
+			delete := m.Data.(storage.Delete)
 			reqs = append(reqs, &raft_cmdpb.Request{
 				CmdType: raft_cmdpb.CmdType_Delete,
 				Delete: &raft_cmdpb.DeleteRequest{
@@ -117,7 +117,7 @@ func (ris *RaftInnerServer) Write(ctx *kvrpcpb.Context, batch []inner_server.Mod
 	return ris.checkResponse(cb.WaitResp(), len(reqs))
 }
 
-func (ris *RaftInnerServer) Reader(ctx *kvrpcpb.Context) (inner_server.DBReader, error) {
+func (ris *RaftInnerServer) Reader(ctx *kvrpcpb.Context) (storage.DBReader, error) {
 	header := &raft_cmdpb.RaftRequestHeader{
 		RegionId:    ctx.RegionId,
 		Peer:        ctx.Peer,

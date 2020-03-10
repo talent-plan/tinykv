@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 
-	"github.com/pingcap-incubator/tinykv/kv/inner_server"
+	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/util/codec"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 )
@@ -13,16 +13,16 @@ import (
 // and stores writes in a buffer for atomic writing.
 type MvccTxn struct {
 	RoTxn
-	Writes []inner_server.Modify
+	Writes []storage.Modify
 }
 
 // A 'transaction' which will only read from the DB.
 type RoTxn struct {
-	Reader  inner_server.DBReader
+	Reader  storage.DBReader
 	StartTS *uint64
 }
 
-func NewTxn(reader inner_server.DBReader) MvccTxn {
+func NewTxn(reader storage.DBReader) MvccTxn {
 	return MvccTxn{
 		RoTxn: RoTxn{Reader: reader},
 	}
@@ -119,9 +119,9 @@ func (txn *RoTxn) GetWrite(key []byte, ts uint64) (*Write, error) {
 
 func (txn *MvccTxn) PutWrite(key []byte, write *Write, ts uint64) {
 	encodedKey := EncodeKey(key, ts)
-	txn.Writes = append(txn.Writes, inner_server.Modify{
-		Type: inner_server.ModifyTypePut,
-		Data: inner_server.Put{
+	txn.Writes = append(txn.Writes, storage.Modify{
+		Type: storage.ModifyTypePut,
+		Data: storage.Put{
 			Key:   encodedKey,
 			Value: write.ToBytes(),
 			Cf:    engine_util.CfWrite,
@@ -150,9 +150,9 @@ func (txn *RoTxn) GetLock(key []byte) (*Lock, error) {
 
 // PutLock adds a key/lock to this transaction.
 func (txn *MvccTxn) PutLock(key []byte, lock *Lock) {
-	txn.Writes = append(txn.Writes, inner_server.Modify{
-		Type: inner_server.ModifyTypePut,
-		Data: inner_server.Put{
+	txn.Writes = append(txn.Writes, storage.Modify{
+		Type: storage.ModifyTypePut,
+		Data: storage.Put{
 			Key:   key,
 			Value: lock.ToBytes(),
 			Cf:    engine_util.CfLock,
@@ -162,9 +162,9 @@ func (txn *MvccTxn) PutLock(key []byte, lock *Lock) {
 
 // DeleteLock adds a delete lock to this transaction.
 func (txn *MvccTxn) DeleteLock(key []byte) {
-	txn.Writes = append(txn.Writes, inner_server.Modify{
-		Type: inner_server.ModifyTypeDelete,
-		Data: inner_server.Delete{
+	txn.Writes = append(txn.Writes, storage.Modify{
+		Type: storage.ModifyTypeDelete,
+		Data: storage.Delete{
 			Key: key,
 			Cf:  engine_util.CfLock,
 		},
@@ -178,9 +178,9 @@ func (txn *RoTxn) GetValue(key []byte, ts uint64) ([]byte, error) {
 
 // PutValue adds a key/value write to this transaction.
 func (txn *MvccTxn) PutValue(key []byte, value []byte) {
-	txn.Writes = append(txn.Writes, inner_server.Modify{
-		Type: inner_server.ModifyTypePut,
-		Data: inner_server.Put{
+	txn.Writes = append(txn.Writes, storage.Modify{
+		Type: storage.ModifyTypePut,
+		Data: storage.Put{
 			Key:   EncodeKey(key, *txn.StartTS),
 			Value: value,
 			Cf:    engine_util.CfDefault,
@@ -190,9 +190,9 @@ func (txn *MvccTxn) PutValue(key []byte, value []byte) {
 
 // DeleteValue removes a key/value pair in this transaction.
 func (txn *MvccTxn) DeleteValue(key []byte) {
-	txn.Writes = append(txn.Writes, inner_server.Modify{
-		Type: inner_server.ModifyTypeDelete,
-		Data: inner_server.Delete{
+	txn.Writes = append(txn.Writes, storage.Modify{
+		Type: storage.ModifyTypeDelete,
+		Data: storage.Delete{
 			Key: EncodeKey(key, *txn.StartTS),
 			Cf:  engine_util.CfDefault,
 		},

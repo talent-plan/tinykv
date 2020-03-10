@@ -7,8 +7,8 @@ import (
 
 	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/inner_server"
-	"github.com/pingcap-incubator/tinykv/kv/inner_server/standalone_server"
+	"github.com/pingcap-incubator/tinykv/kv/storage"
+	"github.com/pingcap-incubator/tinykv/kv/storage/standalone_server"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/stretchr/testify/assert"
 )
@@ -18,10 +18,10 @@ const (
 )
 
 func Set(is *standalone_server.StandAloneInnerServer, cf string, key []byte, value []byte) error {
-	return is.Write(nil, []inner_server.Modify{
+	return is.Write(nil, []storage.Modify{
 		{
-			Type: inner_server.ModifyTypePut,
-			Data: inner_server.Put{
+			Type: storage.ModifyTypePut,
+			Data: storage.Put{
 				Cf:    cf,
 				Key:   key,
 				Value: value,
@@ -38,7 +38,7 @@ func get(is *standalone_server.StandAloneInnerServer, cf string, key []byte) ([]
 	return reader.GetCF(cf, key)
 }
 
-func NewTestTiKVServer(innerServer inner_server.InnerServer) *Server {
+func NewTestTiKVServer(innerServer storage.InnerServer) *Server {
 	server := NewServer(innerServer)
 	return server
 }

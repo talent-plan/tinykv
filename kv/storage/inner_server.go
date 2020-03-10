@@ -1,4 +1,4 @@
-package inner_server
+package storage
 
 import (
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"

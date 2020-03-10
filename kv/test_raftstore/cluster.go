@@ -13,7 +13,7 @@ import (
 
 	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/inner_server/raft_server"
+	"github.com/pingcap-incubator/tinykv/kv/storage/raft_server"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/log"

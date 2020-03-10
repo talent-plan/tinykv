@@ -1,4 +1,4 @@
-package inner_server
+package storage
 
 import (
 	"bytes"

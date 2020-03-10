@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pingcap-incubator/tinykv/kv/inner_server"
+	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/server"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/mvcc"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
@@ -23,7 +23,7 @@ type testBuilder struct {
 	t      *testing.T
 	server *server.Server
 	// mem will always be the backing store for server.
-	mem *inner_server.MemInnerServer
+	mem *storage.MemInnerServer
 	// Keep track of timestamps.
 	prevTs uint64
 }
@@ -40,7 +40,7 @@ type kv struct {
 }
 
 func newBuilder(t *testing.T) testBuilder {
-	mem := inner_server.NewMemInnerServer()
+	mem := storage.NewMemInnerServer()
 	server := server.NewServer(mem)
 	server.Latches.Validation = func(txn *mvcc.MvccTxn, keys [][]byte) {
 		keyMap := make(map[string]struct{})

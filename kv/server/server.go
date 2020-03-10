@@ -5,8 +5,8 @@ import (
 	"reflect"
 
 	"github.com/Connor1996/badger"
-	"github.com/pingcap-incubator/tinykv/kv/inner_server"
-	"github.com/pingcap-incubator/tinykv/kv/inner_server/raft_server"
+	"github.com/pingcap-incubator/tinykv/kv/storage"
+	"github.com/pingcap-incubator/tinykv/kv/storage/raft_server"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/commands"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/latches"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/coprocessor"
@@ -18,11 +18,11 @@ var _ tinykvpb.TinyKvServer = new(Server)
 
 // Server is a TinyKV server, it 'faces outwards', sending and receiving messages from clients such as TinySQL.
 type Server struct {
-	innerServer inner_server.InnerServer
+	innerServer storage.InnerServer
 	Latches     *latches.Latches
 }
 
-func NewServer(innerServer inner_server.InnerServer) *Server {
+func NewServer(innerServer storage.InnerServer) *Server {
 	return &Server{
 		innerServer: innerServer,
 		Latches:     latches.NewLatches(),
@@ -114,9 +114,9 @@ func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kv
 func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
 	// Your code here 1A
 	response := new(kvrpcpb.RawPutResponse)
-	err := server.innerServer.Write(req.Context, []inner_server.Modify{{
-		Type: inner_server.ModifyTypePut,
-		Data: inner_server.Put{
+	err := server.innerServer.Write(req.Context, []storage.Modify{{
+		Type: storage.ModifyTypePut,
+		Data: storage.Put{
 			Key:   req.Key,
 			Value: req.Value,
 			Cf:    req.Cf,
@@ -128,9 +128,9 @@ func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kv
 func (server *Server) RawDelete(_ context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
 	// Your code here 1A
 	response := new(kvrpcpb.RawDeleteResponse)
-	err := server.innerServer.Write(req.Context, []inner_server.Modify{{
-		Type: inner_server.ModifyTypeDelete,
-		Data: inner_server.Delete{
+	err := server.innerServer.Write(req.Context, []storage.Modify{{
+		Type: storage.ModifyTypeDelete,
+		Data: storage.Delete{
 			Key: req.Key,
 			Cf:  req.Cf,
 		}}})
