@@ -884,11 +884,13 @@ func (a *applier) execCompactLog(aCtx *applyContext, req *raft_cmdpb.AdminReques
 		return
 	}
 
-	// compact failure is safe to be omitted, no need to assert.
-	err = CompactRaftLog(a.tag, applyState, compactIndex, compactTerm)
-	if err != nil {
+	if compactIndex <= applyState.TruncatedState.Index || compactIndex > applyState.AppliedIndex {
 		return
 	}
+	log.Debugf("%s compact log entries to prior to %d", a.tag, compactIndex)
+	applyState.TruncatedState.Index = compactIndex
+	applyState.TruncatedState.Term = compactTerm
+
 	result = applyResult{tp: applyResultTypeExecResult, data: &execResultCompactLog{
 		truncatedIndex: applyState.TruncatedState.Index,
 		firstIndex:     firstIndex,
