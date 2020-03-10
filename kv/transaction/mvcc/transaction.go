@@ -18,11 +18,11 @@ type MvccTxn struct {
 
 // A 'transaction' which will only read from the DB.
 type RoTxn struct {
-	Reader  storage.DBReader
+	Reader  storage.StorageReader
 	StartTS *uint64
 }
 
-func NewTxn(reader storage.DBReader) MvccTxn {
+func NewTxn(reader storage.StorageReader) MvccTxn {
 	return MvccTxn{
 		RoTxn: RoTxn{Reader: reader},
 	}

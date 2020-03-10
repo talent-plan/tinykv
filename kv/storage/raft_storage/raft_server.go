@@ -117,7 +117,7 @@ func (ris *RaftStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) erro
 	return ris.checkResponse(cb.WaitResp(), len(reqs))
 }
 
-func (ris *RaftStorage) Reader(ctx *kvrpcpb.Context) (storage.DBReader, error) {
+func (ris *RaftStorage) Reader(ctx *kvrpcpb.Context) (storage.StorageReader, error) {
 	header := &raft_cmdpb.RaftRequestHeader{
 		RegionId:    ctx.RegionId,
 		Peer:        ctx.Peer,

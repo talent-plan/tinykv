@@ -34,7 +34,7 @@ func (is *MemStorage) Stop() error {
 	return nil
 }
 
-func (is *MemStorage) Reader(ctx *kvrpcpb.Context) (DBReader, error) {
+func (is *MemStorage) Reader(ctx *kvrpcpb.Context) (StorageReader, error) {
 	return &memReader{is}, nil
 }
 
@@ -129,7 +129,7 @@ func (is *MemStorage) Len(cf string) int {
 	return -1
 }
 
-// memReader is a DBReader which reads from a MemStorage.
+// memReader is a StorageReader which reads from a MemStorage.
 type memReader struct {
 	inner *MemStorage
 }

@@ -11,10 +11,10 @@ type Storage interface {
 	Start() error
 	Stop() error
 	Write(ctx *kvrpcpb.Context, batch []Modify) error
-	Reader(ctx *kvrpcpb.Context) (DBReader, error)
+	Reader(ctx *kvrpcpb.Context) (StorageReader, error)
 }
 
-type DBReader interface {
+type StorageReader interface {
 	GetCF(cf string, key []byte) ([]byte, error)
 	IterCF(cf string) engine_util.DBIterator
 	Close()

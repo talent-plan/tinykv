@@ -30,7 +30,7 @@ func (is *StandAloneStorage) Stop() error {
 	return is.db.Close()
 }
 
-func (is *StandAloneStorage) Reader(ctx *kvrpcpb.Context) (storage.DBReader, error) {
+func (is *StandAloneStorage) Reader(ctx *kvrpcpb.Context) (storage.StorageReader, error) {
 	txn := is.db.NewTransaction(false)
 	reader := NewBadgerReader(txn)
 	return reader, nil
