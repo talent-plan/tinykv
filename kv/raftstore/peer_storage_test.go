@@ -29,18 +29,17 @@ func newTestPeerStorage(t *testing.T) *PeerStorage {
 func newTestPeerStorageFromEnts(t *testing.T, ents []eraftpb.Entry) *PeerStorage {
 	peerStore := newTestPeerStorage(t)
 	kvWB := new(engine_util.WriteBatch)
-	ctx := NewInvokeContext(peerStore)
 	raftWB := new(engine_util.WriteBatch)
-	require.Nil(t, peerStore.Append(ctx, ents[1:], raftWB))
-	ctx.ApplyState.TruncatedState = &rspb.RaftTruncatedState{
+	require.Nil(t, peerStore.Append(ents[1:], raftWB))
+	applyState := peerStore.applyState()
+	applyState.TruncatedState = &rspb.RaftTruncatedState{
 		Index: ents[0].Index,
 		Term:  ents[0].Term,
 	}
-	ctx.ApplyState.AppliedIndex = ents[len(ents)-1].Index
-	ctx.saveApplyStateTo(kvWB)
+	applyState.AppliedIndex = ents[len(ents)-1].Index
+	peerStore.saveApplyStateTo(kvWB, applyState)
 	require.Nil(t, peerStore.Engines.WriteRaft(raftWB))
 	peerStore.Engines.WriteKV(kvWB)
-	peerStore.raftState = ctx.RaftState
 	return peerStore
 }
 
@@ -85,12 +84,10 @@ func TestPeerStorageTerm(t *testing.T) {
 }
 
 func appendEnts(t *testing.T, peerStore *PeerStorage, ents []eraftpb.Entry) {
-	ctx := NewInvokeContext(peerStore)
 	raftWB := new(engine_util.WriteBatch)
-	require.Nil(t, peerStore.Append(ctx, ents, raftWB))
-	ctx.saveRaftStateTo(raftWB)
+	require.Nil(t, peerStore.Append(ents, raftWB))
+	peerStore.saveRaftStateTo(raftWB)
 	require.Nil(t, peerStore.Engines.WriteRaft(raftWB))
-	peerStore.raftState = ctx.RaftState
 }
 
 func getMetaKeyCount(t *testing.T, peerStore *PeerStorage) int {
@@ -190,37 +187,6 @@ func TestPeerStorageEntries(t *testing.T) {
 			assert.Equal(t, tt.err, err)
 		} else {
 			assert.Equal(t, tt.entries, entries, "%d", i)
-		}
-	}
-}
-
-func TestPeerStorageCompact(t *testing.T) {
-	ents := []eraftpb.Entry{
-		newTestEntry(3, 3), newTestEntry(4, 4), newTestEntry(5, 5)}
-	tests := []struct {
-		idx uint64
-		err error
-	}{
-		{2, raft.ErrCompacted},
-		{3, raft.ErrCompacted},
-		{4, nil},
-		{5, nil},
-	}
-	peerStore := newTestPeerStorageFromEnts(t, ents)
-	defer cleanUpTestData(peerStore)
-	for _, tt := range tests {
-		ctx := NewInvokeContext(peerStore)
-		term, err := peerStore.Term(tt.idx)
-		if err == nil {
-			err = CompactRaftLog(peerStore.Tag, &ctx.ApplyState, tt.idx, term)
-		}
-		if tt.err == nil {
-			assert.Nil(t, err)
-			kvWB := new(engine_util.WriteBatch)
-			ctx.saveApplyStateTo(kvWB)
-			require.Nil(t, peerStore.Engines.WriteKV(kvWB))
-		} else {
-			assert.NotNil(t, err)
 		}
 	}
 }
