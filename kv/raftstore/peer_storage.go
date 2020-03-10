@@ -347,6 +347,33 @@ func (ps *PeerStorage) clearMeta(kvWB, raftWB *engine_util.WriteBatch) error {
 	return ClearMeta(ps.Engines, kvWB, raftWB, ps.region.Id, ps.raftState.LastIndex)
 }
 
+// Delete all data that is not covered by `new_region`.
+func (ps *PeerStorage) clearExtraData(newRegion *metapb.Region) {
+	oldStartKey, oldEndKey := ps.region.GetStartKey(), ps.region.GetEndKey()
+	newStartKey, newEndKey := newRegion.GetStartKey(), newRegion.GetEndKey()
+	regionId := newRegion.Id
+	if bytes.Compare(oldStartKey, newStartKey) < 0 {
+		ps.regionSched <- worker.Task{
+			Tp: worker.TaskTypeRegionDestroy,
+			Data: &runner.RegionTask{
+				RegionId: regionId,
+				StartKey: oldStartKey,
+				EndKey:   newStartKey,
+			},
+		}
+	}
+	if bytes.Compare(newEndKey, oldEndKey) < 0 {
+		ps.regionSched <- worker.Task{
+			Tp: worker.TaskTypeRegionDestroy,
+			Data: &runner.RegionTask{
+				RegionId: regionId,
+				StartKey: newEndKey,
+				EndKey:   oldEndKey,
+			},
+		}
+	}
+}
+
 func ClearMeta(engines *engine_util.Engines, kvWB, raftWB *engine_util.WriteBatch, regionID uint64, lastIndex uint64) error {
 	start := time.Now()
 	kvWB.Delete(meta.RegionStateKey(regionID))
@@ -477,6 +504,10 @@ func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (*ApplySnapResult, erro
 	ps.raftState = ctx.RaftState
 	// If we apply snapshot ok, we should update some infos like applied index too.
 	if snapshotIdx > 0 {
+		// cleanup data before scheduling apply worker.Task
+		if ps.isInitialized() {
+			ps.clearExtraData(ctx.SnapRegion)
+		}
 		ps.region = ctx.SnapRegion
 		ps.ScheduleApplyingSnapshot()
 	}
