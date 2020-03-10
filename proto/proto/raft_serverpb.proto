@@ -4,6 +4,7 @@ package raft_serverpb;
 import "eraftpb.proto";
 import "metapb.proto";
 
+// The message sent between Raft peer, it wraps the raft meessage with some meta information.
 message RaftMessage {
     uint64 region_id = 1;
     metapb.Peer from_peer = 2;
@@ -17,9 +18,58 @@ message RaftMessage {
     bytes end_key = 8;
 }
 
+// Used to store the persistent state for Raft, including the hard state for raft and the last index of the raft log.
+message RaftLocalState {
+    eraftpb.HardState hard_state = 1;
+    uint64 last_index = 2;
+}
+
+// Used to store the persistent state for Raft state machine.
+message RaftApplyState {
+    uint64 applied_index = 1;
+    RaftTruncatedState truncated_state = 2;
+}
+
+// The truncated state for Raft log compaction.
 message RaftTruncatedState {
     uint64 index = 1;
     uint64 term = 2;
+}
+
+// Used to store Region information and the corresponding Peer state on this Store.
+message RegionLocalState {
+    PeerState state = 1;
+    metapb.Region region = 2;
+}
+
+// Normal indicates that this Peer is normal;
+// Applying means this Peer hasn’t finished the apply snapshot operation;
+// Tombstone shows that this Peer has been removed from Region and cannot join in Raft Group.
+enum PeerState {
+    Normal = 0;
+    Applying = 1;
+    Tombstone = 2;
+}
+
+// The persistent identification for Store.
+// It used to recover the store id after restart.
+message StoreIdent {
+    uint64 cluster_id = 1;
+    uint64 store_id = 2;
+}
+
+// Snapshot sending and reciveing related messages.
+// Not included in the course scope.
+message KeyValue {
+    bytes key      = 1;
+    bytes value    = 2;
+}
+
+message RaftSnapshotData {
+    metapb.Region region = 1;
+    uint64 file_size = 2;
+    repeated KeyValue data = 3;
+    SnapshotMeta meta = 5;
 }
 
 message SnapshotCFFile {
@@ -39,40 +89,3 @@ message SnapshotChunk {
 
 message Done {}
 
-message KeyValue {
-    bytes key      = 1;
-    bytes value    = 2;
-}
-
-message RaftSnapshotData {
-    metapb.Region region = 1;
-    uint64 file_size = 2;
-    repeated KeyValue data = 3;
-    SnapshotMeta meta = 5;
-}
-
-message StoreIdent {
-    uint64 cluster_id = 1;
-    uint64 store_id = 2;
-}
-
-message RaftLocalState {
-    eraftpb.HardState hard_state = 1;
-    uint64 last_index = 2;
-}
-
-message RaftApplyState {
-    uint64 applied_index = 1;
-    RaftTruncatedState truncated_state = 2;
-}
-
-enum PeerState {
-    Normal = 0;
-    Applying = 1;
-    Tombstone = 2;
-}
-
-message RegionLocalState {
-    PeerState state = 1;
-    metapb.Region region = 2;
-}

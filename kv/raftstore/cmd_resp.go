@@ -57,8 +57,6 @@ func ErrRespRegionNotFound(regionID uint64) *raft_cmdpb.RaftCmdResponse {
 
 func newCmdRespForReq(req *raft_cmdpb.RaftCmdRequest) *raft_cmdpb.RaftCmdResponse {
 	return &raft_cmdpb.RaftCmdResponse{
-		Header: &raft_cmdpb.RaftResponseHeader{
-			Uuid: req.Header.Uuid,
-		},
+		Header: &raft_cmdpb.RaftResponseHeader{},
 	}
 }
