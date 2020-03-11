@@ -7,7 +7,6 @@ import (
 	"os"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
@@ -160,41 +159,26 @@ func TestApplies(t *testing.T) {
 		wb := new(engine_util.WriteBatch)
 		regionLocalState, err := meta.GetRegionLocalState(engines.Kv, regionId)
 		require.Nil(t, err)
-		regionLocalState.State = rspb.PeerState_Applying
 		require.Nil(t, wb.SetMsg(meta.RegionStateKey(regionId), regionLocalState))
 		require.Nil(t, wb.WriteToDB(engines.Kv))
 
 		// apply snapshot
-		var status = snap.JobStatus_Pending
+		ch := make(chan *eraftpb.Snapshot, 1)
 		tsk2 := &worker.Task{
 			Tp: worker.TaskTypeRegionApply,
 			Data: &RegionTask{
 				RegionId: regionId,
-				Status:   &status,
+				Notifier: ch,
 			},
 		}
 		regionWorker.Sender() <- *tsk2
-	}
 
-	waitApplyFinish := func(regionId uint64) {
-		for {
-			time.Sleep(time.Millisecond * 100)
-			regionLocalState, err := meta.GetRegionLocalState(engines.Kv, regionId)
-			require.Nil(t, err)
-			if regionLocalState.State == rspb.PeerState_Normal {
-				break
-			}
-		}
+		<-ch
 	}
 
 	genAndApplySnap(1)
-	waitApplyFinish(1)
-
 	genAndApplySnap(2)
-	waitApplyFinish(2)
-
 	genAndApplySnap(3)
-	waitApplyFinish(3)
 }
 
 func TestGcRaftLog(t *testing.T) {

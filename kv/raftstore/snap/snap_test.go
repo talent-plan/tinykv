@@ -221,12 +221,9 @@ func doTestSnapFile(t *testing.T, dbHasData bool) {
 	defer os.RemoveAll(dstDBDir)
 
 	dstDB := openDB(t, dstDBDir)
-	abort := new(uint32)
-	*abort = uint32(JobStatus_Running)
 	opts := ApplyOptions{
 		DB:     dstDB,
 		Region: region,
-		Abort:  abort,
 	}
 	err = s4.Apply(opts)
 	require.Nil(t, err, errors.ErrorStack(err))
