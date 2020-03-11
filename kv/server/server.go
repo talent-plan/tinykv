@@ -3,8 +3,8 @@ package server
 import (
 	"context"
 
-	"github.com/pingcap-incubator/tinykv/kv/inner_server"
-	"github.com/pingcap-incubator/tinykv/kv/inner_server/raft_server"
+	"github.com/pingcap-incubator/tinykv/kv/storage"
+	"github.com/pingcap-incubator/tinykv/kv/storage/raft_storage"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/latches"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/coprocessor"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
@@ -15,15 +15,15 @@ var _ tinykvpb.TinyKvServer = new(Server)
 
 // Server is a TinyKV server, it 'faces outwards', sending and receiving messages from clients such as TinySQL.
 type Server struct {
-	innerServer inner_server.InnerServer
+	storage storage.Storage
 	// used in 4A/4B
 	Latches *latches.Latches
 }
 
-func NewServer(innerServer inner_server.InnerServer) *Server {
+func NewServer(storage storage.Storage) *Server {
 	return &Server{
-		innerServer: innerServer,
-		Latches:     latches.NewLatches(),
+		storage: storage,
+		Latches: latches.NewLatches(),
 	}
 }
 
@@ -51,15 +51,15 @@ func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*
 }
 
 // Raft commands (tinykv <-> tinykv)
-// Only used for RaftInnerServer, so trivially forward it.
+// Only used for RaftStorage, so trivially forward it.
 func (server *Server) Raft(stream tinykvpb.TinyKv_RaftServer) error {
-	return server.innerServer.(*raft_server.RaftInnerServer).Raft(stream)
+	return server.storage.(*raft_storage.RaftStorage).Raft(stream)
 }
 
 // Snapshot stream (tinykv <-> tinykv)
-// Only used for RaftInnerServer, so trivially forward it.
+// Only used for RaftStorage, so trivially forward it.
 func (server *Server) Snapshot(stream tinykvpb.TinyKv_SnapshotServer) error {
-	return server.innerServer.(*raft_server.RaftInnerServer).Snapshot(stream)
+	return server.storage.(*raft_storage.RaftStorage).Snapshot(stream)
 }
 
 // Transactional API.

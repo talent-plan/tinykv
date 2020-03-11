@@ -1,8 +1,8 @@
 package transaction
 
 // The transaction package implements TinyKV's 'transaction' layer. This takes incoming requests from the tikv/server.go as
-// input and turns them into reads and writes of the underlying key/value store (defined by InnerServer in tikv/server.go).
-// The InnerServer handles communicating with other nodes and writing data to disk. The transaction layer must
+// input and turns them into reads and writes of the underlying key/value store (defined by Storage in tikv/server.go).
+// The storage engine handles communicating with other nodes and writing data to disk. The transaction layer must
 // translate high-level TinyKV commands into low-level raw key/value commands, schedule this processing to run efficiently,
 // and ensure that processing of commands do not interfere with processing other commands.
 //
@@ -13,13 +13,13 @@ package transaction
 // is executed atomically.
 //
 // *Locks* are used to implement TinySQL transactions. Setting or checking a lock in a TinySQL transaction is lowered to
-// writing or reading a key and value in the InnerServer store.
+// writing or reading a key and value in the store.
 //
 // *Latches* are used to implement mvcc transactions and are not visible to the client. They are stored outside the
 // underlying storage (or equivalently, you can think of every key having its own latch). See the latches package for details.
 //
 // Within this package, `commands` contains code to lower TinySQL requests to mvcc transactions. `mvcc` contains code for
-// interacting with the underlying storage (InnerServer).
+// interacting with the underlying storage (Storage).
 //
 // Each transactional command is represented by a type which implements the `Command` interface and is defined in `commands`.
 // See the `Command` docs for details on how a command is executed. The gRPC layer will handle each request on its own thread.

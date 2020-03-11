@@ -5,8 +5,8 @@ package commands
 import (
 	"reflect"
 
-	"github.com/pingcap-incubator/tinykv/kv/inner_server"
-	"github.com/pingcap-incubator/tinykv/kv/inner_server/raft_server"
+	"github.com/pingcap-incubator/tinykv/kv/storage"
+	"github.com/pingcap-incubator/tinykv/kv/storage/raft_storage"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/latches"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/mvcc"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
@@ -26,14 +26,14 @@ type Command interface {
 }
 
 // Run runs a transactional command.
-func RunCommand(cmd Command, innerServer inner_server.InnerServer, latches *latches.Latches) (interface{}, error) {
+func RunCommand(cmd Command, storage storage.Storage, latches *latches.Latches) (interface{}, error) {
 	ctxt := cmd.Context()
 	var resp interface{}
 
 	keysToWrite := cmd.WillWrite()
 	if keysToWrite == nil {
 		// The command is readonly or requires access to the DB to determine the keys it will write.
-		reader, err := innerServer.Reader(ctxt)
+		reader, err := storage.Reader(ctxt)
 		if err != nil {
 			return nil, err
 		}
@@ -51,7 +51,7 @@ func RunCommand(cmd Command, innerServer inner_server.InnerServer, latches *latc
 		latches.WaitForLatches(keysToWrite)
 		defer latches.ReleaseLatches(keysToWrite)
 
-		reader, err := innerServer.Reader(ctxt)
+		reader, err := storage.Reader(ctxt)
 		if err != nil {
 			return nil, err
 		}
@@ -67,7 +67,7 @@ func RunCommand(cmd Command, innerServer inner_server.InnerServer, latches *latc
 		latches.Validate(&txn, keysToWrite)
 
 		// Building the transaction succeeded without conflict, write all writes to backing storage.
-		err = innerServer.Write(ctxt, txn.Writes)
+		err = storage.Write(ctxt, txn.Writes)
 		if err != nil {
 			return nil, err
 		}
@@ -105,7 +105,7 @@ func (ro ReadOnly) PrepareWrites(txn *mvcc.MvccTxn) (interface{}, error) {
 // muse have a `RegionError` field; the response is returned. If the error is not a region error, then regionError returns
 // nil and the error.
 func regionError(err error, resp interface{}) (interface{}, error) {
-	if regionErr, ok := err.(*raft_server.RegionError); ok {
+	if regionErr, ok := err.(*raft_storage.RegionError); ok {
 		respValue := reflect.ValueOf(resp)
 		respValue.FieldByName("RegionError").Set(reflect.ValueOf(regionErr.RequestErr))
 		return resp, nil
