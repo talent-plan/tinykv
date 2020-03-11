@@ -13,7 +13,7 @@ package transaction
 // is executed atomically.
 //
 // *Locks* are used to implement TinySQL transactions. Setting or checking a lock in a TinySQL transaction is lowered to
-// writing or reading a key and value in the Storage store.
+// writing or reading a key and value in the store.
 //
 // *Latches* are used to implement mvcc transactions and are not visible to the client. They are stored outside the
 // underlying storage (or equivalently, you can think of every key having its own latch). See the latches package for details.
