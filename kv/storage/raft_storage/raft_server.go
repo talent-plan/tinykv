@@ -22,7 +22,7 @@ import (
 	"github.com/pingcap/errors"
 )
 
-// RaftStorage is an Storage (see tikv/server.go) backed by a Raft node. It is part of a Raft network.
+// RaftStorage is an implementation of `Storage` (see tikv/server.go) backed by a Raft node. It is part of a Raft network.
 // By using Raft, reads and writes are consistent with other nodes in the TinyKV instance.
 type RaftStorage struct {
 	engines *engine_util.Engines
