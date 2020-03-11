@@ -2,7 +2,7 @@ package transaction
 
 // The transaction package implements TinyKV's 'transaction' layer. This takes incoming requests from the tikv/server.go as
 // input and turns them into reads and writes of the underlying key/value store (defined by Storage in tikv/server.go).
-// The Storage handles communicating with other nodes and writing data to disk. The transaction layer must
+// The storage engine handles communicating with other nodes and writing data to disk. The transaction layer must
 // translate high-level TinyKV commands into low-level raw key/value commands, schedule this processing to run efficiently,
 // and ensure that processing of commands do not interfere with processing other commands.
 //
