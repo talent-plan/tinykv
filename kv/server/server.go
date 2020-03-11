@@ -5,8 +5,8 @@ import (
 	"reflect"
 
 	"github.com/Connor1996/badger"
-	"github.com/pingcap-incubator/tinykv/kv/inner_server"
-	"github.com/pingcap-incubator/tinykv/kv/inner_server/raft_server"
+	"github.com/pingcap-incubator/tinykv/kv/storage"
+	"github.com/pingcap-incubator/tinykv/kv/storage/raft_storage"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/commands"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/latches"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/coprocessor"
@@ -18,20 +18,20 @@ var _ tinykvpb.TinyKvServer = new(Server)
 
 // Server is a TinyKV server, it 'faces outwards', sending and receiving messages from clients such as TinySQL.
 type Server struct {
-	innerServer inner_server.InnerServer
-	Latches     *latches.Latches
+	storage storage.Storage
+	Latches *latches.Latches
 }
 
-func NewServer(innerServer inner_server.InnerServer) *Server {
+func NewServer(storage storage.Storage) *Server {
 	return &Server{
-		innerServer: innerServer,
-		Latches:     latches.NewLatches(),
+		storage: storage,
+		Latches: latches.NewLatches(),
 	}
 }
 
 // Run runs a transactional command.
 func (server *Server) Run(cmd commands.Command) (interface{}, error) {
-	return commands.RunCommand(cmd, server.innerServer, server.Latches)
+	return commands.RunCommand(cmd, server.storage, server.Latches)
 }
 
 // The below functions are Server's gRPC API (implements TinyKvServer).
@@ -94,7 +94,7 @@ func (server *Server) KvResolveLock(_ context.Context, req *kvrpcpb.ResolveLockR
 func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
 	// Your code here 1A
 	response := new(kvrpcpb.RawGetResponse)
-	reader, err := server.innerServer.Reader(req.Context)
+	reader, err := server.storage.Reader(req.Context)
 	if !rawRegionError(err, response) {
 		val, err := reader.GetCF(req.Cf, req.Key)
 		if err != nil {
@@ -114,9 +114,9 @@ func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kv
 func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
 	// Your code here 1A
 	response := new(kvrpcpb.RawPutResponse)
-	err := server.innerServer.Write(req.Context, []inner_server.Modify{{
-		Type: inner_server.ModifyTypePut,
-		Data: inner_server.Put{
+	err := server.storage.Write(req.Context, []storage.Modify{{
+		Type: storage.ModifyTypePut,
+		Data: storage.Put{
 			Key:   req.Key,
 			Value: req.Value,
 			Cf:    req.Cf,
@@ -128,9 +128,9 @@ func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kv
 func (server *Server) RawDelete(_ context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
 	// Your code here 1A
 	response := new(kvrpcpb.RawDeleteResponse)
-	err := server.innerServer.Write(req.Context, []inner_server.Modify{{
-		Type: inner_server.ModifyTypeDelete,
-		Data: inner_server.Delete{
+	err := server.storage.Write(req.Context, []storage.Modify{{
+		Type: storage.ModifyTypeDelete,
+		Data: storage.Delete{
 			Key: req.Key,
 			Cf:  req.Cf,
 		}}})
@@ -142,7 +142,7 @@ func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*
 	// Your code here 1A
 	response := new(kvrpcpb.RawScanResponse)
 
-	reader, err := server.innerServer.Reader(req.Context)
+	reader, err := server.storage.Reader(req.Context)
 	if !rawRegionError(err, response) {
 		// To scan, we need to get an iterator for the underlying storage.
 		it := reader.IterCF(req.Cf)
@@ -168,13 +168,13 @@ func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*
 	return response, nil
 }
 
-// Raft commands (tinykv <-> tinykv); these are trivially forwarded to innerServer.
+// Raft commands (tinykv <-> tinykv); these are trivially forwarded to storage.
 func (server *Server) Raft(stream tinykvpb.TinyKv_RaftServer) error {
-	return server.innerServer.(*raft_server.RaftInnerServer).Raft(stream)
+	return server.storage.(*raft_storage.RaftStorage).Raft(stream)
 }
 
 func (server *Server) Snapshot(stream tinykvpb.TinyKv_SnapshotServer) error {
-	return server.innerServer.(*raft_server.RaftInnerServer).Snapshot(stream)
+	return server.storage.(*raft_storage.RaftStorage).Snapshot(stream)
 }
 
 // SQL push down commands.
@@ -190,7 +190,7 @@ func rawRegionError(err error, resp interface{}) bool {
 		return false
 	}
 	respValue := reflect.ValueOf(resp).Elem()
-	if regionErr, ok := err.(*raft_server.RegionError); ok {
+	if regionErr, ok := err.(*raft_storage.RegionError); ok {
 		respValue.FieldByName("RegionError").Set(reflect.ValueOf(regionErr.RequestErr))
 	} else {
 		respValue.FieldByName("Error").Set(reflect.ValueOf(err.Error()))

@@ -7,8 +7,8 @@ import (
 
 	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/inner_server"
-	"github.com/pingcap-incubator/tinykv/kv/inner_server/standalone_server"
+	"github.com/pingcap-incubator/tinykv/kv/storage"
+	"github.com/pingcap-incubator/tinykv/kv/storage/standalone_storage"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/stretchr/testify/assert"
 )
@@ -17,11 +17,11 @@ const (
 	testPath = "standalone_raw_test"
 )
 
-func Set(is *standalone_server.StandAloneInnerServer, cf string, key []byte, value []byte) error {
-	return is.Write(nil, []inner_server.Modify{
+func Set(s *standalone_storage.StandAloneStorage, cf string, key []byte, value []byte) error {
+	return s.Write(nil, []storage.Modify{
 		{
-			Type: inner_server.ModifyTypePut,
-			Data: inner_server.Put{
+			Type: storage.ModifyTypePut,
+			Data: storage.Put{
 				Cf:    cf,
 				Key:   key,
 				Value: value,
@@ -30,16 +30,16 @@ func Set(is *standalone_server.StandAloneInnerServer, cf string, key []byte, val
 	})
 }
 
-func get(is *standalone_server.StandAloneInnerServer, cf string, key []byte) ([]byte, error) {
-	reader, err := is.Reader(nil)
+func get(s *standalone_storage.StandAloneStorage, cf string, key []byte) ([]byte, error) {
+	reader, err := s.Reader(nil)
 	if err != nil {
 		return nil, err
 	}
 	return reader.GetCF(cf, key)
 }
 
-func NewTestTiKVServer(innerServer inner_server.InnerServer) *Server {
-	server := NewServer(innerServer)
+func NewTestTiKVServer(storage storage.Storage) *Server {
+	server := NewServer(storage)
 	return server
 }
 
@@ -58,12 +58,12 @@ func cleanUpTestData(conf *config.Config) error {
 
 func TestRawGetLab1(t *testing.T) {
 	conf := newTestConfig()
-	is := standalone_server.NewStandAloneInnerServer(conf)
-	server := NewTestTiKVServer(is)
+	s := standalone_storage.NewStandAloneStorage(conf)
+	server := NewTestTiKVServer(s)
 	defer cleanUpTestData(conf)
 
 	cf := "TestRawGet"
-	Set(is, cf, []byte{99}, []byte{42})
+	Set(s, cf, []byte{99}, []byte{42})
 
 	req := &kvrpcpb.RawGetRequest{
 		Key: []byte{99},
@@ -76,8 +76,8 @@ func TestRawGetLab1(t *testing.T) {
 
 func TestRawGetNotFoundLab1(t *testing.T) {
 	conf := newTestConfig()
-	is := standalone_server.NewStandAloneInnerServer(conf)
-	server := NewTestTiKVServer(is)
+	s := standalone_storage.NewStandAloneStorage(conf)
+	server := NewTestTiKVServer(s)
 	defer cleanUpTestData(conf)
 
 	cf := "TestRawGetNotFound"
@@ -92,8 +92,8 @@ func TestRawGetNotFoundLab1(t *testing.T) {
 
 func TestRawPutLab1(t *testing.T) {
 	conf := newTestConfig()
-	is := standalone_server.NewStandAloneInnerServer(conf)
-	server := NewTestTiKVServer(is)
+	s := standalone_storage.NewStandAloneStorage(conf)
+	server := NewTestTiKVServer(s)
 	defer cleanUpTestData(conf)
 
 	cf := "TestRawPut"
@@ -105,15 +105,15 @@ func TestRawPutLab1(t *testing.T) {
 
 	_, err := server.RawPut(nil, req)
 
-	got, err := get(is, cf, []byte{99})
+	got, err := get(s, cf, []byte{99})
 	assert.Nil(t, err)
 	assert.Equal(t, []byte{42}, got)
 }
 
 func TestRawGetAfterRawPutLab1(t *testing.T) {
 	conf := newTestConfig()
-	is := standalone_server.NewStandAloneInnerServer(conf)
-	server := NewTestTiKVServer(is)
+	s := standalone_storage.NewStandAloneStorage(conf)
+	server := NewTestTiKVServer(s)
 	defer cleanUpTestData(conf)
 
 	cf := "TestRawGetAfterRawPut"
@@ -137,12 +137,12 @@ func TestRawGetAfterRawPutLab1(t *testing.T) {
 
 func TestRawGetAfterRawDeleteLab1(t *testing.T) {
 	conf := newTestConfig()
-	is := standalone_server.NewStandAloneInnerServer(conf)
-	server := NewTestTiKVServer(is)
+	s := standalone_storage.NewStandAloneStorage(conf)
+	server := NewTestTiKVServer(s)
 	defer cleanUpTestData(conf)
 
 	cf := "TestRawGetAfterRawDelete"
-	assert.Nil(t, Set(is, cf, []byte{99}, []byte{42}))
+	assert.Nil(t, Set(s, cf, []byte{99}, []byte{42}))
 
 	delete := &kvrpcpb.RawDeleteRequest{
 		Key: []byte{99},
@@ -163,8 +163,8 @@ func TestRawGetAfterRawDeleteLab1(t *testing.T) {
 
 func TestRawDeleteLab1(t *testing.T) {
 	conf := newTestConfig()
-	is := standalone_server.NewStandAloneInnerServer(conf)
-	server := NewTestTiKVServer(is)
+	s := standalone_storage.NewStandAloneStorage(conf)
+	server := NewTestTiKVServer(s)
 	defer cleanUpTestData(conf)
 
 	cf := "TestRawDelete"
@@ -177,23 +177,23 @@ func TestRawDeleteLab1(t *testing.T) {
 	_, err := server.RawDelete(nil, req)
 	assert.Nil(t, err)
 
-	_, err = get(is, cf, []byte{99})
+	_, err = get(s, cf, []byte{99})
 	assert.Equal(t, err, badger.ErrKeyNotFound)
 }
 
 func TestRawScanLab1(t *testing.T) {
 	conf := newTestConfig()
-	is := standalone_server.NewStandAloneInnerServer(conf)
-	server := NewTestTiKVServer(is)
+	s := standalone_storage.NewStandAloneStorage(conf)
+	server := NewTestTiKVServer(s)
 	defer cleanUpTestData(conf)
 
 	cf := "TestRawScan"
 
-	Set(is, cf, []byte{1}, []byte{233, 1})
-	Set(is, cf, []byte{2}, []byte{233, 2})
-	Set(is, cf, []byte{3}, []byte{233, 3})
-	Set(is, cf, []byte{4}, []byte{233, 4})
-	Set(is, cf, []byte{5}, []byte{233, 5})
+	Set(s, cf, []byte{1}, []byte{233, 1})
+	Set(s, cf, []byte{2}, []byte{233, 2})
+	Set(s, cf, []byte{3}, []byte{233, 3})
+	Set(s, cf, []byte{4}, []byte{233, 4})
+	Set(s, cf, []byte{5}, []byte{233, 5})
 
 	req := &kvrpcpb.RawScanRequest{
 		StartKey: []byte{1},
@@ -214,15 +214,15 @@ func TestRawScanLab1(t *testing.T) {
 
 func TestRawScanAfterRawPutLab1(t *testing.T) {
 	conf := newTestConfig()
-	is := standalone_server.NewStandAloneInnerServer(conf)
-	server := NewTestTiKVServer(is)
+	s := standalone_storage.NewStandAloneStorage(conf)
+	server := NewTestTiKVServer(s)
 	defer cleanUpTestData(conf)
 
 	cf := "TestRawScanAfterRawPut"
-	assert.Nil(t, Set(is, cf, []byte{1}, []byte{233, 1}))
-	assert.Nil(t, Set(is, cf, []byte{2}, []byte{233, 2}))
-	assert.Nil(t, Set(is, cf, []byte{3}, []byte{233, 3}))
-	assert.Nil(t, Set(is, cf, []byte{4}, []byte{233, 4}))
+	assert.Nil(t, Set(s, cf, []byte{1}, []byte{233, 1}))
+	assert.Nil(t, Set(s, cf, []byte{2}, []byte{233, 2}))
+	assert.Nil(t, Set(s, cf, []byte{3}, []byte{233, 3}))
+	assert.Nil(t, Set(s, cf, []byte{4}, []byte{233, 4}))
 
 	put := &kvrpcpb.RawPutRequest{
 		Key:   []byte{5},
@@ -252,15 +252,15 @@ func TestRawScanAfterRawPutLab1(t *testing.T) {
 
 func TestRawScanAfterRawDeleteLab1(t *testing.T) {
 	conf := newTestConfig()
-	is := standalone_server.NewStandAloneInnerServer(conf)
-	server := NewTestTiKVServer(is)
+	s := standalone_storage.NewStandAloneStorage(conf)
+	server := NewTestTiKVServer(s)
 	defer cleanUpTestData(conf)
 
 	cf := "TestRawScanAfterRawDelete"
-	assert.Nil(t, Set(is, cf, []byte{1}, []byte{233, 1}))
-	assert.Nil(t, Set(is, cf, []byte{2}, []byte{233, 2}))
-	assert.Nil(t, Set(is, cf, []byte{3}, []byte{233, 3}))
-	assert.Nil(t, Set(is, cf, []byte{4}, []byte{233, 4}))
+	assert.Nil(t, Set(s, cf, []byte{1}, []byte{233, 1}))
+	assert.Nil(t, Set(s, cf, []byte{2}, []byte{233, 2}))
+	assert.Nil(t, Set(s, cf, []byte{3}, []byte{233, 3}))
+	assert.Nil(t, Set(s, cf, []byte{4}, []byte{233, 4}))
 
 	delete := &kvrpcpb.RawDeleteRequest{
 		Key: []byte{3},

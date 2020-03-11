@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/inner_server"
-	"github.com/pingcap-incubator/tinykv/kv/inner_server/raft_server"
-	"github.com/pingcap-incubator/tinykv/kv/inner_server/standalone_server"
 	"github.com/pingcap-incubator/tinykv/kv/server"
+	"github.com/pingcap-incubator/tinykv/kv/storage"
+	"github.com/pingcap-incubator/tinykv/kv/storage/raft_storage"
+	"github.com/pingcap-incubator/tinykv/kv/storage/standalone_storage"
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tinykvpb"
 	"google.golang.org/grpc"
@@ -39,16 +39,16 @@ func main() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 	log.Infof("conf %v", conf)
 
-	var innerServer inner_server.InnerServer
+	var storage storage.Storage
 	if conf.Raft {
-		innerServer = raft_server.NewRaftInnerServer(conf)
+		storage = raft_storage.NewRaftStorage(conf)
 	} else {
-		innerServer = standalone_server.NewStandAloneInnerServer(conf)
+		storage = standalone_storage.NewStandAloneStorage(conf)
 	}
-	if err := innerServer.Start(); err != nil {
+	if err := storage.Start(); err != nil {
 		log.Fatal(err)
 	}
-	server := server.NewServer(innerServer)
+	server := server.NewServer(storage)
 
 	var alivePolicy = keepalive.EnforcementPolicy{
 		MinTime:             2 * time.Second, // If a client pings more than once every 2 seconds, terminate the connection

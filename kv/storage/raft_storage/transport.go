@@ -1,4 +1,4 @@
-package raft_server
+package raft_storage
 
 import (
 	"sync"

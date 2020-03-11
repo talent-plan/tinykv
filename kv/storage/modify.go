@@ -1,4 +1,4 @@
-package inner_server
+package storage
 
 // ModifyType is the smallest unit of mutation of TinyKV's underlying storage (i.e., raw key/values on disk(s))
 type ModifyType int64
