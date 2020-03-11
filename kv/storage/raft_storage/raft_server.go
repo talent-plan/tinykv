@@ -57,7 +57,7 @@ func (rs *RaftStorage) checkResponse(resp *raft_cmdpb.RaftCmdResponse, reqCount 
 	return nil
 }
 
-// NewRaftStorage creates a new inner server backed by a raftstore.
+// NewRaftStorage creates a new storage engine backed by a raftstore.
 func NewRaftStorage(conf *config.Config) *RaftStorage {
 	dbPath := conf.DBPath
 	kvPath := filepath.Join(dbPath, "kv")
