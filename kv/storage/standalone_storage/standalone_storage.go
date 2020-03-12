@@ -40,11 +40,11 @@ func (s *StandAloneStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) 
 	return s.db.Update(func(txn *badger.Txn) error {
 		for _, op := range batch {
 			var err error
-			switch op.Type {
-			case storage.ModifyTypePut:
+			switch op.Data.(type) {
+			case storage.Put:
 				put := op.Data.(storage.Put)
 				err = txn.Set(engine_util.KeyWithCF(put.Cf, put.Key), put.Value)
-			case storage.ModifyTypeDelete:
+			case storage.Delete:
 				delete := op.Data.(storage.Delete)
 				err = txn.Delete(engine_util.KeyWithCF(delete.Cf, delete.Key))
 			default:

@@ -78,8 +78,8 @@ func NewRaftStorage(conf *config.Config) *RaftStorage {
 func (rs *RaftStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) error {
 	var reqs []*raft_cmdpb.Request
 	for _, m := range batch {
-		switch m.Type {
-		case storage.ModifyTypePut:
+		switch m.Data.(type) {
+		case storage.Put:
 			put := m.Data.(storage.Put)
 			reqs = append(reqs, &raft_cmdpb.Request{
 				CmdType: raft_cmdpb.CmdType_Put,
@@ -88,7 +88,7 @@ func (rs *RaftStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) error
 					Key:   put.Key,
 					Value: put.Value,
 				}})
-		case storage.ModifyTypeDelete:
+		case storage.Delete:
 			delete := m.Data.(storage.Delete)
 			reqs = append(reqs, &raft_cmdpb.Request{
 				CmdType: raft_cmdpb.CmdType_Delete,

@@ -39,9 +39,10 @@ func testTxn(startTs uint64) MvccTxn {
 func assertPutInTxn(t *testing.T, txn *MvccTxn, key []byte, value []byte, cf string) {
 	writes := txn.Writes()
 	assert.Equal(t, 1, len(writes))
-	assert.Equal(t, storage.ModifyTypePut, writes[0].Type)
 	expected := storage.Put{Cf: cf, Key: key, Value: value}
-	assert.Equal(t, expected, writes[0].Data.(storage.Put))
+	put, ok := writes[0].Data.(storage.Put)
+	assert.True(t, ok)
+	assert.Equal(t, expected, put)
 }
 
 func TestPutLock4A(t *testing.T) {

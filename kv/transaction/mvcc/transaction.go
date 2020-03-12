@@ -221,7 +221,6 @@ func (txn *RoTxn) GetWrite(key []byte, ts uint64) (*Write, error) {
 func (txn *MvccTxn) PutWrite(key []byte, ts uint64, write *Write) {
 	encodedKey := EncodeKey(key, ts)
 	txn.writes = append(txn.writes, storage.Modify{
-		Type: storage.ModifyTypePut,
 		Data: storage.Put{
 			Key:   encodedKey,
 			Value: write.ToBytes(),
@@ -252,7 +251,6 @@ func (txn *RoTxn) GetLock(key []byte) (*Lock, error) {
 // PutLock adds a key/lock to this transaction.
 func (txn *MvccTxn) PutLock(key []byte, lock *Lock) {
 	txn.writes = append(txn.writes, storage.Modify{
-		Type: storage.ModifyTypePut,
 		Data: storage.Put{
 			Key:   key,
 			Value: lock.ToBytes(),
@@ -264,7 +262,6 @@ func (txn *MvccTxn) PutLock(key []byte, lock *Lock) {
 // DeleteLock adds a delete lock to this transaction.
 func (txn *MvccTxn) DeleteLock(key []byte) {
 	txn.writes = append(txn.writes, storage.Modify{
-		Type: storage.ModifyTypeDelete,
 		Data: storage.Delete{
 			Key: key,
 			Cf:  engine_util.CfLock,
@@ -280,7 +277,6 @@ func (txn *RoTxn) getValue(key []byte, ts uint64) ([]byte, error) {
 // PutValue adds a key/value write to this transaction.
 func (txn *MvccTxn) PutValue(key []byte, value []byte) {
 	txn.writes = append(txn.writes, storage.Modify{
-		Type: storage.ModifyTypePut,
 		Data: storage.Put{
 			Key:   EncodeKey(key, txn.StartTS),
 			Value: value,
@@ -292,7 +288,6 @@ func (txn *MvccTxn) PutValue(key []byte, value []byte) {
 // DeleteValue removes a key/value pair in this transaction.
 func (txn *MvccTxn) DeleteValue(key []byte) {
 	txn.writes = append(txn.writes, storage.Modify{
-		Type: storage.ModifyTypeDelete,
 		Data: storage.Delete{
 			Key: EncodeKey(key, txn.StartTS),
 			Cf:  engine_util.CfDefault,
