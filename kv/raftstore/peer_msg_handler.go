@@ -104,7 +104,6 @@ func (d *peerMsgHandler) onGCSnap(snaps []snap.SnapKeyWithSending) {
 	store := d.peer.Store()
 	compactedIdx := store.truncatedIndex()
 	compactedTerm := store.truncatedTerm()
-	isApplyingSnap := store.IsApplyingSnapshot()
 	for _, snapKeyWithSending := range snaps {
 		key := snapKeyWithSending.SnapKey
 		if snapKeyWithSending.IsSending {
@@ -124,7 +123,7 @@ func (d *peerMsgHandler) onGCSnap(snaps []snap.SnapKeyWithSending) {
 				}
 			}
 		} else if key.Term <= compactedTerm &&
-			(key.Index < compactedIdx || (key.Index == compactedIdx && !isApplyingSnap)) {
+			(key.Index < compactedIdx || key.Index == compactedIdx) {
 			log.Infof("%s snap file %s has been applied, delete", d.tag(), key)
 			a, err := d.ctx.snapMgr.GetSnapshotForApplying(key)
 			if err != nil {
@@ -170,13 +169,10 @@ func (d *peerMsgHandler) HandleRaftReady() {
 }
 
 func (d *peerMsgHandler) onRaftBaseTick() {
-	if d.peer.PendingRemove {
-		return
-	}
 	// When having pending snapshot, if election timeout is met, it can't pass
 	// the pending conf change check because first index has been updated to
 	// a value that is larger than last index.
-	if d.peer.IsApplyingSnapshot() || d.peer.HasPendingSnapshot() {
+	if d.peer.HasPendingSnapshot() {
 		// need to check if snapshot is applied.
 		d.ticker.schedule(PeerTickRaft)
 		return
@@ -222,7 +218,7 @@ func (d *peerMsgHandler) onRaftMsg(msg *rspb.RaftMessage) error {
 	if !d.validateRaftMessage(msg) {
 		return nil
 	}
-	if d.peer.PendingRemove || d.stopped {
+	if d.stopped {
 		return nil
 	}
 	if msg.GetIsTombstone() {
@@ -422,7 +418,6 @@ func (d *peerMsgHandler) destroyPeer() {
 	log.Infof("%s starts destroy", d.tag())
 	regionID := d.regionID()
 	// We can't destroy a peer which is applying snapshot.
-	y.Assert(!d.peer.IsApplyingSnapshot())
 	meta := d.ctx.storeMeta
 	isInitialized := d.peer.isInitialized()
 	if err := d.peer.Destroy(d.ctx.engine, false); err != nil {
@@ -638,7 +633,7 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 		return
 	}
 
-	if d.peer.PendingRemove {
+	if d.peer.stopped {
 		NotifyReqRegionRemoved(d.regionID(), cb)
 		return
 	}

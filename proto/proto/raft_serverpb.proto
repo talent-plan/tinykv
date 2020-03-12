@@ -43,11 +43,9 @@ message RegionLocalState {
 }
 
 // Normal indicates that this Peer is normal;
-// Applying means this Peer hasn’t finished the apply snapshot operation;
 // Tombstone shows that this Peer has been removed from Region and cannot join in Raft Group.
 enum PeerState {
     Normal = 0;
-    Applying = 1;
     Tombstone = 2;
 }
 

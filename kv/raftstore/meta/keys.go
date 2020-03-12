@@ -22,10 +22,9 @@ const (
 
 	// Following are the suffix after the local prefix.
 	// For region id
-	RaftLogSuffix           byte = 0x01
-	RaftStateSuffix         byte = 0x02
-	ApplyStateSuffix        byte = 0x03
-	SnapshotRaftStateSuffix byte = 0x04
+	RaftLogSuffix    byte = 0x01
+	RaftStateSuffix  byte = 0x02
+	ApplyStateSuffix byte = 0x03
 
 	// For region meta
 	RegionStateSuffix byte = 0x01
@@ -81,10 +80,6 @@ func RaftStateKey(regionID uint64) []byte {
 
 func ApplyStateKey(regionID uint64) []byte {
 	return makeRegionPrefix(regionID, ApplyStateSuffix)
-}
-
-func SnapshotRaftStateKey(regionID uint64) []byte {
-	return makeRegionPrefix(regionID, SnapshotRaftStateSuffix)
 }
 
 func IsRaftStateKey(key []byte) bool {

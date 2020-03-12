@@ -23,29 +23,16 @@ import (
 	"github.com/pingcap/errors"
 )
 
-type JobStatus = uint32
-
-const (
-	JobStatus_Pending JobStatus = 0 + iota
-	JobStatus_Running
-	JobStatus_Cancelling
-	JobStatus_Cancelled
-	JobStatus_Finished
-	JobStatus_Failed
-)
-
 type SnapStateType int
 
 const (
 	SnapState_Relax SnapStateType = 0 + iota
 	SnapState_Generating
 	SnapState_Applying
-	SnapState_ApplyAborted
 )
 
 type SnapState struct {
 	StateType SnapStateType
-	Status    *JobStatus
 	Receiver  chan *eraftpb.Snapshot
 }
 
@@ -110,14 +97,12 @@ type SnapStatistics struct {
 type ApplyOptions struct {
 	DB     *badger.DB
 	Region *metapb.Region
-	Abort  *uint32
 }
 
-func NewApplyOptions(db *badger.DB, region *metapb.Region, abort *uint32) *ApplyOptions {
+func NewApplyOptions(db *badger.DB, region *metapb.Region) *ApplyOptions {
 	return &ApplyOptions{
 		DB:     db,
 		Region: region,
-		Abort:  abort,
 	}
 }
 
@@ -690,10 +675,6 @@ func (s *Snap) Apply(opts ApplyOptions) error {
 	if err != nil {
 		return err
 	}
-	err = CheckAbort(opts.Abort)
-	if err != nil {
-		return err
-	}
 
 	externalFiles := make([]*os.File, 0, len(s.CFFiles))
 	for _, cfFile := range s.CFFiles {
@@ -714,13 +695,6 @@ func (s *Snap) Apply(opts ApplyOptions) error {
 		return err
 	}
 	log.Infof("apply snapshot ingested %d tables", n)
-	return nil
-}
-
-func CheckAbort(status *uint32) error {
-	if atomic.LoadUint32(status) == JobStatus_Cancelling {
-		return errAbort
-	}
 	return nil
 }
 

@@ -77,10 +77,6 @@ func (p *peer) stop() {
 	p.stopped = true
 }
 
-func (p *peer) scheduleApplyingSnapshot() {
-	p.Store().ScheduleApplyingSnapshot()
-}
-
 func (p *peer) tag() string {
 	return p.Tag
 }
@@ -114,11 +110,6 @@ type peer struct {
 	// Index of last scheduled committed raft log.
 	LastApplyingIdx  uint64
 	LastCompactedIdx uint64
-
-	PendingRemove bool
-
-	// If a snapshot is being applied asynchronously, messages should not be sent.
-	pendingMessages []eraftpb.Message
 }
 
 func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, region *metapb.Region, regionSched chan<- worker.Task,
@@ -198,17 +189,10 @@ func (p *peer) nextProposalIndex() uint64 {
 
 /// Tries to destroy itself. Returns a job (if needed) to do more cleaning tasks.
 func (p *peer) MaybeDestroy() bool {
-	if p.PendingRemove {
+	if p.stopped {
 		log.Infof("%v is being destroyed, skip", p.Tag)
 		return false
 	}
-	if p.IsApplyingSnapshot() {
-		if !p.Store().CancelApplyingSnap() {
-			log.Infof("%v stale peer %v is applying snapshot", p.Tag, p.Meta.Id)
-			return false
-		}
-	}
-	p.PendingRemove = true
 	return true
 }
 
@@ -285,10 +269,6 @@ func (p *peer) GetRole() raft.StateType {
 
 func (p *peer) Store() *PeerStorage {
 	return p.peerStorage
-}
-
-func (p *peer) IsApplyingSnapshot() bool {
-	return p.Store().IsApplyingSnapshot()
 }
 
 /// Returns `true` if the raft group has replicated a snapshot but not committed it yet.
@@ -410,21 +390,8 @@ func (p *peer) TakeApplyProposals() *MsgApplyProposal {
 }
 
 func (p *peer) HandleRaftReady(msgs []message.Msg, pdScheduler chan<- worker.Task, trans Transport) (*ApplySnapResult, []message.Msg) {
-	if p.PendingRemove {
+	if p.stopped {
 		return nil, msgs
-	}
-	if p.Store().CheckApplyingSnap() {
-		// If we continue to handle all the messages, it may cause too many messages because
-		// leader will send all the remaining messages to this follower, which can lead
-		// to full message queue under high load.
-		log.Debugf("%v still applying snapshot, skip further handling", p.Tag)
-		return nil, msgs
-	}
-
-	if len(p.pendingMessages) > 0 {
-		messages := p.pendingMessages
-		p.pendingMessages = nil
-		p.Send(trans, messages)
 	}
 
 	if p.HasPendingSnapshot() && !p.ReadyToHandlePendingSnap() {
@@ -462,12 +429,7 @@ func (p *peer) HandleRaftReady(msgs []message.Msg, pdScheduler chan<- worker.Tas
 		panic(fmt.Sprintf("failed to handle raft ready, error: %v", err))
 	}
 	if !p.IsLeader() {
-		if p.IsApplyingSnapshot() {
-			p.pendingMessages = ready.Messages
-			ready.Messages = nil
-		} else {
-			p.Send(trans, ready.Messages)
-		}
+		p.Send(trans, ready.Messages)
 	}
 
 	if applySnapResult != nil {
@@ -565,7 +527,7 @@ func (p *peer) sendRaftMessage(msg eraftpb.Message, trans Transport) error {
 //
 // Return true means the request has been proposed successfully.
 func (p *peer) Propose(kv *badger.DB, cfg *config.Config, cb *message.Callback, req *raft_cmdpb.RaftCmdRequest, errResp *raft_cmdpb.RaftCmdResponse) bool {
-	if p.PendingRemove {
+	if p.stopped {
 		return false
 	}
 
