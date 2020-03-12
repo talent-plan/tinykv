@@ -59,8 +59,8 @@ func (d *peerMsgHandler) HandleMsgs(msg message.Msg) {
 		d.onApplyResult(res)
 	case message.MsgTypeSplitRegion:
 		split := msg.Data.(*message.MsgSplitRegion)
-		log.Infof("%s on split with %v", d.peer.Tag, split.SplitKeys)
-		d.onPrepareSplitRegion(split.RegionEpoch, split.SplitKeys, split.Callback)
+		log.Infof("%s on split with %v", d.peer.Tag, split.SplitKey)
+		d.onPrepareSplitRegion(split.RegionEpoch, split.SplitKey, split.Callback)
 	case message.MsgTypeRegionApproximateSize:
 		d.onApproximateRegionSize(msg.Data.(uint64))
 	case message.MsgTypeGcSnap:
@@ -716,36 +716,30 @@ func (d *peerMsgHandler) onSplitRegionCheckTick() {
 	d.peer.SizeDiffHint = 0
 }
 
-func (d *peerMsgHandler) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, splitKeys [][]byte, cb *message.Callback) {
-	if err := d.validateSplitRegion(regionEpoch, splitKeys); err != nil {
+func (d *peerMsgHandler) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, splitKey []byte, cb *message.Callback) {
+	if err := d.validateSplitRegion(regionEpoch, splitKey); err != nil {
 		cb.Done(ErrResp(err))
 		return
 	}
 	region := d.region()
 	d.ctx.pdTaskSender <- worker.Task{
-		Tp: worker.TaskTypePDAskBatchSplit,
-		Data: &runner.PdAskBatchSplitTask{
-			Region:    region,
-			SplitKeys: splitKeys,
-			Peer:      d.peer.Meta,
-			Callback:  cb,
+		Tp: worker.TaskTypePDAskSplit,
+		Data: &runner.PdAskSplitTask{
+			Region:   region,
+			SplitKey: splitKey,
+			Peer:     d.peer.Meta,
+			Callback: cb,
 		},
 	}
 }
 
-func (d *peerMsgHandler) validateSplitRegion(epoch *metapb.RegionEpoch, splitKeys [][]byte) error {
-	if len(splitKeys) == 0 {
-		err := errors.Errorf("%s no split key is specified", d.tag())
+func (d *peerMsgHandler) validateSplitRegion(epoch *metapb.RegionEpoch, splitKey []byte) error {
+	if len(splitKey) == 0 {
+		err := errors.Errorf("%s split key should not be empty", d.tag())
 		log.Error(err)
 		return err
 	}
-	for _, key := range splitKeys {
-		if len(key) == 0 {
-			err := errors.Errorf("%s split key should not be empty", d.tag())
-			log.Error(err)
-			return err
-		}
-	}
+
 	if !d.peer.IsLeader() {
 		// region on this store is no longer leader, skipped.
 		log.Infof("%s not leader, skip", d.tag())

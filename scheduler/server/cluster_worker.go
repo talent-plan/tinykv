@@ -88,43 +88,6 @@ func (c *RaftCluster) validRequestRegion(reqRegion *metapb.Region) error {
 	return nil
 }
 
-func (c *RaftCluster) handleAskBatchSplit(request *pdpb.AskBatchSplitRequest) (*pdpb.AskBatchSplitResponse, error) {
-	reqRegion := request.GetRegion()
-	splitCount := request.GetSplitCount()
-	err := c.validRequestRegion(reqRegion)
-	if err != nil {
-		return nil, err
-	}
-	splitIDs := make([]*pdpb.SplitID, 0, splitCount)
-	recordRegions := make([]uint64, 0, splitCount+1)
-
-	for i := 0; i < int(splitCount); i++ {
-		newRegionID, err := c.s.idAllocator.Alloc()
-		if err != nil {
-			return nil, errSchedulerNotFound
-		}
-
-		peerIDs := make([]uint64, len(request.Region.Peers))
-		for i := 0; i < len(peerIDs); i++ {
-			if peerIDs[i], err = c.s.idAllocator.Alloc(); err != nil {
-				return nil, err
-			}
-		}
-
-		recordRegions = append(recordRegions, newRegionID)
-		splitIDs = append(splitIDs, &pdpb.SplitID{
-			NewRegionId: newRegionID,
-			NewPeerIds:  peerIDs,
-		})
-	}
-
-	recordRegions = append(recordRegions, reqRegion.GetId())
-
-	resp := &pdpb.AskBatchSplitResponse{Ids: splitIDs}
-
-	return resp, nil
-}
-
 func (c *RaftCluster) checkSplitRegion(left *metapb.Region, right *metapb.Region) error {
 	if left == nil || right == nil {
 		return errors.New("invalid split region")
@@ -180,25 +143,4 @@ func (c *RaftCluster) handleReportSplit(request *pdpb.ReportSplitRequest) (*pdpb
 		zap.Uint64("region-id", originRegion.GetId()),
 		zap.Stringer("region-meta", core.RegionToHexMeta(left)))
 	return &pdpb.ReportSplitResponse{}, nil
-}
-
-func (c *RaftCluster) handleBatchReportSplit(request *pdpb.ReportBatchSplitRequest) (*pdpb.ReportBatchSplitResponse, error) {
-	regions := request.GetRegions()
-
-	hrm := core.RegionsToHexMeta(regions)
-	err := c.checkSplitRegions(regions)
-	if err != nil {
-		log.Warn("report batch split region is invalid",
-			zap.Stringer("region-meta", hrm),
-			zap.Error(err))
-		return nil, err
-	}
-	last := len(regions) - 1
-	originRegion := proto.Clone(regions[last]).(*metapb.Region)
-	hrm = core.RegionsToHexMeta(regions[:last])
-	log.Info("region batch split, generate new regions",
-		zap.Uint64("region-id", originRegion.GetId()),
-		zap.Stringer("origin", hrm),
-		zap.Int("total", last))
-	return &pdpb.ReportBatchSplitResponse{}, nil
 }

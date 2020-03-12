@@ -14,11 +14,11 @@ import (
 	"github.com/shirou/gopsutil/disk"
 )
 
-type PdAskBatchSplitTask struct {
-	Region    *metapb.Region
-	SplitKeys [][]byte
-	Peer      *metapb.Peer
-	Callback  *message.Callback
+type PdAskSplitTask struct {
+	Region   *metapb.Region
+	SplitKey []byte
+	Peer     *metapb.Peer
+	Callback *message.Callback
 }
 
 type PdRegionHeartbeatTask struct {
@@ -50,8 +50,8 @@ func NewPDTaskHandler(storeID uint64, pdClient pd.Client, router message.RaftRou
 
 func (r *pdTaskHandler) Handle(t worker.Task) {
 	switch t.Tp {
-	case worker.TaskTypePDAskBatchSplit:
-		r.onAskBatchSplit(t.Data.(*PdAskBatchSplitTask))
+	case worker.TaskTypePDAskSplit:
+		r.onAskSplit(t.Data.(*PdAskSplitTask))
 	case worker.TaskTypePDHeartbeat:
 		r.onHeartbeat(t.Data.(*PdRegionHeartbeatTask))
 	case worker.TaskTypePDStoreHeartbeat:
@@ -84,29 +84,20 @@ func (r *pdTaskHandler) onRegionHeartbeatResponse(resp *pdpb.RegionHeartbeatResp
 	}
 }
 
-func (r *pdTaskHandler) onAskBatchSplit(t *PdAskBatchSplitTask) {
-	resp, err := r.pdClient.AskBatchSplit(context.TODO(), t.Region, len(t.SplitKeys))
+func (r *pdTaskHandler) onAskSplit(t *PdAskSplitTask) {
+	resp, err := r.pdClient.AskSplit(context.TODO(), t.Region)
 	if err != nil {
 		log.Error(err)
-		return
-	}
-	srs := make([]*raft_cmdpb.SplitRequest, len(resp.Ids))
-	for i, splitID := range resp.Ids {
-		srs[i] = &raft_cmdpb.SplitRequest{
-			SplitKey:    t.SplitKeys[i],
-			NewRegionId: splitID.NewRegionId,
-			NewPeerIds:  splitID.NewPeerIds,
-		}
-	}
-
-	if len(srs) < 1 {
-		log.Errorf("not split request")
 		return
 	}
 
 	aq := &raft_cmdpb.AdminRequest{
 		CmdType: raft_cmdpb.AdminCmdType_Split,
-		Split:   srs[0],
+		Split: &raft_cmdpb.SplitRequest{
+			SplitKey:    t.SplitKey,
+			NewRegionId: resp.NewRegionId,
+			NewPeerIds:  resp.NewPeerIds,
+		},
 	}
 	r.sendAdminRequest(t.Region.GetId(), t.Region.GetRegionEpoch(), t.Peer, aq, t.Callback)
 }

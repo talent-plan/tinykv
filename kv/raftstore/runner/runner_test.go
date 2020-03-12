@@ -289,5 +289,5 @@ func TestSplitCheck(t *testing.T) {
 	msg := <-taskResCh
 	split, ok := msg.Data.(*message.MsgSplitRegion)
 	assert.True(t, ok)
-	assert.Equal(t, split.SplitKeys[0], codec.EncodeBytes([]byte("k2")))
+	assert.Equal(t, split.SplitKey, codec.EncodeBytes([]byte("k2")))
 }

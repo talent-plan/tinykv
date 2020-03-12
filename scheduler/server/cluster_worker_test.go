@@ -121,14 +121,13 @@ func (s *testClusterWorkerSuite) TestAskSplit(c *C) {
 	_, err = cluster.handleAskSplit(req)
 	c.Assert(err, IsNil)
 
-	req1 := &pdpb.AskBatchSplitRequest{
+	req1 := &pdpb.AskSplitRequest{
 		Header: &pdpb.RequestHeader{
 			ClusterId: s.svr.ClusterID(),
 		},
-		Region:     regions[0].GetMeta(),
-		SplitCount: 10,
+		Region: regions[0].GetMeta(),
 	}
 
-	_, err = cluster.handleAskBatchSplit(req1)
+	_, err = cluster.handleAskSplit(req1)
 	c.Assert(err, IsNil)
 }

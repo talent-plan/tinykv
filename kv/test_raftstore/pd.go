@@ -218,8 +218,8 @@ func (m *MockPDClient) getRegionByIDLocked(regionID uint64) (*metapb.Region, *me
 	return region, leader, nil
 }
 
-func (m *MockPDClient) AskBatchSplit(ctx context.Context, region *metapb.Region, count int) (*pdpb.AskBatchSplitResponse, error) {
-	resp := new(pdpb.AskBatchSplitResponse)
+func (m *MockPDClient) AskSplit(ctx context.Context, region *metapb.Region) (*pdpb.AskSplitResponse, error) {
+	resp := new(pdpb.AskSplitResponse)
 	resp.Header = &pdpb.ResponseHeader{ClusterId: m.clusterID}
 	curRegion, _, err := m.GetRegionByID(ctx, region.GetId())
 	if err != nil {
@@ -229,17 +229,14 @@ func (m *MockPDClient) AskBatchSplit(ctx context.Context, region *metapb.Region,
 		return resp, errors.New("epoch is stale")
 	}
 
-	for i := 0; i < count; i++ {
-		ids := new(pdpb.SplitID)
-		id, _ := m.AllocID(ctx)
-		ids.NewRegionId = id
+	id, _ := m.AllocID(ctx)
+	resp.NewRegionId = id
 
-		for range region.GetPeers() {
-			id, _ := m.AllocID(ctx)
-			ids.NewPeerIds = append(ids.NewPeerIds, id)
-		}
-		resp.Ids = append(resp.Ids, ids)
+	for range region.GetPeers() {
+		id, _ := m.AllocID(ctx)
+		resp.NewPeerIds = append(resp.NewPeerIds, id)
 	}
+
 	return resp, nil
 }
 
