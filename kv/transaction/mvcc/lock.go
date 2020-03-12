@@ -87,7 +87,7 @@ func AllLocksForTxn(txn *RoTxn) ([]KlPair, error) {
 		if err != nil {
 			return nil, err
 		}
-		if lock.Ts == *txn.StartTS {
+		if lock.Ts == txn.StartTS {
 			result = append(result, KlPair{item.Key(), lock})
 		}
 	}
