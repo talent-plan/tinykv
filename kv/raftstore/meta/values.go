@@ -26,14 +26,6 @@ func GetRaftLocalState(db *badger.DB, regionId uint64) (*rspb.RaftLocalState, er
 	return raftLocalState, nil
 }
 
-func GetSnapRaftState(db *badger.DB, regionId uint64) (*rspb.RaftLocalState, error) {
-	snapRaftState := new(rspb.RaftLocalState)
-	if err := engine_util.GetMsg(db, SnapshotRaftStateKey(regionId), snapRaftState); err != nil {
-		return nil, err
-	}
-	return snapRaftState, nil
-}
-
 func GetApplyState(db *badger.DB, regionId uint64) (*rspb.RaftApplyState, error) {
 	applyState := new(rspb.RaftApplyState)
 	if err := engine_util.GetMsg(db, ApplyStateKey(regionId), applyState); err != nil {

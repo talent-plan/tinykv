@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"math/rand"
+	_ "net/http/pprof"
 	"strconv"
 	"strings"
 	"sync/atomic"

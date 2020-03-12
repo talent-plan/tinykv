@@ -4,10 +4,7 @@ import (
 	"encoding/binary"
 	"io"
 	"io/ioutil"
-	"os"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
@@ -17,7 +14,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/util/codec"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/worker"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
@@ -109,92 +105,6 @@ func fillDBData(t *testing.T, db *badger.DB) {
 	wb.SetCF(engine_util.CfLock, []byte("key"), value)
 	err := wb.WriteToDB(db)
 	require.Nil(t, err)
-}
-
-func TestApplies(t *testing.T) {
-	kvPath, err := ioutil.TempDir("", "testApplies")
-	require.Nil(t, err)
-	db := getTestDBForRegions(t, kvPath, []uint64{1, 2, 3, 4, 5, 6})
-	keys := []byte{1, 2, 3, 4, 5, 6}
-	for _, k := range keys {
-		require.Nil(t, db.Update(func(txn *badger.Txn) error {
-			require.Nil(t, txn.Set([]byte{k}, []byte{k}))
-			require.Nil(t, txn.Set([]byte{k + 1}, []byte{k + 1}))
-			return nil
-		}))
-	}
-
-	engines := newEnginesWithKVDb(t, db)
-	engines.KvPath = kvPath
-	defer engines.Destroy()
-
-	snapPath, err := ioutil.TempDir("", "tinykv_snap")
-	defer os.RemoveAll(snapPath)
-	require.Nil(t, err)
-	mgr := snap.NewSnapManager(snapPath)
-	wg := new(sync.WaitGroup)
-	regionWorker := worker.NewWorker("snap-manager", wg)
-	regionRunner := NewRegionTaskHandler(engines, mgr)
-	regionWorker.Start(regionRunner)
-	genAndApplySnap := func(regionId uint64) {
-		tx := make(chan *eraftpb.Snapshot, 1)
-		tsk := &worker.Task{
-			Tp: worker.TaskTypeRegionGen,
-			Data: &RegionTask{
-				RegionId: regionId,
-				Notifier: tx,
-			},
-		}
-		regionWorker.Sender() <- *tsk
-		s1 := <-tx
-		data := s1.Data
-		key := snap.SnapKeyFromRegionSnap(regionId, s1)
-		mgr := snap.NewSnapManager(snapPath)
-		s2, err := mgr.GetSnapshotForSending(key)
-		require.Nil(t, err)
-		s3, err := mgr.GetSnapshotForReceiving(key, data)
-		require.Nil(t, err)
-		require.Nil(t, copySnapshot(s3, s2))
-
-		// set applying state
-		wb := new(engine_util.WriteBatch)
-		regionLocalState, err := meta.GetRegionLocalState(engines.Kv, regionId)
-		require.Nil(t, err)
-		regionLocalState.State = rspb.PeerState_Applying
-		require.Nil(t, wb.SetMsg(meta.RegionStateKey(regionId), regionLocalState))
-		require.Nil(t, wb.WriteToDB(engines.Kv))
-
-		// apply snapshot
-		var status = snap.JobStatus_Pending
-		tsk2 := &worker.Task{
-			Tp: worker.TaskTypeRegionApply,
-			Data: &RegionTask{
-				RegionId: regionId,
-				Status:   &status,
-			},
-		}
-		regionWorker.Sender() <- *tsk2
-	}
-
-	waitApplyFinish := func(regionId uint64) {
-		for {
-			time.Sleep(time.Millisecond * 100)
-			regionLocalState, err := meta.GetRegionLocalState(engines.Kv, regionId)
-			require.Nil(t, err)
-			if regionLocalState.State == rspb.PeerState_Normal {
-				break
-			}
-		}
-	}
-
-	genAndApplySnap(1)
-	waitApplyFinish(1)
-
-	genAndApplySnap(2)
-	waitApplyFinish(2)
-
-	genAndApplySnap(3)
-	waitApplyFinish(3)
 }
 
 func TestGcRaftLog(t *testing.T) {

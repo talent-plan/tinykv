@@ -116,9 +116,6 @@ type peer struct {
 
 	// Index of last scheduled committed raft log.
 	LastCompactedIdx uint64
-
-	// If a snapshot is being applied asynchronously, messages should not be sent.
-	pendingMessages []eraftpb.Message
 }
 
 func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, region *metapb.Region, regionSched chan<- worker.Task,
@@ -155,8 +152,8 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 		peerCache:             make(map[uint64]*metapb.Peer),
 		PeerHeartbeats:        make(map[uint64]time.Time),
 		PeersStartPendingTime: make(map[uint64]time.Time),
-		Tag:                   tag,
-		ticker:                newTicker(region.GetId(), cfg),
+		Tag:    tag,
+		ticker: newTicker(region.GetId(), cfg),
 	}
 
 	// If this region has only one peer and I am the one, campaign directly.
@@ -200,12 +197,6 @@ func (p *peer) MaybeDestroy() bool {
 	if p.stopped {
 		log.Infof("%v is being destroyed, skip", p.Tag)
 		return false
-	}
-	if p.IsApplyingSnapshot() {
-		if !p.Store().CancelApplyingSnap() {
-			log.Infof("%v stale peer %v is applying snapshot", p.Tag, p.Meta.Id)
-			return false
-		}
 	}
 	return true
 }
@@ -283,10 +274,6 @@ func (p *peer) GetRole() raft.StateType {
 
 func (p *peer) Store() *PeerStorage {
 	return p.peerStorage
-}
-
-func (p *peer) IsApplyingSnapshot() bool {
-	return p.Store().IsApplyingSnapshot()
 }
 
 func (p *peer) Send(trans Transport, msgs []eraftpb.Message) {

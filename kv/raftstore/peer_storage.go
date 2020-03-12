@@ -3,7 +3,6 @@ package raftstore
 import (
 	"bytes"
 	"fmt"
-	"sync/atomic"
 	"time"
 
 	"github.com/Connor1996/badger"
@@ -35,36 +34,6 @@ func (ps *PeerStorage) saveRaftStateTo(wb *engine_util.WriteBatch) {
 
 func (ps *PeerStorage) saveApplyStateTo(wb *engine_util.WriteBatch, applyState *rspb.RaftApplyState) {
 	wb.SetMsg(meta.ApplyStateKey(ps.region.GetId()), applyState)
-}
-
-func (ps *PeerStorage) saveSnapshotRaftStateTo(snapshotIdx uint64, wb *engine_util.WriteBatch) {
-	snapshotRaftState := ps.raftState
-	snapshotRaftState.HardState.Commit = snapshotIdx
-	snapshotRaftState.LastIndex = snapshotIdx
-	wb.SetMsg(meta.SnapshotRaftStateKey(ps.region.GetId()), &snapshotRaftState)
-}
-
-func recoverFromApplyingState(engines *engine_util.Engines, raftWB *engine_util.WriteBatch, regionID uint64) error {
-	snapRaftState, err := meta.GetSnapRaftState(engines.Kv, regionID)
-	if err != nil {
-		return errors.Errorf("region %d failed to get raftstate from kv engine when recover from applying state", regionID)
-	}
-
-	raftState, err := meta.GetRaftLocalState(engines.Raft, regionID)
-	if err != nil && err != badger.ErrKeyNotFound {
-		return errors.WithStack(err)
-	}
-
-	// if we recv append log when applying snapshot, last_index in raft_local_state will
-	// larger than snapshot_index. since raft_local_state is written to raft engine, and
-	// raft write_batch is written after kv write_batch, raft_local_state may wrong if
-	// restart happen between the two write. so we copy raft_local_state to kv engine
-	// (snapshot_raft_state), and set snapshot_raft_state.last_index = snapshot_index.
-	// after restart, we need check last_index.
-	if snapRaftState.LastIndex > raftState.LastIndex {
-		raftWB.SetMsg(meta.RaftStateKey(regionID), snapRaftState)
-	}
-	return nil
 }
 
 var _ raft.Storage = new(PeerStorage)
@@ -246,10 +215,6 @@ func (ps *PeerStorage) Region() *metapb.Region {
 	return ps.region
 }
 
-func (ps *PeerStorage) IsApplyingSnapshot() bool {
-	return ps.snapState.StateType == snap.SnapState_Applying
-}
-
 func (ps *PeerStorage) checkRange(low, high uint64) error {
 	if low > high {
 		return errors.Errorf("low %d is greater than high %d", low, high)
@@ -403,7 +368,7 @@ func WritePeerState(kvWB *engine_util.WriteBatch, region *metapb.Region, state r
 }
 
 // Apply the peer with given snapshot.
-func (ps *PeerStorage) ApplySnapshot(snap *eraftpb.Snapshot, kvWB *engine_util.WriteBatch, raftWB *engine_util.WriteBatch) (*metapb.Region, error) {
+func (ps *PeerStorage) ApplySnapshot(snap *eraftpb.Snapshot, kvWB *engine_util.WriteBatch, raftWB *engine_util.WriteBatch) (*ApplySnapResult, error) {
 	log.Infof("%v begin to apply snapshot", ps.Tag)
 
 	snapData := new(rspb.RaftSnapshotData)
@@ -425,6 +390,15 @@ func (ps *PeerStorage) ApplySnapshot(snap *eraftpb.Snapshot, kvWB *engine_util.W
 	ps.raftState.LastIndex = snap.Metadata.Index
 	ps.lastTerm = snap.Metadata.Term
 
+	applyRes := &ApplySnapResult{
+		PrevRegion: ps.region,
+		Region:     snapData.Region,
+	}
+	// cleanup data before scheduling apply worker.Task
+	if ps.isInitialized() {
+		ps.clearExtraData(snapData.Region)
+	}
+	ps.region = snapData.Region
 	applyState := &rspb.RaftApplyState{
 		AppliedIndex: snap.Metadata.Index,
 		// The snapshot only contains log which index > applied index, so
@@ -435,10 +409,11 @@ func (ps *PeerStorage) ApplySnapshot(snap *eraftpb.Snapshot, kvWB *engine_util.W
 		},
 	}
 	ps.saveApplyStateTo(kvWB, applyState)
-	WritePeerState(kvWB, snapData.Region, rspb.PeerState_Applying)
+	ps.ScheduleApplyingSnapshotAndWait(snapData.Region, snap.Metadata)
+	WritePeerState(kvWB, snapData.Region, rspb.PeerState_Normal)
 
 	log.Debugf("%v apply snapshot for region %v with state %v ok", ps.Tag, snapData.Region, applyState)
-	return snapData.Region, nil
+	return applyRes, nil
 }
 
 /// Save memory states to disk.
@@ -447,20 +422,13 @@ func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (*ApplySnapResult, erro
 	kvWB, raftWB := new(engine_util.WriteBatch), new(engine_util.WriteBatch)
 	prevRaftState := ps.raftState
 
-	var snapshotIdx uint64 = 0
-	var snapRegion *metapb.Region = nil
 	var applyRes *ApplySnapResult = nil
+	var err error
 	if !raft.IsEmptySnap(&ready.Snapshot) {
-		region, err := ps.ApplySnapshot(&ready.Snapshot, kvWB, raftWB)
+		applyRes, err = ps.ApplySnapshot(&ready.Snapshot, kvWB, raftWB)
 		if err != nil {
 			return nil, err
 		}
-		applyRes = &ApplySnapResult{
-			PrevRegion: ps.region,
-			Region:     region,
-		}
-		snapshotIdx = ps.raftState.LastIndex
-		snapRegion = region
 	}
 
 	if len(ready.Entries) != 0 {
@@ -475,44 +443,29 @@ func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (*ApplySnapResult, erro
 
 	if !proto.Equal(&prevRaftState, &ps.raftState) {
 		ps.saveRaftStateTo(raftWB)
-		if snapshotIdx > 0 {
-			// in case of restart happen when we just write region state to Applying,
-			// but not write raft_local_state to raft rocksdb in time.
-			// we write raft state to default rocksdb, with last index set to snap index,
-			// in case of recv raft log after snapshot.
-			ps.saveSnapshotRaftStateTo(snapshotIdx, kvWB)
-		}
 	}
 
 	kvWB.MustWriteToDB(ps.Engines.Kv)
 	raftWB.MustWriteToDB(ps.Engines.Raft)
-
-	// If we apply snapshot ok, we should update some infos like applied index too.
-	if snapshotIdx > 0 {
-		// cleanup data before scheduling apply worker.Task
-		if ps.isInitialized() {
-			ps.clearExtraData(snapRegion)
-		}
-		ps.region = snapRegion
-		ps.ScheduleApplyingSnapshot()
-	}
-
 	return applyRes, nil
 }
 
-func (ps *PeerStorage) ScheduleApplyingSnapshot() {
-	status := snap.JobStatus_Pending
+func (ps *PeerStorage) ScheduleApplyingSnapshotAndWait(snapRegion *metapb.Region, snapMeta *eraftpb.SnapshotMetadata) {
+	ch := make(chan *eraftpb.Snapshot, 1)
 	ps.snapState = snap.SnapState{
 		StateType: snap.SnapState_Applying,
-		Status:    &status,
 	}
 	ps.regionSched <- worker.Task{
 		Tp: worker.TaskTypeRegionApply,
 		Data: &runner.RegionTask{
 			RegionId: ps.region.Id,
-			Status:   &status,
+			Notifier: ch,
+			SnapMeta: snapMeta,
+			StartKey: snapRegion.GetStartKey(),
+			EndKey:   snapRegion.GetEndKey(),
 		},
 	}
+	<-ch
 }
 
 func (ps *PeerStorage) SetRegion(region *metapb.Region) {
@@ -528,27 +481,4 @@ func (ps *PeerStorage) ClearData() {
 			EndKey:   ps.region.GetEndKey(),
 		},
 	}
-}
-
-func (p *PeerStorage) CancelApplyingSnap() bool {
-	// Todo: currently it is a place holder
-	return true
-}
-
-// Check if the storage is applying a snapshot.
-func (ps *PeerStorage) CheckApplyingSnap() bool {
-	switch ps.snapState.StateType {
-	case snap.SnapState_Applying:
-		switch atomic.LoadUint32(ps.snapState.Status) {
-		case snap.JobStatus_Finished:
-			ps.snapState = snap.SnapState{StateType: snap.SnapState_Relax}
-		case snap.JobStatus_Cancelled:
-			ps.snapState = snap.SnapState{StateType: snap.SnapState_ApplyAborted}
-		case snap.JobStatus_Failed:
-			panic(fmt.Sprintf("%v applying snapshot failed", ps.Tag))
-		default:
-			return true
-		}
-	}
-	return false
 }
