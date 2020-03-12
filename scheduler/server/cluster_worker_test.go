@@ -37,18 +37,6 @@ func (s *testClusterWorkerSuite) TestReportSplit(c *C) {
 	c.Assert(err, NotNil)
 }
 
-func (s *testClusterWorkerSuite) TestReportBatchSplit(c *C) {
-	var cluster RaftCluster
-	regions := []*metapb.Region{
-		{Id: 1, StartKey: []byte(""), EndKey: []byte("a")},
-		{Id: 2, StartKey: []byte("a"), EndKey: []byte("b")},
-		{Id: 3, StartKey: []byte("b"), EndKey: []byte("c")},
-		{Id: 3, StartKey: []byte("c"), EndKey: []byte("")},
-	}
-	_, err := cluster.handleBatchReportSplit(&pdpb.ReportBatchSplitRequest{Regions: regions})
-	c.Assert(err, IsNil)
-}
-
 func (s *testClusterWorkerSuite) TestValidRequestRegion(c *C) {
 	var err error
 	var cleanup func()
