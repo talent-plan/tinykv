@@ -491,35 +491,6 @@ func (s *Server) AskSplit(ctx context.Context, request *pdpb.AskSplitRequest) (*
 	}, nil
 }
 
-// AskBatchSplit implements gRPC PDServer.
-func (s *Server) AskBatchSplit(ctx context.Context, request *pdpb.AskBatchSplitRequest) (*pdpb.AskBatchSplitResponse, error) {
-	if err := s.validateRequest(request.GetHeader()); err != nil {
-		return nil, err
-	}
-
-	cluster := s.GetRaftCluster()
-	if cluster == nil {
-		return &pdpb.AskBatchSplitResponse{Header: s.notBootstrappedHeader()}, nil
-	}
-
-	if request.GetRegion() == nil {
-		return nil, errors.New("missing region for split")
-	}
-	req := &pdpb.AskBatchSplitRequest{
-		Region:     request.Region,
-		SplitCount: request.SplitCount,
-	}
-	split, err := cluster.handleAskBatchSplit(req)
-	if err != nil {
-		return nil, status.Errorf(codes.Unknown, err.Error())
-	}
-
-	return &pdpb.AskBatchSplitResponse{
-		Header: s.header(),
-		Ids:    split.Ids,
-	}, nil
-}
-
 // ReportSplit implements gRPC PDServer.
 func (s *Server) ReportSplit(ctx context.Context, request *pdpb.ReportSplitRequest) (*pdpb.ReportSplitResponse, error) {
 	if err := s.validateRequest(request.GetHeader()); err != nil {
@@ -536,27 +507,6 @@ func (s *Server) ReportSplit(ctx context.Context, request *pdpb.ReportSplitReque
 	}
 
 	return &pdpb.ReportSplitResponse{
-		Header: s.header(),
-	}, nil
-}
-
-// ReportBatchSplit implements gRPC PDServer.
-func (s *Server) ReportBatchSplit(ctx context.Context, request *pdpb.ReportBatchSplitRequest) (*pdpb.ReportBatchSplitResponse, error) {
-	if err := s.validateRequest(request.GetHeader()); err != nil {
-		return nil, err
-	}
-
-	cluster := s.GetRaftCluster()
-	if cluster == nil {
-		return &pdpb.ReportBatchSplitResponse{Header: s.notBootstrappedHeader()}, nil
-	}
-
-	_, err := cluster.handleBatchReportSplit(request)
-	if err != nil {
-		return nil, status.Errorf(codes.Unknown, err.Error())
-	}
-
-	return &pdpb.ReportBatchSplitResponse{
 		Header: s.header(),
 	}, nil
 }

@@ -43,7 +43,7 @@ type Client interface {
 	GetStore(ctx context.Context, storeID uint64) (*metapb.Store, error)
 	GetRegion(ctx context.Context, key []byte) (*metapb.Region, *metapb.Peer, error)
 	GetRegionByID(ctx context.Context, regionID uint64) (*metapb.Region, *metapb.Peer, error)
-	AskBatchSplit(ctx context.Context, region *metapb.Region, count int) (*pdpb.AskBatchSplitResponse, error)
+	AskSplit(ctx context.Context, region *metapb.Region) (*pdpb.AskSplitResponse, error)
 	StoreHeartbeat(ctx context.Context, stats *pdpb.StoreStats) error
 	RegionHeartbeat(*pdpb.RegionHeartbeatRequest) error
 	SetRegionHeartbeatResponseHandler(storeID uint64, h func(*pdpb.RegionHeartbeatResponse))
@@ -539,13 +539,12 @@ func (c *client) GetRegionByID(ctx context.Context, regionID uint64) (*metapb.Re
 	return resp.Region, resp.Leader, nil
 }
 
-func (c *client) AskBatchSplit(ctx context.Context, region *metapb.Region, count int) (resp *pdpb.AskBatchSplitResponse, err error) {
+func (c *client) AskSplit(ctx context.Context, region *metapb.Region) (resp *pdpb.AskSplitResponse, err error) {
 	err = c.doRequest(ctx, func(ctx context.Context, client pdpb.PDClient) error {
 		var err1 error
-		resp, err1 = client.AskBatchSplit(ctx, &pdpb.AskBatchSplitRequest{
-			Header:     c.requestHeader(),
-			Region:     region,
-			SplitCount: uint32(count),
+		resp, err1 = client.AskSplit(ctx, &pdpb.AskSplitRequest{
+			Header: c.requestHeader(),
+			Region: region,
 		})
 		return err1
 	})
