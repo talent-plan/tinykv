@@ -27,8 +27,6 @@ func TestEngineUtil(t *testing.T) {
 	batch.SetCF(CfWrite, []byte("d"), []byte("d2"))
 	batch.SetCF(CfLock, []byte("a"), []byte("a3"))
 	batch.SetCF(CfLock, []byte("c"), []byte("c3"))
-	batch.Set([]byte("a"), []byte("a0"))
-	batch.Delete([]byte("a"))
 	batch.SetCF(CfDefault, []byte("e"), []byte("e1"))
 	batch.DeleteCF(CfDefault, []byte("e"))
 	err = batch.WriteToDB(db)

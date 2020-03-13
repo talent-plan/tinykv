@@ -46,12 +46,12 @@ func (d *peerMsgHandler) HandleRaftReady() {
 	// Your Code Here (2B).
 }
 
-func (d *peerMsgHandler) HandleMsgs(msg message.Msg) {
+func (d *peerMsgHandler) HandleMsg(msg message.Msg) {
 	switch msg.Type {
 	case message.MsgTypeRaftMessage:
 		raftMsg := msg.Data.(*rspb.RaftMessage)
 		if err := d.onRaftMsg(raftMsg); err != nil {
-			log.Errorf("%s handle raft message error %v", d.peer.Tag, err)
+			log.Errorf("%s handle raft message error %v", d.Tag, err)
 		}
 	case message.MsgTypeRaftCmd:
 		raftCMD := msg.Data.(*message.MsgRaftCmd)
@@ -60,7 +60,7 @@ func (d *peerMsgHandler) HandleMsgs(msg message.Msg) {
 		d.onTick()
 	case message.MsgTypeSplitRegion:
 		split := msg.Data.(*message.MsgSplitRegion)
-		log.Infof("%s on split with %v", d.peer.Tag, split.SplitKey)
+		log.Infof("%s on split with %v", d.Tag, split.SplitKey)
 		d.onPrepareSplitRegion(split.RegionEpoch, split.SplitKey, split.Callback)
 	case message.MsgTypeRegionApproximateSize:
 		d.onApproximateRegionSize(msg.Data.(uint64))
@@ -79,21 +79,21 @@ func (d *peerMsgHandler) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) e
 	}
 
 	// Check whether the store has the right peer to handle the request.
-	regionID := d.regionID()
-	leaderID := d.peer.LeaderId()
-	if !d.peer.IsLeader() {
-		leader := d.peer.getPeerFromCache(leaderID)
+	regionID := d.regionId
+	leaderID := d.LeaderId()
+	if !d.IsLeader() {
+		leader := d.getPeerFromCache(leaderID)
 		return &util.ErrNotLeader{RegionId: regionID, Leader: leader}
 	}
 	// peer_id must be the same as peer's.
-	if err := util.CheckPeerID(req, d.peerID()); err != nil {
+	if err := util.CheckPeerID(req, d.PeerId()); err != nil {
 		return err
 	}
 	// Check whether the term is stale.
-	if err := util.CheckTerm(req, d.peer.Term()); err != nil {
+	if err := util.CheckTerm(req, d.Term()); err != nil {
 		return err
 	}
-	err := util.CheckRegionEpoch(req, d.region(), true)
+	err := util.CheckRegionEpoch(req, d.Region(), true)
 	if errEpochNotMatching, ok := err.(*util.ErrEpochNotMatch); ok {
 		// Attach the region which might be split from the current region. But it doesn't
 		// matter if the region is not split from the current region. If the region meta
@@ -134,12 +134,12 @@ func (d *peerMsgHandler) onTick() {
 	if d.ticker.isOnTick(PeerTickSplitRegionCheck) {
 		d.onSplitRegionCheckTick()
 	}
-	d.ctx.tickDriverSender <- d.regionID()
+	d.ctx.tickDriverSender <- d.regionId
 }
 
 func (d *peerMsgHandler) startTicker() {
-	d.ticker = newTicker(d.regionID(), d.ctx.cfg)
-	d.ctx.tickDriverSender <- d.regionID()
+	d.ticker = newTicker(d.regionId, d.ctx.cfg)
+	d.ctx.tickDriverSender <- d.regionId
 	d.ticker.schedule(PeerTickRaft)
 	d.ticker.schedule(PeerTickRaftLogGC)
 	d.ticker.schedule(PeerTickSplitRegionCheck)
@@ -147,18 +147,18 @@ func (d *peerMsgHandler) startTicker() {
 }
 
 func (d *peerMsgHandler) onRaftBaseTick() {
-	d.peer.RaftGroup.Tick()
+	d.RaftGroup.Tick()
 	d.ticker.schedule(PeerTickRaft)
 }
 
 func (d *peerMsgHandler) ScheduleCompactLog(firstIndex uint64, truncatedIndex uint64) {
 	raftLogGCTask := &runner.RaftLogGCTask{
 		RaftEngine: d.ctx.engine.Raft,
-		RegionID:   d.regionID(),
-		StartIdx:   d.peer.LastCompactedIdx,
+		RegionID:   d.regionId,
+		StartIdx:   d.LastCompactedIdx,
 		EndIdx:     truncatedIndex + 1,
 	}
-	d.peer.LastCompactedIdx = raftLogGCTask.EndIdx
+	d.LastCompactedIdx = raftLogGCTask.EndIdx
 	d.ctx.raftLogGCTaskSender <- worker.Task{
 		Tp:   worker.TaskTypeRaftLogGC,
 		Data: raftLogGCTask,
@@ -167,7 +167,7 @@ func (d *peerMsgHandler) ScheduleCompactLog(firstIndex uint64, truncatedIndex ui
 
 func (d *peerMsgHandler) onRaftMsg(msg *rspb.RaftMessage) error {
 	log.Debugf("%s handle raft message %s from %d to %d",
-		d.tag(), msg.GetMessage().GetMsgType(), msg.GetFromPeer().GetId(), msg.GetToPeer().GetId())
+		d.Tag, msg.GetMessage().GetMsgType(), msg.GetFromPeer().GetId(), msg.GetToPeer().GetId())
 	if !d.validateRaftMessage(msg) {
 		return nil
 	}
@@ -198,13 +198,13 @@ func (d *peerMsgHandler) onRaftMsg(msg *rspb.RaftMessage) error {
 		d.ctx.snapMgr.DeleteSnapshot(*key, s, false)
 		return nil
 	}
-	d.peer.insertPeerCache(msg.GetFromPeer())
-	err = d.peer.Step(msg.GetMessage())
+	d.insertPeerCache(msg.GetFromPeer())
+	err = d.RaftGroup.Step(*msg.GetMessage())
 	if err != nil {
 		return err
 	}
-	if d.peer.AnyNewPeerCatchUp(msg.FromPeer.Id) {
-		d.peer.HeartbeatPd(d.ctx.pdTaskSender)
+	if d.AnyNewPeerCatchUp(msg.FromPeer.Id) {
+		d.HeartbeatPd(d.ctx.pdTaskSender)
 	}
 	return nil
 }
@@ -253,19 +253,19 @@ func (d *peerMsgHandler) checkMessage(msg *rspb.RaftMessage) bool {
 	//  unlike case e, 2 will be stale forever.
 	// TODO: for case f, if 2 is stale for a long time, 2 will communicate with pd and pd will
 	// tell 2 is stale, so 2 can remove itself.
-	region := d.peer.Region()
+	region := d.Region()
 	if util.IsEpochStale(fromEpoch, region.RegionEpoch) && util.FindPeer(region, fromStoreID) == nil {
 		// The message is stale and not in current region.
 		handleStaleMsg(d.ctx.trans, msg, region.RegionEpoch, isVoteMsg)
 		return true
 	}
 	target := msg.GetToPeer()
-	if target.Id < d.peerID() {
-		log.Infof("%s target peer ID %d is less than %d, msg maybe stale", d.tag(), target.Id, d.peerID())
+	if target.Id < d.PeerId() {
+		log.Infof("%s target peer ID %d is less than %d, msg maybe stale", d.Tag, target.Id, d.PeerId())
 		return true
-	} else if target.Id > d.peerID() {
-		if d.peer.MaybeDestroy() {
-			log.Infof("%s is stale as received a larger peer %s, destroying", d.tag(), target)
+	} else if target.Id > d.PeerId() {
+		if d.MaybeDestroy() {
+			log.Infof("%s is stale as received a larger peer %s, destroying", d.Tag, target)
 			d.destroyPeer()
 			d.ctx.router.sendStore(message.NewMsg(message.MsgTypeStoreRaftMessage, msg))
 		}
@@ -300,15 +300,15 @@ func handleStaleMsg(trans Transport, msg *rspb.RaftMessage, curEpoch *metapb.Reg
 
 func (d *peerMsgHandler) handleGCPeerMsg(msg *rspb.RaftMessage) {
 	fromEpoch := msg.RegionEpoch
-	if !util.IsEpochStale(d.peer.Region().RegionEpoch, fromEpoch) {
+	if !util.IsEpochStale(d.Region().RegionEpoch, fromEpoch) {
 		return
 	}
-	if !util.PeerEqual(d.peer.Meta, msg.ToPeer) {
-		log.Infof("%s receive stale gc msg, ignore", d.tag())
+	if !util.PeerEqual(d.Meta, msg.ToPeer) {
+		log.Infof("%s receive stale gc msg, ignore", d.Tag)
 		return
 	}
-	log.Infof("%s peer %s receives gc message, trying to remove", d.tag(), msg.ToPeer)
-	if d.peer.MaybeDestroy() {
+	log.Infof("%s peer %s receives gc message, trying to remove", d.Tag, msg.ToPeer)
+	if d.MaybeDestroy() {
 		d.destroyPeer()
 	}
 }
@@ -337,16 +337,16 @@ func (d *peerMsgHandler) checkSnapshot(msg *rspb.RaftMessage) (*snap.SnapKey, er
 		}
 	}
 	if !contains {
-		log.Infof("%s %s doesn't contains peer %d, skip", d.tag(), snapRegion, peerID)
+		log.Infof("%s %s doesn't contains peer %d, skip", d.Tag, snapRegion, peerID)
 		return &key, nil
 	}
 	meta := d.ctx.storeMeta
-	if !util.RegionEqual(meta.regions[d.regionID()], d.region()) {
-		if !d.peer.isInitialized() {
-			log.Infof("%s stale delegate detected, skip", d.tag())
+	if !util.RegionEqual(meta.regions[d.regionId], d.Region()) {
+		if !d.isInitialized() {
+			log.Infof("%s stale delegate detected, skip", d.Tag)
 			return &key, nil
 		} else {
-			panic(fmt.Sprintf("%s meta corrupted %s != %s", d.tag(), meta.regions[d.regionID()], d.region()))
+			panic(fmt.Sprintf("%s meta corrupted %s != %s", d.Tag, meta.regions[d.regionId], d.Region()))
 		}
 	}
 
@@ -355,7 +355,7 @@ func (d *peerMsgHandler) checkSnapshot(msg *rspb.RaftMessage) (*snap.SnapKey, er
 		if existRegion.GetId() == snapRegion.GetId() {
 			continue
 		}
-		log.Infof("%s region overlapped %s %s", d.tag(), existRegion, snapRegion)
+		log.Infof("%s region overlapped %s %s", d.Tag, existRegion, snapRegion)
 		return &key, nil
 	}
 
@@ -368,32 +368,32 @@ func (d *peerMsgHandler) checkSnapshot(msg *rspb.RaftMessage) (*snap.SnapKey, er
 }
 
 func (d *peerMsgHandler) destroyPeer() {
-	log.Infof("%s starts destroy", d.tag())
-	regionID := d.regionID()
+	log.Infof("%s starts destroy", d.Tag)
+	regionID := d.regionId
 	// We can't destroy a peer which is applying snapshot.
 	meta := d.ctx.storeMeta
-	isInitialized := d.peer.isInitialized()
-	if err := d.peer.Destroy(d.ctx.engine, false); err != nil {
+	isInitialized := d.isInitialized()
+	if err := d.Destroy(d.ctx.engine, false); err != nil {
 		// If not panic here, the peer will be recreated in the next restart,
 		// then it will be gc again. But if some overlap region is created
 		// before restarting, the gc action will delete the overlap region's
 		// data too.
-		panic(fmt.Sprintf("%s destroy peer %v", d.tag(), err))
+		panic(fmt.Sprintf("%s destroy peer %v", d.Tag, err))
 	}
 	d.ctx.router.close(regionID)
-	d.stop()
-	if isInitialized && meta.regionRanges.Delete(&regionItem{region: d.region()}) == nil {
-		panic(d.tag() + " meta corruption detected")
+	d.stopped = true
+	if isInitialized && meta.regionRanges.Delete(&regionItem{region: d.Region()}) == nil {
+		panic(d.Tag + " meta corruption detected")
 	}
 	if _, ok := meta.regions[regionID]; !ok {
-		panic(d.tag() + " meta corruption detected")
+		panic(d.Tag + " meta corruption detected")
 	}
 	delete(meta.regions, regionID)
 }
 
 func (d *peerMsgHandler) findSiblingRegion() (result *metapb.Region) {
 	meta := d.ctx.storeMeta
-	item := &regionItem{region: d.region()}
+	item := &regionItem{region: d.Region()}
 	meta.regionRanges.AscendGreaterOrEqual(item, func(i btree.Item) bool {
 		result = i.(*regionItem).region
 		return true
@@ -403,12 +403,12 @@ func (d *peerMsgHandler) findSiblingRegion() (result *metapb.Region) {
 
 func (d *peerMsgHandler) onRaftGCLogTick() {
 	d.ticker.schedule(PeerTickRaftLogGC)
-	if !d.peer.IsLeader() {
+	if !d.IsLeader() {
 		return
 	}
 
-	appliedIdx := d.peer.Store().AppliedIndex()
-	firstIdx, _ := d.peer.Store().FirstIndex()
+	appliedIdx := d.peerStorage.AppliedIndex()
+	firstIdx, _ := d.peerStorage.FirstIndex()
 	var compactIdx uint64
 	if appliedIdx > firstIdx && appliedIdx-firstIdx >= d.ctx.cfg.RaftLogGcCountLimit {
 		compactIdx = appliedIdx
@@ -423,15 +423,15 @@ func (d *peerMsgHandler) onRaftGCLogTick() {
 		return
 	}
 
-	term, err := d.peer.RaftGroup.Raft.RaftLog.Term(compactIdx)
+	term, err := d.RaftGroup.Raft.RaftLog.Term(compactIdx)
 	if err != nil {
 		log.Fatalf("appliedIdx: %d, firstIdx: %d, compactIdx: %d", appliedIdx, firstIdx, compactIdx)
 		panic(err)
 	}
 
 	// Create a compact log request and notify directly.
-	regionID := d.regionID()
-	request := newCompactLogRequest(regionID, d.peer.Meta, compactIdx, term)
+	regionID := d.regionId
+	request := newCompactLogRequest(regionID, d.Meta, compactIdx, term)
 	d.proposeRaftCommand(request, nil)
 }
 
@@ -443,19 +443,19 @@ func (d *peerMsgHandler) onSplitRegionCheckTick() {
 		return
 	}
 
-	if !d.peer.IsLeader() {
+	if !d.IsLeader() {
 		return
 	}
-	if d.peer.ApproximateSize != nil && d.peer.SizeDiffHint < d.ctx.cfg.RegionSplitSize/8 {
+	if d.ApproximateSize != nil && d.SizeDiffHint < d.ctx.cfg.RegionSplitSize/8 {
 		return
 	}
 	d.ctx.splitCheckTaskSender <- worker.Task{
 		Tp: worker.TaskTypeSplitCheck,
 		Data: &runner.SplitCheckTask{
-			Region: d.region(),
+			Region: d.Region(),
 		},
 	}
-	d.peer.SizeDiffHint = 0
+	d.SizeDiffHint = 0
 }
 
 func (d *peerMsgHandler) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, splitKey []byte, cb *message.Callback) {
@@ -463,13 +463,13 @@ func (d *peerMsgHandler) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, s
 		cb.Done(ErrResp(err))
 		return
 	}
-	region := d.region()
+	region := d.Region()
 	d.ctx.pdTaskSender <- worker.Task{
 		Tp: worker.TaskTypePDAskSplit,
 		Data: &runner.PdAskSplitTask{
 			Region:   region,
 			SplitKey: splitKey,
-			Peer:     d.peer.Meta,
+			Peer:     d.Meta,
 			Callback: cb,
 		},
 	}
@@ -477,21 +477,21 @@ func (d *peerMsgHandler) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, s
 
 func (d *peerMsgHandler) validateSplitRegion(epoch *metapb.RegionEpoch, splitKey []byte) error {
 	if len(splitKey) == 0 {
-		err := errors.Errorf("%s split key should not be empty", d.tag())
+		err := errors.Errorf("%s split key should not be empty", d.Tag)
 		log.Error(err)
 		return err
 	}
 
-	if !d.peer.IsLeader() {
+	if !d.IsLeader() {
 		// region on this store is no longer leader, skipped.
-		log.Infof("%s not leader, skip", d.tag())
+		log.Infof("%s not leader, skip", d.Tag)
 		return &util.ErrNotLeader{
-			RegionId: d.regionID(),
-			Leader:   d.peer.getPeerFromCache(d.peer.LeaderId()),
+			RegionId: d.regionId,
+			Leader:   d.getPeerFromCache(d.LeaderId()),
 		}
 	}
 
-	region := d.region()
+	region := d.Region()
 	latestEpoch := region.GetRegionEpoch()
 
 	// This is a little difference for `check_region_epoch` in region split case.
@@ -499,9 +499,9 @@ func (d *peerMsgHandler) validateSplitRegion(epoch *metapb.RegionEpoch, splitKey
 	// to the latest value of the peer, and then send to PD.
 	if latestEpoch.Version != epoch.Version {
 		log.Infof("%s epoch changed, retry later, prev_epoch: %s, epoch %s",
-			d.tag(), latestEpoch, epoch)
+			d.Tag, latestEpoch, epoch)
 		return &util.ErrEpochNotMatch{
-			Message: fmt.Sprintf("%s epoch changed %s != %s, retry later", d.tag(), latestEpoch, epoch),
+			Message: fmt.Sprintf("%s epoch changed %s != %s, retry later", d.Tag, latestEpoch, epoch),
 			Regions: []*metapb.Region{region},
 		}
 	}
@@ -509,47 +509,45 @@ func (d *peerMsgHandler) validateSplitRegion(epoch *metapb.RegionEpoch, splitKey
 }
 
 func (d *peerMsgHandler) onApproximateRegionSize(size uint64) {
-	d.peer.ApproximateSize = &size
+	d.ApproximateSize = &size
 }
 
 func (d *peerMsgHandler) onPDHeartbeatTick() {
 	d.ticker.schedule(PeerTickPdHeartbeat)
-	d.peer.CheckPeers()
 
-	if !d.peer.IsLeader() {
+	if !d.IsLeader() {
 		return
 	}
-	d.peer.HeartbeatPd(d.ctx.pdTaskSender)
+	d.HeartbeatPd(d.ctx.pdTaskSender)
 }
 
 func (d *peerMsgHandler) onGCSnap(snaps []snap.SnapKeyWithSending) {
-	store := d.peer.Store()
-	compactedIdx := store.truncatedIndex()
-	compactedTerm := store.truncatedTerm()
+	compactedIdx := d.peerStorage.truncatedIndex()
+	compactedTerm := d.peerStorage.truncatedTerm()
 	for _, snapKeyWithSending := range snaps {
 		key := snapKeyWithSending.SnapKey
 		if snapKeyWithSending.IsSending {
 			snap, err := d.ctx.snapMgr.GetSnapshotForSending(key)
 			if err != nil {
-				log.Errorf("%s failed to load snapshot for %s %v", d.tag(), key, err)
+				log.Errorf("%s failed to load snapshot for %s %v", d.Tag, key, err)
 				continue
 			}
 			if key.Term < compactedTerm || key.Index < compactedIdx {
-				log.Infof("%s snap file %s has been compacted, delete", d.tag(), key)
+				log.Infof("%s snap file %s has been compacted, delete", d.Tag, key)
 				d.ctx.snapMgr.DeleteSnapshot(key, snap, false)
 			} else if fi, err1 := snap.Meta(); err1 == nil {
 				modTime := fi.ModTime()
 				if time.Since(modTime) > 4*time.Hour {
-					log.Infof("%s snap file %s has been expired, delete", d.tag(), key)
+					log.Infof("%s snap file %s has been expired, delete", d.Tag, key)
 					d.ctx.snapMgr.DeleteSnapshot(key, snap, false)
 				}
 			}
 		} else if key.Term <= compactedTerm &&
 			(key.Index < compactedIdx || key.Index == compactedIdx) {
-			log.Infof("%s snap file %s has been applied, delete", d.tag(), key)
+			log.Infof("%s snap file %s has been applied, delete", d.Tag, key)
 			a, err := d.ctx.snapMgr.GetSnapshotForApplying(key)
 			if err != nil {
-				log.Errorf("%s failed to load snapshot for %s %v", d.tag(), key, err)
+				log.Errorf("%s failed to load snapshot for %s %v", d.Tag, key, err)
 				continue
 			}
 			d.ctx.snapMgr.DeleteSnapshot(key, a, false)

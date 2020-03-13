@@ -127,11 +127,10 @@ func (snapCtx *snapContext) cleanUpRange(regionId uint64, startKey, endKey []byt
 
 func getAppliedIdxTermForSnapshot(raft *badger.DB, kv *badger.Txn, regionId uint64) (uint64, uint64, error) {
 	applyState := new(rspb.RaftApplyState)
-	val, err := engine_util.GetValueTxn(kv, meta.ApplyStateKey(regionId))
+	err := engine_util.GetMetaFromTxn(kv, meta.ApplyStateKey(regionId), applyState)
 	if err != nil {
 		return 0, 0, err
 	}
-	applyState.Unmarshal(val)
 
 	idx := applyState.AppliedIndex
 	var term uint64
@@ -163,13 +162,9 @@ func doSnapshot(engines *engine_util.Engines, mgr *snap.SnapManager, regionId ui
 	defer mgr.Deregister(key, snap.SnapEntryGenerating)
 
 	regionState := new(rspb.RegionLocalState)
-	val, err := engine_util.GetValueTxn(txn, meta.RegionStateKey(regionId))
+	err = engine_util.GetMetaFromTxn(txn, meta.RegionStateKey(regionId), regionState)
 	if err != nil {
 		panic(err)
-	}
-	err = regionState.Unmarshal(val)
-	if err != nil {
-		return nil, err
 	}
 	if regionState.GetState() != rspb.PeerState_Normal {
 		return nil, errors.Errorf("snap job %d seems stale, skip", regionId)

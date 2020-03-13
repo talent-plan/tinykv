@@ -28,14 +28,6 @@ type ApplySnapResult struct {
 	Region     *metapb.Region
 }
 
-func (ps *PeerStorage) saveRaftStateTo(wb *engine_util.WriteBatch) {
-	wb.SetMsg(meta.RaftStateKey(ps.region.GetId()), &ps.raftState)
-}
-
-func (ps *PeerStorage) saveApplyStateTo(wb *engine_util.WriteBatch, applyState *rspb.RaftApplyState) {
-	wb.SetMsg(meta.ApplyStateKey(ps.region.GetId()), applyState)
-}
-
 var _ raft.Storage = new(PeerStorage)
 
 type PeerStorage struct {
@@ -145,7 +137,7 @@ func (ps *PeerStorage) Term(idx uint64) (uint64, error) {
 		return ps.lastTerm, nil
 	}
 	var entry eraftpb.Entry
-	if err := engine_util.GetMsg(ps.Engines.Raft, meta.RaftLogKey(ps.region.Id, idx), &entry); err != nil {
+	if err := engine_util.GetMeta(ps.Engines.Raft, meta.RaftLogKey(ps.region.Id, idx), &entry); err != nil {
 		return 0, err
 	}
 	return entry.Term, nil
@@ -277,14 +269,14 @@ func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.Write
 	lastIndex := lastEntry.Index
 	lastTerm := lastEntry.Term
 	for _, entry := range entries {
-		err := raftWB.SetMsg(meta.RaftLogKey(ps.region.Id, entry.Index), &entry)
+		err := raftWB.SetMeta(meta.RaftLogKey(ps.region.Id, entry.Index), &entry)
 		if err != nil {
 			return err
 		}
 	}
 	// Delete any previously appended log entries which never committed.
 	for i := lastIndex + 1; i <= prevLastIndex; i++ {
-		raftWB.Delete(meta.RaftLogKey(ps.region.Id, i))
+		raftWB.DeleteMeta(meta.RaftLogKey(ps.region.Id, i))
 	}
 	ps.raftState.LastIndex = lastIndex
 	ps.lastTerm = lastTerm
@@ -324,8 +316,8 @@ func (ps *PeerStorage) clearExtraData(newRegion *metapb.Region) {
 
 func ClearMeta(engines *engine_util.Engines, kvWB, raftWB *engine_util.WriteBatch, regionID uint64, lastIndex uint64) error {
 	start := time.Now()
-	kvWB.Delete(meta.RegionStateKey(regionID))
-	kvWB.Delete(meta.ApplyStateKey(regionID))
+	kvWB.DeleteMeta(meta.RegionStateKey(regionID))
+	kvWB.DeleteMeta(meta.ApplyStateKey(regionID))
 
 	firstIndex := lastIndex + 1
 	beginLogKey := meta.RaftLogKey(regionID, 0)
@@ -347,9 +339,9 @@ func ClearMeta(engines *engine_util.Engines, kvWB, raftWB *engine_util.WriteBatc
 		return err
 	}
 	for i := firstIndex; i <= lastIndex; i++ {
-		raftWB.Delete(meta.RaftLogKey(regionID, i))
+		raftWB.DeleteMeta(meta.RaftLogKey(regionID, i))
 	}
-	raftWB.Delete(meta.RaftStateKey(regionID))
+	raftWB.DeleteMeta(meta.RaftStateKey(regionID))
 	log.Infof(
 		"[region %d] clear peer 1 meta key 1 apply key 1 raft key and %d raft logs, takes %v",
 		regionID,
@@ -357,14 +349,6 @@ func ClearMeta(engines *engine_util.Engines, kvWB, raftWB *engine_util.WriteBatc
 		time.Since(start),
 	)
 	return nil
-}
-
-func WritePeerState(kvWB *engine_util.WriteBatch, region *metapb.Region, state rspb.PeerState) {
-	regionState := new(rspb.RegionLocalState)
-	regionState.State = state
-	regionState.Region = region
-	data, _ := regionState.Marshal()
-	kvWB.Set(meta.RegionStateKey(region.Id), data)
 }
 
 // Apply the peer with given snapshot.
@@ -408,9 +392,9 @@ func (ps *PeerStorage) ApplySnapshot(snap *eraftpb.Snapshot, kvWB *engine_util.W
 			Term:  snap.Metadata.Term,
 		},
 	}
-	ps.saveApplyStateTo(kvWB, applyState)
+	kvWB.SetMeta(meta.ApplyStateKey(ps.region.GetId()), applyState)
 	ps.ScheduleApplyingSnapshotAndWait(snapData.Region, snap.Metadata)
-	WritePeerState(kvWB, snapData.Region, rspb.PeerState_Normal)
+	meta.WriteRegionState(kvWB, snapData.Region, rspb.PeerState_Normal)
 
 	log.Debugf("%v apply snapshot for region %v with state %v ok", ps.Tag, snapData.Region, applyState)
 	return applyRes, nil
@@ -442,7 +426,7 @@ func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (*ApplySnapResult, erro
 	}
 
 	if !proto.Equal(&prevRaftState, &ps.raftState) {
-		ps.saveRaftStateTo(raftWB)
+		raftWB.SetMeta(meta.RaftStateKey(ps.region.GetId()), &ps.raftState)
 	}
 
 	kvWB.MustWriteToDB(ps.Engines.Kv)

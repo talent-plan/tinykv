@@ -108,7 +108,7 @@ func (d *storeWorker) checkMsg(msg *rspb.RaftMessage) (bool, error) {
 	// Check if the target is tombstone,
 	stateKey := meta.RegionStateKey(regionID)
 	localState := new(rspb.RegionLocalState)
-	err := engine_util.GetMsg(d.ctx.engine.Kv, stateKey, localState)
+	err := engine_util.GetMeta(d.ctx.engine.Kv, stateKey, localState)
 	if err != nil {
 		if err == badger.ErrKeyNotFound {
 			return false, nil
