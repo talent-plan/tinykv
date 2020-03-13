@@ -667,6 +667,21 @@ func (r *RegionsInfo) RandFollowerRegion(storeID uint64, opts ...RegionOption) *
 	return randRegion(r.followers[storeID], opts...)
 }
 
+// GetPendingRegionsWithLock return pending regions subtree by storeID
+func (r *RegionsInfo) GetPendingRegionsWithLock(storeID uint64, callback func (RegionsContainer)) {
+	callback(r.pendingPeers[storeID])
+}
+
+// GetLeadersWithLock return leaders subtree by storeID
+func (r *RegionsInfo) GetLeadersWithLock(storeID uint64, callback func (RegionsContainer)) {
+	callback(r.leaders[storeID])
+}
+
+// GetFollowersWithLock return leaders subtree by storeID
+func (r *RegionsInfo) GetFollowersWithLock(storeID uint64, callback func (RegionsContainer)) {
+	callback(r.followers[storeID])
+}
+
 // GetLeader return leader RegionInfo by storeID and regionID(now only used in test)
 func (r *RegionsInfo) GetLeader(storeID uint64, region *RegionInfo) *RegionInfo {
 	return r.leaders[storeID].find(region).region

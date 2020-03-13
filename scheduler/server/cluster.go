@@ -496,6 +496,21 @@ func (c *RaftCluster) RandPendingRegion(storeID uint64, opts ...core.RegionOptio
 	return c.core.RandPendingRegion(storeID, opts...)
 }
 
+// GetPendingRegionsWithLock return pending regions subtree by storeID
+func (c *RaftCluster) GetPendingRegionsWithLock(storeID uint64, callback func (core.RegionsContainer)) {
+	c.core.GetPendingRegionsWithLock(storeID, callback)
+}
+
+// GetLeadersWithLock return leaders subtree by storeID
+func (c *RaftCluster) GetLeadersWithLock(storeID uint64, callback func (core.RegionsContainer)) {
+	c.core.GetLeadersWithLock(storeID, callback)
+}
+
+// GetFollowersWithLock return leaders subtree by storeID
+func (c *RaftCluster) GetFollowersWithLock(storeID uint64, callback func (core.RegionsContainer)) {
+	c.core.GetFollowersWithLock(storeID, callback)
+}
+
 // GetLeaderStore returns all stores that contains the region's leader peer.
 func (c *RaftCluster) GetLeaderStore(region *core.RegionInfo) *core.StoreInfo {
 	return c.core.GetLeaderStore(region)
