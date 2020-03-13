@@ -31,22 +31,24 @@ type ApplySnapResult struct {
 var _ raft.Storage = new(PeerStorage)
 
 type PeerStorage struct {
+	// Tag which is useful for printing log
+	Tag string
+	// The underlying storage
 	Engines *engine_util.Engines
 
-	peerID uint64
-	// cache for the persistent states
-	region    *metapb.Region
-	raftState rspb.RaftLocalState
-	lastTerm  uint64
+	// Cache for the persistent states
+	region     *metapb.Region
+	raftState  rspb.RaftLocalState
+	applyState rspb.RaftApplyState // (Should be updated too when applying committed entries)
+	lastTerm   uint64
 
+	// States for generating snapshot
 	snapState    snap.SnapState
 	regionSched  chan<- worker.Task
 	snapTriedCnt int
-
-	Tag string
 }
 
-func NewPeerStorage(engines *engine_util.Engines, region *metapb.Region, regionSched chan<- worker.Task, peerID uint64, tag string) (*PeerStorage, error) {
+func NewPeerStorage(engines *engine_util.Engines, region *metapb.Region, regionSched chan<- worker.Task, tag string) (*PeerStorage, error) {
 	log.Debugf("%s creating storage for %s", tag, region.String())
 	raftState, err := meta.InitRaftLocalState(engines.Raft, region)
 	if err != nil {
@@ -66,7 +68,6 @@ func NewPeerStorage(engines *engine_util.Engines, region *metapb.Region, regionS
 	}
 	return &PeerStorage{
 		Engines:     engines,
-		peerID:      peerID,
 		region:      region,
 		Tag:         tag,
 		raftState:   *raftState,
@@ -167,7 +168,7 @@ func (ps *PeerStorage) Snapshot() (eraftpb.Snapshot, error) {
 				return snapshot, nil
 			}
 		} else {
-			log.Warnf("failed to try generating snapshot, regionID: %d, peerID: %d, times: %d", ps.region.GetId(), ps.peerID, ps.snapTriedCnt)
+			log.Warnf("%s failed to try generating snapshot, times: %d", ps.Tag, ps.snapTriedCnt)
 		}
 	}
 
@@ -177,7 +178,7 @@ func (ps *PeerStorage) Snapshot() (eraftpb.Snapshot, error) {
 		return snapshot, err
 	}
 
-	log.Infof("requesting snapshot, regionID: %d, peerID: %d", ps.region.GetId(), ps.peerID)
+	log.Infof("%s requesting snapshot", ps.Tag)
 	ps.snapTriedCnt++
 	ps.ScheduleGenerateSnapshot()
 
@@ -207,6 +208,10 @@ func (ps *PeerStorage) Region() *metapb.Region {
 	return ps.region
 }
 
+func (ps *PeerStorage) SetRegion(region *metapb.Region) {
+	ps.region = region
+}
+
 func (ps *PeerStorage) checkRange(low, high uint64) error {
 	if low > high {
 		return errors.Errorf("low %d is greater than high %d", low, high)
@@ -220,37 +225,32 @@ func (ps *PeerStorage) checkRange(low, high uint64) error {
 }
 
 func (ps *PeerStorage) truncatedIndex() uint64 {
-	return ps.applyState().TruncatedState.Index
+	return ps.applyState.TruncatedState.Index
 }
 
 func (ps *PeerStorage) truncatedTerm() uint64 {
-	return ps.applyState().TruncatedState.Term
+	return ps.applyState.TruncatedState.Term
 }
 
 func (ps *PeerStorage) AppliedIndex() uint64 {
-	return ps.applyState().AppliedIndex
-}
-
-func (ps *PeerStorage) applyState() *rspb.RaftApplyState {
-	state, _ := meta.GetApplyState(ps.Engines.Kv, ps.region.GetId())
-	return state
+	return ps.applyState.AppliedIndex
 }
 
 func (ps *PeerStorage) validateSnap(snap *eraftpb.Snapshot) bool {
 	idx := snap.GetMetadata().GetIndex()
 	if idx < ps.truncatedIndex() {
-		log.Infof("snapshot is stale, generate again, regionID: %d, peerID: %d, snapIndex: %d, truncatedIndex: %d", ps.region.GetId(), ps.peerID, idx, ps.truncatedIndex())
+		log.Infof("%s snapshot is stale, generate again, snapIndex: %d, truncatedIndex: %d", ps.Tag, idx, ps.truncatedIndex())
 		return false
 	}
 	var snapData rspb.RaftSnapshotData
 	if err := proto.UnmarshalMerge(snap.GetData(), &snapData); err != nil {
-		log.Errorf("failed to decode snapshot, it may be corrupted, regionID: %d, peerID: %d, err: %v", ps.region.GetId(), ps.peerID, err)
+		log.Errorf("%s failed to decode snapshot, it may be corrupted, err: %v", ps.Tag, err)
 		return false
 	}
 	snapEpoch := snapData.GetRegion().GetRegionEpoch()
 	latestEpoch := ps.region.GetRegionEpoch()
 	if snapEpoch.GetConfVer() < latestEpoch.GetConfVer() {
-		log.Infof("snapshot epoch is stale, regionID: %d, peerID: %d, snapEpoch: %s, latestEpoch: %s", ps.region.GetId(), ps.peerID, snapEpoch, latestEpoch)
+		log.Infof("%s snapshot epoch is stale, snapEpoch: %s, latestEpoch: %s", ps.Tag, snapEpoch, latestEpoch)
 		return false
 	}
 	return true
@@ -383,7 +383,7 @@ func (ps *PeerStorage) ApplySnapshot(snap *eraftpb.Snapshot, kvWB *engine_util.W
 		ps.clearExtraData(snapData.Region)
 	}
 	ps.region = snapData.Region
-	applyState := &rspb.RaftApplyState{
+	ps.applyState = rspb.RaftApplyState{
 		AppliedIndex: snap.Metadata.Index,
 		// The snapshot only contains log which index > applied index, so
 		// here the truncate state's (index, term) is in snapshot metadata.
@@ -392,11 +392,11 @@ func (ps *PeerStorage) ApplySnapshot(snap *eraftpb.Snapshot, kvWB *engine_util.W
 			Term:  snap.Metadata.Term,
 		},
 	}
-	kvWB.SetMeta(meta.ApplyStateKey(ps.region.GetId()), applyState)
+	kvWB.SetMeta(meta.ApplyStateKey(ps.region.GetId()), &ps.applyState)
 	ps.ScheduleApplyingSnapshotAndWait(snapData.Region, snap.Metadata)
 	meta.WriteRegionState(kvWB, snapData.Region, rspb.PeerState_Normal)
 
-	log.Debugf("%v apply snapshot for region %v with state %v ok", ps.Tag, snapData.Region, applyState)
+	log.Debugf("%v apply snapshot for region %v with state %v ok", ps.Tag, snapData.Region, ps.applyState)
 	return applyRes, nil
 }
 
@@ -450,10 +450,6 @@ func (ps *PeerStorage) ScheduleApplyingSnapshotAndWait(snapRegion *metapb.Region
 		},
 	}
 	<-ch
-}
-
-func (ps *PeerStorage) SetRegion(region *metapb.Region) {
-	ps.region = region
 }
 
 func (ps *PeerStorage) ClearData() {

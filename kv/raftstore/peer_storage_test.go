@@ -21,7 +21,7 @@ func newTestPeerStorage(t *testing.T) *PeerStorage {
 	require.Nil(t, err)
 	region, err := PrepareBootstrap(engines, 1, 1, 1)
 	require.Nil(t, err)
-	peerStore, err := NewPeerStorage(engines, region, nil, 1, "")
+	peerStore, err := NewPeerStorage(engines, region, nil, "")
 	require.Nil(t, err)
 	return peerStore
 }
@@ -31,13 +31,13 @@ func newTestPeerStorageFromEnts(t *testing.T, ents []eraftpb.Entry) *PeerStorage
 	kvWB := new(engine_util.WriteBatch)
 	raftWB := new(engine_util.WriteBatch)
 	require.Nil(t, peerStore.Append(ents[1:], raftWB))
-	applyState := peerStore.applyState()
+	applyState := peerStore.applyState
 	applyState.TruncatedState = &rspb.RaftTruncatedState{
 		Index: ents[0].Index,
 		Term:  ents[0].Term,
 	}
 	applyState.AppliedIndex = ents[len(ents)-1].Index
-	kvWB.SetMeta(meta.ApplyStateKey(peerStore.region.GetId()), applyState)
+	kvWB.SetMeta(meta.ApplyStateKey(peerStore.region.GetId()), &applyState)
 	require.Nil(t, peerStore.Engines.WriteRaft(raftWB))
 	peerStore.Engines.WriteKV(kvWB)
 	return peerStore

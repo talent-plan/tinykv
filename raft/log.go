@@ -78,7 +78,7 @@ func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 
 // LastIndex return the last index of the lon entries
 func (l *RaftLog) LastIndex() uint64 {
-	// Your Code Here 2A
+	// Your Code Here (2A).
 	return 0
 }
 
