@@ -88,7 +88,7 @@ func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) *operator.Operato
 		if store.DownTime() > cluster.GetMaxStoreDownTime() || store.IsTombstone() || store.IsBusy() || !store.IsAvailable() {
 			continue
 		}
-		stores  = append(stores, store)
+		stores = append(stores, store)
 	}
 
 	sort.Slice(stores, func(i, j int) bool {
@@ -180,7 +180,7 @@ func (s *balanceRegionScheduler) transferPeer(cluster opt.Cluster, region *core.
 	targetID := target.GetID()
 	log.Debug("", zap.Uint64("region-id", regionID), zap.Uint64("source-store", sourceID), zap.Uint64("target-store", targetID))
 
-	if int64(source.RegionScore() - target.RegionScore()) < getThreshold(cluster, region) {
+	if int64(source.RegionScore()-target.RegionScore()) < getThreshold(cluster, region) {
 		return nil
 	}
 
@@ -195,7 +195,7 @@ func (s *balanceRegionScheduler) transferPeer(cluster opt.Cluster, region *core.
 	return op
 }
 
-func selectBestReplacementStore(cluster opt.Cluster, region *core.RegionInfo ) uint64 {
+func selectBestReplacementStore(cluster opt.Cluster, region *core.RegionInfo) uint64 {
 	var (
 		best *core.StoreInfo
 	)
@@ -224,7 +224,7 @@ func getThreshold(cluster opt.Cluster, region *core.RegionInfo) int64 {
 	if regionSize < cluster.GetAverageRegionSize() {
 		regionSize = cluster.GetAverageRegionSize()
 	}
-	regionSize = int64(float64(regionSize) * getThresholdRatio(cluster)) * 2
+	regionSize = int64(float64(regionSize)*getThresholdRatio(cluster)) * 2
 	return regionSize
 }
 

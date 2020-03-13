@@ -166,21 +166,21 @@ func (bc *BasicCluster) RandPendingRegion(storeID uint64, opts ...RegionOption) 
 }
 
 // GetPendingRegionsWithLock return pending regions subtree by storeID
-func (bc *BasicCluster) GetPendingRegionsWithLock(storeID uint64, callback func (RegionsContainer)) {
+func (bc *BasicCluster) GetPendingRegionsWithLock(storeID uint64, callback func(RegionsContainer)) {
 	bc.RLock()
 	defer bc.RUnlock()
 	callback(bc.Regions.pendingPeers[storeID])
 }
 
 // GetLeadersWithLock return leaders subtree by storeID
-func (bc *BasicCluster) GetLeadersWithLock(storeID uint64, callback func (RegionsContainer)) {
+func (bc *BasicCluster) GetLeadersWithLock(storeID uint64, callback func(RegionsContainer)) {
 	bc.RLock()
 	defer bc.RUnlock()
 	callback(bc.Regions.leaders[storeID])
 }
 
 // GetFollowersWithLock return leaders subtree by storeID
-func (bc *BasicCluster) GetFollowersWithLock(storeID uint64, callback func (RegionsContainer)) {
+func (bc *BasicCluster) GetFollowersWithLock(storeID uint64, callback func(RegionsContainer)) {
 	bc.RLock()
 	defer bc.RUnlock()
 	callback(bc.Regions.followers[storeID])
@@ -325,9 +325,9 @@ type RegionSetInformer interface {
 	RandFollowerRegion(storeID uint64, opts ...RegionOption) *RegionInfo
 	RandLeaderRegion(storeID uint64, opts ...RegionOption) *RegionInfo
 	RandPendingRegion(storeID uint64, opts ...RegionOption) *RegionInfo
-	GetPendingRegionsWithLock(storeID uint64, callback func (RegionsContainer))
-	GetLeadersWithLock(storeID uint64, callback func (RegionsContainer))
-	GetFollowersWithLock(storeID uint64, callback func (RegionsContainer))
+	GetPendingRegionsWithLock(storeID uint64, callback func(RegionsContainer))
+	GetLeadersWithLock(storeID uint64, callback func(RegionsContainer))
+	GetFollowersWithLock(storeID uint64, callback func(RegionsContainer))
 	GetAverageRegionSize() int64
 	GetStoreRegionCount(storeID uint64) int
 	GetRegion(id uint64) *RegionInfo
