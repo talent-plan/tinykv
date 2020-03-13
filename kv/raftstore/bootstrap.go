@@ -55,7 +55,7 @@ func BootstrapStore(engines *engine_util.Engines, clusterID, storeID uint64) err
 	}
 	ident.ClusterId = clusterID
 	ident.StoreId = storeID
-	err = engine_util.PutMsg(engines.Kv, meta.StoreIdentKey, ident)
+	err = engine_util.PutMeta(engines.Kv, meta.StoreIdentKey, ident)
 	if err != nil {
 		return err
 	}
@@ -89,8 +89,8 @@ func PrepareBootstrapCluster(engines *engine_util.Engines, region *metapb.Region
 	state := new(rspb.RegionLocalState)
 	state.Region = region
 	kvWB := new(engine_util.WriteBatch)
-	kvWB.SetMsg(meta.PrepareBootstrapKey, state)
-	kvWB.SetMsg(meta.RegionStateKey(region.Id), state)
+	kvWB.SetMeta(meta.PrepareBootstrapKey, state)
+	kvWB.SetMeta(meta.RegionStateKey(region.Id), state)
 	writeInitialApplyState(kvWB, region.Id)
 	err := engines.WriteKV(kvWB)
 	if err != nil {
@@ -113,7 +113,7 @@ func writeInitialApplyState(kvWB *engine_util.WriteBatch, regionID uint64) {
 			Term:  meta.RaftInitLogTerm,
 		},
 	}
-	kvWB.SetMsg(meta.ApplyStateKey(regionID), applyState)
+	kvWB.SetMeta(meta.ApplyStateKey(regionID), applyState)
 }
 
 func writeInitialRaftState(raftWB *engine_util.WriteBatch, regionID uint64) {
@@ -124,7 +124,7 @@ func writeInitialRaftState(raftWB *engine_util.WriteBatch, regionID uint64) {
 		},
 		LastIndex: meta.RaftInitLogIndex,
 	}
-	raftWB.SetMsg(meta.RaftStateKey(regionID), raftState)
+	raftWB.SetMeta(meta.RaftStateKey(regionID), raftState)
 }
 
 func ClearPrepareBootstrap(engines *engine_util.Engines, regionID uint64) error {
@@ -135,10 +135,10 @@ func ClearPrepareBootstrap(engines *engine_util.Engines, regionID uint64) error 
 		return errors.WithStack(err)
 	}
 	wb := new(engine_util.WriteBatch)
-	wb.Delete(meta.PrepareBootstrapKey)
+	wb.DeleteMeta(meta.PrepareBootstrapKey)
 	// should clear raft initial state too.
-	wb.Delete(meta.RegionStateKey(regionID))
-	wb.Delete(meta.ApplyStateKey(regionID))
+	wb.DeleteMeta(meta.RegionStateKey(regionID))
+	wb.DeleteMeta(meta.ApplyStateKey(regionID))
 	err = engines.WriteKV(wb)
 	if err != nil {
 		return err

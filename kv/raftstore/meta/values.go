@@ -12,7 +12,7 @@ import (
 
 func GetRegionLocalState(db *badger.DB, regionId uint64) (*rspb.RegionLocalState, error) {
 	regionLocalState := new(rspb.RegionLocalState)
-	if err := engine_util.GetMsg(db, RegionStateKey(regionId), regionLocalState); err != nil {
+	if err := engine_util.GetMeta(db, RegionStateKey(regionId), regionLocalState); err != nil {
 		return regionLocalState, err
 	}
 	return regionLocalState, nil
@@ -20,7 +20,7 @@ func GetRegionLocalState(db *badger.DB, regionId uint64) (*rspb.RegionLocalState
 
 func GetRaftLocalState(db *badger.DB, regionId uint64) (*rspb.RaftLocalState, error) {
 	raftLocalState := new(rspb.RaftLocalState)
-	if err := engine_util.GetMsg(db, RaftStateKey(regionId), raftLocalState); err != nil {
+	if err := engine_util.GetMeta(db, RaftStateKey(regionId), raftLocalState); err != nil {
 		return raftLocalState, err
 	}
 	return raftLocalState, nil
@@ -28,7 +28,7 @@ func GetRaftLocalState(db *badger.DB, regionId uint64) (*rspb.RaftLocalState, er
 
 func GetApplyState(db *badger.DB, regionId uint64) (*rspb.RaftApplyState, error) {
 	applyState := new(rspb.RaftApplyState)
-	if err := engine_util.GetMsg(db, ApplyStateKey(regionId), applyState); err != nil {
+	if err := engine_util.GetMeta(db, ApplyStateKey(regionId), applyState); err != nil {
 		return nil, err
 	}
 	return applyState, nil
@@ -36,7 +36,7 @@ func GetApplyState(db *badger.DB, regionId uint64) (*rspb.RaftApplyState, error)
 
 func GetRaftEntry(db *badger.DB, regionId, idx uint64) (*eraftpb.Entry, error) {
 	entry := new(eraftpb.Entry)
-	if err := engine_util.GetMsg(db, RaftLogKey(regionId, idx), entry); err != nil {
+	if err := engine_util.GetMeta(db, RaftLogKey(regionId, idx), entry); err != nil {
 		return nil, err
 	}
 	return entry, nil
@@ -62,7 +62,7 @@ func InitRaftLocalState(raftEngine *badger.DB, region *metapb.Region) (*rspb.Raf
 			raftState.LastIndex = RaftInitLogIndex
 			raftState.HardState.Term = RaftInitLogTerm
 			raftState.HardState.Commit = RaftInitLogIndex
-			err = engine_util.PutMsg(raftEngine, RaftStateKey(region.Id), raftState)
+			err = engine_util.PutMeta(raftEngine, RaftStateKey(region.Id), raftState)
 			if err != nil {
 				return raftState, err
 			}
@@ -84,7 +84,7 @@ func InitApplyState(kvEngine *badger.DB, region *metapb.Region) (*rspb.RaftApply
 			applyState.TruncatedState.Index = RaftInitLogIndex
 			applyState.TruncatedState.Term = RaftInitLogTerm
 		}
-		err = engine_util.PutMsg(kvEngine, ApplyStateKey(region.Id), applyState)
+		err = engine_util.PutMeta(kvEngine, ApplyStateKey(region.Id), applyState)
 		if err != nil {
 			return applyState, err
 		}
@@ -109,4 +109,11 @@ func InitLastTerm(raftEngine *badger.DB, region *metapb.Region,
 		return 0, errors.Errorf("[region %s] entry at %d doesn't exist, may lost data.", region, lastIdx)
 	}
 	return e.Term, nil
+}
+
+func WriteRegionState(kvWB *engine_util.WriteBatch, region *metapb.Region, state rspb.PeerState) {
+	regionState := new(rspb.RegionLocalState)
+	regionState.State = state
+	regionState.Region = region
+	kvWB.SetMeta(RegionStateKey(region.Id), regionState)
 }

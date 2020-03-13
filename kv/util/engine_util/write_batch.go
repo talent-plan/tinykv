@@ -26,25 +26,15 @@ func (wb *WriteBatch) Len() int {
 	return len(wb.entries)
 }
 
-// TODO: make it `SetMeta`
-func (wb *WriteBatch) Set(key, val []byte) {
-	wb.entries = append(wb.entries, &badger.Entry{
-		Key:   key,
-		Value: val,
-	})
-	wb.size += len(key) + len(val)
-}
-
 func (wb *WriteBatch) SetCF(cf string, key, val []byte) {
 	wb.entries = append(wb.entries, &badger.Entry{
-		Key:   append([]byte(cf+"_"), key...),
+		Key:   KeyWithCF(cf, key),
 		Value: val,
 	})
 	wb.size += len(key) + len(val)
 }
 
-// TODO: make it `DeleteMeta`
-func (wb *WriteBatch) Delete(key []byte) {
+func (wb *WriteBatch) DeleteMeta(key []byte) {
 	wb.entries = append(wb.entries, &badger.Entry{
 		Key: key,
 	})
@@ -53,18 +43,21 @@ func (wb *WriteBatch) Delete(key []byte) {
 
 func (wb *WriteBatch) DeleteCF(cf string, key []byte) {
 	wb.entries = append(wb.entries, &badger.Entry{
-		Key: append([]byte(cf+"_"), key...),
+		Key: KeyWithCF(cf, key),
 	})
 	wb.size += len(key)
 }
 
-// TODO: remove it
-func (wb *WriteBatch) SetMsg(key []byte, msg proto.Message) error {
+func (wb *WriteBatch) SetMeta(key []byte, msg proto.Message) error {
 	val, err := proto.Marshal(msg)
 	if err != nil {
 		return errors.WithStack(err)
 	}
-	wb.Set(key, val)
+	wb.entries = append(wb.entries, &badger.Entry{
+		Key:   key,
+		Value: val,
+	})
+	wb.size += len(key) + len(val)
 	return nil
 }
 

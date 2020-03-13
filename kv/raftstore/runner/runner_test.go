@@ -14,6 +14,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/util/codec"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/kv/worker"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
@@ -61,13 +62,13 @@ func getTestDBForRegions(t *testing.T, path string, regions []uint64) *badger.DB
 				Index: 10,
 			},
 		}
-		require.Nil(t, engine_util.PutMsg(db, meta.ApplyStateKey(regionID), applyState))
+		require.Nil(t, engine_util.PutMeta(db, meta.ApplyStateKey(regionID), applyState))
 
 		// Put region info into kv engine.
 		region := genTestRegion(regionID, 1, 1)
 		regionState := new(rspb.RegionLocalState)
 		regionState.Region = region
-		require.Nil(t, engine_util.PutMsg(db, meta.RegionStateKey(regionID), regionState))
+		require.Nil(t, engine_util.PutMeta(db, meta.RegionStateKey(regionID), regionState))
 	}
 	return db
 }
@@ -118,8 +119,7 @@ func TestGcRaftLog(t *testing.T) {
 	regionId := uint64(1)
 	raftWb := new(engine_util.WriteBatch)
 	for i := uint64(0); i < 100; i++ {
-		k := meta.RaftLogKey(regionId, i)
-		raftWb.Set(k, []byte("entry"))
+		raftWb.SetMeta(meta.RaftLogKey(regionId, i), &eraftpb.Entry{Data: []byte("entry")})
 	}
 	raftWb.WriteToDB(raftDb)
 

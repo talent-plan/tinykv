@@ -7,6 +7,7 @@ import (
 	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
+	"github.com/pingcap-incubator/tinykv/kv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/runner"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
@@ -57,58 +58,51 @@ func replicatePeer(storeID uint64, cfg *config.Config, sched chan<- worker.Task,
 	return NewPeer(storeID, cfg, engines, region, sched, metaPeer)
 }
 
-func (p *peer) regionID() uint64 {
-	return p.regionId
-}
-
-func (p *peer) region() *metapb.Region {
-	return p.Store().region
-}
-
-func (p *peer) storeID() uint64 {
-	return p.Meta.StoreId
-}
-
-func (p *peer) peerID() uint64 {
-	return p.Meta.Id
-}
-
-func (p *peer) stop() {
-	p.stopped = true
-}
-
-func (p *peer) tag() string {
-	return p.Tag
-}
-
 type peer struct {
+	// Mark the peer as stopped, set when peer is destroyed
 	stopped bool
-	ticker  *ticker
 
-	Meta           *metapb.Peer
-	regionId       uint64
-	RaftGroup      *raft.RawNode
-	peerStorage    *PeerStorage
+	// The ticker of the peer, used to trigger
+	// * raft tick
+	// * raft log gc
+	// * region heartbeat
+	// * split check
+	ticker *ticker
+
+	// Record the meta information of the peer
+	Meta     *metapb.Peer
+	regionId uint64
+
+	// Instance of the Raft module
+	RaftGroup *raft.RawNode
+
+	// The peer storage for the Raft module
+	peerStorage *PeerStorage
+
+	// Record the callback of the proposals
 	applyProposals []*proposal
 
+	// Cache the peers information from other stores
+	// when sending raft messages to other peers, it's used to get the store id of target peer
 	peerCache map[uint64]*metapb.Peer
 
-	// Record the last instant of each peer's heartbeat response.
-	PeerHeartbeats map[uint64]time.Time
-
-	/// Record the instants of peers being added into the configuration.
-	/// Remove them after they are not pending any more.
+	// Record the instants of peers being added into the configuration.
+	// Remove them after they are not pending any more.
 	PeersStartPendingTime map[uint64]time.Time
 
-	/// an inaccurate difference in region size since last reset.
+	// An inaccurate difference in region size since last reset.
+	// split checker is triggered when it exceeds the threshold, it makes split checker not scan the data very often
 	SizeDiffHint uint64
-	/// approximate size of the region.
+	// Approximate size of the region.
+	// It's updated everytime the split checker scan the data
 	ApproximateSize *uint64
 
 	Tag string
 
 	// Index of last scheduled committed raft log.
-	LastApplyingIdx  uint64
+	LastApplyingIdx uint64
+
+	// Index of last scheduled compacted raft log.
 	LastCompactedIdx uint64
 }
 
@@ -144,7 +138,6 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 		RaftGroup:             raftGroup,
 		peerStorage:           ps,
 		peerCache:             make(map[uint64]*metapb.Peer),
-		PeerHeartbeats:        make(map[uint64]time.Time),
 		PeersStartPendingTime: make(map[uint64]time.Time),
 		Tag:                   tag,
 		LastApplyingIdx:       appliedIndex,
@@ -208,10 +201,10 @@ func (p *peer) Destroy(engine *engine_util.Engines, keepData bool) error {
 	// Set Tombstone state explicitly
 	kvWB := new(engine_util.WriteBatch)
 	raftWB := new(engine_util.WriteBatch)
-	if err := p.Store().clearMeta(kvWB, raftWB); err != nil {
+	if err := p.peerStorage.clearMeta(kvWB, raftWB); err != nil {
 		return err
 	}
-	WritePeerState(kvWB, region, rspb.PeerState_Tombstone)
+	meta.WriteRegionState(kvWB, region, rspb.PeerState_Tombstone)
 	// write kv rocksdb first in case of restart happen between two write
 	if err := kvWB.WriteToDB(engine.Kv); err != nil {
 		return err
@@ -220,10 +213,10 @@ func (p *peer) Destroy(engine *engine_util.Engines, keepData bool) error {
 		return err
 	}
 
-	if p.Store().isInitialized() && !keepData {
+	if p.peerStorage.isInitialized() && !keepData {
 		// If we meet panic when deleting data and raft log, the dirty data
 		// will be cleared by a newer snapshot applying or restart.
-		p.Store().ClearData()
+		p.peerStorage.ClearData()
 	}
 
 	for _, proposal := range p.applyProposals {
@@ -239,6 +232,10 @@ func (p *peer) isInitialized() bool {
 	return p.peerStorage.isInitialized()
 }
 
+func (p *peer) storeID() uint64 {
+	return p.Meta.StoreId
+}
+
 func (p *peer) Region() *metapb.Region {
 	return p.peerStorage.Region()
 }
@@ -248,7 +245,7 @@ func (p *peer) Region() *metapb.Region {
 /// This will update the region of the peer, caller must ensure the region
 /// has been preserved in a durable device.
 func (p *peer) SetRegion(region *metapb.Region) {
-	p.Store().SetRegion(region)
+	p.peerStorage.SetRegion(region)
 }
 
 func (p *peer) PeerId() uint64 {
@@ -261,14 +258,6 @@ func (p *peer) LeaderId() uint64 {
 
 func (p *peer) IsLeader() bool {
 	return p.RaftGroup.Raft.State == raft.StateLeader
-}
-
-func (p *peer) GetRole() raft.StateType {
-	return p.RaftGroup.Raft.State
-}
-
-func (p *peer) Store() *PeerStorage {
-	return p.peerStorage
 }
 
 /// Returns `true` if the raft group has replicated a snapshot but not committed it yet.
@@ -285,39 +274,10 @@ func (p *peer) Send(trans Transport, msgs []eraftpb.Message) {
 	}
 }
 
-/// Steps the raft message.
-func (p *peer) Step(m *eraftpb.Message) error {
-	if p.IsLeader() && m.GetFrom() != util.InvalidID {
-		p.PeerHeartbeats[m.GetFrom()] = time.Now()
-	}
-	return p.RaftGroup.Step(*m)
-}
-
-/// Checks and updates `peer_heartbeats` for the peer.
-func (p *peer) CheckPeers() {
-	if !p.IsLeader() {
-		if len(p.PeerHeartbeats) > 0 {
-			p.PeerHeartbeats = make(map[uint64]time.Time)
-		}
-		return
-	}
-	if len(p.PeerHeartbeats) == len(p.Region().GetPeers()) {
-		return
-	}
-
-	// Insert heartbeats in case that some peers never response heartbeats.
-	region := p.Region()
-	for _, peer := range region.GetPeers() {
-		if _, ok := p.PeerHeartbeats[peer.GetId()]; !ok {
-			p.PeerHeartbeats[peer.GetId()] = time.Now()
-		}
-	}
-}
-
 /// Collects all pending peers and update `peers_start_pending_time`.
 func (p *peer) CollectPendingPeers() []*metapb.Peer {
 	pendingPeers := make([]*metapb.Peer, 0, len(p.Region().GetPeers()))
-	truncatedIdx := p.Store().truncatedIndex()
+	truncatedIdx := p.peerStorage.truncatedIndex()
 	for id, progress := range p.RaftGroup.GetProgress() {
 		if id == p.Meta.GetId() {
 			continue
@@ -353,7 +313,7 @@ func (p *peer) AnyNewPeerCatchUp(peerId uint64) bool {
 		return false
 	}
 	if startPendingTime, ok := p.PeersStartPendingTime[peerId]; ok {
-		truncatedIdx := p.Store().truncatedIndex()
+		truncatedIdx := p.peerStorage.truncatedIndex()
 		progress, ok := p.RaftGroup.Raft.Prs[peerId]
 		if ok {
 			if progress.Match >= truncatedIdx {
@@ -373,7 +333,7 @@ func (p *peer) ReadyToHandlePendingSnap() bool {
 	// Please note that committed_index can't be used here. When applying a snapshot,
 	// a stale heartbeat can make the leader think follower has already applied
 	// the snapshot, and send remaining log entries, which may increase committed_index.
-	return p.LastApplyingIdx == p.Store().AppliedIndex()
+	return p.LastApplyingIdx == p.peerStorage.AppliedIndex()
 }
 
 func (p *peer) TakeApplyProposals() *MsgApplyProposal {
@@ -395,7 +355,7 @@ func (p *peer) HandleRaftReady(msgs []message.Msg, pdScheduler chan<- worker.Tas
 	}
 
 	if p.HasPendingSnapshot() && !p.ReadyToHandlePendingSnap() {
-		log.Debugf("%v [apply_id: %v, last_applying_idx: %v] is not ready to apply snapshot.", p.Tag, p.Store().AppliedIndex(), p.LastApplyingIdx)
+		log.Debugf("%v [apply_id: %v, last_applying_idx: %v] is not ready to apply snapshot.", p.Tag, p.peerStorage.AppliedIndex(), p.LastApplyingIdx)
 		return nil, msgs
 	}
 
@@ -424,7 +384,7 @@ func (p *peer) HandleRaftReady(msgs []message.Msg, pdScheduler chan<- worker.Tas
 		p.HeartbeatPd(pdScheduler)
 	}
 
-	applySnapResult, err := p.Store().SaveReadyState(&ready)
+	applySnapResult, err := p.peerStorage.SaveReadyState(&ready)
 	if err != nil {
 		panic(fmt.Sprintf("failed to handle raft ready, error: %v", err))
 	}
@@ -441,7 +401,7 @@ func (p *peer) HandleRaftReady(msgs []message.Msg, pdScheduler chan<- worker.Tas
 		}))
 
 		// Snapshot's metadata has been applied.
-		p.LastApplyingIdx = p.Store().truncatedIndex()
+		p.LastApplyingIdx = p.peerStorage.truncatedIndex()
 	} else {
 		committedEntries := ready.CommittedEntries
 		ready.CommittedEntries = nil
@@ -515,7 +475,7 @@ func (p *peer) sendRaftMessage(msg eraftpb.Message, trans Transport) error {
 	// Heartbeat message for the store of that peer to check whether to create a new peer
 	// when receiving these messages, or just to wait for a pending region split to perform
 	// later.
-	if p.Store().isInitialized() && util.IsInitialMsg(&msg) {
+	if p.peerStorage.isInitialized() && util.IsInitialMsg(&msg) {
 		sendMsg.StartKey = append([]byte{}, p.Region().StartKey...)
 		sendMsg.EndKey = append([]byte{}, p.Region().EndKey...)
 	}
@@ -579,7 +539,7 @@ func (p *peer) PostPropose(index, term uint64, isConfChange bool, cb *message.Ca
 func (p *peer) countHealthyNode(progress map[uint64]raft.Progress) int {
 	healthy := 0
 	for _, pr := range progress {
-		if pr.Match >= p.Store().truncatedIndex() {
+		if pr.Match >= p.peerStorage.truncatedIndex() {
 			healthy += 1
 		}
 	}
@@ -684,7 +644,7 @@ func (p *peer) ProposeTransferLeader(cfg *config.Config, req *raft_cmdpb.RaftCmd
 // 3. The conf change makes the raft group not healthy;
 // 4. The conf change is dropped by raft group internally.
 func (p *peer) ProposeConfChange(cfg *config.Config, req *raft_cmdpb.RaftCmdRequest) (uint64, error) {
-	if p.RaftGroup.Raft.PendingConfIndex > p.Store().AppliedIndex() {
+	if p.RaftGroup.Raft.PendingConfIndex > p.peerStorage.AppliedIndex() {
 		log.Infof("%v there is a pending conf change, try later", p.Tag)
 		return 0, fmt.Errorf("%v there is a pending conf change, try later", p.Tag)
 	}
