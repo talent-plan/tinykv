@@ -56,9 +56,8 @@ func (r *raftLogGCTaskHandler) gcRaftLog(raftDb *badger.DB, regionId, startIdx, 
 	raftWb := engine_util.WriteBatch{}
 	for idx := firstIdx; idx < endIdx; idx += 1 {
 		key := meta.RaftLogKey(regionId, idx)
-		raftWb.Delete(key)
+		raftWb.DeleteMeta(key)
 	}
-	// todo, disable WAL here.
 	if raftWb.Len() != 0 {
 		if err := raftWb.WriteToDB(raftDb); err != nil {
 			return 0, err

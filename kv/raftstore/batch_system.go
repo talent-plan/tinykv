@@ -103,8 +103,7 @@ type Transport interface {
 	Send(msg *rspb.RaftMessage) error
 }
 
-/// loadPeers loads peers in this store. It scans the db engine, loads all regions
-/// and their peers from it, and schedules snapshot worker if necessary.
+/// loadPeers loads peers in this store. It scans the db engine, loads all regions and their peers from it
 /// WARN: This store should not be used before initialized.
 func (bs *RaftBatchSystem) loadPeers() ([]*peer, error) {
 	// Scan region meta to get saved regions.
@@ -121,6 +120,7 @@ func (bs *RaftBatchSystem) loadPeers() ([]*peer, error) {
 	kvWB := new(engine_util.WriteBatch)
 	raftWB := new(engine_util.WriteBatch)
 	err := kvEngine.View(func(txn *badger.Txn) error {
+		// get all regions from RegionLocalState
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
 		for it.Seek(startKey); it.Valid(); it.Next() {
@@ -186,7 +186,7 @@ func (bs *RaftBatchSystem) clearStaleMeta(kvWB, raftWB *engine_util.WriteBatch, 
 	if err != nil {
 		panic(err)
 	}
-	if err := kvWB.SetMsg(meta.RegionStateKey(region.Id), originState); err != nil {
+	if err := kvWB.SetMeta(meta.RegionStateKey(region.Id), originState); err != nil {
 		panic(err)
 	}
 }

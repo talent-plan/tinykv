@@ -426,7 +426,7 @@ func (a *applier) handleRaftCommittedEntries(aCtx *applyContext, committedEntrie
 }
 
 func (a *applier) writeApplyState(wb *engine_util.WriteBatch) {
-	wb.SetMsg(meta.ApplyStateKey(a.region.Id), &a.applyState)
+	wb.SetMeta(meta.ApplyStateKey(a.region.Id), &a.applyState)
 }
 
 func (a *applier) handleRaftEntryNormal(aCtx *applyContext, entry *eraftpb.Entry) applyResult {
@@ -777,7 +777,7 @@ func (a *applier) execChangePeer(aCtx *applyContext, req *raft_cmdpb.AdminReques
 	if a.pendingRemove {
 		state = rspb.PeerState_Tombstone
 	}
-	WritePeerState(aCtx.wb, region, state)
+	meta.WriteRegionState(aCtx.wb, region, state)
 	resp = &raft_cmdpb.AdminResponse{
 		ChangePeer: &raft_cmdpb.ChangePeerResponse{
 			Region: region,
@@ -848,12 +848,12 @@ func (a *applier) execSplit(aCtx *applyContext, req *raft_cmdpb.AdminRequest) (
 			StoreId: derived.Peers[j].StoreId,
 		}
 	}
-	WritePeerState(aCtx.wb, newRegion, rspb.PeerState_Normal)
+	meta.WriteRegionState(aCtx.wb, newRegion, rspb.PeerState_Normal)
 	writeInitialApplyState(aCtx.wb, newRegion.Id)
 	regions = append(regions, newRegion)
 	derived.StartKey = keys[len(keys)-1]
 	regions = append(regions, derived)
-	WritePeerState(aCtx.wb, derived, rspb.PeerState_Normal)
+	meta.WriteRegionState(aCtx.wb, derived, rspb.PeerState_Normal)
 
 	resp = &raft_cmdpb.AdminResponse{
 		Split: &raft_cmdpb.SplitResponse{
