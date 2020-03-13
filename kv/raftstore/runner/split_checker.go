@@ -53,7 +53,7 @@ func (r *splitCheckHandler) Handle(t worker.Task) {
 			RegionID: regionId,
 			Data: &message.MsgSplitRegion{
 				RegionEpoch: region.GetRegionEpoch(),
-				SplitKeys:   [][]byte{key},
+				SplitKey:    key,
 			},
 		}
 		err = r.router.Send(regionId, msg)

@@ -74,6 +74,6 @@ type MsgRaftCmd struct {
 
 type MsgSplitRegion struct {
 	RegionEpoch *metapb.RegionEpoch
-	SplitKeys   [][]byte
+	SplitKey    []byte
 	Callback    *Callback
 }

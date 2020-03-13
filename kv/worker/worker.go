@@ -9,7 +9,7 @@ const (
 	TaskTypeRaftLogGC  TaskType = 1
 	TaskTypeSplitCheck TaskType = 2
 
-	TaskTypePDAskBatchSplit  TaskType = 102
+	TaskTypePDAskSplit       TaskType = 102
 	TaskTypePDHeartbeat      TaskType = 103
 	TaskTypePDStoreHeartbeat TaskType = 104
 
