@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/Connor1996/badger"
-	"github.com/golang/protobuf/proto"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/meta"
@@ -77,20 +76,12 @@ func (n *Node) Start(ctx context.Context, engines *engine_util.Engines, trans Tr
 }
 
 func (n *Node) checkStore(engines *engine_util.Engines) (uint64, error) {
-	val, err := engine_util.GetValue(engines.Kv, meta.StoreIdentKey)
+	ident := new(raft_serverpb.StoreIdent)
+	err := engine_util.GetMeta(engines.Kv, meta.StoreIdentKey, ident)
 	if err != nil {
 		if err == badger.ErrKeyNotFound {
 			return 0, nil
 		}
-		return 0, err
-	}
-	if len(val) == 0 {
-		return 0, nil
-	}
-
-	var ident raft_serverpb.StoreIdent
-	err = proto.Unmarshal(val, &ident)
-	if err != nil {
 		return 0, err
 	}
 
@@ -99,7 +90,7 @@ func (n *Node) checkStore(engines *engine_util.Engines) (uint64, error) {
 	}
 
 	if ident.StoreId == util.InvalidID {
-		return 0, errors.Errorf("invalid store ident %s", &ident)
+		return 0, errors.Errorf("invalid store ident %s", ident)
 	}
 	return ident.StoreId, nil
 }
@@ -119,7 +110,7 @@ func (n *Node) allocID(ctx context.Context) (uint64, error) {
 
 func (n *Node) checkOrPrepareBootstrapCluster(ctx context.Context, engines *engine_util.Engines, storeID uint64) (*metapb.Region, error) {
 	var state raft_serverpb.RegionLocalState
-	if err := engine_util.GetMsg(engines.Kv, meta.PrepareBootstrapKey, &state); err == nil {
+	if err := engine_util.GetMeta(engines.Kv, meta.PrepareBootstrapKey, &state); err == nil {
 		return state.Region, nil
 	}
 	bootstrapped, err := n.checkClusterBootstrapped(ctx)

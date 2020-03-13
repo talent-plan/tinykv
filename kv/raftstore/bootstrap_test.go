@@ -18,7 +18,7 @@ func TestBootstrapStore(t *testing.T) {
 	_, err := PrepareBootstrap(engines, 1, 1, 1)
 	require.Nil(t, err)
 	region := new(metapb.Region)
-	require.Nil(t, engine_util.GetMsg(engines.Kv, meta.PrepareBootstrapKey, region))
+	require.Nil(t, engine_util.GetMeta(engines.Kv, meta.PrepareBootstrapKey, region))
 	_, err = meta.GetRegionLocalState(engines.Kv, 1)
 	require.Nil(t, err)
 	_, err = meta.GetApplyState(engines.Kv, 1)
