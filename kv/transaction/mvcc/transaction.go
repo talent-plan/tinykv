@@ -18,11 +18,6 @@ func (txn *MvccTxnStub) Writes() []storage.Modify {
 	return nil
 }
 
-// GetWrite gets the write at precisely the given key and ts, without searching.
-func (txn *MvccTxnStub) GetWrite(key []byte, ts uint64) (*Write, error) {
-	return nil, nil
-}
-
 // PutWrite records write at key and ts.
 func (txn *MvccTxnStub) PutWrite(key []byte, ts uint64, write *Write) {
 }
@@ -206,15 +201,6 @@ func (txn *RoTxn) GetValue(key []byte) ([]byte, error) {
 
 	// Iterated to the end of the DB
 	return nil, nil
-}
-
-// GetWrite gets the write at precisely the given key and ts, without searching.
-func (txn *RoTxn) GetWrite(key []byte, ts uint64) (*Write, error) {
-	value, err := txn.Reader.GetCF(engine_util.CfWrite, EncodeKey(key, ts))
-	if err != nil {
-		return nil, err
-	}
-	return ParseWrite(value)
 }
 
 // PutWrite records write at key and ts.
