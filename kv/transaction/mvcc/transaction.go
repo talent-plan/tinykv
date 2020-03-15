@@ -18,7 +18,7 @@ func (txn *MvccTxnStub) Writes() []storage.Modify {
 	return nil
 }
 
-// PutWrite records write at key and ts.
+// PutWrite records a write at key and ts.
 func (txn *MvccTxnStub) PutWrite(key []byte, ts uint64, write *Write) {
 }
 

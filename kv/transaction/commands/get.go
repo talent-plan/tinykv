@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"fmt"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/mvcc"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
@@ -13,7 +12,6 @@ type Get struct {
 }
 
 func NewGet(request *kvrpcpb.GetRequest) Get {
-	fmt.Printf("new %v\n", request.Version)
 	return Get{
 		CommandBase: CommandBase{
 			context: request.Context,
@@ -24,7 +22,6 @@ func NewGet(request *kvrpcpb.GetRequest) Get {
 }
 
 func (g *Get) Read(txn *mvcc.RoTxn) (interface{}, [][]byte, error) {
-	fmt.Printf("read %v\n", txn.StartTS)
 	key := g.request.Key
 	response := new(kvrpcpb.GetResponse)
 
