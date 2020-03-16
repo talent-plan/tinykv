@@ -104,7 +104,6 @@ func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) *operator.Operato
 			cluster.GetPendingRegionsWithLock(sourceID, func(regions core.RegionsContainer) {
 				region = selectHealthyRegion(regions)
 			})
-			//region := cluster.RandPendingRegion(sourceID, core.HealthRegionAllowPending())
 			if region == nil {
 				// Then picks the region that has a follower in the source store.
 				cluster.GetFollowersWithLock(sourceID, func(regions core.RegionsContainer) {
