@@ -18,6 +18,7 @@ func NewPrewrite(request *kvrpcpb.PrewriteRequest) Prewrite {
 	return Prewrite{
 		CommandBase: CommandBase{
 			context: request.Context,
+			startTs: request.StartVersion,
 		},
 		request: request,
 	}
@@ -25,7 +26,6 @@ func NewPrewrite(request *kvrpcpb.PrewriteRequest) Prewrite {
 
 func (p *Prewrite) PrepareWrites(txn *mvcc.MvccTxn) (interface{}, error) {
 	response := new(kvrpcpb.PrewriteResponse)
-	txn.StartTS = &p.request.StartVersion
 
 	// Prewrite all mutations in the request.
 	for _, m := range p.request.Mutations {
@@ -45,11 +45,11 @@ func (p *Prewrite) PrepareWrites(txn *mvcc.MvccTxn) (interface{}, error) {
 func (p *Prewrite) prewriteMutation(txn *mvcc.MvccTxn, mut *kvrpcpb.Mutation) (*kvrpcpb.KeyError, error) {
 	key := mut.Key
 	// Check for write conflicts.
-	if write, writeCommitTS, err := txn.SeekWrite(key, mvcc.TsMax); write != nil && err == nil {
-		if writeCommitTS >= *txn.StartTS {
+	if write, writeCommitTS, err := txn.MostRecentWrite(key); write != nil && err == nil {
+		if writeCommitTS >= txn.StartTS {
 			keyError := new(kvrpcpb.KeyError)
 			keyError.Conflict = &kvrpcpb.WriteConflict{
-				StartTs:    *txn.StartTS,
+				StartTs:    txn.StartTS,
 				ConflictTs: write.StartTS,
 				Key:        key,
 				Primary:    p.request.PrimaryLock,
@@ -64,7 +64,7 @@ func (p *Prewrite) prewriteMutation(txn *mvcc.MvccTxn, mut *kvrpcpb.Mutation) (*
 	if existingLock, err := txn.GetLock(key); err != nil {
 		return nil, err
 	} else if existingLock != nil {
-		if existingLock.Ts != *txn.StartTS {
+		if existingLock.Ts != txn.StartTS {
 			// Key is locked by someone else.
 			keyError := new(kvrpcpb.KeyError)
 			keyError.Locked = existingLock.Info(key)
@@ -78,7 +78,7 @@ func (p *Prewrite) prewriteMutation(txn *mvcc.MvccTxn, mut *kvrpcpb.Mutation) (*
 	// Write a lock and value.
 	lock := mvcc.Lock{
 		Primary: p.request.PrimaryLock,
-		Ts:      *txn.StartTS,
+		Ts:      txn.StartTS,
 		Kind:    mvcc.WriteKindFromProto(mut.Op),
 		Ttl:     p.request.LockTtl,
 	}

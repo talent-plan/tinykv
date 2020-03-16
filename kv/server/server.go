@@ -115,7 +115,6 @@ func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kv
 	// Your code here 1A
 	response := new(kvrpcpb.RawPutResponse)
 	err := server.storage.Write(req.Context, []storage.Modify{{
-		Type: storage.ModifyTypePut,
 		Data: storage.Put{
 			Key:   req.Key,
 			Value: req.Value,
@@ -129,7 +128,6 @@ func (server *Server) RawDelete(_ context.Context, req *kvrpcpb.RawDeleteRequest
 	// Your code here 1A
 	response := new(kvrpcpb.RawDeleteResponse)
 	err := server.storage.Write(req.Context, []storage.Modify{{
-		Type: storage.ModifyTypeDelete,
 		Data: storage.Delete{
 			Key: req.Key,
 			Cf:  req.Cf,

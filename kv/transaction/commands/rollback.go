@@ -17,6 +17,7 @@ func NewRollback(request *kvrpcpb.BatchRollbackRequest) Rollback {
 	return Rollback{
 		CommandBase: CommandBase{
 			context: request.Context,
+			startTs: request.StartVersion,
 		},
 		request: request,
 	}
@@ -24,7 +25,6 @@ func NewRollback(request *kvrpcpb.BatchRollbackRequest) Rollback {
 
 func (r *Rollback) PrepareWrites(txn *mvcc.MvccTxn) (interface{}, error) {
 	response := new(kvrpcpb.BatchRollbackResponse)
-	txn.StartTS = &r.request.StartVersion
 
 	for _, k := range r.request.Keys {
 		resp, err := rollbackKey(k, txn, response)
@@ -41,16 +41,16 @@ func rollbackKey(key []byte, txn *mvcc.MvccTxn, response interface{}) (interface
 		return regionError(err, response)
 	}
 
-	if lock == nil || lock.Ts != *txn.StartTS {
+	if lock == nil || lock.Ts != txn.StartTS {
 		// There is no lock, check the write status.
-		existingWrite, ts, err := txn.FindWrite(key, *txn.StartTS)
+		existingWrite, ts, err := txn.CurrentWrite(key)
 		if err != nil {
 			return regionError(err, response)
 		}
 		if existingWrite == nil {
 			// There is no write either, presumably the prewrite was lost. We insert a rollback write anyway.
-			write := mvcc.Write{StartTS: *txn.StartTS, Kind: mvcc.WriteKindRollback}
-			txn.PutWrite(key, &write, *txn.StartTS)
+			write := mvcc.Write{StartTS: txn.StartTS, Kind: mvcc.WriteKindRollback}
+			txn.PutWrite(key, txn.StartTS, &write)
 
 			return nil, nil
 		} else {
@@ -73,8 +73,8 @@ func rollbackKey(key []byte, txn *mvcc.MvccTxn, response interface{}) (interface
 		txn.DeleteValue(key)
 	}
 
-	write := mvcc.Write{StartTS: *txn.StartTS, Kind: mvcc.WriteKindRollback}
-	txn.PutWrite(key, &write, *txn.StartTS)
+	write := mvcc.Write{StartTS: txn.StartTS, Kind: mvcc.WriteKindRollback}
+	txn.PutWrite(key, txn.StartTS, &write)
 	txn.DeleteLock(key)
 
 	return nil, nil
