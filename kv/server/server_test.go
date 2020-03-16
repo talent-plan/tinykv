@@ -2,25 +2,20 @@ package server
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/storage/standalone_storage"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/stretchr/testify/assert"
-)
-
-const (
-	testPath = "standalone_raw_test"
 )
 
 func Set(s *standalone_storage.StandAloneStorage, cf string, key []byte, value []byte) error {
 	return s.Write(nil, []storage.Modify{
 		{
-			Type: storage.ModifyTypePut,
 			Data: storage.Put{
 				Cf:    cf,
 				Key:   key,
@@ -30,7 +25,7 @@ func Set(s *standalone_storage.StandAloneStorage, cf string, key []byte, value [
 	})
 }
 
-func get(s *standalone_storage.StandAloneStorage, cf string, key []byte) ([]byte, error) {
+func Get(s *standalone_storage.StandAloneStorage, cf string, key []byte) ([]byte, error) {
 	reader, err := s.Reader(nil)
 	if err != nil {
 		return nil, err
@@ -38,15 +33,12 @@ func get(s *standalone_storage.StandAloneStorage, cf string, key []byte) ([]byte
 	return reader.GetCF(cf, key)
 }
 
-func NewTestTiKVServer(storage storage.Storage) *Server {
-	server := NewServer(storage)
-	return server
-}
-
-func newTestConfig() *config.Config {
-	conf := config.NewDefaultConfig()
-	conf.DBPath = filepath.Join(conf.DBPath, testPath)
-	return conf
+func Iter(s *standalone_storage.StandAloneStorage, cf string) (engine_util.DBIterator, error) {
+	reader, err := s.Reader(nil)
+	if err != nil {
+		return nil, err
+	}
+	return reader.IterCF(cf), nil
 }
 
 func cleanUpTestData(conf *config.Config) error {
@@ -56,13 +48,13 @@ func cleanUpTestData(conf *config.Config) error {
 	return nil
 }
 
-func TestRawGetLab1(t *testing.T) {
-	conf := newTestConfig()
+func TestRawGet1(t *testing.T) {
+	conf := config.NewTestConfig()
 	s := standalone_storage.NewStandAloneStorage(conf)
-	server := NewTestTiKVServer(s)
+	server := NewServer(s)
 	defer cleanUpTestData(conf)
 
-	cf := "TestRawGet"
+	cf := engine_util.CfDefault
 	Set(s, cf, []byte{99}, []byte{42})
 
 	req := &kvrpcpb.RawGetRequest{
@@ -74,13 +66,13 @@ func TestRawGetLab1(t *testing.T) {
 	assert.Equal(t, []byte{42}, resp.Value)
 }
 
-func TestRawGetNotFoundLab1(t *testing.T) {
-	conf := newTestConfig()
+func TestRawGetNotFound1(t *testing.T) {
+	conf := config.NewTestConfig()
 	s := standalone_storage.NewStandAloneStorage(conf)
-	server := NewTestTiKVServer(s)
+	server := NewServer(s)
 	defer cleanUpTestData(conf)
 
-	cf := "TestRawGetNotFound"
+	cf := engine_util.CfDefault
 	req := &kvrpcpb.RawGetRequest{
 		Key: []byte{99},
 		Cf:  cf,
@@ -90,13 +82,13 @@ func TestRawGetNotFoundLab1(t *testing.T) {
 	assert.True(t, resp.NotFound)
 }
 
-func TestRawPutLab1(t *testing.T) {
-	conf := newTestConfig()
+func TestRawPut1(t *testing.T) {
+	conf := config.NewTestConfig()
 	s := standalone_storage.NewStandAloneStorage(conf)
-	server := NewTestTiKVServer(s)
+	server := NewServer(s)
 	defer cleanUpTestData(conf)
 
-	cf := "TestRawPut"
+	cf := engine_util.CfDefault
 	req := &kvrpcpb.RawPutRequest{
 		Key:   []byte{99},
 		Value: []byte{42},
@@ -105,43 +97,57 @@ func TestRawPutLab1(t *testing.T) {
 
 	_, err := server.RawPut(nil, req)
 
-	got, err := get(s, cf, []byte{99})
+	got, err := Get(s, cf, []byte{99})
 	assert.Nil(t, err)
 	assert.Equal(t, []byte{42}, got)
 }
 
-func TestRawGetAfterRawPutLab1(t *testing.T) {
-	conf := newTestConfig()
+func TestRawGetAfterRawPut1(t *testing.T) {
+	conf := config.NewTestConfig()
 	s := standalone_storage.NewStandAloneStorage(conf)
-	server := NewTestTiKVServer(s)
+	server := NewServer(s)
 	defer cleanUpTestData(conf)
 
-	cf := "TestRawGetAfterRawPut"
-	put := &kvrpcpb.RawPutRequest{
+	put1 := &kvrpcpb.RawPutRequest{
 		Key:   []byte{99},
 		Value: []byte{42},
-		Cf:    cf,
+		Cf:    engine_util.CfDefault,
 	}
-	_, err := server.RawPut(nil, put)
+	_, err := server.RawPut(nil, put1)
 	assert.Nil(t, err)
 
-	get := &kvrpcpb.RawGetRequest{
-		Key: []byte{99},
-		Cf:  cf,
+	put2 := &kvrpcpb.RawPutRequest{
+		Key:   []byte{99},
+		Value: []byte{44},
+		Cf:    engine_util.CfWrite,
 	}
+	_, err = server.RawPut(nil, put2)
+	assert.Nil(t, err)
 
-	resp, err := server.RawGet(nil, get)
+	get1 := &kvrpcpb.RawGetRequest{
+		Key: []byte{99},
+		Cf:  engine_util.CfDefault,
+	}
+	resp, err := server.RawGet(nil, get1)
 	assert.Nil(t, err)
 	assert.Equal(t, []byte{42}, resp.Value)
+
+	get2 := &kvrpcpb.RawGetRequest{
+		Key: []byte{99},
+		Cf:  engine_util.CfWrite,
+	}
+	resp, err = server.RawGet(nil, get2)
+	assert.Nil(t, err)
+	assert.Equal(t, []byte{44}, resp.Value)
 }
 
-func TestRawGetAfterRawDeleteLab1(t *testing.T) {
-	conf := newTestConfig()
+func TestRawGetAfterRawDelete1(t *testing.T) {
+	conf := config.NewTestConfig()
 	s := standalone_storage.NewStandAloneStorage(conf)
-	server := NewTestTiKVServer(s)
+	server := NewServer(s)
 	defer cleanUpTestData(conf)
 
-	cf := "TestRawGetAfterRawDelete"
+	cf := engine_util.CfDefault
 	assert.Nil(t, Set(s, cf, []byte{99}, []byte{42}))
 
 	delete := &kvrpcpb.RawDeleteRequest{
@@ -161,13 +167,13 @@ func TestRawGetAfterRawDeleteLab1(t *testing.T) {
 	assert.True(t, resp.NotFound)
 }
 
-func TestRawDeleteLab1(t *testing.T) {
-	conf := newTestConfig()
+func TestRawDelete1(t *testing.T) {
+	conf := config.NewTestConfig()
 	s := standalone_storage.NewStandAloneStorage(conf)
-	server := NewTestTiKVServer(s)
+	server := NewServer(s)
 	defer cleanUpTestData(conf)
 
-	cf := "TestRawDelete"
+	cf := engine_util.CfDefault
 
 	req := &kvrpcpb.RawDeleteRequest{
 		Key: []byte{99},
@@ -177,17 +183,17 @@ func TestRawDeleteLab1(t *testing.T) {
 	_, err := server.RawDelete(nil, req)
 	assert.Nil(t, err)
 
-	_, err = get(s, cf, []byte{99})
+	_, err = Get(s, cf, []byte{99})
 	assert.Equal(t, err, badger.ErrKeyNotFound)
 }
 
-func TestRawScanLab1(t *testing.T) {
-	conf := newTestConfig()
+func TestRawScan1(t *testing.T) {
+	conf := config.NewTestConfig()
 	s := standalone_storage.NewStandAloneStorage(conf)
-	server := NewTestTiKVServer(s)
+	server := NewServer(s)
 	defer cleanUpTestData(conf)
 
-	cf := "TestRawScan"
+	cf := engine_util.CfDefault
 
 	Set(s, cf, []byte{1}, []byte{233, 1})
 	Set(s, cf, []byte{2}, []byte{233, 2})
@@ -212,13 +218,13 @@ func TestRawScanLab1(t *testing.T) {
 	}
 }
 
-func TestRawScanAfterRawPutLab1(t *testing.T) {
-	conf := newTestConfig()
+func TestRawScanAfterRawPut1(t *testing.T) {
+	conf := config.NewTestConfig()
 	s := standalone_storage.NewStandAloneStorage(conf)
-	server := NewTestTiKVServer(s)
+	server := NewServer(s)
 	defer cleanUpTestData(conf)
 
-	cf := "TestRawScanAfterRawPut"
+	cf := engine_util.CfDefault
 	assert.Nil(t, Set(s, cf, []byte{1}, []byte{233, 1}))
 	assert.Nil(t, Set(s, cf, []byte{2}, []byte{233, 2}))
 	assert.Nil(t, Set(s, cf, []byte{3}, []byte{233, 3}))
@@ -250,13 +256,13 @@ func TestRawScanAfterRawPutLab1(t *testing.T) {
 	}
 }
 
-func TestRawScanAfterRawDeleteLab1(t *testing.T) {
-	conf := newTestConfig()
+func TestRawScanAfterRawDelete1(t *testing.T) {
+	conf := config.NewTestConfig()
 	s := standalone_storage.NewStandAloneStorage(conf)
-	server := NewTestTiKVServer(s)
+	server := NewServer(s)
 	defer cleanUpTestData(conf)
 
-	cf := "TestRawScanAfterRawDelete"
+	cf := engine_util.CfDefault
 	assert.Nil(t, Set(s, cf, []byte{1}, []byte{233, 1}))
 	assert.Nil(t, Set(s, cf, []byte{2}, []byte{233, 2}))
 	assert.Nil(t, Set(s, cf, []byte{3}, []byte{233, 3}))
@@ -284,5 +290,37 @@ func TestRawScanAfterRawDeleteLab1(t *testing.T) {
 	for i, kv := range resp.Kvs {
 		assert.Equal(t, expectedKeys[i], kv.Key)
 		assert.Equal(t, append([]byte{233}, expectedKeys[i]...), kv.Value)
+	}
+}
+
+func TestIterWithRawDelete1(t *testing.T) {
+	conf := config.NewTestConfig()
+	s := standalone_storage.NewStandAloneStorage(conf)
+	server := NewServer(s)
+	defer cleanUpTestData(conf)
+
+	cf := engine_util.CfDefault
+	assert.Nil(t, Set(s, cf, []byte{1}, []byte{233, 1}))
+	assert.Nil(t, Set(s, cf, []byte{2}, []byte{233, 2}))
+	assert.Nil(t, Set(s, cf, []byte{3}, []byte{233, 3}))
+	assert.Nil(t, Set(s, cf, []byte{4}, []byte{233, 4}))
+
+	it, err := Iter(s, cf)
+	assert.Nil(t, err)
+
+	delete := &kvrpcpb.RawDeleteRequest{
+		Key: []byte{3},
+		Cf:  cf,
+	}
+	_, err = server.RawDelete(nil, delete)
+	assert.Nil(t, err)
+
+	expectedKeys := [][]byte{{1}, {2}, {3}, {4}}
+	i := 0
+	for it.Seek([]byte{1}); it.Valid(); it.Next() {
+		item := it.Item()
+		key := item.Key()
+		assert.Equal(t, expectedKeys[i], key)
+		i++
 	}
 }

@@ -528,6 +528,20 @@ func TestSnapshotUnreliableRecoverConcurrentPartition2C(t *testing.T) {
 	GenericTest(t, "2C", 5, true, true, true, 100, false, false)
 }
 
+func TestTransferLeader3B(t *testing.T) {
+	cfg := config.NewTestConfig()
+	cluster := NewTestCluster(5, cfg)
+	cluster.Start()
+	defer cluster.Shutdown()
+
+	regionID := cluster.GetRegion([]byte("")).GetId()
+	cluster.MustTransferLeader(regionID, NewPeer(1, 1))
+	cluster.MustTransferLeader(regionID, NewPeer(2, 2))
+	cluster.MustTransferLeader(regionID, NewPeer(3, 3))
+	cluster.MustTransferLeader(regionID, NewPeer(4, 4))
+	cluster.MustTransferLeader(regionID, NewPeer(5, 5))
+}
+
 func TestBasicConfChange3B(t *testing.T) {
 	cfg := config.NewTestConfig()
 	cluster := NewTestCluster(5, cfg)
