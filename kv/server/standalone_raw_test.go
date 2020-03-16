@@ -20,7 +20,6 @@ const (
 func Set(s *standalone_storage.StandAloneStorage, cf string, key []byte, value []byte) error {
 	return s.Write(nil, []storage.Modify{
 		{
-			Type: storage.ModifyTypePut,
 			Data: storage.Put{
 				Cf:    cf,
 				Key:   key,
