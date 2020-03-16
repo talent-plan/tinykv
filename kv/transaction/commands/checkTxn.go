@@ -15,13 +15,13 @@ func NewCheckTxnStatus(request *kvrpcpb.CheckTxnStatusRequest) CheckTxnStatus {
 	return CheckTxnStatus{
 		CommandBase: CommandBase{
 			context: request.Context,
+			startTs: request.LockTs,
 		},
 		request: request,
 	}
 }
 
 func (c *CheckTxnStatus) PrepareWrites(txn *mvcc.MvccTxn) (interface{}, error) {
-	txn.StartTS = &c.request.LockTs
 	key := c.request.PrimaryKey
 	response := new(kvrpcpb.CheckTxnStatusResponse)
 
@@ -29,14 +29,14 @@ func (c *CheckTxnStatus) PrepareWrites(txn *mvcc.MvccTxn) (interface{}, error) {
 	if err != nil {
 		return regionError(err, response)
 	}
-	if lock != nil && lock.Ts == *txn.StartTS {
+	if lock != nil && lock.Ts == txn.StartTS {
 		if physical(lock.Ts)+lock.Ttl < physical(c.request.CurrentTs) {
 			// Lock has expired, roll it back.
-			write := mvcc.Write{StartTS: *txn.StartTS, Kind: mvcc.WriteKindRollback}
+			write := mvcc.Write{StartTS: txn.StartTS, Kind: mvcc.WriteKindRollback}
 			if lock.Kind == mvcc.WriteKindPut {
 				txn.DeleteValue(key)
 			}
-			txn.PutWrite(key, &write, *txn.StartTS)
+			txn.PutWrite(key, txn.StartTS, &write)
 			txn.DeleteLock(key)
 			response.Action = kvrpcpb.Action_TTLExpireRollback
 		} else {
@@ -48,14 +48,14 @@ func (c *CheckTxnStatus) PrepareWrites(txn *mvcc.MvccTxn) (interface{}, error) {
 		return response, nil
 	}
 
-	existingWrite, commitTs, err := txn.FindWrite(key, *txn.StartTS)
+	existingWrite, commitTs, err := txn.CurrentWrite(key)
 	if err != nil {
 		return regionError(err, response)
 	}
 	if existingWrite == nil {
 		// The lock never existed, roll it back.
-		write := mvcc.Write{StartTS: *txn.StartTS, Kind: mvcc.WriteKindRollback}
-		txn.PutWrite(key, &write, *txn.StartTS)
+		write := mvcc.Write{StartTS: txn.StartTS, Kind: mvcc.WriteKindRollback}
+		txn.PutWrite(key, txn.StartTS, &write)
 		response.Action = kvrpcpb.Action_LockNotExistRollback
 
 		return response, nil

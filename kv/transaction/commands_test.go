@@ -47,7 +47,7 @@ func newBuilder(t *testing.T) testBuilder {
 		for _, k := range keys {
 			keyMap[string(k)] = struct{}{}
 		}
-		for _, wr := range txn.Writes {
+		for _, wr := range txn.Writes() {
 			key := wr.Key()
 			// This is a bit of a hack and relies on all the raw tests using keys shorter than 9 bytes, which is the
 			// minimum length for an encoded key.

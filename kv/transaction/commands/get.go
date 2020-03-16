@@ -15,6 +15,7 @@ func NewGet(request *kvrpcpb.GetRequest) Get {
 	return Get{
 		CommandBase: CommandBase{
 			context: request.Context,
+			startTs: request.Version,
 		},
 		request: request,
 	}
@@ -22,7 +23,6 @@ func NewGet(request *kvrpcpb.GetRequest) Get {
 
 func (g *Get) Read(txn *mvcc.RoTxn) (interface{}, [][]byte, error) {
 	key := g.request.Key
-	txn.StartTS = &g.request.Version
 	response := new(kvrpcpb.GetResponse)
 
 	// Check for locks.
@@ -30,13 +30,13 @@ func (g *Get) Read(txn *mvcc.RoTxn) (interface{}, [][]byte, error) {
 	if err != nil {
 		return regionErrorRo(err, response)
 	}
-	if lock.IsLockedFor(key, *txn.StartTS, response) {
+	if lock.IsLockedFor(key, txn.StartTS, response) {
 		// Key is locked.
 		return response, nil, nil
 	}
 
 	// Search writes for a committed value.
-	value, err := txn.FindWrittenValue(key, *txn.StartTS)
+	value, err := txn.GetValue(key)
 	if err != nil {
 		return regionErrorRo(err, response)
 	}

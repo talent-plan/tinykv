@@ -15,6 +15,7 @@ func NewScan(request *kvrpcpb.ScanRequest) Scan {
 	result := Scan{
 		CommandBase: CommandBase{
 			context: request.Context,
+			startTs: request.Version,
 		},
 		request: request,
 	}
@@ -22,7 +23,6 @@ func NewScan(request *kvrpcpb.ScanRequest) Scan {
 }
 
 func (s *Scan) Read(txn *mvcc.RoTxn) (interface{}, [][]byte, error) {
-	txn.StartTS = &s.request.Version
 	response := new(kvrpcpb.ScanResponse)
 
 	scanner := mvcc.NewScanner(s.request.StartKey, txn)
