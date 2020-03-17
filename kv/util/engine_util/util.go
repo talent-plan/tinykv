@@ -59,7 +59,7 @@ func GetMetaFromTxn(txn *badger.Txn, key []byte, msg proto.Message) error {
 	if err != nil {
 		return err
 	}
-	val, err := item.Value()
+	val, err := item.Value() //use ValueCopy()?
 	if err != nil {
 		return err
 	}
