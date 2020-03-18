@@ -114,7 +114,7 @@ Encapsulated badger provides KV operations other than scan.
 // CreateDB creates a new Badger DB on disk at subPath.
 func CreateDB(subPath string, conf *config.Config) *badger.DB 
 
-// return the combination of given key and given cf
+// return the combination of given key and  cf
 func KeyWithCF(cf string, key []byte) []byte 
 
 //encapsulated Get

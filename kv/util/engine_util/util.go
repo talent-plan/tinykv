@@ -7,10 +7,12 @@ import (
 	"github.com/golang/protobuf/proto"
 )
 
+// return the combination of given key and cf
 func KeyWithCF(cf string, key []byte) []byte {
 	return append([]byte(cf+"_"), key...)
 }
 
+//encapsulated Get
 func GetCF(db *badger.DB, cf string, key []byte) (val []byte, err error) {
 	err = db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(KeyWithCF(cf, key))
@@ -23,6 +25,7 @@ func GetCF(db *badger.DB, cf string, key []byte) (val []byte, err error) {
 	return
 }
 
+//The actual GetCF internal implementation
 func GetCFFromTxn(txn *badger.Txn, cf string, key []byte) (val []byte, err error) {
 	item, err := txn.Get(KeyWithCF(cf, key))
 	if err != nil {
@@ -32,12 +35,14 @@ func GetCFFromTxn(txn *badger.Txn, cf string, key []byte) (val []byte, err error
 	return
 }
 
+//encapsulated Put
 func PutCF(engine *badger.DB, cf string, key []byte, val []byte) error {
 	return engine.Update(func(txn *badger.Txn) error {
 		return txn.Set(KeyWithCF(cf, key), val)
 	})
 }
 
+//Get value for given key from DB and place it in msg
 func GetMeta(engine *badger.DB, key []byte, msg proto.Message) error {
 	var val []byte
 	err := engine.View(func(txn *badger.Txn) error {
@@ -59,13 +64,14 @@ func GetMetaFromTxn(txn *badger.Txn, key []byte, msg proto.Message) error {
 	if err != nil {
 		return err
 	}
-	val, err := item.Value() //use ValueCopy()?
+	val, err := item.ValueCopy(nil)
 	if err != nil {
 		return err
 	}
 	return proto.Unmarshal(val, msg)
 }
 
+//Get value for given key from msg and update it in DB
 func PutMeta(engine *badger.DB, key []byte, msg proto.Message) error {
 	val, err := proto.Marshal(msg)
 	if err != nil {
@@ -87,6 +93,7 @@ func DeleteRange(db *badger.DB, startKey, endKey []byte) error {
 	return batch.WriteToDB(db)
 }
 
+//Delete Key with 3 kinds CF between [startKey,endKey)
 func deleteRangeCF(txn *badger.Txn, batch *WriteBatch, cf string, startKey, endKey []byte) {
 	it := NewCFIterator(cf, txn)
 	for it.Seek(startKey); it.Valid(); it.Next() {
