@@ -31,20 +31,24 @@ type ApplySnapResult struct {
 var _ raft.Storage = new(PeerStorage)
 
 type PeerStorage struct {
-	Engines *engine_util.Engines
-
-	peerID    uint64
-	region    *metapb.Region
+	peerID uint64
+	// current region information of the peer
+	region *metapb.Region
+	// current raft state of the peer
 	raftState rspb.RaftLocalState
-	lastTerm  uint64
-
-	snapState    snap.SnapState
-	regionSched  chan<- worker.Task
+	// current snapshot state
+	snapState snap.SnapState
+	// regionSched used to schedule task to region worker
+	regionSched chan<- worker.Task
+	// gennerate snapshot tried count
 	snapTriedCnt int
-
+	// Engine include two badger instance: Raft and Kv
+	Engines *engine_util.Engines
+	// Tag used for logging
 	Tag string
 }
 
+// NewPeerStorage get the persist raftState from engines and return a peer storage
 func NewPeerStorage(engines *engine_util.Engines, region *metapb.Region, regionSched chan<- worker.Task, peerID uint64, tag string) (*PeerStorage, error) {
 	log.Debugf("%s creating storage for %s", tag, region.String())
 	raftState, err := meta.InitRaftLocalState(engines.Raft, region)
@@ -59,17 +63,12 @@ func NewPeerStorage(engines *engine_util.Engines, region *metapb.Region, regionS
 		panic(fmt.Sprintf("%s unexpected raft log index: lastIndex %d < appliedIndex %d",
 			tag, raftState.LastIndex, applyState.AppliedIndex))
 	}
-	lastTerm, err := meta.InitLastTerm(engines.Raft, region, raftState, applyState)
-	if err != nil {
-		return nil, err
-	}
 	return &PeerStorage{
 		Engines:     engines,
 		peerID:      peerID,
 		region:      region,
 		Tag:         tag,
 		raftState:   *raftState,
-		lastTerm:    lastTerm,
 		regionSched: regionSched,
 	}, nil
 }
@@ -132,8 +131,8 @@ func (ps *PeerStorage) Term(idx uint64) (uint64, error) {
 	if err := ps.checkRange(idx, idx+1); err != nil {
 		return 0, err
 	}
-	if ps.truncatedTerm() == ps.lastTerm || idx == ps.raftState.LastIndex {
-		return ps.lastTerm, nil
+	if ps.truncatedTerm() == ps.raftState.LastTerm || idx == ps.raftState.LastIndex {
+		return ps.raftState.LastTerm, nil
 	}
 	var entry eraftpb.Entry
 	if err := engine_util.GetMeta(ps.Engines.Raft, meta.RaftLogKey(ps.region.Id, idx), &entry); err != nil {
@@ -178,21 +177,17 @@ func (ps *PeerStorage) Snapshot() (eraftpb.Snapshot, error) {
 
 	log.Infof("requesting snapshot, regionID: %d, peerID: %d", ps.region.GetId(), ps.peerID)
 	ps.snapTriedCnt++
-	ps.ScheduleGenerateSnapshot()
-
-	return snapshot, raft.ErrSnapshotTemporarilyUnavailable
-}
-
-func (ps *PeerStorage) ScheduleGenerateSnapshot() {
 	ch := make(chan *eraftpb.Snapshot, 1)
 	ps.snapState = snap.SnapState{
 		StateType: snap.SnapState_Generating,
 		Receiver:  ch,
 	}
+	// schedule snapshot generate task
 	ps.regionSched <- &runner.RegionTaskGen{
 		RegionId: ps.region.GetId(),
 		Notifier: ch,
 	}
+	return snapshot, raft.ErrSnapshotTemporarilyUnavailable
 }
 
 func (ps *PeerStorage) isInitialized() bool {
@@ -256,6 +251,8 @@ func (ps *PeerStorage) validateSnap(snap *eraftpb.Snapshot) bool {
 // Return the new last index for later update. After we commit in engine, we can set last_index
 // to the return one.
 func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.WriteBatch) error {
+	// Your Code Here (2B).
+	// TODO: Delete Start
 	log.Debugf("%s append %d entries", ps.Tag, len(entries))
 	prevLastIndex := ps.raftState.LastIndex
 	if len(entries) == 0 {
@@ -275,8 +272,9 @@ func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.Write
 		raftWB.DeleteMeta(meta.RaftLogKey(ps.region.Id, i))
 	}
 	ps.raftState.LastIndex = lastIndex
-	ps.lastTerm = lastTerm
+	ps.raftState.LastTerm = lastTerm
 	return nil
+	// TODO: Delete End
 }
 
 func (ps *PeerStorage) clearMeta(kvWB, raftWB *engine_util.WriteBatch) error {
@@ -287,20 +285,11 @@ func (ps *PeerStorage) clearMeta(kvWB, raftWB *engine_util.WriteBatch) error {
 func (ps *PeerStorage) clearExtraData(newRegion *metapb.Region) {
 	oldStartKey, oldEndKey := ps.region.GetStartKey(), ps.region.GetEndKey()
 	newStartKey, newEndKey := newRegion.GetStartKey(), newRegion.GetEndKey()
-	regionId := newRegion.Id
 	if bytes.Compare(oldStartKey, newStartKey) < 0 {
-		ps.regionSched <- &runner.RegionTaskDestroy{
-			RegionId: regionId,
-			StartKey: oldStartKey,
-			EndKey:   newStartKey,
-		}
+		ps.clearRange(newRegion.Id, oldStartKey, newStartKey)
 	}
 	if bytes.Compare(newEndKey, oldEndKey) < 0 {
-		ps.regionSched <- &runner.RegionTaskDestroy{
-			RegionId: regionId,
-			StartKey: newEndKey,
-			EndKey:   oldEndKey,
-		}
+		ps.clearRange(newRegion.Id, newEndKey, oldEndKey)
 	}
 }
 
@@ -342,11 +331,13 @@ func ClearMeta(engines *engine_util.Engines, kvWB, raftWB *engine_util.WriteBatc
 }
 
 // Apply the peer with given snapshot.
-func (ps *PeerStorage) ApplySnapshot(snap *eraftpb.Snapshot, kvWB *engine_util.WriteBatch, raftWB *engine_util.WriteBatch) (*ApplySnapResult, error) {
+func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB *engine_util.WriteBatch, raftWB *engine_util.WriteBatch) (*ApplySnapResult, error) {
+	// Your Code Here (2B).
+	// TODO: Delete Start
 	log.Infof("%v begin to apply snapshot", ps.Tag)
 
 	snapData := new(rspb.RaftSnapshotData)
-	if err := snapData.Unmarshal(snap.Data); err != nil {
+	if err := snapData.Unmarshal(snapshot.Data); err != nil {
 		return nil, err
 	}
 
@@ -359,41 +350,53 @@ func (ps *PeerStorage) ApplySnapshot(snap *eraftpb.Snapshot, kvWB *engine_util.W
 		if err := ps.clearMeta(kvWB, raftWB); err != nil {
 			return nil, err
 		}
+		ps.clearExtraData(snapData.Region)
 	}
 
-	ps.raftState.LastIndex = snap.Metadata.Index
-	ps.lastTerm = snap.Metadata.Term
+	ps.raftState.LastIndex = snapshot.Metadata.Index
+	ps.raftState.LastTerm = snapshot.Metadata.Term
 
 	applyRes := &ApplySnapResult{
 		PrevRegion: ps.region,
 		Region:     snapData.Region,
 	}
-	// cleanup data before scheduling apply worker.Task
-	if ps.isInitialized() {
-		ps.clearExtraData(snapData.Region)
-	}
 	ps.region = snapData.Region
 	applyState := &rspb.RaftApplyState{
-		AppliedIndex: snap.Metadata.Index,
+		AppliedIndex: snapshot.Metadata.Index,
 		// The snapshot only contains log which index > applied index, so
 		// here the truncate state's (index, term) is in snapshot metadata.
 		TruncatedState: &rspb.RaftTruncatedState{
-			Index: snap.Metadata.Index,
-			Term:  snap.Metadata.Term,
+			Index: snapshot.Metadata.Index,
+			Term:  snapshot.Metadata.Term,
 		},
 	}
 	kvWB.SetMeta(meta.ApplyStateKey(ps.region.GetId()), applyState)
-	ps.ScheduleApplyingSnapshotAndWait(snapData.Region, snap.Metadata)
 	meta.WriteRegionState(kvWB, snapData.Region, rspb.PeerState_Normal)
+	ch := make(chan bool)
+	ps.snapState = snap.SnapState{
+		StateType: snap.SnapState_Applying,
+	}
+	ps.regionSched <- &runner.RegionTaskApply{
+		RegionId: ps.region.Id,
+		Notifier: ch,
+		SnapMeta: snapshot.Metadata,
+		StartKey: snapData.Region.GetStartKey(),
+		EndKey:   snapData.Region.GetEndKey(),
+	}
+	// wait until apply finish
+	<-ch
 
 	log.Debugf("%v apply snapshot for region %v with state %v ok", ps.Tag, snapData.Region, applyState)
 	return applyRes, nil
+	// TODO: Delete End
 }
 
 /// Save memory states to disk.
 ///
 /// Do not modify ready in this function, this is a requirement to advance the ready object properly later.
 func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (*ApplySnapResult, error) {
+	// Your Code Here (2B).
+	// TODO: Delete Start
 	kvWB, raftWB := new(engine_util.WriteBatch), new(engine_util.WriteBatch)
 	prevRaftState := ps.raftState
 
@@ -423,21 +426,7 @@ func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (*ApplySnapResult, erro
 	kvWB.MustWriteToDB(ps.Engines.Kv)
 	raftWB.MustWriteToDB(ps.Engines.Raft)
 	return applyRes, nil
-}
-
-func (ps *PeerStorage) ScheduleApplyingSnapshotAndWait(snapRegion *metapb.Region, snapMeta *eraftpb.SnapshotMetadata) {
-	ch := make(chan bool)
-	ps.snapState = snap.SnapState{
-		StateType: snap.SnapState_Applying,
-	}
-	ps.regionSched <- &runner.RegionTaskApply{
-		RegionId: ps.region.Id,
-		Notifier: ch,
-		SnapMeta: snapMeta,
-		StartKey: snapRegion.GetStartKey(),
-		EndKey:   snapRegion.GetEndKey(),
-	}
-	<-ch
+	// TODO: Delete End
 }
 
 func (ps *PeerStorage) SetRegion(region *metapb.Region) {
@@ -445,9 +434,13 @@ func (ps *PeerStorage) SetRegion(region *metapb.Region) {
 }
 
 func (ps *PeerStorage) ClearData() {
+	ps.clearRange(ps.region.GetId(), ps.region.GetStartKey(), ps.region.GetEndKey())
+}
+
+func (ps *PeerStorage) clearRange(regionID uint64, start, end []byte) {
 	ps.regionSched <- &runner.RegionTaskDestroy{
-		RegionId: ps.region.GetId(),
-		StartKey: ps.region.GetStartKey(),
-		EndKey:   ps.region.GetEndKey(),
+		RegionId: regionID,
+		StartKey: start,
+		EndKey:   end,
 	}
 }
