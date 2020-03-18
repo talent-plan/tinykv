@@ -9,7 +9,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/runner"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
-	"github.com/pingcap-incubator/tinykv/kv/worker"
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -22,10 +21,10 @@ import (
 type PeerTick int
 
 const (
-	PeerTickRaft             PeerTick = 0
-	PeerTickRaftLogGC        PeerTick = 1
-	PeerTickSplitRegionCheck PeerTick = 2
-	PeerTickPdHeartbeat      PeerTick = 3
+	PeerTickRaft               PeerTick = 0
+	PeerTickRaftLogGC          PeerTick = 1
+	PeerTickSplitRegionCheck   PeerTick = 2
+	PeerTickSchedulerHeartbeat PeerTick = 3
 )
 
 type peerMsgHandler struct {
@@ -82,8 +81,8 @@ func (d *peerMsgHandler) onTick() {
 	if d.ticker.isOnTick(PeerTickRaftLogGC) {
 		d.onRaftGCLogTick()
 	}
-	if d.ticker.isOnTick(PeerTickPdHeartbeat) {
-		d.onPDHeartbeatTick()
+	if d.ticker.isOnTick(PeerTickSchedulerHeartbeat) {
+		d.onSchedulerHeartbeatTick()
 	}
 	if d.ticker.isOnTick(PeerTickSplitRegionCheck) {
 		d.onSplitRegionCheckTick()
@@ -97,7 +96,7 @@ func (d *peerMsgHandler) startTicker() {
 	d.ticker.schedule(PeerTickRaft)
 	d.ticker.schedule(PeerTickRaftLogGC)
 	d.ticker.schedule(PeerTickSplitRegionCheck)
-	d.ticker.schedule(PeerTickPdHeartbeat)
+	d.ticker.schedule(PeerTickSchedulerHeartbeat)
 }
 
 func (d *peerMsgHandler) onGCSnap(snaps []snap.SnapKeyWithSending) {
@@ -146,7 +145,7 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		msg := message.Msg{Type: message.MsgTypeApplyProposal, Data: p, RegionID: p.RegionId}
 		msgs = append(msgs, msg)
 	}
-	applySnapResult, msgs := d.peer.HandleRaftReady(msgs, d.ctx.pdTaskSender, d.ctx.trans)
+	applySnapResult, msgs := d.peer.HandleRaftReady(msgs, d.ctx.schedulerTaskSender, d.ctx.trans)
 	if applySnapResult != nil {
 		prevRegion := applySnapResult.PrevRegion
 		region := applySnapResult.Region
@@ -250,7 +249,7 @@ func (d *peerMsgHandler) onRaftMsg(msg *rspb.RaftMessage) error {
 		return err
 	}
 	if d.AnyNewPeerCatchUp(msg.FromPeer.Id) {
-		d.HeartbeatPd(d.ctx.pdTaskSender)
+		d.HeartbeatScheduler(d.ctx.schedulerTaskSender)
 	}
 	return nil
 }
@@ -297,7 +296,7 @@ func (d *peerMsgHandler) checkMessage(msg *rspb.RaftMessage) bool {
 	//  rejoin the raft group again.
 	// f. 2 is isolated. 1 adds 4, 5, 6, removes 3, 1. Now assume 4 is leader, and 4 removes 2.
 	//  unlike case e, 2 will be stale forever.
-	// TODO: for case f, if 2 is stale for a long time, 2 will communicate with pd and pd will
+	// TODO: for case f, if 2 is stale for a long time, 2 will communicate with scheduler and scheduler will
 	// tell 2 is stale, so 2 can remove itself.
 	region := d.Region()
 	if util.IsEpochStale(fromEpoch, region.RegionEpoch) && util.FindPeer(region, fromStoreID) == nil {
@@ -470,9 +469,9 @@ func (d *peerMsgHandler) onReadyChangePeer(cp *execResultChangePeer) {
 	// to utilize `collect_pending_peers` in `heartbeat_pd` to avoid
 	// adding the redundant peer.
 	if d.IsLeader() {
-		// Notify pd immediately.
-		log.Infof("%s notify pd with change peer region %s", d.Tag, d.Region())
-		d.HeartbeatPd(d.ctx.pdTaskSender)
+		// Notify scheduler immediately.
+		log.Infof("%s notify scheduler with change peer region %s", d.Tag, d.Region())
+		d.HeartbeatScheduler(d.ctx.schedulerTaskSender)
 	}
 	myPeerID := d.PeerId()
 
@@ -495,10 +494,7 @@ func (d *peerMsgHandler) onReadyCompactLog(firstIndex uint64, truncatedIndex uin
 		EndIdx:     truncatedIndex + 1,
 	}
 	d.LastCompactedIdx = raftLogGCTask.EndIdx
-	d.ctx.raftLogGCTaskSender <- worker.Task{
-		Tp:   worker.TaskTypeRaftLogGC,
-		Data: raftLogGCTask,
-	}
+	d.ctx.raftLogGCTaskSender <- raftLogGCTask
 }
 
 func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*metapb.Region) {
@@ -510,9 +506,9 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 	d.SizeDiffHint = 0
 	isLeader := d.IsLeader()
 	if isLeader {
-		d.HeartbeatPd(d.ctx.pdTaskSender)
-		// Notify pd immediately to let it update the region meta.
-		log.Infof("%s notify pd with split count %d", d.Tag, len(regions))
+		d.HeartbeatScheduler(d.ctx.schedulerTaskSender)
+		// Notify scheduler immediately to let it update the region meta.
+		log.Infof("%s notify scheduler with split count %d", d.Tag, len(regions))
 	}
 
 	if meta.regionRanges.Delete(&regionItem{region: regions[0]}) == nil {
@@ -566,7 +562,7 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 		if isLeader {
 			// The new peer is likely to become leader, send a heartbeat immediately to reduce
 			// client query miss.
-			newPeer.HeartbeatPd(d.ctx.pdTaskSender)
+			newPeer.HeartbeatScheduler(d.ctx.schedulerTaskSender)
 		}
 
 		meta.regions[newRegionID] = newRegion
@@ -704,11 +700,8 @@ func (d *peerMsgHandler) onSplitRegionCheckTick() {
 	if d.ApproximateSize != nil && d.SizeDiffHint < d.ctx.cfg.RegionSplitSize/8 {
 		return
 	}
-	d.ctx.splitCheckTaskSender <- worker.Task{
-		Tp: worker.TaskTypeSplitCheck,
-		Data: &runner.SplitCheckTask{
-			Region: d.Region(),
-		},
+	d.ctx.splitCheckTaskSender <- &runner.SplitCheckTask{
+		Region: d.Region(),
 	}
 	d.SizeDiffHint = 0
 }
@@ -719,14 +712,11 @@ func (d *peerMsgHandler) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, s
 		return
 	}
 	region := d.Region()
-	d.ctx.pdTaskSender <- worker.Task{
-		Tp: worker.TaskTypePDAskSplit,
-		Data: &runner.PdAskSplitTask{
-			Region:   region,
-			SplitKey: splitKey,
-			Peer:     d.Meta,
-			Callback: cb,
-		},
+	d.ctx.schedulerTaskSender <- &runner.SchedulerAskSplitTask{
+		Region:   region,
+		SplitKey: splitKey,
+		Peer:     d.Meta,
+		Callback: cb,
 	}
 }
 
@@ -751,7 +741,7 @@ func (d *peerMsgHandler) validateSplitRegion(epoch *metapb.RegionEpoch, splitKey
 
 	// This is a little difference for `check_region_epoch` in region split case.
 	// Here we just need to check `version` because `conf_ver` will be update
-	// to the latest value of the peer, and then send to PD.
+	// to the latest value of the peer, and then send to Scheduler.
 	if latestEpoch.Version != epoch.Version {
 		log.Infof("%s epoch changed, retry later, prev_epoch: %s, epoch %s",
 			d.Tag, latestEpoch, epoch)
@@ -767,13 +757,13 @@ func (d *peerMsgHandler) onApproximateRegionSize(size uint64) {
 	d.ApproximateSize = &size
 }
 
-func (d *peerMsgHandler) onPDHeartbeatTick() {
-	d.ticker.schedule(PeerTickPdHeartbeat)
+func (d *peerMsgHandler) onSchedulerHeartbeatTick() {
+	d.ticker.schedule(PeerTickSchedulerHeartbeat)
 
 	if !d.IsLeader() {
 		return
 	}
-	d.HeartbeatPd(d.ctx.pdTaskSender)
+	d.HeartbeatScheduler(d.ctx.schedulerTaskSender)
 }
 
 func newAdminRequest(regionID uint64, peer *metapb.Peer) *raft_cmdpb.RaftCmdRequest {

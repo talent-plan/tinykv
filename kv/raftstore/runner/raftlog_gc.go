@@ -4,7 +4,7 @@ import (
 	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
-	"github.com/pingcap-incubator/tinykv/kv/worker"
+	"github.com/pingcap-incubator/tinykv/kv/util/worker"
 	"github.com/pingcap-incubator/tinykv/log"
 )
 
@@ -74,7 +74,11 @@ func (r *raftLogGCTaskHandler) reportCollected(collected uint64) {
 }
 
 func (r *raftLogGCTaskHandler) Handle(t worker.Task) {
-	logGcTask := t.Data.(*RaftLogGCTask)
+	logGcTask, ok := t.(*RaftLogGCTask)
+	if !ok {
+		log.Error("unsupported worker.Task: %+v", t)
+		return
+	}
 	log.Debugf("execute gc log. [regionId: %d, endIndex: %d]", logGcTask.RegionID, logGcTask.EndIdx)
 	collected, err := r.gcRaftLog(logGcTask.RaftEngine, logGcTask.RegionID, logGcTask.StartIdx, logGcTask.EndIdx)
 	if err != nil {

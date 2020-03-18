@@ -13,7 +13,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/util/codec"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
-	"github.com/pingcap-incubator/tinykv/kv/worker"
+	"github.com/pingcap-incubator/tinykv/kv/util/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
@@ -132,14 +132,11 @@ func TestGcRaftLog(t *testing.T) {
 
 	tbls := []tempHolder{
 		{
-			raftLogGcTask: worker.Task{
-				Data: &RaftLogGCTask{
-					RaftEngine: raftDb,
-					RegionID:   regionId,
-					StartIdx:   uint64(0),
-					EndIdx:     uint64(10),
-				},
-				Tp: worker.TaskTypeRaftLogGC,
+			raftLogGcTask: &RaftLogGCTask{
+				RaftEngine: raftDb,
+				RegionID:   regionId,
+				StartIdx:   uint64(0),
+				EndIdx:     uint64(10),
 			},
 			expectedCollected: uint64(10),
 			nonExistRange:     [...]uint64{0, 10},
@@ -147,14 +144,11 @@ func TestGcRaftLog(t *testing.T) {
 		},
 
 		{
-			raftLogGcTask: worker.Task{
-				Data: &RaftLogGCTask{
-					RaftEngine: raftDb,
-					RegionID:   regionId,
-					StartIdx:   uint64(0),
-					EndIdx:     uint64(50),
-				},
-				Tp: worker.TaskTypeRaftLogGC,
+			raftLogGcTask: &RaftLogGCTask{
+				RaftEngine: raftDb,
+				RegionID:   regionId,
+				StartIdx:   uint64(0),
+				EndIdx:     uint64(50),
 			},
 			expectedCollected: uint64(40),
 			nonExistRange:     [...]uint64{0, 50},
@@ -162,14 +156,11 @@ func TestGcRaftLog(t *testing.T) {
 		},
 
 		{
-			raftLogGcTask: worker.Task{
-				Data: &RaftLogGCTask{
-					RaftEngine: raftDb,
-					RegionID:   regionId,
-					StartIdx:   uint64(50),
-					EndIdx:     uint64(50),
-				},
-				Tp: worker.TaskTypeRaftLogGC,
+			raftLogGcTask: &RaftLogGCTask{
+				RaftEngine: raftDb,
+				RegionID:   regionId,
+				StartIdx:   uint64(50),
+				EndIdx:     uint64(50),
 			},
 			expectedCollected: uint64(0),
 			nonExistRange:     [...]uint64{0, 50},
@@ -177,14 +168,11 @@ func TestGcRaftLog(t *testing.T) {
 		},
 
 		{
-			raftLogGcTask: worker.Task{
-				Data: &RaftLogGCTask{
-					RaftEngine: raftDb,
-					RegionID:   regionId,
-					StartIdx:   uint64(50),
-					EndIdx:     uint64(60),
-				},
-				Tp: worker.TaskTypeRaftLogGC,
+			raftLogGcTask: &RaftLogGCTask{
+				RaftEngine: raftDb,
+				RegionID:   regionId,
+				StartIdx:   uint64(50),
+				EndIdx:     uint64(60),
 			},
 			expectedCollected: uint64(10),
 			nonExistRange:     [...]uint64{0, 60},
@@ -275,14 +263,11 @@ func TestSplitCheck(t *testing.T) {
 	kvWb.SetCF(engine_util.CfDefault, encodeKey([]byte("k3"), 3), []byte("entry"))
 	kvWb.MustWriteToDB(db)
 
-	task := worker.Task{
-		Data: &SplitCheckTask{
-			Region: &metapb.Region{
-				StartKey: []byte(""),
-				EndKey:   []byte(""),
-			},
+	task := &SplitCheckTask{
+		Region: &metapb.Region{
+			StartKey: []byte(""),
+			EndKey:   []byte(""),
 		},
-		Tp: worker.TaskTypeSplitCheck,
 	}
 
 	runner.Handle(task)

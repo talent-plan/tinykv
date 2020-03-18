@@ -112,13 +112,6 @@ func SetApproximateSize(v int64) RegionCreateOption {
 	}
 }
 
-// SetApproximateKeys sets the approximate keys for the region.
-func SetApproximateKeys(v int64) RegionCreateOption {
-	return func(region *RegionInfo) {
-		region.approximateKeys = v
-	}
-}
-
 // SetPeers sets the peers for the region.
 func SetPeers(peers []*metapb.Peer) RegionCreateOption {
 	return func(region *RegionInfo) {

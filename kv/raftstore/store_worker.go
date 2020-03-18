@@ -11,19 +11,18 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
-	"github.com/pingcap-incubator/tinykv/kv/worker"
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap/errors"
 )
 
 type StoreTick int
 
 const (
-	StoreTickPdStoreHeartbeat StoreTick = 1
-	StoreTickSnapGC           StoreTick = 2
+	StoreTickSchedulerStoreHeartbeat StoreTick = 1
+	StoreTickSnapGC                  StoreTick = 2
 )
 
 type storeState struct {
@@ -69,8 +68,8 @@ func (sw *storeWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
 
 func (d *storeWorker) onTick(tick StoreTick) {
 	switch tick {
-	case StoreTickPdStoreHeartbeat:
-		d.onPDStoreHearbeatTick()
+	case StoreTickSchedulerStoreHeartbeat:
+		d.onSchedulerStoreHearbeatTick()
 	case StoreTickSnapGC:
 		d.onSnapMgrGC()
 	}
@@ -91,7 +90,7 @@ func (d *storeWorker) handleMsg(msg message.Msg) {
 
 func (d *storeWorker) start(store *metapb.Store) {
 	d.id = store.Id
-	d.ticker.scheduleStore(StoreTickPdStoreHeartbeat)
+	d.ticker.scheduleStore(StoreTickSchedulerStoreHeartbeat)
 	d.ticker.scheduleStore(StoreTickSnapGC)
 }
 
@@ -227,21 +226,20 @@ func (d *storeWorker) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage) (b
 	return true, nil
 }
 
-func (d *storeWorker) storeHeartbeatPD() {
-	stats := new(pdpb.StoreStats)
+func (d *storeWorker) storeHeartbeatScheduler() {
+	stats := new(schedulerpb.StoreStats)
 	stats.StoreId = d.ctx.store.Id
 	stats.RegionCount = uint32(len(d.ctx.storeMeta.regions))
-	storeInfo := &runner.PdStoreHeartbeatTask{
+	d.ctx.schedulerTaskSender <- &runner.SchedulerStoreHeartbeatTask{
 		Stats:  stats,
 		Engine: d.ctx.engine.Kv,
 		Path:   d.ctx.engine.KvPath,
 	}
-	d.ctx.pdTaskSender <- worker.Task{Tp: worker.TaskTypePDStoreHeartbeat, Data: storeInfo}
 }
 
-func (d *storeWorker) onPDStoreHearbeatTick() {
-	d.storeHeartbeatPD()
-	d.ticker.scheduleStore(StoreTickPdStoreHeartbeat)
+func (d *storeWorker) onSchedulerStoreHearbeatTick() {
+	d.storeHeartbeatScheduler()
+	d.ticker.scheduleStore(StoreTickSchedulerStoreHeartbeat)
 }
 
 func (d *storeWorker) handleSnapMgrGC() error {
