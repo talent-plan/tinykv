@@ -141,3 +141,4 @@ func DeleteRange(db *badger.DB, startKey, endKey []byte) error
 ## Problem
 
 1. A little more can be added to the CF-related function comments, as the use of CF is not very clear
+2. There may not be much to suggest for the handling of request and response errors
