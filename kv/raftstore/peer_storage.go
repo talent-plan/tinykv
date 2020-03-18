@@ -36,7 +36,6 @@ type PeerStorage struct {
 	peerID    uint64
 	region    *metapb.Region
 	raftState rspb.RaftLocalState
-	lastTerm  uint64
 
 	snapState    snap.SnapState
 	regionSched  chan<- worker.Task
@@ -59,17 +58,12 @@ func NewPeerStorage(engines *engine_util.Engines, region *metapb.Region, regionS
 		panic(fmt.Sprintf("%s unexpected raft log index: lastIndex %d < appliedIndex %d",
 			tag, raftState.LastIndex, applyState.AppliedIndex))
 	}
-	lastTerm, err := meta.InitLastTerm(engines.Raft, region, raftState, applyState)
-	if err != nil {
-		return nil, err
-	}
 	return &PeerStorage{
 		Engines:     engines,
 		peerID:      peerID,
 		region:      region,
 		Tag:         tag,
 		raftState:   *raftState,
-		lastTerm:    lastTerm,
 		regionSched: regionSched,
 	}, nil
 }
@@ -132,8 +126,8 @@ func (ps *PeerStorage) Term(idx uint64) (uint64, error) {
 	if err := ps.checkRange(idx, idx+1); err != nil {
 		return 0, err
 	}
-	if ps.truncatedTerm() == ps.lastTerm || idx == ps.raftState.LastIndex {
-		return ps.lastTerm, nil
+	if ps.truncatedTerm() == ps.raftState.LastTerm || idx == ps.raftState.LastIndex {
+		return ps.raftState.LastTerm, nil
 	}
 	var entry eraftpb.Entry
 	if err := engine_util.GetMeta(ps.Engines.Raft, meta.RaftLogKey(ps.region.Id, idx), &entry); err != nil {
@@ -275,7 +269,7 @@ func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.Write
 		raftWB.DeleteMeta(meta.RaftLogKey(ps.region.Id, i))
 	}
 	ps.raftState.LastIndex = lastIndex
-	ps.lastTerm = lastTerm
+	ps.raftState.LastTerm = lastTerm
 	return nil
 }
 
@@ -362,7 +356,7 @@ func (ps *PeerStorage) ApplySnapshot(snap *eraftpb.Snapshot, kvWB *engine_util.W
 	}
 
 	ps.raftState.LastIndex = snap.Metadata.Index
-	ps.lastTerm = snap.Metadata.Term
+	ps.raftState.LastTerm = snap.Metadata.Term
 
 	applyRes := &ApplySnapResult{
 		PrevRegion: ps.region,
