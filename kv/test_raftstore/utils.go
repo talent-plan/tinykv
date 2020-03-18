@@ -131,7 +131,7 @@ func MustGetNone(engine *engine_util.Engines, key []byte) {
 func NewTestCluster(count int, cfg *config.Config) *Cluster {
 	log.SetLevelByString(cfg.LogLevel)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
-	pdClient := NewMockPDClient(0, uint64(count)+1)
-	simulator := NewNodeSimulator(pdClient)
-	return NewCluster(count, pdClient, simulator, cfg)
+	schedulerClient := NewMockSchedulerClient(0, uint64(count)+1)
+	simulator := NewNodeSimulator(schedulerClient)
+	return NewCluster(count, schedulerClient, simulator, cfg)
 }

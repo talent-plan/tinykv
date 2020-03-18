@@ -1,5 +1,5 @@
 syntax = "proto3";
-package pdpb;
+package schedulerpb;
 
 import "metapb.proto";
 import "eraftpb.proto";
@@ -10,7 +10,7 @@ option (gogoproto.sizer_all) = true;
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 
-service PD {
+service Scheduler {
     // GetMembers get the member list of this cluster. It does not require
     // the cluster_id in request matchs the id of this cluster.
     rpc GetMembers(GetMembersRequest) returns (GetMembersResponse) {}
@@ -223,9 +223,9 @@ message PutClusterConfigResponse {
 }
 
 message Member {
-    // name is the name of the PD member.
+    // name is the name of the Scheduler member.
     string name = 1;
-    // member_id is the unique id of the PD member.
+    // member_id is the unique id of the Scheduler member.
     uint64 member_id = 2;
     repeated string peer_urls = 3;
     repeated string client_urls = 4;
@@ -255,13 +255,6 @@ message RegionHeartbeatRequest {
     repeated metapb.Peer pending_peers = 5;
     // Approximate region size.
     uint64 approximate_size = 10;
-    reserved 11;
-    // Actually reported time interval
-    TimeInterval interval = 12;
-    // Approximate number of keys.
-    uint64 approximate_keys = 13;
-    // Term is the term of raft group.
-    uint64 term = 14;
 }
 
 message ChangePeer {
@@ -276,22 +269,22 @@ message TransferLeader {
 message RegionHeartbeatResponse {
     ResponseHeader header = 1;
 
-    // Notice, Pd only allows handling reported epoch >= current pd's.
+    // Notice, Scheduleeer only allows handling reported epoch >= current scheduler's.
     // Leader peer reports region status with RegionHeartbeatRequest
-    // to pd regularly, pd will determine whether this region
+    // to scheduler regularly, scheduler will determine whether this region
     // should do ChangePeer or not.
     // E,g, max peer number is 3, region A, first only peer 1 in A.
-    // 1. Pd region state -> Peers (1), ConfVer (1).
-    // 2. Leader peer 1 reports region state to pd, pd finds the
+    // 1. Scheduler region state -> Peers (1), ConfVer (1).
+    // 2. Leader peer 1 reports region state to scheduler, scheduler finds the
     // peer number is < 3, so first changes its current region
     // state -> Peers (1, 2), ConfVer (1), and returns ChangePeer Adding 2.
     // 3. Leader does ChangePeer, then reports Peers (1, 2), ConfVer (2),
-    // pd updates its state -> Peers (1, 2), ConfVer (2).
-    // 4. Leader may report old Peers (1), ConfVer (1) to pd before ConfChange
-    // finished, pd stills responses ChangePeer Adding 2, of course, we must
+    // scheduler updates its state -> Peers (1, 2), ConfVer (2).
+    // 4. Leader may report old Peers (1), ConfVer (1) to scheduler before ConfChange
+    // finished, scheduler stills responses ChangePeer Adding 2, of course, we must
     // guarantee the second ChangePeer can't be applied in TiKV.
     ChangePeer change_peer = 2;
-    // Pd can return transfer_leader to let TiKV does leader transfer itself.
+    // Scheduler can return transfer_leader to let TiKV does leader transfer itself.
     TransferLeader transfer_leader = 3;
     // ID of the region
     uint64 region_id = 4;
@@ -392,8 +385,8 @@ message ScatterRegionRequest {
 
     uint64 region_id = 2;
 
-    // PD will use these region information if it can't find the region.
-    // For example, the region is just split and hasn't report to PD yet.
+    // Scheduler will use these region information if it can't find the region.
+    // For example, the region is just split and hasn't report to Scheduler yet.
     metapb.Region region = 3;
     metapb.Peer   leader = 4;
 }

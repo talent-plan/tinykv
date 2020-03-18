@@ -22,7 +22,7 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 )
 
 // RegionInfo records detail region info.
@@ -34,8 +34,6 @@ type RegionInfo struct {
 	leader          *metapb.Peer
 	pendingPeers    []*metapb.Peer
 	approximateSize int64
-	approximateKeys int64
-	interval        *pdpb.TimeInterval
 }
 
 // NewRegionInfo creates RegionInfo with region's meta and leader peer.
@@ -66,7 +64,7 @@ func classifyVoterAndLearner(region *RegionInfo) {
 const EmptyRegionApproximateSize = 1
 
 // RegionFromHeartbeat constructs a Region from region heartbeat.
-func RegionFromHeartbeat(heartbeat *pdpb.RegionHeartbeatRequest) *RegionInfo {
+func RegionFromHeartbeat(heartbeat *schedulerpb.RegionHeartbeatRequest) *RegionInfo {
 	// Convert unit to MB.
 	// If region is empty or less than 1MB, use 1MB instead.
 	regionSize := heartbeat.GetApproximateSize() / (1 << 20)
@@ -79,8 +77,6 @@ func RegionFromHeartbeat(heartbeat *pdpb.RegionHeartbeatRequest) *RegionInfo {
 		leader:          heartbeat.GetLeader(),
 		pendingPeers:    heartbeat.GetPendingPeers(),
 		approximateSize: int64(regionSize),
-		approximateKeys: int64(heartbeat.GetApproximateKeys()),
-		interval:        heartbeat.GetInterval(),
 	}
 
 	classifyVoterAndLearner(region)
@@ -99,8 +95,6 @@ func (r *RegionInfo) Clone(opts ...RegionCreateOption) *RegionInfo {
 		leader:          proto.Clone(r.leader).(*metapb.Peer),
 		pendingPeers:    pendingPeers,
 		approximateSize: r.approximateSize,
-		approximateKeys: r.approximateKeys,
-		interval:        proto.Clone(r.interval).(*pdpb.TimeInterval),
 	}
 
 	for _, opt := range opts {
@@ -256,16 +250,6 @@ func (r *RegionInfo) GetApproximateSize() int64 {
 	return r.approximateSize
 }
 
-// GetApproximateKeys returns the approximate keys of the region.
-func (r *RegionInfo) GetApproximateKeys() int64 {
-	return r.approximateKeys
-}
-
-// GetInterval returns the interval information of the region.
-func (r *RegionInfo) GetInterval() *pdpb.TimeInterval {
-	return r.interval
-}
-
 // GetPendingPeers returns the pending peers of the region.
 func (r *RegionInfo) GetPendingPeers() []*metapb.Peer {
 	return r.pendingPeers
@@ -329,11 +313,9 @@ func (rm *regionMap) Get(id uint64) *RegionInfo {
 func (rm *regionMap) Put(region *RegionInfo) {
 	if old, ok := rm.m[region.GetID()]; ok {
 		rm.totalSize -= old.approximateSize
-		rm.totalKeys -= old.approximateKeys
 	}
 	rm.m[region.GetID()] = region
 	rm.totalSize += region.approximateSize
-	rm.totalKeys += region.approximateKeys
 }
 
 func (rm *regionMap) Delete(id uint64) {
@@ -343,7 +325,6 @@ func (rm *regionMap) Delete(id uint64) {
 	if old, ok := rm.m[id]; ok {
 		delete(rm.m, id)
 		rm.totalSize -= old.approximateSize
-		rm.totalKeys -= old.approximateKeys
 	}
 }
 
@@ -358,7 +339,6 @@ func (rm *regionMap) TotalSize() int64 {
 type regionSubTree struct {
 	*regionTree
 	totalSize int64
-	totalKeys int64
 }
 
 func newRegionSubTree() *regionSubTree {
@@ -390,12 +370,10 @@ func (rst *regionSubTree) scanRanges() []*RegionInfo {
 func (rst *regionSubTree) update(region *RegionInfo) {
 	if r := rst.find(region); r != nil {
 		rst.totalSize += region.approximateSize - r.region.approximateSize
-		rst.totalKeys += region.approximateKeys - r.region.approximateKeys
 		r.region = region
 		return
 	}
 	rst.totalSize += region.approximateSize
-	rst.totalKeys += region.approximateKeys
 	rst.regionTree.update(region)
 }
 

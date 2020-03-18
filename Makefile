@@ -39,7 +39,7 @@ kv:
 	$(GOBUILD) -o bin/tinykv-server kv/main.go
 
 scheduler:
-	$(GOBUILD) -o bin/pd-server scheduler/cmd/pd-server/main.go
+	$(GOBUILD) -o bin/tinyschduler-server scheduler/main.go
 
 ci: default test
 	@echo "Checking formatting"

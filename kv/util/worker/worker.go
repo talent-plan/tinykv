@@ -2,34 +2,9 @@ package worker
 
 import "sync"
 
-type TaskType int64
+type TaskStop struct{}
 
-const (
-	TaskTypeStop       TaskType = 0
-	TaskTypeRaftLogGC  TaskType = 1
-	TaskTypeSplitCheck TaskType = 2
-
-	TaskTypePDAskSplit       TaskType = 102
-	TaskTypePDHeartbeat      TaskType = 103
-	TaskTypePDStoreHeartbeat TaskType = 104
-
-	TaskTypeRegionGen   TaskType = 401
-	TaskTypeRegionApply TaskType = 402
-	/// Destroy data between [start_key, end_key).
-	///
-	/// The deletion may and may not succeed.
-	TaskTypeRegionDestroy TaskType = 403
-
-	TaskTypeResolveAddr TaskType = 501
-
-	TaskTypeSnapSend TaskType = 601
-	TaskTypeSnapRecv TaskType = 602
-)
-
-type Task struct {
-	Tp   TaskType
-	Data interface{}
-}
+type Task interface{}
 
 type Worker struct {
 	name     string
@@ -56,7 +31,7 @@ func (w *Worker) Start(handler TaskHandler) {
 		}
 		for {
 			Task := <-w.receiver
-			if Task.Tp == TaskTypeStop {
+			if _, ok := Task.(TaskStop); ok {
 				return
 			}
 			handler.Handle(Task)
@@ -69,7 +44,7 @@ func (w *Worker) Sender() chan<- Task {
 }
 
 func (w *Worker) Stop() {
-	w.sender <- Task{Tp: TaskTypeStop}
+	w.sender <- TaskStop{}
 }
 
 const defaultWorkerCapacity = 128

@@ -18,7 +18,7 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 )
 
 // StoreCreateOption is used to create store.
@@ -113,7 +113,7 @@ func SetLastHeartbeatTS(lastHeartbeatTS time.Time) StoreCreateOption {
 }
 
 // SetStoreStats sets the statistics information for the store.
-func SetStoreStats(stats *pdpb.StoreStats) StoreCreateOption {
+func SetStoreStats(stats *schedulerpb.StoreStats) StoreCreateOption {
 	return func(store *StoreInfo) {
 		store.stats = stats
 	}

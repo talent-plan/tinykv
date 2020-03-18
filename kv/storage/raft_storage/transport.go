@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
-	"github.com/pingcap-incubator/tinykv/kv/worker"
+	"github.com/pingcap-incubator/tinykv/kv/util/worker"
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 )
@@ -59,12 +59,9 @@ func (t *ServerTransport) Resolve(storeID uint64, msg *raft_serverpb.RaftMessage
 		t.WriteData(storeID, addr, msg)
 		t.raftClient.Flush()
 	}
-	t.resolverScheduler <- worker.Task{
-		Tp: worker.TaskTypeResolveAddr,
-		Data: resolveAddrTask{
-			storeID:  storeID,
-			callback: callback,
-		},
+	t.resolverScheduler <- &resolveAddrTask{
+		storeID:  storeID,
+		callback: callback,
 	}
 }
 
@@ -86,15 +83,11 @@ func (t *ServerTransport) SendSnapshotSock(addr string, msg *raft_serverpb.RaftM
 		log.Debugf("send snapshot. toPeerID: %v, toStoreID: %v, regionID: %v, status: %v", toPeerID, toStoreID, regionID, err)
 	}
 
-	task := worker.Task{
-		Tp: worker.TaskTypeSnapSend,
-		Data: sendSnapTask{
-			addr:     addr,
-			msg:      msg,
-			callback: callback,
-		},
+	t.snapScheduler <- &sendSnapTask{
+		addr:     addr,
+		msg:      msg,
+		callback: callback,
 	}
-	t.snapScheduler <- task
 }
 
 func (t *ServerTransport) Flush() {

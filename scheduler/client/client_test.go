@@ -22,7 +22,7 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockid"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/testutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server"
@@ -80,30 +80,30 @@ var (
 )
 
 type testClientSuite struct {
-	cleanup         server.CleanupFunc
-	srv             *server.Server
-	client          Client
-	grpcPDClient    pdpb.PDClient
-	regionHeartbeat pdpb.PD_RegionHeartbeatClient
+	cleanup             server.CleanupFunc
+	srv                 *server.Server
+	client              Client
+	grpcSchedulerClient schedulerpb.SchedulerClient
+	regionHeartbeat     schedulerpb.Scheduler_RegionHeartbeatClient
 }
 
 func (s *testClientSuite) SetUpSuite(c *C) {
 	var err error
 	s.srv, s.cleanup, err = server.NewTestServer(c)
 	c.Assert(err, IsNil)
-	s.grpcPDClient = testutil.MustNewGrpcClient(c, s.srv.GetAddr())
+	s.grpcSchedulerClient = testutil.MustNewGrpcClient(c, s.srv.GetAddr())
 
 	mustWaitLeader(c, map[string]*server.Server{s.srv.GetAddr(): s.srv})
-	bootstrapServer(c, newHeader(s.srv), s.grpcPDClient)
+	bootstrapServer(c, newHeader(s.srv), s.grpcSchedulerClient)
 
 	s.client, err = NewClient(s.srv.GetEndpoints(), SecurityOption{})
 	c.Assert(err, IsNil)
-	s.regionHeartbeat, err = s.grpcPDClient.RegionHeartbeat(context.Background())
+	s.regionHeartbeat, err = s.grpcSchedulerClient.RegionHeartbeat(context.Background())
 	c.Assert(err, IsNil)
 	cluster := s.srv.GetRaftCluster()
 	c.Assert(cluster, NotNil)
 	for _, store := range stores {
-		s.srv.PutStore(context.Background(), &pdpb.PutStoreRequest{Header: newHeader(s.srv), Store: store})
+		s.srv.PutStore(context.Background(), &schedulerpb.PutStoreRequest{Header: newHeader(s.srv), Store: store})
 	}
 }
 
@@ -125,14 +125,14 @@ func mustWaitLeader(c *C, svrs map[string]*server.Server) *server.Server {
 	return nil
 }
 
-func newHeader(srv *server.Server) *pdpb.RequestHeader {
-	return &pdpb.RequestHeader{
+func newHeader(srv *server.Server) *schedulerpb.RequestHeader {
+	return &schedulerpb.RequestHeader{
 		ClusterId: srv.ClusterID(),
 	}
 }
 
-func bootstrapServer(c *C, header *pdpb.RequestHeader, client pdpb.PDClient) {
-	req := &pdpb.BootstrapRequest{
+func bootstrapServer(c *C, header *schedulerpb.RequestHeader, client schedulerpb.SchedulerClient) {
+	req := &schedulerpb.BootstrapRequest{
 		Header: header,
 		Store:  stores[0],
 	}
@@ -184,7 +184,7 @@ func (s *testClientSuite) TestGetRegion(c *C) {
 		},
 		Peers: peers,
 	}
-	req := &pdpb.RegionHeartbeatRequest{
+	req := &schedulerpb.RegionHeartbeatRequest{
 		Header: newHeader(s.srv),
 		Region: region,
 		Leader: peers[0],
@@ -217,7 +217,7 @@ func (s *testClientSuite) TestGetPrevRegion(c *C) {
 			Peers:    peers,
 		}
 		regions = append(regions, r)
-		req := &pdpb.RegionHeartbeatRequest{
+		req := &schedulerpb.RegionHeartbeatRequest{
 			Header: newHeader(s.srv),
 			Region: r,
 			Leader: peers[0],
@@ -256,7 +256,7 @@ func (s *testClientSuite) TestScanRegions(c *C) {
 			Peers:    peers,
 		}
 		regions = append(regions, r)
-		req := &pdpb.RegionHeartbeatRequest{
+		req := &schedulerpb.RegionHeartbeatRequest{
 			Header: newHeader(s.srv),
 			Region: r,
 			Leader: peers[0],
@@ -310,7 +310,7 @@ func (s *testClientSuite) TestGetRegionByID(c *C) {
 		},
 		Peers: peers,
 	}
-	req := &pdpb.RegionHeartbeatRequest{
+	req := &schedulerpb.RegionHeartbeatRequest{
 		Header: newHeader(s.srv),
 		Region: region,
 		Leader: peers[0],
@@ -396,7 +396,7 @@ func (s *testClientSuite) TestGetStore(c *C) {
 }
 
 func (s *testClientSuite) checkGCSafePoint(c *C, expectedSafePoint uint64) {
-	req := &pdpb.GetGCSafePointRequest{
+	req := &schedulerpb.GetGCSafePointRequest{
 		Header: newHeader(s.srv),
 	}
 	resp, err := s.srv.GetGCSafePoint(context.Background(), req)

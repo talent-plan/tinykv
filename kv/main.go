@@ -22,15 +22,15 @@ import (
 )
 
 var (
-	pdAddr    = flag.String("pd", "", "pd address")
-	storeAddr = flag.String("addr", "", "store address")
+	schedulerAddr = flag.String("scheduler", "", "scheduler address")
+	storeAddr     = flag.String("addr", "", "store address")
 )
 
 func main() {
 	flag.Parse()
 	conf := config.NewDefaultConfig()
-	if *pdAddr != "" {
-		conf.PDAddr = *pdAddr
+	if *schedulerAddr != "" {
+		conf.SchedulerAddr = *schedulerAddr
 	}
 	if *storeAddr != "" {
 		conf.StoreAddr = *storeAddr

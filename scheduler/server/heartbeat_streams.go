@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/logutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap/log"
@@ -29,7 +29,7 @@ import (
 const heartbeatStreamKeepAliveInterval = time.Minute
 
 type heartbeatStream interface {
-	Send(*pdpb.RegionHeartbeatResponse) error
+	Send(*schedulerpb.RegionHeartbeatResponse) error
 }
 
 type streamUpdate struct {
@@ -43,7 +43,7 @@ type heartbeatStreams struct {
 	hbStreamCancel context.CancelFunc
 	clusterID      uint64
 	streams        map[uint64]heartbeatStream
-	msgCh          chan *pdpb.RegionHeartbeatResponse
+	msgCh          chan *schedulerpb.RegionHeartbeatResponse
 	streamCh       chan streamUpdate
 	cluster        *RaftCluster
 }
@@ -55,7 +55,7 @@ func newHeartbeatStreams(ctx context.Context, clusterID uint64, cluster *RaftClu
 		hbStreamCancel: hbStreamCancel,
 		clusterID:      clusterID,
 		streams:        make(map[uint64]heartbeatStream),
-		msgCh:          make(chan *pdpb.RegionHeartbeatResponse, regionheartbeatSendChanCap),
+		msgCh:          make(chan *schedulerpb.RegionHeartbeatResponse, regionheartbeatSendChanCap),
 		streamCh:       make(chan streamUpdate, 1),
 		cluster:        cluster,
 	}
@@ -72,7 +72,7 @@ func (s *heartbeatStreams) run() {
 	keepAliveTicker := time.NewTicker(heartbeatStreamKeepAliveInterval)
 	defer keepAliveTicker.Stop()
 
-	keepAlive := &pdpb.RegionHeartbeatResponse{Header: &pdpb.ResponseHeader{ClusterId: s.clusterID}}
+	keepAlive := &schedulerpb.RegionHeartbeatResponse{Header: &schedulerpb.ResponseHeader{ClusterId: s.clusterID}}
 
 	for {
 		select {
@@ -136,12 +136,12 @@ func (s *heartbeatStreams) bindStream(storeID uint64, stream heartbeatStream) {
 	}
 }
 
-func (s *heartbeatStreams) SendMsg(region *core.RegionInfo, msg *pdpb.RegionHeartbeatResponse) {
+func (s *heartbeatStreams) SendMsg(region *core.RegionInfo, msg *schedulerpb.RegionHeartbeatResponse) {
 	if region.GetLeader() == nil {
 		return
 	}
 
-	msg.Header = &pdpb.ResponseHeader{ClusterId: s.clusterID}
+	msg.Header = &schedulerpb.ResponseHeader{ClusterId: s.clusterID}
 	msg.RegionId = region.GetID()
 	msg.RegionEpoch = region.GetRegionEpoch()
 	msg.TargetPeer = region.GetLeader()
@@ -152,11 +152,11 @@ func (s *heartbeatStreams) SendMsg(region *core.RegionInfo, msg *pdpb.RegionHear
 	}
 }
 
-func (s *heartbeatStreams) sendErr(errType pdpb.ErrorType, errMsg string, targetPeer *metapb.Peer) {
-	msg := &pdpb.RegionHeartbeatResponse{
-		Header: &pdpb.ResponseHeader{
+func (s *heartbeatStreams) sendErr(errType schedulerpb.ErrorType, errMsg string, targetPeer *metapb.Peer) {
+	msg := &schedulerpb.RegionHeartbeatResponse{
+		Header: &schedulerpb.ResponseHeader{
 			ClusterId: s.clusterID,
-			Error: &pdpb.Error{
+			Error: &schedulerpb.Error{
 				Type:    errType,
 				Message: errMsg,
 			},

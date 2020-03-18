@@ -19,7 +19,7 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockid"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockoption"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
@@ -124,7 +124,7 @@ func (mc *Cluster) SetStoreOffline(storeID uint64) {
 // SetStoreBusy sets store busy.
 func (mc *Cluster) SetStoreBusy(storeID uint64, busy bool) {
 	store := mc.GetStore(storeID)
-	newStats := proto.Clone(store.GetStoreStats()).(*pdpb.StoreStats)
+	newStats := proto.Clone(store.GetStoreStats()).(*schedulerpb.StoreStats)
 	newStats.IsBusy = busy
 	newStore := store.Clone(
 		core.SetStoreStats(newStats),
@@ -135,7 +135,7 @@ func (mc *Cluster) SetStoreBusy(storeID uint64, busy bool) {
 
 // AddLeaderStore adds store with specified count of leader.
 func (mc *Cluster) AddLeaderStore(storeID uint64, leaderCount int, leaderSizes ...int64) {
-	stats := &pdpb.StoreStats{}
+	stats := &schedulerpb.StoreStats{}
 	stats.Capacity = 1000 * (1 << 20)
 	stats.Available = stats.Capacity - uint64(leaderCount)*10
 	var leaderSize int64
@@ -157,7 +157,7 @@ func (mc *Cluster) AddLeaderStore(storeID uint64, leaderCount int, leaderSizes .
 
 // AddRegionStore adds store with specified count of region.
 func (mc *Cluster) AddRegionStore(storeID uint64, regionCount int) {
-	stats := &pdpb.StoreStats{}
+	stats := &schedulerpb.StoreStats{}
 	stats.Capacity = 1000 * (1 << 20)
 	stats.Available = stats.Capacity - uint64(regionCount)*10
 	store := core.NewStoreInfo(
@@ -173,7 +173,7 @@ func (mc *Cluster) AddRegionStore(storeID uint64, regionCount int) {
 // AddLeaderRegion adds region with specified leader and followers.
 func (mc *Cluster) AddLeaderRegion(regionID uint64, leaderID uint64, followerIds ...uint64) {
 	origin := mc.newMockRegionInfo(regionID, leaderID, followerIds...)
-	region := origin.Clone(core.SetApproximateSize(10), core.SetApproximateKeys(10))
+	region := origin.Clone(core.SetApproximateSize(10))
 	mc.PutRegion(region)
 }
 
@@ -204,7 +204,7 @@ func (mc *Cluster) UpdateStoreRegionWeight(storeID uint64, weight float64) {
 // UpdateStoreLeaderSize updates store leader size.
 func (mc *Cluster) UpdateStoreLeaderSize(storeID uint64, size int64) {
 	store := mc.GetStore(storeID)
-	newStats := proto.Clone(store.GetStoreStats()).(*pdpb.StoreStats)
+	newStats := proto.Clone(store.GetStoreStats()).(*schedulerpb.StoreStats)
 	newStats.Available = newStats.Capacity - uint64(store.GetLeaderSize())
 	newStore := store.Clone(
 		core.SetStoreStats(newStats),
@@ -216,7 +216,7 @@ func (mc *Cluster) UpdateStoreLeaderSize(storeID uint64, size int64) {
 // UpdateStoreRegionSize updates store region size.
 func (mc *Cluster) UpdateStoreRegionSize(storeID uint64, size int64) {
 	store := mc.GetStore(storeID)
-	newStats := proto.Clone(store.GetStoreStats()).(*pdpb.StoreStats)
+	newStats := proto.Clone(store.GetStoreStats()).(*schedulerpb.StoreStats)
 	newStats.Available = newStats.Capacity - uint64(store.GetRegionSize())
 	newStore := store.Clone(
 		core.SetStoreStats(newStats),
@@ -248,7 +248,7 @@ func (mc *Cluster) UpdateRegionCount(storeID uint64, regionCount int) {
 // UpdateSnapshotCount updates store snapshot count.
 func (mc *Cluster) UpdateSnapshotCount(storeID uint64, snapshotCount int) {
 	store := mc.GetStore(storeID)
-	newStats := proto.Clone(store.GetStoreStats()).(*pdpb.StoreStats)
+	newStats := proto.Clone(store.GetStoreStats()).(*schedulerpb.StoreStats)
 	newStats.ApplyingSnapCount = uint32(snapshotCount)
 	newStore := store.Clone(core.SetStoreStats(newStats))
 	mc.PutStore(newStore)
@@ -264,7 +264,7 @@ func (mc *Cluster) UpdatePendingPeerCount(storeID uint64, pendingPeerCount int) 
 // UpdateStorageRatio updates store storage ratio count.
 func (mc *Cluster) UpdateStorageRatio(storeID uint64, usedRatio, availableRatio float64) {
 	store := mc.GetStore(storeID)
-	newStats := proto.Clone(store.GetStoreStats()).(*pdpb.StoreStats)
+	newStats := proto.Clone(store.GetStoreStats()).(*schedulerpb.StoreStats)
 	newStats.Capacity = 1000 * (1 << 20)
 	newStats.UsedSize = uint64(float64(newStats.Capacity) * usedRatio)
 	newStats.Available = uint64(float64(newStats.Capacity) * availableRatio)
@@ -280,7 +280,7 @@ func (mc *Cluster) UpdateStoreStatus(id uint64) {
 	leaderSize := mc.Regions.GetStoreLeaderRegionSize(id)
 	regionSize := mc.Regions.GetStoreRegionSize(id)
 	store := mc.Stores.GetStore(id)
-	stats := &pdpb.StoreStats{}
+	stats := &schedulerpb.StoreStats{}
 	stats.Capacity = 1000 * (1 << 20)
 	stats.Available = stats.Capacity - uint64(store.GetRegionSize())
 	stats.UsedSize = uint64(store.GetRegionSize())

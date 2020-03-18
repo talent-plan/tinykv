@@ -6,35 +6,35 @@ import (
 
 	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/meta"
+	"github.com/pingcap-incubator/tinykv/kv/raftstore/scheduler_client"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap/errors"
 )
 
 type Node struct {
-	clusterID uint64
-	store     *metapb.Store
-	cfg       *config.Config
-	system    *RaftBatchSystem
-	pdClient  pd.Client
+	clusterID       uint64
+	store           *metapb.Store
+	cfg             *config.Config
+	system          *RaftBatchSystem
+	schedulerClient scheduler_client.Client
 }
 
-func NewNode(system *RaftBatchSystem, cfg *config.Config, pdClient pd.Client) *Node {
+func NewNode(system *RaftBatchSystem, cfg *config.Config, schedulerClient scheduler_client.Client) *Node {
 	return &Node{
-		clusterID: pdClient.GetClusterID((context.TODO())),
+		clusterID: schedulerClient.GetClusterID((context.TODO())),
 		store: &metapb.Store{
 			Address: cfg.StoreAddr,
 		},
-		cfg:      cfg,
-		system:   system,
-		pdClient: pdClient,
+		cfg:             cfg,
+		system:          system,
+		schedulerClient: schedulerClient,
 	}
 }
 
@@ -64,7 +64,7 @@ func (n *Node) Start(ctx context.Context, engines *engine_util.Engines, trans Tr
 		}
 	}
 
-	err = n.pdClient.PutStore(ctx, n.store)
+	err = n.schedulerClient.PutStore(ctx, n.store)
 	if err != nil {
 		return err
 	}
@@ -105,7 +105,7 @@ func (n *Node) bootstrapStore(ctx context.Context, engines *engine_util.Engines)
 }
 
 func (n *Node) allocID(ctx context.Context) (uint64, error) {
-	return n.pdClient.AllocID(ctx)
+	return n.schedulerClient.AllocID(ctx)
 }
 
 func (n *Node) checkOrPrepareBootstrapCluster(ctx context.Context, engines *engine_util.Engines, storeID uint64) (*metapb.Region, error) {
@@ -130,7 +130,7 @@ const (
 
 func (n *Node) checkClusterBootstrapped(ctx context.Context) (bool, error) {
 	for i := 0; i < MaxCheckClusterBootstrappedRetryCount; i++ {
-		bootstrapped, err := n.pdClient.IsBootstrapped(ctx)
+		bootstrapped, err := n.schedulerClient.IsBootstrapped(ctx)
 		if err == nil {
 			return bootstrapped, nil
 		}
@@ -162,7 +162,7 @@ func (n *Node) BootstrapCluster(ctx context.Context, engines *engine_util.Engine
 			time.Sleep(time.Second)
 		}
 
-		res, err := n.pdClient.Bootstrap(ctx, n.store)
+		res, err := n.schedulerClient.Bootstrap(ctx, n.store)
 		if err != nil {
 			log.Errorf("bootstrap cluster failed, clusterID: %d, err: %v", n.clusterID, err)
 			continue
@@ -172,8 +172,8 @@ func (n *Node) BootstrapCluster(ctx context.Context, engines *engine_util.Engine
 			log.Infof("bootstrap cluster ok, clusterID: %d", n.clusterID)
 			return true, ClearPrepareBootstrapState(engines)
 		}
-		if resErr.GetType() == pdpb.ErrorType_ALREADY_BOOTSTRAPPED {
-			region, _, err := n.pdClient.GetRegion(ctx, []byte{})
+		if resErr.GetType() == schedulerpb.ErrorType_ALREADY_BOOTSTRAPPED {
+			region, _, err := n.schedulerClient.GetRegion(ctx, []byte{})
 			if err != nil {
 				log.Errorf("get first region failed, err: %v", err)
 				continue
@@ -191,7 +191,7 @@ func (n *Node) BootstrapCluster(ctx context.Context, engines *engine_util.Engine
 
 func (n *Node) startNode(engines *engine_util.Engines, trans Transport, snapMgr *snap.SnapManager) error {
 	log.Infof("start raft store node, storeID: %d", n.store.GetId())
-	return n.system.start(n.store, n.cfg, engines, trans, n.pdClient, snapMgr)
+	return n.system.start(n.store, n.cfg, engines, trans, n.schedulerClient, snapMgr)
 }
 
 func (n *Node) stopNode(storeID uint64) {

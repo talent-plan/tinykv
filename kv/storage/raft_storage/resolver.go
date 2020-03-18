@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/pingcap-incubator/tinykv/kv/worker"
+	"github.com/pingcap-incubator/tinykv/kv/util/worker"
 
-	"github.com/pingcap-incubator/tinykv/kv/pd"
+	"github.com/pingcap-incubator/tinykv/kv/raftstore/scheduler_client"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap/errors"
 )
@@ -14,7 +14,7 @@ import (
 // Handle will resolve t's storeID into the address of the TinyKV node which should handle t. t's callback is then
 // called with that address.
 func (r *resolverRunner) Handle(t worker.Task) {
-	data := t.Data.(resolveAddrTask)
+	data := t.(*resolveAddrTask)
 	data.callback(r.getAddr(data.storeID))
 }
 
@@ -26,8 +26,8 @@ type storeAddr struct {
 }
 
 type resolverRunner struct {
-	pdClient   pd.Client
-	storeAddrs map[uint64]storeAddr
+	schedulerClient scheduler_client.Client
+	storeAddrs      map[uint64]storeAddr
 }
 
 type resolveAddrTask struct {
@@ -35,10 +35,10 @@ type resolveAddrTask struct {
 	callback func(addr string, err error)
 }
 
-func newResolverRunner(pdClient pd.Client) *resolverRunner {
+func newResolverRunner(schedulerClient scheduler_client.Client) *resolverRunner {
 	return &resolverRunner{
-		pdClient:   pdClient,
-		storeAddrs: make(map[uint64]storeAddr),
+		schedulerClient: schedulerClient,
+		storeAddrs:      make(map[uint64]storeAddr),
 	}
 }
 
@@ -48,7 +48,7 @@ func (r *resolverRunner) getAddr(id uint64) (string, error) {
 			return sa.addr, nil
 		}
 	}
-	store, err := r.pdClient.GetStore(context.TODO(), id)
+	store, err := r.schedulerClient.GetStore(context.TODO(), id)
 	if err != nil {
 		return "", err
 	}

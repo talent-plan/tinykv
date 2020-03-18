@@ -11,7 +11,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/runner"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
-	"github.com/pingcap-incubator/tinykv/kv/worker"
+	"github.com/pingcap-incubator/tinykv/kv/util/worker"
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -381,7 +381,7 @@ func (p *peer) HandleRaftReady(msgs []message.Msg, pdScheduler chan<- worker.Tas
 	}
 	ss := ready.SoftState
 	if ss != nil && ss.RaftState == raft.StateLeader {
-		p.HeartbeatPd(pdScheduler)
+		p.HeartbeatScheduler(pdScheduler)
 	}
 
 	applySnapResult, err := p.peerStorage.SaveReadyState(&ready)
@@ -436,15 +436,12 @@ func (p *peer) Term() uint64 {
 	return p.RaftGroup.Raft.Term
 }
 
-func (p *peer) HeartbeatPd(pdScheduler chan<- worker.Task) {
-	pdScheduler <- worker.Task{
-		Tp: worker.TaskTypePDHeartbeat,
-		Data: &runner.PdRegionHeartbeatTask{
-			Region:          p.Region(),
-			Peer:            p.Meta,
-			PendingPeers:    p.CollectPendingPeers(),
-			ApproximateSize: p.ApproximateSize,
-		},
+func (p *peer) HeartbeatScheduler(ch chan<- worker.Task) {
+	ch <- &runner.SchedulerRegionHeartbeatTask{
+		Region:          p.Region(),
+		Peer:            p.Meta,
+		PendingPeers:    p.CollectPendingPeers(),
+		ApproximateSize: p.ApproximateSize,
 	}
 }
 
