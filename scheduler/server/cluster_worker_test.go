@@ -15,7 +15,7 @@ package server
 
 import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/testutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	. "github.com/pingcap/check"
@@ -31,9 +31,9 @@ func (s *testClusterWorkerSuite) TestReportSplit(c *C) {
 	var cluster RaftCluster
 	left := &metapb.Region{Id: 1, StartKey: []byte("a"), EndKey: []byte("b")}
 	right := &metapb.Region{Id: 2, StartKey: []byte("b"), EndKey: []byte("c")}
-	_, err := cluster.handleReportSplit(&pdpb.ReportSplitRequest{Left: left, Right: right})
+	_, err := cluster.handleReportSplit(&schedulerpb.ReportSplitRequest{Left: left, Right: right})
 	c.Assert(err, IsNil)
-	_, err = cluster.handleReportSplit(&pdpb.ReportSplitRequest{Left: right, Right: left})
+	_, err = cluster.handleReportSplit(&schedulerpb.ReportSplitRequest{Left: right, Right: left})
 	c.Assert(err, NotNil)
 }
 
@@ -44,7 +44,7 @@ func (s *testClusterWorkerSuite) TestValidRequestRegion(c *C) {
 	defer cleanup()
 	c.Assert(err, IsNil)
 	mustWaitLeader(c, []*Server{s.svr})
-	s.grpcPDClient = testutil.MustNewGrpcClient(c, s.svr.GetAddr())
+	s.grpcSchedulerClient = testutil.MustNewGrpcClient(c, s.svr.GetAddr())
 	_, err = s.svr.bootstrapCluster(s.newBootstrapRequest(c, s.svr.clusterID, "127.0.0.1:0"))
 	c.Assert(err, IsNil)
 
@@ -84,7 +84,7 @@ func (s *testClusterWorkerSuite) TestAskSplit(c *C) {
 	defer cleanup()
 	c.Assert(err, IsNil)
 	mustWaitLeader(c, []*Server{s.svr})
-	s.grpcPDClient = testutil.MustNewGrpcClient(c, s.svr.GetAddr())
+	s.grpcSchedulerClient = testutil.MustNewGrpcClient(c, s.svr.GetAddr())
 	bootstrapRequest := s.newBootstrapRequest(c, s.svr.clusterID, "127.0.0.1:0")
 	_, err = s.svr.bootstrapCluster(bootstrapRequest)
 	c.Assert(err, IsNil)
@@ -99,8 +99,8 @@ func (s *testClusterWorkerSuite) TestAskSplit(c *C) {
 	c.Assert(cluster, NotNil)
 	regions := cluster.GetRegions()
 
-	req := &pdpb.AskSplitRequest{
-		Header: &pdpb.RequestHeader{
+	req := &schedulerpb.AskSplitRequest{
+		Header: &schedulerpb.RequestHeader{
 			ClusterId: s.svr.ClusterID(),
 		},
 		Region: regions[0].GetMeta(),
@@ -109,8 +109,8 @@ func (s *testClusterWorkerSuite) TestAskSplit(c *C) {
 	_, err = cluster.handleAskSplit(req)
 	c.Assert(err, IsNil)
 
-	req1 := &pdpb.AskSplitRequest{
-		Header: &pdpb.RequestHeader{
+	req1 := &schedulerpb.AskSplitRequest{
+		Header: &schedulerpb.RequestHeader{
 			ClusterId: s.svr.ClusterID(),
 		},
 		Region: regions[0].GetMeta(),

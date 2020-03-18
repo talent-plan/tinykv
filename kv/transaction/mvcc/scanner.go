@@ -36,7 +36,7 @@ func (scan *Scanner) Next() ([]byte, []byte, interface{}) {
 		userKey := DecodeUserKey(item.Key())
 		commitTs := decodeTimestamp(item.Key())
 
-		if commitTs >= *scan.txn.StartTS {
+		if commitTs >= scan.txn.StartTS {
 			// The key was not committed before our transaction started, find an earlier key.
 			scan.writeIter.Seek(EncodeKey(userKey, commitTs-1))
 			continue
@@ -46,7 +46,7 @@ func (scan *Scanner) Next() ([]byte, []byte, interface{}) {
 		if err != nil {
 			return nil, nil, err
 		}
-		if lock != nil && lock.Ts < *scan.txn.StartTS {
+		if lock != nil && lock.Ts < scan.txn.StartTS {
 			// The key is currently locked.
 			keyError := new(kvrpcpb.KeyError)
 			keyError.Locked = lock.Info(userKey)
@@ -67,7 +67,7 @@ func (scan *Scanner) Next() ([]byte, []byte, interface{}) {
 			continue
 		}
 
-		value, err := scan.txn.GetValue(userKey, write.StartTS)
+		value, err := scan.txn.getValue(userKey, write.StartTS)
 		if err != nil {
 			return nil, nil, err
 		}

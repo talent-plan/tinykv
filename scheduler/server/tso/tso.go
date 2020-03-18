@@ -19,7 +19,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/etcdutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/tsoutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/typeutil"
@@ -231,8 +231,8 @@ func (t *TimestampOracle) ResetTimestamp() {
 const maxRetryCount = 100
 
 // GetRespTS is used to get a timestamp.
-func (t *TimestampOracle) GetRespTS(count uint32) (pdpb.Timestamp, error) {
-	var resp pdpb.Timestamp
+func (t *TimestampOracle) GetRespTS(count uint32) (schedulerpb.Timestamp, error) {
+	var resp schedulerpb.Timestamp
 
 	if count == 0 {
 		return resp, errors.New("tso count should be positive")
@@ -256,7 +256,7 @@ func (t *TimestampOracle) GetRespTS(count uint32) (pdpb.Timestamp, error) {
 			continue
 		}
 		if t.lease == nil || t.lease.IsExpired() {
-			return pdpb.Timestamp{}, errors.New("alloc timestamp failed, lease expired")
+			return schedulerpb.Timestamp{}, errors.New("alloc timestamp failed, lease expired")
 		}
 		return resp, nil
 	}

@@ -20,7 +20,7 @@ import (
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockhbstream"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockid"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/testutil"
@@ -74,7 +74,7 @@ func (c *testCluster) addRegionStore(storeID uint64, regionCount int, regionSize
 		regionSize = regionSizes[0]
 	}
 
-	stats := &pdpb.StoreStats{}
+	stats := &schedulerpb.StoreStats{}
 	stats.Capacity = 1000 * (1 << 20)
 	stats.Available = stats.Capacity - regionSize
 	newStore := core.NewStoreInfo(&metapb.Store{Id: storeID},
@@ -96,7 +96,7 @@ func (c *testCluster) addLeaderRegion(regionID uint64, leaderStoreID uint64, fol
 		peer, _ := c.AllocPeer(followerStoreID)
 		region.Peers = append(region.Peers, peer)
 	}
-	regionInfo := core.NewRegionInfo(region, leader, core.SetApproximateSize(10), core.SetApproximateKeys(10))
+	regionInfo := core.NewRegionInfo(region, leader, core.SetApproximateSize(10))
 	return c.putRegion(regionInfo)
 }
 
@@ -112,7 +112,7 @@ func (c *testCluster) updateLeaderCount(storeID uint64, leaderCount int) error {
 }
 
 func (c *testCluster) addLeaderStore(storeID uint64, leaderCount int) error {
-	stats := &pdpb.StoreStats{}
+	stats := &schedulerpb.StoreStats{}
 	newStore := core.NewStoreInfo(&metapb.Store{Id: storeID},
 		core.SetStoreStats(stats),
 		core.SetLeaderCount(leaderCount),
@@ -729,7 +729,7 @@ func (s *testScheduleControllerSuite) TestInterval(c *C) {
 }
 
 func waitAddPeer(c *C, stream mockhbstream.HeartbeatStream, region *core.RegionInfo, storeID uint64) *core.RegionInfo {
-	var res *pdpb.RegionHeartbeatResponse
+	var res *schedulerpb.RegionHeartbeatResponse
 	testutil.WaitUntil(c, func(c *C) bool {
 		if res = stream.Recv(); res != nil {
 			return res.GetRegionId() == region.GetID() &&
@@ -745,7 +745,7 @@ func waitAddPeer(c *C, stream mockhbstream.HeartbeatStream, region *core.RegionI
 }
 
 func waitRemovePeer(c *C, stream mockhbstream.HeartbeatStream, region *core.RegionInfo, storeID uint64) *core.RegionInfo {
-	var res *pdpb.RegionHeartbeatResponse
+	var res *schedulerpb.RegionHeartbeatResponse
 	testutil.WaitUntil(c, func(c *C) bool {
 		if res = stream.Recv(); res != nil {
 			return res.GetRegionId() == region.GetID() &&
@@ -761,7 +761,7 @@ func waitRemovePeer(c *C, stream mockhbstream.HeartbeatStream, region *core.Regi
 }
 
 func waitTransferLeader(c *C, stream mockhbstream.HeartbeatStream, region *core.RegionInfo, storeID uint64) *core.RegionInfo {
-	var res *pdpb.RegionHeartbeatResponse
+	var res *schedulerpb.RegionHeartbeatResponse
 	testutil.WaitUntil(c, func(c *C) bool {
 		if res = stream.Recv(); res != nil {
 			return res.GetRegionId() == region.GetID() && res.GetTransferLeader().GetPeer().GetStoreId() == storeID

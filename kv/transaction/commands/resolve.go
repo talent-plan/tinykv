@@ -15,6 +15,7 @@ func NewResolveLock(request *kvrpcpb.ResolveLockRequest) ResolveLock {
 	return ResolveLock{
 		CommandBase: CommandBase{
 			context: request.Context,
+			startTs: request.StartVersion,
 		},
 		request: request,
 	}
@@ -23,7 +24,6 @@ func NewResolveLock(request *kvrpcpb.ResolveLockRequest) ResolveLock {
 func (rl *ResolveLock) PrepareWrites(txn *mvcc.MvccTxn) (interface{}, error) {
 	// A map from start timestamps to commit timestamps which tells us whether a transaction (identified by start ts)
 	// has been committed (and if so, then its commit ts) or rolled back (in which case the commit ts is 0).
-	txn.StartTS = &rl.request.StartVersion
 	commitTs := rl.request.CommitVersion
 	response := new(kvrpcpb.ResolveLockResponse)
 
@@ -50,7 +50,7 @@ func (rl *ResolveLock) WillWrite() [][]byte {
 
 func (rl *ResolveLock) Read(txn *mvcc.RoTxn) (interface{}, [][]byte, error) {
 	// Find all locks where the lock's transaction (start ts) is in txnStatus.
-	txn.StartTS = &rl.request.StartVersion
+	txn.StartTS = rl.request.StartVersion
 	keyLocks, err := mvcc.AllLocksForTxn(txn)
 	if err != nil {
 		return nil, nil, err

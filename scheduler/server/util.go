@@ -20,7 +20,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/etcdutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/typeutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/config"
@@ -120,15 +120,15 @@ func initOrGetClusterID(c *clientv3.Client, key string) (uint64, error) {
 }
 
 // GetMembers return a slice of Members.
-func GetMembers(etcdClient *clientv3.Client) ([]*pdpb.Member, error) {
+func GetMembers(etcdClient *clientv3.Client) ([]*schedulerpb.Member, error) {
 	listResp, err := etcdutil.ListEtcdMembers(etcdClient)
 	if err != nil {
 		return nil, err
 	}
 
-	members := make([]*pdpb.Member, 0, len(listResp.Members))
+	members := make([]*schedulerpb.Member, 0, len(listResp.Members))
 	for _, m := range listResp.Members {
-		info := &pdpb.Member{
+		info := &schedulerpb.Member{
 			Name:       m.Name,
 			MemberId:   m.ID,
 			ClientUrls: m.ClientURLs,

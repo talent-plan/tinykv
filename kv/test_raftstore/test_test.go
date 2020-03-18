@@ -21,7 +21,7 @@ import (
 )
 
 // a client runs the function f and then signals it is done
-func run_client(t *testing.T, me int, ca chan bool, fn func(me int, t *testing.T)) {
+func runClient(t *testing.T, me int, ca chan bool, fn func(me int, t *testing.T)) {
 	ok := false
 	defer func() { ca <- ok }()
 	fn(me, t)
@@ -29,17 +29,17 @@ func run_client(t *testing.T, me int, ca chan bool, fn func(me int, t *testing.T
 }
 
 // spawn ncli clients and wait until they are all done
-func spawn_clients_and_wait(t *testing.T, ch chan bool, ncli int, fn func(me int, t *testing.T)) {
+func SpawnClientsAndWait(t *testing.T, ch chan bool, ncli int, fn func(me int, t *testing.T)) {
 	defer func() { ch <- true }()
 	ca := make([]chan bool, ncli)
 	for cli := 0; cli < ncli; cli++ {
 		ca[cli] = make(chan bool)
-		go run_client(t, cli, ca[cli], fn)
+		go runClient(t, cli, ca[cli], fn)
 	}
-	// log.Printf("spawn_clients_and_wait: waiting for clients")
+	// log.Printf("SpawnClientsAndWait: waiting for clients")
 	for cli := 0; cli < ncli; cli++ {
 		ok := <-ca[cli]
-		// log.Infof("spawn_clients_and_wait: client %d is done\n", cli)
+		// log.Infof("SpawnClientsAndWait: client %d is done\n", cli)
 		if ok == false {
 			t.Fatalf("failure")
 		}
@@ -206,7 +206,7 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 		// log.Printf("Iteration %v\n", i)
 		atomic.StoreInt32(&done_clients, 0)
 		atomic.StoreInt32(&done_partitioner, 0)
-		go spawn_clients_and_wait(t, ch_clients, nclients, func(cli int, t *testing.T) {
+		go SpawnClientsAndWait(t, ch_clients, nclients, func(cli int, t *testing.T) {
 			j := 0
 			defer func() {
 				clnts[cli] <- j
@@ -526,6 +526,20 @@ func TestSnapshotUnreliableRecover2C(t *testing.T) {
 func TestSnapshotUnreliableRecoverConcurrentPartition2C(t *testing.T) {
 	// Test: unreliable net, restarts, partitions, snapshots, many clients (2C) ...
 	GenericTest(t, "2C", 5, true, true, true, 100, false, false)
+}
+
+func TestTransferLeader3B(t *testing.T) {
+	cfg := config.NewTestConfig()
+	cluster := NewTestCluster(5, cfg)
+	cluster.Start()
+	defer cluster.Shutdown()
+
+	regionID := cluster.GetRegion([]byte("")).GetId()
+	cluster.MustTransferLeader(regionID, NewPeer(1, 1))
+	cluster.MustTransferLeader(regionID, NewPeer(2, 2))
+	cluster.MustTransferLeader(regionID, NewPeer(3, 3))
+	cluster.MustTransferLeader(regionID, NewPeer(4, 4))
+	cluster.MustTransferLeader(regionID, NewPeer(5, 5))
 }
 
 func TestBasicConfChange3B(t *testing.T) {

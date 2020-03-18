@@ -66,7 +66,6 @@ func (s *testRegionMapSuite) regionInfo(id uint64) *RegionInfo {
 			Id: id,
 		},
 		approximateSize: int64(id),
-		approximateKeys: int64(id),
 	}
 }
 

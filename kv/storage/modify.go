@@ -1,12 +1,9 @@
 package storage
 
-// ModifyType is the smallest unit of mutation of TinyKV's underlying storage (i.e., raw key/values on disk(s))
-type ModifyType int64
-
-const (
-	ModifyTypePut    ModifyType = 1
-	ModifyTypeDelete ModifyType = 2
-)
+// Modify is a single modification to TinyKV's underlying storage.
+type Modify struct {
+	Data interface{}
+}
 
 type Put struct {
 	Key   []byte
@@ -19,26 +16,21 @@ type Delete struct {
 	Cf  string
 }
 
-type Modify struct {
-	Type ModifyType
-	Data interface{}
-}
-
 func (m *Modify) Key() []byte {
-	switch m.Type {
-	case ModifyTypePut:
+	switch m.Data.(type) {
+	case Put:
 		return m.Data.(Put).Key
-	case ModifyTypeDelete:
+	case Delete:
 		return m.Data.(Delete).Key
 	}
 	return nil
 }
 
 func (m *Modify) Cf() string {
-	switch m.Type {
-	case ModifyTypePut:
+	switch m.Data.(type) {
+	case Put:
 		return m.Data.(Put).Cf
-	case ModifyTypeDelete:
+	case Delete:
 		return m.Data.(Delete).Cf
 	}
 	return ""

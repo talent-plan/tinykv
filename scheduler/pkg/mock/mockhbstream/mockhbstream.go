@@ -18,24 +18,24 @@ import (
 	"errors"
 	"time"
 
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 )
 
 // HeartbeatStream is used to mock HeartbeatStream for test use.
 type HeartbeatStream struct {
-	ch chan *pdpb.RegionHeartbeatResponse
+	ch chan *schedulerpb.RegionHeartbeatResponse
 }
 
 // NewHeartbeatStream creates a new HeartbeatStream.
 func NewHeartbeatStream() HeartbeatStream {
 	return HeartbeatStream{
-		ch: make(chan *pdpb.RegionHeartbeatResponse),
+		ch: make(chan *schedulerpb.RegionHeartbeatResponse),
 	}
 }
 
 // Send mocks method.
-func (s HeartbeatStream) Send(m *pdpb.RegionHeartbeatResponse) error {
+func (s HeartbeatStream) Send(m *schedulerpb.RegionHeartbeatResponse) error {
 	select {
 	case <-time.After(time.Second):
 		return errors.New("timeout")
@@ -45,12 +45,12 @@ func (s HeartbeatStream) Send(m *pdpb.RegionHeartbeatResponse) error {
 }
 
 // SendMsg is used to send the message.
-func (s HeartbeatStream) SendMsg(region *core.RegionInfo, msg *pdpb.RegionHeartbeatResponse) {
+func (s HeartbeatStream) SendMsg(region *core.RegionInfo, msg *schedulerpb.RegionHeartbeatResponse) {
 	return
 }
 
 // Recv mocks method.
-func (s HeartbeatStream) Recv() *pdpb.RegionHeartbeatResponse {
+func (s HeartbeatStream) Recv() *schedulerpb.RegionHeartbeatResponse {
 	select {
 	case <-time.After(time.Millisecond * 10):
 		return nil
@@ -64,7 +64,7 @@ type HeartbeatStreams struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	clusterID uint64
-	msgCh     chan *pdpb.RegionHeartbeatResponse
+	msgCh     chan *schedulerpb.RegionHeartbeatResponse
 }
 
 // NewHeartbeatStreams creates a new HeartbeatStreams.
@@ -74,18 +74,18 @@ func NewHeartbeatStreams(clusterID uint64) *HeartbeatStreams {
 		ctx:       ctx,
 		cancel:    cancel,
 		clusterID: clusterID,
-		msgCh:     make(chan *pdpb.RegionHeartbeatResponse, 1024),
+		msgCh:     make(chan *schedulerpb.RegionHeartbeatResponse, 1024),
 	}
 	return hs
 }
 
 // SendMsg is used to send the message.
-func (mhs *HeartbeatStreams) SendMsg(region *core.RegionInfo, msg *pdpb.RegionHeartbeatResponse) {
+func (mhs *HeartbeatStreams) SendMsg(region *core.RegionInfo, msg *schedulerpb.RegionHeartbeatResponse) {
 	if region.GetLeader() == nil {
 		return
 	}
 
-	msg.Header = &pdpb.ResponseHeader{ClusterId: mhs.clusterID}
+	msg.Header = &schedulerpb.ResponseHeader{ClusterId: mhs.clusterID}
 	msg.RegionId = region.GetID()
 	msg.RegionEpoch = region.GetRegionEpoch()
 	msg.TargetPeer = region.GetLeader()
@@ -98,6 +98,6 @@ func (mhs *HeartbeatStreams) SendMsg(region *core.RegionInfo, msg *pdpb.RegionHe
 
 // MsgCh returns the internal channel which contains the heartbeat responses
 // from PD. It can be used to inspect the content of a PD response
-func (mhs *HeartbeatStreams) MsgCh() chan *pdpb.RegionHeartbeatResponse {
+func (mhs *HeartbeatStreams) MsgCh() chan *schedulerpb.RegionHeartbeatResponse {
 	return mhs.msgCh
 }

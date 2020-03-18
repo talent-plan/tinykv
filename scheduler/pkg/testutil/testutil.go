@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/config"
 	check "github.com/pingcap/check"
 	"google.golang.org/grpc"
@@ -46,18 +46,18 @@ func WaitUntil(c *check.C, f CheckFunc) {
 }
 
 // NewRequestHeader creates a new request header.
-func NewRequestHeader(clusterID uint64) *pdpb.RequestHeader {
-	return &pdpb.RequestHeader{
+func NewRequestHeader(clusterID uint64) *schedulerpb.RequestHeader {
+	return &schedulerpb.RequestHeader{
 		ClusterId: clusterID,
 	}
 }
 
 // MustNewGrpcClient must create a new grpc client.
-func MustNewGrpcClient(c *check.C, addr string) pdpb.PDClient {
+func MustNewGrpcClient(c *check.C, addr string) schedulerpb.SchedulerClient {
 	conn, err := grpc.Dial(strings.TrimPrefix(addr, "http://"), grpc.WithInsecure())
 
 	c.Assert(err, check.IsNil)
-	return pdpb.NewPDClient(conn)
+	return schedulerpb.NewSchedulerClient(conn)
 }
 
 // CleanServer is used to clean data directory.

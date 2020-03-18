@@ -9,7 +9,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/snap"
-	"github.com/pingcap-incubator/tinykv/kv/worker"
+	"github.com/pingcap-incubator/tinykv/kv/util/worker"
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tinykvpb"
@@ -44,15 +44,15 @@ func newSnapRunner(snapManager *snap.SnapManager, config *config.Config, router 
 }
 
 func (r *snapRunner) Handle(t worker.Task) {
-	switch t.Tp {
-	case worker.TaskTypeSnapSend:
-		r.send(t.Data.(sendSnapTask))
-	case worker.TaskTypeSnapRecv:
-		r.recv(t.Data.(recvSnapTask))
+	switch t.(type) {
+	case *sendSnapTask:
+		r.send(t.(*sendSnapTask))
+	case *recvSnapTask:
+		r.recv(t.(*recvSnapTask))
 	}
 }
 
-func (r *snapRunner) send(t sendSnapTask) {
+func (r *snapRunner) send(t *sendSnapTask) {
 	t.callback(r.sendSnap(t.addr, t.msg))
 }
 
@@ -119,7 +119,7 @@ func (r *snapRunner) sendSnap(addr string, msg *raft_serverpb.RaftMessage) error
 	return nil
 }
 
-func (r *snapRunner) recv(t recvSnapTask) {
+func (r *snapRunner) recv(t *recvSnapTask) {
 	msg, err := r.recvSnap(t.stream)
 	if err == nil {
 		r.router.SendRaftMessage(msg)

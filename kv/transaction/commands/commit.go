@@ -17,6 +17,7 @@ func NewCommit(request *kvrpcpb.CommitRequest) Commit {
 	return Commit{
 		CommandBase: CommandBase{
 			context: request.Context,
+			startTs: request.StartVersion,
 		},
 		request: request,
 	}
@@ -24,13 +25,11 @@ func NewCommit(request *kvrpcpb.CommitRequest) Commit {
 
 func (c *Commit) PrepareWrites(txn *mvcc.MvccTxn) (interface{}, error) {
 	commitTs := c.request.CommitVersion
-	startTs := c.request.StartVersion
-	if commitTs <= startTs {
-		return nil, fmt.Errorf("invalid transaction timestamp: %d (commit TS) <= %d (start TS)", commitTs, startTs)
+	if commitTs <= c.request.StartVersion {
+		return nil, fmt.Errorf("invalid transaction timestamp: %d (commit TS) <= %d (start TS)", commitTs, c.request.StartVersion)
 	}
 
 	response := new(kvrpcpb.CommitResponse)
-	txn.StartTS = &startTs
 
 	// Commit each key.
 	for _, k := range c.request.Keys {
@@ -52,9 +51,9 @@ func commitKey(key []byte, commitTs uint64, txn *mvcc.MvccTxn, response interfac
 		return nil, nil
 	}
 
-	if lock.Ts != *txn.StartTS {
+	if lock.Ts != txn.StartTS {
 		// Key is locked by a different transaction.
-		write, _, err := txn.FindWrite(key, *txn.StartTS)
+		write, _, err := txn.CurrentWrite(key)
 		if err != nil {
 			return regionError(err, response)
 		}
@@ -71,8 +70,8 @@ func commitKey(key []byte, commitTs uint64, txn *mvcc.MvccTxn, response interfac
 	}
 
 	// Commit a Write object to the DB
-	write := mvcc.Write{StartTS: *txn.StartTS, Kind: lock.Kind}
-	txn.PutWrite(key, &write, commitTs)
+	write := mvcc.Write{StartTS: txn.StartTS, Kind: lock.Kind}
+	txn.PutWrite(key, commitTs, &write)
 	// Unlock the key
 	txn.DeleteLock(key)
 

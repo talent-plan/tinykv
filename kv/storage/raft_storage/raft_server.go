@@ -8,13 +8,13 @@ import (
 	"sync"
 
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
+	"github.com/pingcap-incubator/tinykv/kv/raftstore/scheduler_client"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
-	"github.com/pingcap-incubator/tinykv/kv/worker"
+	"github.com/pingcap-incubator/tinykv/kv/util/worker"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
@@ -78,8 +78,8 @@ func NewRaftStorage(conf *config.Config) *RaftStorage {
 func (rs *RaftStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) error {
 	var reqs []*raft_cmdpb.Request
 	for _, m := range batch {
-		switch m.Type {
-		case storage.ModifyTypePut:
+		switch m.Data.(type) {
+		case storage.Put:
 			put := m.Data.(storage.Put)
 			reqs = append(reqs, &raft_cmdpb.Request{
 				CmdType: raft_cmdpb.CmdType_Put,
@@ -88,7 +88,7 @@ func (rs *RaftStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) error
 					Key:   put.Key,
 					Value: put.Value,
 				}})
-		case storage.ModifyTypeDelete:
+		case storage.Delete:
 			delete := m.Data.(storage.Delete)
 			reqs = append(reqs, &raft_cmdpb.Request{
 				CmdType: raft_cmdpb.CmdType_Delete,
@@ -165,14 +165,11 @@ func (rs *RaftStorage) Raft(stream tinykvpb.TinyKv_RaftServer) error {
 func (rs *RaftStorage) Snapshot(stream tinykvpb.TinyKv_SnapshotServer) error {
 	var err error
 	done := make(chan struct{})
-	rs.snapWorker.Sender() <- worker.Task{
-		Tp: worker.TaskTypeSnapRecv,
-		Data: recvSnapTask{
-			stream: stream,
-			callback: func(e error) {
-				err = e
-				close(done)
-			},
+	rs.snapWorker.Sender() <- &recvSnapTask{
+		stream: stream,
+		callback: func(e error) {
+			err = e
+			close(done)
 		},
 	}
 	<-done
@@ -181,7 +178,7 @@ func (rs *RaftStorage) Snapshot(stream tinykvpb.TinyKv_SnapshotServer) error {
 
 func (rs *RaftStorage) Start() error {
 	cfg := rs.config
-	pdClient, err := pd.NewClient(strings.Split(cfg.PDAddr, ","), "")
+	schedulerClient, err := scheduler_client.NewClient(strings.Split(cfg.SchedulerAddr, ","), "")
 	if err != nil {
 		return err
 	}
@@ -189,7 +186,7 @@ func (rs *RaftStorage) Start() error {
 
 	rs.resolveWorker = worker.NewWorker("resolver", &rs.wg)
 	resolveSender := rs.resolveWorker.Sender()
-	resolveRunner := newResolverRunner(pdClient)
+	resolveRunner := newResolverRunner(schedulerClient)
 	rs.resolveWorker.Start(resolveRunner)
 
 	rs.snapManager = snap.NewSnapManager(cfg.DBPath + "snap")
@@ -201,7 +198,7 @@ func (rs *RaftStorage) Start() error {
 	raftClient := newRaftClient(cfg)
 	trans := NewServerTransport(raftClient, snapSender, rs.raftRouter, resolveSender)
 
-	rs.node = raftstore.NewNode(rs.batchSystem, rs.config, pdClient)
+	rs.node = raftstore.NewNode(rs.batchSystem, rs.config, schedulerClient)
 	err = rs.node.Start(context.TODO(), rs.engines, trans, rs.snapManager)
 	if err != nil {
 		return err

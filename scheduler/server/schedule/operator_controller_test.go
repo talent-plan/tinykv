@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockcluster"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockhbstream"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockoption"
@@ -66,18 +66,18 @@ func (t *testOperatorControllerSuite) TestOperatorStatus(c *C) {
 	oc.SetOperator(op1)
 	op2.SetStartTime(time.Now())
 	oc.SetOperator(op2)
-	c.Assert(oc.GetOperatorStatus(1).Status, Equals, pdpb.OperatorStatus_RUNNING)
-	c.Assert(oc.GetOperatorStatus(2).Status, Equals, pdpb.OperatorStatus_RUNNING)
+	c.Assert(oc.GetOperatorStatus(1).Status, Equals, schedulerpb.OperatorStatus_RUNNING)
+	c.Assert(oc.GetOperatorStatus(2).Status, Equals, schedulerpb.OperatorStatus_RUNNING)
 	op1.SetStartTime(time.Now().Add(-10 * time.Minute))
 	region2 = ApplyOperatorStep(region2, op2)
 	tc.PutRegion(region2)
 	oc.Dispatch(region1, "test")
 	oc.Dispatch(region2, "test")
-	c.Assert(oc.GetOperatorStatus(1).Status, Equals, pdpb.OperatorStatus_TIMEOUT)
-	c.Assert(oc.GetOperatorStatus(2).Status, Equals, pdpb.OperatorStatus_RUNNING)
+	c.Assert(oc.GetOperatorStatus(1).Status, Equals, schedulerpb.OperatorStatus_TIMEOUT)
+	c.Assert(oc.GetOperatorStatus(2).Status, Equals, schedulerpb.OperatorStatus_RUNNING)
 	ApplyOperator(tc, op2)
 	oc.Dispatch(region2, "test")
-	c.Assert(oc.GetOperatorStatus(2).Status, Equals, pdpb.OperatorStatus_SUCCESS)
+	c.Assert(oc.GetOperatorStatus(2).Status, Equals, schedulerpb.OperatorStatus_SUCCESS)
 }
 
 // #1652

@@ -115,37 +115,37 @@ func (server *Server) Snapshot(stream tinykvpb.TinyKv_SnapshotServer) error {
 
 // Transactional API.
 func (server *Server) KvGet(_ context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb.GetResponse, error) {
-	// Your code here (4A).
-	return nil, nil
-}
-
-func (server *Server) KvScan(_ context.Context, req *kvrpcpb.ScanRequest) (*kvrpcpb.ScanResponse, error) {
-	// Your code here (4A).
+	// Your code here (4B).
 	return nil, nil
 }
 
 func (server *Server) KvPrewrite(_ context.Context, req *kvrpcpb.PrewriteRequest) (*kvrpcpb.PrewriteResponse, error) {
-	// Your code here (4A).
+	// Your code here (4B).
 	return nil, nil
 }
 
 func (server *Server) KvCommit(_ context.Context, req *kvrpcpb.CommitRequest) (*kvrpcpb.CommitResponse, error) {
-	// Your code here (4A).
+	// Your code here (4B).
+	return nil, nil
+}
+
+func (server *Server) KvScan(_ context.Context, req *kvrpcpb.ScanRequest) (*kvrpcpb.ScanResponse, error) {
+	// Your code here (4C).
 	return nil, nil
 }
 
 func (server *Server) KvCheckTxnStatus(_ context.Context, req *kvrpcpb.CheckTxnStatusRequest) (*kvrpcpb.CheckTxnStatusResponse, error) {
-	// Your code here (4B).
+	// Your code here (4C).
 	return nil, nil
 }
 
 func (server *Server) KvBatchRollback(_ context.Context, req *kvrpcpb.BatchRollbackRequest) (*kvrpcpb.BatchRollbackResponse, error) {
-	// Your code here (4B).
+	// Your code here (4C).
 	return nil, nil
 }
 
 func (server *Server) KvResolveLock(_ context.Context, req *kvrpcpb.ResolveLockRequest) (*kvrpcpb.ResolveLockResponse, error) {
-	// Your code here (4B).
+	// Your code here (4C).
 	return nil, nil
 }
 
