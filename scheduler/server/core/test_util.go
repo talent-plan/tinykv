@@ -17,7 +17,7 @@ import (
 	"math"
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 )
 
 // SplitRegions split a set of RegionInfo by the middle of regionKey
@@ -81,7 +81,7 @@ func NewTestRegionInfo(start, end []byte) *RegionInfo {
 
 // NewStoreInfoWithIdAndCount is create a store with specified id and regionCount.
 func NewStoreInfoWithIdAndCount(id uint64, regionCount int) *StoreInfo {
-	stats := &pdpb.StoreStats{}
+	stats := &schedulerpb.StoreStats{}
 	stats.Capacity = uint64(1024)
 	stats.Available = uint64(1024)
 	store := NewStoreInfo(
@@ -97,7 +97,7 @@ func NewStoreInfoWithIdAndCount(id uint64, regionCount int) *StoreInfo {
 
 // NewStoreInfoWithSizeCount is create a store with size and count.
 func NewStoreInfoWithSizeCount(id uint64, regionCount, leaderCount int, regionSize, leaderSize int64) *StoreInfo {
-	stats := &pdpb.StoreStats{}
+	stats := &schedulerpb.StoreStats{}
 	stats.Capacity = uint64(1024)
 	stats.Available = uint64(1024)
 	store := NewStoreInfo(

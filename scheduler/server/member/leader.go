@@ -23,7 +23,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/etcdutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/config"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
@@ -48,8 +48,8 @@ type Member struct {
 	// Etcd and cluster information.
 	etcd     *embed.Etcd
 	client   *clientv3.Client
-	id       uint64       // etcd server id.
-	member   *pdpb.Member // current PD's info.
+	id       uint64              // etcd server id.
+	member   *schedulerpb.Member // current PD's info.
 	rootPath string
 	// memberValue is the serialized string of `member`. It will be save in
 	// etcd leader key when the PD node is successfully elected as the leader
@@ -77,7 +77,7 @@ func (m *Member) MemberValue() string {
 }
 
 // Member returns the member.
-func (m *Member) Member() *pdpb.Member {
+func (m *Member) Member() *schedulerpb.Member {
 	return m.member
 }
 
@@ -98,12 +98,12 @@ func (m *Member) GetLeaderID() uint64 {
 }
 
 // GetLeader returns current leader of PD cluster.
-func (m *Member) GetLeader() *pdpb.Member {
+func (m *Member) GetLeader() *schedulerpb.Member {
 	leader := m.leader.Load()
 	if leader == nil {
 		return nil
 	}
-	member := leader.(*pdpb.Member)
+	member := leader.(*schedulerpb.Member)
 	if member.GetMemberId() == 0 {
 		return nil
 	}
@@ -117,7 +117,7 @@ func (m *Member) EnableLeader() {
 
 // DisableLeader reset the leader value.
 func (m *Member) DisableLeader() {
-	m.leader.Store(&pdpb.Member{})
+	m.leader.Store(&schedulerpb.Member{})
 }
 
 // GetLeaderPath returns the path of the leader.
@@ -126,7 +126,7 @@ func (m *Member) GetLeaderPath() string {
 }
 
 // CheckLeader checks returns true if it is needed to check later.
-func (m *Member) CheckLeader(name string) (*pdpb.Member, int64, bool) {
+func (m *Member) CheckLeader(name string) (*schedulerpb.Member, int64, bool) {
 	if m.GetEtcdLeader() == 0 {
 		log.Error("no etcd leader, check leader later")
 		time.Sleep(200 * time.Millisecond)
@@ -190,8 +190,8 @@ func (m *Member) MoveEtcdLeader(ctx context.Context, old, new uint64) error {
 }
 
 // getLeader gets server leader from etcd.
-func getLeader(c *clientv3.Client, leaderPath string) (*pdpb.Member, int64, error) {
-	leader := &pdpb.Member{}
+func getLeader(c *clientv3.Client, leaderPath string) (*schedulerpb.Member, int64, error) {
+	leader := &schedulerpb.Member{}
 	ok, rev, err := etcdutil.GetProtoMsgWithModRev(c, leaderPath, leader)
 	if err != nil {
 		return nil, 0, err
@@ -208,13 +208,13 @@ func (m *Member) GetEtcdLeader() uint64 {
 	return m.etcd.Server.Lead()
 }
 
-func (m *Member) isSameLeader(leader *pdpb.Member) bool {
+func (m *Member) isSameLeader(leader *schedulerpb.Member) bool {
 	return leader.GetMemberId() == m.ID()
 }
 
 // MemberInfo initializes the member info.
 func (m *Member) MemberInfo(cfg *config.Config, name string, rootPath string) {
-	leader := &pdpb.Member{
+	leader := &schedulerpb.Member{
 		Name:       name,
 		MemberId:   m.ID(),
 		ClientUrls: strings.Split(cfg.AdvertiseClientUrls, ","),
@@ -348,9 +348,9 @@ func (m *Member) leaderCmp() clientv3.Cmp {
 }
 
 // WatchLeader is used to watch the changes of the leader.
-func (m *Member) WatchLeader(serverCtx context.Context, leader *pdpb.Member, revision int64) {
+func (m *Member) WatchLeader(serverCtx context.Context, leader *schedulerpb.Member, revision int64) {
 	m.leader.Store(leader)
-	defer m.leader.Store(&pdpb.Member{})
+	defer m.leader.Store(&schedulerpb.Member{})
 
 	watcher := clientv3.NewWatcher(m.client)
 	defer watcher.Close()

@@ -18,7 +18,7 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule"
 	"github.com/pingcap/log"
@@ -45,7 +45,7 @@ func (c *RaftCluster) HandleRegionHeartbeat(region *core.RegionInfo) error {
 	return nil
 }
 
-func (c *RaftCluster) handleAskSplit(request *pdpb.AskSplitRequest) (*pdpb.AskSplitResponse, error) {
+func (c *RaftCluster) handleAskSplit(request *schedulerpb.AskSplitRequest) (*schedulerpb.AskSplitResponse, error) {
 	reqRegion := request.GetRegion()
 	err := c.validRequestRegion(reqRegion)
 	if err != nil {
@@ -64,7 +64,7 @@ func (c *RaftCluster) handleAskSplit(request *pdpb.AskSplitRequest) (*pdpb.AskSp
 		}
 	}
 
-	split := &pdpb.AskSplitResponse{
+	split := &schedulerpb.AskSplitResponse{
 		NewRegionId: newRegionID,
 		NewPeerIds:  peerIDs,
 	}
@@ -122,7 +122,7 @@ func (c *RaftCluster) checkSplitRegions(regions []*metapb.Region) error {
 	return nil
 }
 
-func (c *RaftCluster) handleReportSplit(request *pdpb.ReportSplitRequest) (*pdpb.ReportSplitResponse, error) {
+func (c *RaftCluster) handleReportSplit(request *schedulerpb.ReportSplitRequest) (*schedulerpb.ReportSplitResponse, error) {
 	left := request.GetLeft()
 	right := request.GetRight()
 
@@ -142,5 +142,5 @@ func (c *RaftCluster) handleReportSplit(request *pdpb.ReportSplitRequest) (*pdpb
 	log.Info("region split, generate new region",
 		zap.Uint64("region-id", originRegion.GetId()),
 		zap.Stringer("region-meta", core.RegionToHexMeta(left)))
-	return &pdpb.ReportSplitResponse{}, nil
+	return &schedulerpb.ReportSplitResponse{}, nil
 }

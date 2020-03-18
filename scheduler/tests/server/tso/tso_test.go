@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/testutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/tests"
 	. "github.com/pingcap/check"
@@ -37,7 +37,7 @@ type testTsoSuite struct {
 func (s *testTsoSuite) SetUpSuite(c *C) {
 }
 
-func (s *testTsoSuite) testGetTimestamp(c *C, n int) *pdpb.Timestamp {
+func (s *testTsoSuite) testGetTimestamp(c *C, n int) *schedulerpb.Timestamp {
 	var err error
 	cluster, err := tests.NewTestCluster(1)
 	defer cluster.Destroy()
@@ -51,7 +51,7 @@ func (s *testTsoSuite) testGetTimestamp(c *C, n int) *pdpb.Timestamp {
 	grpcPDClient := testutil.MustNewGrpcClient(c, leaderServer.GetAddr())
 
 	clusterID := leaderServer.GetClusterID()
-	req := &pdpb.TsoRequest{
+	req := &schedulerpb.TsoRequest{
 		Header: testutil.NewRequestHeader(clusterID),
 		Count:  uint32(n),
 	}
@@ -78,7 +78,7 @@ func (s *testTsoSuite) TestTso3C(c *C) {
 		go func() {
 			defer wg.Done()
 
-			last := &pdpb.Timestamp{
+			last := &schedulerpb.Timestamp{
 				Physical: 0,
 				Logical:  0,
 			}
@@ -112,7 +112,7 @@ func (s *testTsoSuite) TestTsoWithoutCount3C(c *C) {
 	grpcPDClient := testutil.MustNewGrpcClient(c, leaderServer.GetAddr())
 	clusterID := leaderServer.GetClusterID()
 
-	req := &pdpb.TsoRequest{Header: testutil.NewRequestHeader(clusterID)}
+	req := &schedulerpb.TsoRequest{Header: testutil.NewRequestHeader(clusterID)}
 	tsoClient, err := grpcPDClient.Tso(context.Background())
 	c.Assert(err, IsNil)
 	defer tsoClient.CloseSend()

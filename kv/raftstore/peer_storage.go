@@ -13,7 +13,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
-	"github.com/pingcap-incubator/tinykv/kv/worker"
+	"github.com/pingcap-incubator/tinykv/kv/util/worker"
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -191,12 +191,9 @@ func (ps *PeerStorage) ScheduleGenerateSnapshot() {
 		StateType: snap.SnapState_Generating,
 		Receiver:  ch,
 	}
-	ps.regionSched <- worker.Task{
-		Tp: worker.TaskTypeRegionGen,
-		Data: &runner.RegionTask{
-			RegionId: ps.region.GetId(),
-			Notifier: ch,
-		},
+	ps.regionSched <- &runner.RegionTaskGen{
+		RegionId: ps.region.GetId(),
+		Notifier: ch,
 	}
 }
 
@@ -293,23 +290,17 @@ func (ps *PeerStorage) clearExtraData(newRegion *metapb.Region) {
 	newStartKey, newEndKey := newRegion.GetStartKey(), newRegion.GetEndKey()
 	regionId := newRegion.Id
 	if bytes.Compare(oldStartKey, newStartKey) < 0 {
-		ps.regionSched <- worker.Task{
-			Tp: worker.TaskTypeRegionDestroy,
-			Data: &runner.RegionTask{
-				RegionId: regionId,
-				StartKey: oldStartKey,
-				EndKey:   newStartKey,
-			},
+		ps.regionSched <- &runner.RegionTaskDestroy{
+			RegionId: regionId,
+			StartKey: oldStartKey,
+			EndKey:   newStartKey,
 		}
 	}
 	if bytes.Compare(newEndKey, oldEndKey) < 0 {
-		ps.regionSched <- worker.Task{
-			Tp: worker.TaskTypeRegionDestroy,
-			Data: &runner.RegionTask{
-				RegionId: regionId,
-				StartKey: newEndKey,
-				EndKey:   oldEndKey,
-			},
+		ps.regionSched <- &runner.RegionTaskDestroy{
+			RegionId: regionId,
+			StartKey: newEndKey,
+			EndKey:   oldEndKey,
 		}
 	}
 }
@@ -435,30 +426,24 @@ func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (*ApplySnapResult, erro
 }
 
 func (ps *PeerStorage) ScheduleApplyingSnapshotAndWait(snapRegion *metapb.Region, snapMeta *eraftpb.SnapshotMetadata) {
-	ch := make(chan *eraftpb.Snapshot, 1)
+	ch := make(chan bool)
 	ps.snapState = snap.SnapState{
 		StateType: snap.SnapState_Applying,
 	}
-	ps.regionSched <- worker.Task{
-		Tp: worker.TaskTypeRegionApply,
-		Data: &runner.RegionTask{
-			RegionId: ps.region.Id,
-			Notifier: ch,
-			SnapMeta: snapMeta,
-			StartKey: snapRegion.GetStartKey(),
-			EndKey:   snapRegion.GetEndKey(),
-		},
+	ps.regionSched <- &runner.RegionTaskApply{
+		RegionId: ps.region.Id,
+		Notifier: ch,
+		SnapMeta: snapMeta,
+		StartKey: snapRegion.GetStartKey(),
+		EndKey:   snapRegion.GetEndKey(),
 	}
 	<-ch
 }
 
 func (ps *PeerStorage) ClearData() {
-	ps.regionSched <- worker.Task{
-		Tp: worker.TaskTypeRegionDestroy,
-		Data: &runner.RegionTask{
-			RegionId: ps.region.GetId(),
-			StartKey: ps.region.GetStartKey(),
-			EndKey:   ps.region.GetEndKey(),
-		},
+	ps.regionSched <- &runner.RegionTaskDestroy{
+		RegionId: ps.region.GetId(),
+		StartKey: ps.region.GetStartKey(),
+		EndKey:   ps.region.GetEndKey(),
 	}
 }

@@ -21,7 +21,7 @@ import (
 
 	opentracing "github.com/opentracing/opentracing-go"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/grpcutil"
 	"github.com/pingcap/log"
 	"github.com/pkg/errors"
@@ -69,7 +69,7 @@ type Client interface {
 	// and the distribution of these regions will be dispersed.
 	ScatterRegion(ctx context.Context, regionID uint64) error
 	// GetOperator gets the status of operator of the specified region.
-	GetOperator(ctx context.Context, regionID uint64) (*pdpb.GetOperatorResponse, error)
+	GetOperator(ctx context.Context, regionID uint64) (*schedulerpb.GetOperatorResponse, error)
 	// Close closes the client.
 	Close()
 }
@@ -170,7 +170,7 @@ func NewClient(pdAddrs []string, security SecurityOption) (Client, error) {
 	return c, nil
 }
 
-func (c *client) updateURLs(members []*pdpb.Member) {
+func (c *client) updateURLs(members []*schedulerpb.Member) {
 	urls := make([]string, 0, len(members))
 	for _, m := range members {
 		urls = append(urls, m.GetClientUrls()...)
@@ -225,12 +225,12 @@ func (c *client) updateLeader() error {
 	return errors.Errorf("failed to get leader from %v", c.urls)
 }
 
-func (c *client) getMembers(ctx context.Context, url string) (*pdpb.GetMembersResponse, error) {
+func (c *client) getMembers(ctx context.Context, url string) (*schedulerpb.GetMembersResponse, error) {
 	cc, err := c.getOrCreateGRPCConn(url)
 	if err != nil {
 		return nil, err
 	}
-	members, err := pdpb.NewPDClient(cc).GetMembers(ctx, &pdpb.GetMembersRequest{})
+	members, err := schedulerpb.NewSchedulerClient(cc).GetMembers(ctx, &schedulerpb.GetMembersRequest{})
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -340,7 +340,7 @@ func (c *client) tsLoop() {
 
 	var requests []*tsoRequest
 	var opts []opentracing.StartSpanOption
-	var stream pdpb.PD_TsoClient
+	var stream schedulerpb.Scheduler_TsoClient
 	var cancel context.CancelFunc
 
 	for {
@@ -422,13 +422,13 @@ func extractSpanReference(requests []*tsoRequest, opts []opentracing.StartSpanOp
 	return opts
 }
 
-func (c *client) processTSORequests(stream pdpb.PD_TsoClient, requests []*tsoRequest, opts []opentracing.StartSpanOption) error {
+func (c *client) processTSORequests(stream schedulerpb.Scheduler_TsoClient, requests []*tsoRequest, opts []opentracing.StartSpanOption) error {
 	if len(opts) > 0 {
 		span := opentracing.StartSpan("pdclient.processTSORequests", opts...)
 		defer span.Finish()
 	}
 	count := len(requests)
-	req := &pdpb.TsoRequest{
+	req := &schedulerpb.TsoRequest{
 		Header: c.requestHeader(),
 		Count:  uint32(count),
 	}
@@ -492,11 +492,11 @@ func (c *client) Close() {
 }
 
 // leaderClient gets the client of current PD leader.
-func (c *client) leaderClient() pdpb.PDClient {
+func (c *client) leaderClient() schedulerpb.SchedulerClient {
 	c.connMu.RLock()
 	defer c.connMu.RUnlock()
 
-	return pdpb.NewPDClient(c.connMu.clientConns[c.connMu.leader])
+	return schedulerpb.NewSchedulerClient(c.connMu.clientConns[c.connMu.leader])
 }
 
 func (c *client) ScheduleCheckLeader() {
@@ -580,7 +580,7 @@ func (c *client) GetRegion(ctx context.Context, key []byte) (*metapb.Region, *me
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	resp, err := c.leaderClient().GetRegion(ctx, &pdpb.GetRegionRequest{
+	resp, err := c.leaderClient().GetRegion(ctx, &schedulerpb.GetRegionRequest{
 		Header:    c.requestHeader(),
 		RegionKey: key,
 	})
@@ -600,7 +600,7 @@ func (c *client) GetPrevRegion(ctx context.Context, key []byte) (*metapb.Region,
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	resp, err := c.leaderClient().GetPrevRegion(ctx, &pdpb.GetRegionRequest{
+	resp, err := c.leaderClient().GetPrevRegion(ctx, &schedulerpb.GetRegionRequest{
 		Header:    c.requestHeader(),
 		RegionKey: key,
 	})
@@ -620,7 +620,7 @@ func (c *client) GetRegionByID(ctx context.Context, regionID uint64) (*metapb.Re
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	resp, err := c.leaderClient().GetRegionByID(ctx, &pdpb.GetRegionByIDRequest{
+	resp, err := c.leaderClient().GetRegionByID(ctx, &schedulerpb.GetRegionByIDRequest{
 		Header:   c.requestHeader(),
 		RegionId: regionID,
 	})
@@ -639,7 +639,7 @@ func (c *client) ScanRegions(ctx context.Context, key, endKey []byte, limit int)
 		defer span.Finish()
 	}
 	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	resp, err := c.leaderClient().ScanRegions(ctx, &pdpb.ScanRegionsRequest{
+	resp, err := c.leaderClient().ScanRegions(ctx, &schedulerpb.ScanRegionsRequest{
 		Header:   c.requestHeader(),
 		StartKey: key,
 		EndKey:   endKey,
@@ -660,7 +660,7 @@ func (c *client) GetStore(ctx context.Context, storeID uint64) (*metapb.Store, e
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	resp, err := c.leaderClient().GetStore(ctx, &pdpb.GetStoreRequest{
+	resp, err := c.leaderClient().GetStore(ctx, &schedulerpb.GetStoreRequest{
 		Header:  c.requestHeader(),
 		StoreId: storeID,
 	})
@@ -693,7 +693,7 @@ func (c *client) GetAllStores(ctx context.Context, opts ...GetStoreOption) ([]*m
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	resp, err := c.leaderClient().GetAllStores(ctx, &pdpb.GetAllStoresRequest{
+	resp, err := c.leaderClient().GetAllStores(ctx, &schedulerpb.GetAllStoresRequest{
 		Header:                 c.requestHeader(),
 		ExcludeTombstoneStores: options.excludeTombstone,
 	})
@@ -714,7 +714,7 @@ func (c *client) UpdateGCSafePoint(ctx context.Context, safePoint uint64) (uint6
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	resp, err := c.leaderClient().UpdateGCSafePoint(ctx, &pdpb.UpdateGCSafePointRequest{
+	resp, err := c.leaderClient().UpdateGCSafePoint(ctx, &schedulerpb.UpdateGCSafePointRequest{
 		Header:    c.requestHeader(),
 		SafePoint: safePoint,
 	})
@@ -734,7 +734,7 @@ func (c *client) ScatterRegion(ctx context.Context, regionID uint64) error {
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
-	resp, err := c.leaderClient().ScatterRegion(ctx, &pdpb.ScatterRegionRequest{
+	resp, err := c.leaderClient().ScatterRegion(ctx, &schedulerpb.ScatterRegionRequest{
 		Header:   c.requestHeader(),
 		RegionId: regionID,
 	})
@@ -748,7 +748,7 @@ func (c *client) ScatterRegion(ctx context.Context, regionID uint64) error {
 	return nil
 }
 
-func (c *client) GetOperator(ctx context.Context, regionID uint64) (*pdpb.GetOperatorResponse, error) {
+func (c *client) GetOperator(ctx context.Context, regionID uint64) (*schedulerpb.GetOperatorResponse, error) {
 	if span := opentracing.SpanFromContext(ctx); span != nil {
 		span = opentracing.StartSpan("pdclient.GetOperator", opentracing.ChildOf(span.Context()))
 		defer span.Finish()
@@ -756,14 +756,14 @@ func (c *client) GetOperator(ctx context.Context, regionID uint64) (*pdpb.GetOpe
 
 	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
 	defer cancel()
-	return c.leaderClient().GetOperator(ctx, &pdpb.GetOperatorRequest{
+	return c.leaderClient().GetOperator(ctx, &schedulerpb.GetOperatorRequest{
 		Header:   c.requestHeader(),
 		RegionId: regionID,
 	})
 }
 
-func (c *client) requestHeader() *pdpb.RequestHeader {
-	return &pdpb.RequestHeader{
+func (c *client) requestHeader() *schedulerpb.RequestHeader {
+	return &schedulerpb.RequestHeader{
 		ClusterId: c.clusterID,
 	}
 }

@@ -8,13 +8,13 @@ import (
 	"github.com/Connor1996/badger"
 	"github.com/Connor1996/badger/y"
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/runner"
+	"github.com/pingcap-incubator/tinykv/kv/raftstore/scheduler_client"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
-	"github.com/pingcap-incubator/tinykv/kv/worker"
+	"github.com/pingcap-incubator/tinykv/kv/util/worker"
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
@@ -91,11 +91,11 @@ type GlobalContext struct {
 	snapMgr              *snap.SnapManager
 	router               *router
 	trans                Transport
-	pdTaskSender         chan<- worker.Task
+	schedulerTaskSender  chan<- worker.Task
 	regionTaskSender     chan<- worker.Task
 	raftLogGCTaskSender  chan<- worker.Task
 	splitCheckTaskSender chan<- worker.Task
-	pdClient             pd.Client
+	schedulerClient      scheduler_client.Client
 	tickDriverSender     chan uint64
 }
 
@@ -193,7 +193,7 @@ func (bs *RaftBatchSystem) clearStaleMeta(kvWB, raftWB *engine_util.WriteBatch, 
 
 type workers struct {
 	raftLogGCWorker  *worker.Worker
-	pdWorker         *worker.Worker
+	schedulerWorker  *worker.Worker
 	splitCheckWorker *worker.Worker
 	regionWorker     *worker.Worker
 	wg               *sync.WaitGroup
@@ -214,7 +214,7 @@ func (bs *RaftBatchSystem) start(
 	cfg *config.Config,
 	engines *engine_util.Engines,
 	trans Transport,
-	pdClient pd.Client,
+	schedulerClient scheduler_client.Client,
 	snapMgr *snap.SnapManager) error {
 	y.Assert(bs.workers == nil)
 	// TODO: we can get cluster meta regularly too later.
@@ -230,7 +230,7 @@ func (bs *RaftBatchSystem) start(
 		splitCheckWorker: worker.NewWorker("split-check", wg),
 		regionWorker:     worker.NewWorker("snapshot-worker", wg),
 		raftLogGCWorker:  worker.NewWorker("raft-gc-worker", wg),
-		pdWorker:         worker.NewWorker("pd-worker", wg),
+		schedulerWorker:  worker.NewWorker("scheduler-worker", wg),
 		wg:               wg,
 	}
 	bs.ctx = &GlobalContext{
@@ -241,11 +241,11 @@ func (bs *RaftBatchSystem) start(
 		snapMgr:              snapMgr,
 		router:               bs.router,
 		trans:                trans,
-		pdTaskSender:         bs.workers.pdWorker.Sender(),
+		schedulerTaskSender:  bs.workers.schedulerWorker.Sender(),
 		regionTaskSender:     bs.workers.regionWorker.Sender(),
 		splitCheckTaskSender: bs.workers.splitCheckWorker.Sender(),
 		raftLogGCTaskSender:  bs.workers.raftLogGCWorker.Sender(),
-		pdClient:             pdClient,
+		schedulerClient:      schedulerClient,
 		tickDriverSender:     bs.tickDriver.newRegionCh,
 	}
 	regionPeers, err := bs.loadPeers()
@@ -279,7 +279,7 @@ func (bs *RaftBatchSystem) startWorkers(peers []*peer) {
 	workers.splitCheckWorker.Start(runner.NewSplitCheckHandler(engines.Kv, NewRaftstoreRouter(router), cfg))
 	workers.regionWorker.Start(runner.NewRegionTaskHandler(engines, ctx.snapMgr))
 	workers.raftLogGCWorker.Start(runner.NewRaftLogGCTaskHandler())
-	workers.pdWorker.Start(runner.NewPDTaskHandler(ctx.store.Id, ctx.pdClient, NewRaftstoreRouter(router)))
+	workers.schedulerWorker.Start(runner.NewSchedulerTaskHandler(ctx.store.Id, ctx.schedulerClient, NewRaftstoreRouter(router)))
 	go bs.tickDriver.run()
 }
 
@@ -292,11 +292,10 @@ func (bs *RaftBatchSystem) shutDown() {
 	}
 	workers := bs.workers
 	bs.workers = nil
-	stopTask := worker.Task{Tp: worker.TaskTypeStop}
-	workers.splitCheckWorker.Sender() <- stopTask
-	workers.regionWorker.Sender() <- stopTask
-	workers.raftLogGCWorker.Sender() <- stopTask
-	workers.pdWorker.Sender() <- stopTask
+	workers.splitCheckWorker.Stop()
+	workers.regionWorker.Stop()
+	workers.raftLogGCWorker.Stop()
+	workers.schedulerWorker.Stop()
 	workers.wg.Wait()
 }
 

@@ -10,7 +10,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/runner"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
-	"github.com/pingcap-incubator/tinykv/kv/worker"
+	"github.com/pingcap-incubator/tinykv/kv/util/worker"
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
@@ -144,8 +144,8 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 		peerStorage:           ps,
 		peerCache:             make(map[uint64]*metapb.Peer),
 		PeersStartPendingTime: make(map[uint64]time.Time),
-		Tag:                   tag,
-		ticker:                newTicker(region.GetId(), cfg),
+		Tag:    tag,
+		ticker: newTicker(region.GetId(), cfg),
 	}
 
 	// If this region has only one peer and I am the one, campaign directly.
@@ -342,15 +342,12 @@ func (p *peer) Term() uint64 {
 	return p.RaftGroup.Raft.Term
 }
 
-func (p *peer) HeartbeatPd(pdScheduler chan<- worker.Task) {
-	pdScheduler <- worker.Task{
-		Tp: worker.TaskTypePDHeartbeat,
-		Data: &runner.PdRegionHeartbeatTask{
-			Region:          p.Region(),
-			Peer:            p.Meta,
-			PendingPeers:    p.CollectPendingPeers(),
-			ApproximateSize: p.ApproximateSize,
-		},
+func (p *peer) HeartbeatScheduler(ch chan<- worker.Task) {
+	ch <- &runner.SchedulerRegionHeartbeatTask{
+		Region:          p.Region(),
+		Peer:            p.Meta,
+		PendingPeers:    p.CollectPendingPeers(),
+		ApproximateSize: p.ApproximateSize,
 	}
 }
 

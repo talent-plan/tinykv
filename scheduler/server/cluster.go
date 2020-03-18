@@ -22,7 +22,7 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/logutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/typeutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/config"
@@ -262,7 +262,7 @@ func (c *RaftCluster) GetCoordinator() *coordinator {
 }
 
 // handleStoreHeartbeat updates the store status.
-func (c *RaftCluster) handleStoreHeartbeat(stats *pdpb.StoreStats) error {
+func (c *RaftCluster) handleStoreHeartbeat(stats *schedulerpb.StoreStats) error {
 	c.Lock()
 	defer c.Unlock()
 
@@ -347,8 +347,7 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 			saveCache = true
 		}
 
-		if region.GetApproximateSize() != origin.GetApproximateSize() ||
-			region.GetApproximateKeys() != origin.GetApproximateKeys() {
+		if region.GetApproximateSize() != origin.GetApproximateSize() {
 			saveCache = true
 		}
 	}
@@ -401,7 +400,7 @@ func makeBootstrapTimeKey(clusterRootPath string) string {
 	return path.Join(makeRaftClusterStatusPrefix(clusterRootPath), "raft_bootstrap_time")
 }
 
-func checkBootstrapRequest(clusterID uint64, req *pdpb.BootstrapRequest) error {
+func checkBootstrapRequest(clusterID uint64, req *schedulerpb.BootstrapRequest) error {
 	// TODO: do more check for request fields validation.
 
 	storeMeta := req.GetStore()

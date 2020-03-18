@@ -10,9 +10,9 @@ import (
 
 	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/config"
-	"github.com/pingcap-incubator/tinykv/kv/pd"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
+	"github.com/pingcap-incubator/tinykv/kv/raftstore/scheduler_client"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/log"
@@ -130,17 +130,17 @@ func (t *MockTransport) Send(msg *raft_serverpb.RaftMessage) error {
 type NodeSimulator struct {
 	sync.RWMutex
 
-	trans    *MockTransport
-	pdClient pd.Client
-	nodes    map[uint64]*raftstore.Node
+	trans           *MockTransport
+	schedulerClient scheduler_client.Client
+	nodes           map[uint64]*raftstore.Node
 }
 
-func NewNodeSimulator(pdClient pd.Client) *NodeSimulator {
+func NewNodeSimulator(schedulerClient scheduler_client.Client) *NodeSimulator {
 	trans := NewMockTransport()
 	return &NodeSimulator{
-		trans:    trans,
-		pdClient: pdClient,
-		nodes:    make(map[uint64]*raftstore.Node),
+		trans:           trans,
+		schedulerClient: schedulerClient,
+		nodes:           make(map[uint64]*raftstore.Node),
 	}
 }
 
@@ -150,7 +150,7 @@ func (c *NodeSimulator) RunStore(cfg *config.Config, engine *engine_util.Engines
 
 	raftRouter, batchSystem := raftstore.CreateRaftBatchSystem(cfg)
 	snapManager := snap.NewSnapManager(cfg.DBPath + "/snap")
-	node := raftstore.NewNode(batchSystem, cfg, c.pdClient)
+	node := raftstore.NewNode(batchSystem, cfg, c.schedulerClient)
 
 	err := node.Start(ctx, engine, c.trans, snapManager)
 	if err != nil {

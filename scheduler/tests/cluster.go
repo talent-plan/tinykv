@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/server"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/config"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
@@ -166,7 +166,7 @@ func (s *TestServer) GetClusterID() uint64 {
 }
 
 // GetLeader returns current leader of PD cluster.
-func (s *TestServer) GetLeader() *pdpb.Member {
+func (s *TestServer) GetLeader() *schedulerpb.Member {
 	s.RLock()
 	defer s.RUnlock()
 	return s.server.GetLeader()
@@ -197,7 +197,7 @@ func (s *TestServer) IsLeader() bool {
 func (s *TestServer) GetEtcdLeader() (string, error) {
 	s.RLock()
 	defer s.RUnlock()
-	req := &pdpb.GetMembersRequest{Header: &pdpb.RequestHeader{ClusterId: s.server.ClusterID()}}
+	req := &schedulerpb.GetMembersRequest{Header: &schedulerpb.RequestHeader{ClusterId: s.server.ClusterID()}}
 	members, err := s.server.GetMembers(context.TODO(), req)
 	if err != nil {
 		return "", errors.WithStack(err)
@@ -209,7 +209,7 @@ func (s *TestServer) GetEtcdLeader() (string, error) {
 func (s *TestServer) GetEtcdLeaderID() (uint64, error) {
 	s.RLock()
 	defer s.RUnlock()
-	req := &pdpb.GetMembersRequest{Header: &pdpb.RequestHeader{ClusterId: s.server.ClusterID()}}
+	req := &schedulerpb.GetMembersRequest{Header: &schedulerpb.RequestHeader{ClusterId: s.server.ClusterID()}}
 	members, err := s.server.GetMembers(context.TODO(), req)
 	if err != nil {
 		return 0, errors.WithStack(err)
@@ -275,7 +275,7 @@ func (s *TestServer) GetStoreRegions(storeID uint64) []*core.RegionInfo {
 }
 
 // CheckHealth checks if members are healthy.
-func (s *TestServer) CheckHealth(members []*pdpb.Member) map[uint64]*pdpb.Member {
+func (s *TestServer) CheckHealth(members []*schedulerpb.Member) map[uint64]*schedulerpb.Member {
 	s.RLock()
 	defer s.RUnlock()
 	return s.server.CheckHealth(members)
@@ -283,8 +283,8 @@ func (s *TestServer) CheckHealth(members []*pdpb.Member) map[uint64]*pdpb.Member
 
 // BootstrapCluster is used to bootstrap the cluster.
 func (s *TestServer) BootstrapCluster() error {
-	bootstrapReq := &pdpb.BootstrapRequest{
-		Header: &pdpb.RequestHeader{ClusterId: s.GetClusterID()},
+	bootstrapReq := &schedulerpb.BootstrapRequest{
+		Header: &schedulerpb.RequestHeader{ClusterId: s.GetClusterID()},
 		Store:  &metapb.Store{Id: 1, Address: "mock://1"},
 	}
 	_, err := s.server.Bootstrap(context.Background(), bootstrapReq)
@@ -436,7 +436,7 @@ func (c *TestCluster) GetConfig() *clusterConfig {
 }
 
 // CheckHealth checks if members are healthy.
-func (c *TestCluster) CheckHealth(members []*pdpb.Member) map[uint64]*pdpb.Member {
+func (c *TestCluster) CheckHealth(members []*schedulerpb.Member) map[uint64]*schedulerpb.Member {
 	leader := c.GetLeader()
 	return c.servers[leader].CheckHealth(members)
 }
