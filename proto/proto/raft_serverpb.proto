@@ -22,6 +22,7 @@ message RaftMessage {
 message RaftLocalState {
     eraftpb.HardState hard_state = 1;
     uint64 last_index = 2;
+    uint64 last_term = 3;
 }
 
 // Used to store the persistent state for Raft state machine.

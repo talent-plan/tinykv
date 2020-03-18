@@ -2,12 +2,10 @@ package meta
 
 import (
 	"github.com/Connor1996/badger"
-	"github.com/Connor1996/badger/y"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
-	"github.com/pingcap/errors"
 )
 
 func GetRegionLocalState(db *badger.DB, regionId uint64) (*rspb.RegionLocalState, error) {
@@ -60,6 +58,7 @@ func InitRaftLocalState(raftEngine *badger.DB, region *metapb.Region) (*rspb.Raf
 		if len(region.Peers) > 0 {
 			// new split region
 			raftState.LastIndex = RaftInitLogIndex
+			raftState.LastTerm = RaftInitLogTerm
 			raftState.HardState.Term = RaftInitLogTerm
 			raftState.HardState.Commit = RaftInitLogIndex
 			err = engine_util.PutMeta(raftEngine, RaftStateKey(region.Id), raftState)
@@ -90,25 +89,6 @@ func InitApplyState(kvEngine *badger.DB, region *metapb.Region) (*rspb.RaftApply
 		}
 	}
 	return applyState, nil
-}
-
-func InitLastTerm(raftEngine *badger.DB, region *metapb.Region,
-	raftState *rspb.RaftLocalState, applyState *rspb.RaftApplyState) (uint64, error) {
-	lastIdx := raftState.LastIndex
-	if lastIdx == 0 {
-		return 0, nil
-	} else if lastIdx == RaftInitLogIndex {
-		return RaftInitLogTerm, nil
-	} else if lastIdx == applyState.TruncatedState.Index {
-		return applyState.TruncatedState.Term, nil
-	} else {
-		y.Assert(lastIdx > RaftInitLogIndex)
-	}
-	e, err := GetRaftEntry(raftEngine, region.Id, lastIdx)
-	if err != nil {
-		return 0, errors.Errorf("[region %s] entry at %d doesn't exist, may lost data.", region, lastIdx)
-	}
-	return e.Term, nil
 }
 
 func WriteRegionState(kvWB *engine_util.WriteBatch, region *metapb.Region, state rspb.PeerState) {
