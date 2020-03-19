@@ -144,8 +144,8 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 		peerStorage:           ps,
 		peerCache:             make(map[uint64]*metapb.Peer),
 		PeersStartPendingTime: make(map[uint64]time.Time),
-		Tag:    tag,
-		ticker: newTicker(region.GetId(), cfg),
+		Tag:                   tag,
+		ticker:                newTicker(region.GetId(), cfg),
 	}
 
 	// If this region has only one peer and I am the one, campaign directly.
