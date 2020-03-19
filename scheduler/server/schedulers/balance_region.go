@@ -102,18 +102,18 @@ func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) *operator.Operato
 			// Pending region may means the disk is overload, remove the pending region firstly.
 			var region *core.RegionInfo
 			cluster.GetPendingRegionsWithLock(sourceID, func(regions core.RegionsContainer) {
-				region = selectHealthyRegion(regions)
+				region = regions.RandomRegion(nil, nil)
 			})
 			if region == nil {
 				// Then picks the region that has a follower in the source store.
 				cluster.GetFollowersWithLock(sourceID, func(regions core.RegionsContainer) {
-					region = selectHealthyRegion(regions)
+					region = regions.RandomRegion(nil, nil)
 				})
 			}
 			if region == nil {
 				// Last, picks the region has the leader in the source store.
 				cluster.GetLeadersWithLock(sourceID, func(regions core.RegionsContainer) {
-					region = selectHealthyRegion(regions)
+					region = regions.RandomRegion(nil, nil)
 				})
 			}
 			if region == nil {
@@ -131,26 +131,6 @@ func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) *operator.Operato
 			if op := s.transferPeer(cluster, region, oldPeer); op != nil {
 				return op
 			}
-		}
-	}
-	return nil
-}
-
-const randomRegionMaxRetry = 10
-
-func selectHealthyRegion(regions core.RegionsContainer) *core.RegionInfo {
-	for i := 0; i < randomRegionMaxRetry; i++ {
-		region := regions.RandomRegion(nil, nil)
-		if region == nil {
-			return nil
-		}
-		isSelect := true
-		if len(region.GetLearners()) != 0 {
-			isSelect = false
-			break
-		}
-		if isSelect {
-			return region
 		}
 	}
 	return nil
