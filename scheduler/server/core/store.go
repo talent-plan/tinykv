@@ -228,7 +228,7 @@ func (s *StoreInfo) LeaderScore(delta int64) float64 {
 
 // RegionScore returns the store's region score.
 func (s *StoreInfo) RegionScore() float64 {
-	return float64(s.GetRegionSize()) / math.Max(s.GetRegionWeight(), minWeight)
+	return float64(s.GetRegionSize())
 }
 
 // StorageSize returns store's used storage size reported from tikv.

@@ -162,31 +162,6 @@ func (s *testBalanceRegionSchedulerSuite) TestReplicas53C(c *C) {
 	testutil.CheckTransferPeer(c, sb.Schedule(tc), operator.OpBalance, 11, 6)
 }
 
-func (s *testBalanceRegionSchedulerSuite) TestStoreWeight3C(c *C) {
-	opt := mockoption.NewScheduleOptions()
-	tc := mockcluster.NewCluster(opt)
-	oc := schedule.NewOperatorController(s.ctx, nil, nil)
-
-	sb, err := schedule.CreateScheduler("balance-region", oc, core.NewStorage(kv.NewMemoryKV()), nil)
-	c.Assert(err, IsNil)
-	opt.SetMaxReplicas(1)
-
-	tc.AddRegionStore(1, 10)
-	tc.AddRegionStore(2, 10)
-	tc.AddRegionStore(3, 10)
-	tc.AddRegionStore(4, 10)
-	tc.UpdateStoreRegionWeight(1, 0.5)
-	tc.UpdateStoreRegionWeight(2, 0.9)
-	tc.UpdateStoreRegionWeight(3, 1.0)
-	tc.UpdateStoreRegionWeight(4, 2.0)
-
-	tc.AddLeaderRegion(1, 1)
-	testutil.CheckTransferPeer(c, sb.Schedule(tc), operator.OpBalance, 1, 4)
-
-	tc.UpdateRegionCount(4, 30)
-	testutil.CheckTransferPeer(c, sb.Schedule(tc), operator.OpBalance, 1, 3)
-}
-
 func (s *testBalanceRegionSchedulerSuite) TestReplacePendingRegion3C(c *C) {
 	opt := mockoption.NewScheduleOptions()
 	tc := mockcluster.NewCluster(opt)

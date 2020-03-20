@@ -92,7 +92,7 @@ func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) *operator.Operato
 	}
 
 	sort.Slice(stores, func(i, j int) bool {
-		return stores[i].RegionScore() > stores[j].RegionScore()
+		return stores[i].GetRegionSize() > stores[j].GetRegionSize()
 	})
 	for _, source := range stores {
 		sourceID := source.GetID()
@@ -159,7 +159,7 @@ func (s *balanceRegionScheduler) transferPeer(cluster opt.Cluster, region *core.
 	targetID := target.GetID()
 	log.Debug("", zap.Uint64("region-id", regionID), zap.Uint64("source-store", sourceID), zap.Uint64("target-store", targetID))
 
-	if int64(source.RegionScore()-target.RegionScore()) < getThreshold(cluster, region) {
+	if int64(source.GetRegionSize()-target.GetRegionSize()) < 2*region.GetApproximateSize() {
 		return nil
 	}
 
@@ -188,7 +188,7 @@ func selectBestReplacementStore(cluster opt.Cluster, region *core.RegionInfo) ui
 			continue
 		}
 
-		if best == nil || store.RegionScore() < best.RegionScore() {
+		if best == nil || store.GetRegionSize() < best.GetRegionSize() {
 			best = store
 		}
 	}
@@ -196,30 +196,4 @@ func selectBestReplacementStore(cluster opt.Cluster, region *core.RegionInfo) ui
 		return 0
 	}
 	return best.GetID()
-}
-
-func getThreshold(cluster opt.Cluster, region *core.RegionInfo) int64 {
-	regionSize := region.GetApproximateSize()
-	if regionSize < cluster.GetAverageRegionSize() {
-		regionSize = cluster.GetAverageRegionSize()
-	}
-	regionSize = int64(float64(regionSize)*getThresholdRatio(cluster)) * 2
-	return regionSize
-}
-
-func getThresholdRatio(cluster opt.Cluster) float64 {
-	var maxRegionCount float64
-	stores := cluster.GetStores()
-	for _, store := range stores {
-		regionCount := float64(cluster.GetStoreRegionCount(store.GetID()))
-		if maxRegionCount < regionCount {
-			maxRegionCount = regionCount
-		}
-	}
-	thresholdRatio := maxRegionCount * adjustRatio
-	if thresholdRatio < minTolerantSizeRatio {
-		thresholdRatio = minTolerantSizeRatio
-	}
-
-	return thresholdRatio
 }
