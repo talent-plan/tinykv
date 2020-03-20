@@ -139,9 +139,9 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 		peerStorage:           ps,
 		peerCache:             make(map[uint64]*metapb.Peer),
 		PeersStartPendingTime: make(map[uint64]time.Time),
-		Tag:                   tag,
-		LastApplyingIdx:       appliedIndex,
-		ticker:                newTicker(region.GetId(), cfg),
+		Tag:             tag,
+		LastApplyingIdx: appliedIndex,
+		ticker:          newTicker(region.GetId(), cfg),
 	}
 
 	// If this region has only one peer and I am the one, campaign directly.
@@ -459,7 +459,7 @@ func (p *peer) sendRaftMessage(msg eraftpb.Message, trans Transport) error {
 	if toPeer == nil {
 		return fmt.Errorf("failed to lookup recipient peer %v in region %v", msg.To, p.regionId)
 	}
-	log.Debugf("%v, send raft msg %v from %v to %v", p.Tag, msg.MsgType, fromPeer.Id, toPeer.Id)
+	log.Debugf("%v, send raft msg %v from %v to %v", p.Tag, msg.MsgType, fromPeer, toPeer)
 
 	sendMsg.FromPeer = &fromPeer
 	sendMsg.ToPeer = toPeer

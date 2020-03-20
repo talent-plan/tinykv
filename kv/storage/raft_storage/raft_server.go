@@ -189,7 +189,7 @@ func (rs *RaftStorage) Start() error {
 	resolveRunner := newResolverRunner(schedulerClient)
 	rs.resolveWorker.Start(resolveRunner)
 
-	rs.snapManager = snap.NewSnapManager(cfg.DBPath + "snap")
+	rs.snapManager = snap.NewSnapManager(filepath.Join(cfg.DBPath, "snap"))
 	rs.snapWorker = worker.NewWorker("snap-worker", &rs.wg)
 	snapSender := rs.snapWorker.Sender()
 	snapRunner := newSnapRunner(rs.snapManager, rs.config, rs.raftRouter)
