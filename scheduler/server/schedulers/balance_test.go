@@ -162,31 +162,6 @@ func (s *testBalanceRegionSchedulerSuite) TestReplicas53C(c *C) {
 	testutil.CheckTransferPeer(c, sb.Schedule(tc), operator.OpBalance, 11, 6)
 }
 
-func (s *testBalanceRegionSchedulerSuite) TestStoreWeight3C(c *C) {
-	opt := mockoption.NewScheduleOptions()
-	tc := mockcluster.NewCluster(opt)
-	oc := schedule.NewOperatorController(s.ctx, nil, nil)
-
-	sb, err := schedule.CreateScheduler("balance-region", oc, core.NewStorage(kv.NewMemoryKV()), nil)
-	c.Assert(err, IsNil)
-	opt.SetMaxReplicas(1)
-
-	tc.AddRegionStore(1, 10)
-	tc.AddRegionStore(2, 10)
-	tc.AddRegionStore(3, 10)
-	tc.AddRegionStore(4, 10)
-	tc.UpdateStoreRegionWeight(1, 0.5)
-	tc.UpdateStoreRegionWeight(2, 0.9)
-	tc.UpdateStoreRegionWeight(3, 1.0)
-	tc.UpdateStoreRegionWeight(4, 2.0)
-
-	tc.AddLeaderRegion(1, 1)
-	testutil.CheckTransferPeer(c, sb.Schedule(tc), operator.OpBalance, 1, 4)
-
-	tc.UpdateRegionCount(4, 30)
-	testutil.CheckTransferPeer(c, sb.Schedule(tc), operator.OpBalance, 1, 3)
-}
-
 func (s *testBalanceRegionSchedulerSuite) TestReplacePendingRegion3C(c *C) {
 	opt := mockoption.NewScheduleOptions()
 	tc := mockcluster.NewCluster(opt)
@@ -214,75 +189,6 @@ func (s *testBalanceRegionSchedulerSuite) TestReplacePendingRegion3C(c *C) {
 
 	c.Assert(sb.Schedule(tc).RegionID(), Equals, uint64(3))
 	testutil.CheckTransferPeer(c, sb.Schedule(tc), operator.OpBalance, 1, 4)
-}
-
-var _ = Suite(&testBalanceSpeedSuite{})
-
-type testBalanceSpeedSuite struct{}
-
-type testBalanceSpeedCase struct {
-	sourceCount    uint64
-	targetCount    uint64
-	regionSize     int64
-	expectedResult bool
-}
-
-func (s *testBalanceSpeedSuite) TestShouldBalance3C(c *C) {
-	tests := []testBalanceSpeedCase{
-		// all store capacity is 1024MB
-		// size = count * 10
-
-		// target size is zero
-		{2, 0, 1, true},
-		{2, 0, 10, true},
-		// all in high space stage
-		{10, 5, 1, true},
-		{10, 5, 20, true},
-		{10, 10, 1, false},
-		{10, 10, 20, false},
-		// all in transition stage
-		{70, 50, 1, true},
-		{70, 50, 50, true},
-		{70, 70, 1, false},
-		// all in low space stage
-		{90, 80, 1, true},
-		{90, 80, 50, true},
-		{90, 90, 1, false},
-		// one in high space stage, other in transition stage
-		{65, 55, 5, true},
-		{65, 50, 50, true},
-		// one in transition space stage, other in low space stage
-		{80, 70, 5, true},
-		{80, 70, 50, true},
-	}
-
-	opt := mockoption.NewScheduleOptions()
-	tc := mockcluster.NewCluster(opt)
-	// create a region to control average region size.
-	tc.AddLeaderRegion(1, 1, 2)
-
-	for _, t := range tests {
-		tc.AddRegionStore(1, int(t.sourceCount))
-		tc.AddRegionStore(2, int(t.targetCount))
-		source := tc.GetStore(1)
-		target := tc.GetStore(2)
-		region := tc.GetRegion(1).Clone(core.SetApproximateSize(t.regionSize))
-		tc.PutRegion(region)
-		kind := core.NewScheduleKind(core.RegionKind)
-		c.Assert(shouldBalance(tc, source, target, region, kind, ""), Equals, t.expectedResult)
-	}
-}
-
-func (s *testBalanceSpeedSuite) TestTolerantRatio3C(c *C) {
-	opt := mockoption.NewScheduleOptions()
-	tc := mockcluster.NewCluster(opt)
-	// create a region to control average region size.
-	tc.AddLeaderRegion(1, 1, 2)
-	regionSize := int64(96 * 1024)
-	region := tc.GetRegion(1).Clone(core.SetApproximateSize(regionSize))
-
-	c.Assert(getTolerantResource(tc, region, core.ScheduleKind{Resource: core.LeaderKind}), Equals, int64(leaderTolerantSizeRatio))
-	c.Assert(getTolerantResource(tc, region, core.ScheduleKind{Resource: core.RegionKind}), Equals, int64(getTolerantRatio(tc)*float64(regionSize)))
 }
 
 var _ = Suite(&testBalanceLeaderSchedulerSuite{})
@@ -410,25 +316,6 @@ func (s *testBalanceLeaderSchedulerSuite) TestBalanceFilter(c *C) {
 	// If store 3 is disconnected, no operator can be created.
 	s.tc.SetStoreDisconnect(3)
 	c.Assert(s.schedule(), IsNil)
-}
-
-func (s *testBalanceLeaderSchedulerSuite) TestLeaderWeight(c *C) {
-	// Stores:	1	2	3	4
-	// Leaders:    16      16      16      16->48
-	// Weight:    0.5     0.9       1       2
-	// Region1:     L       F       F       F
-	s.tc.AddLeaderStore(1, 16)
-	s.tc.AddLeaderStore(2, 16)
-	s.tc.AddLeaderStore(3, 16)
-	s.tc.AddLeaderStore(4, 16)
-	s.tc.UpdateStoreLeaderWeight(1, 0.5)
-	s.tc.UpdateStoreLeaderWeight(2, 0.9)
-	s.tc.UpdateStoreLeaderWeight(3, 1)
-	s.tc.UpdateStoreLeaderWeight(4, 2)
-	s.tc.AddLeaderRegion(1, 1, 2, 3, 4)
-	testutil.CheckTransferLeader(c, s.schedule(), operator.OpBalance, 1, 4)
-	s.tc.UpdateLeaderCount(4, 48)
-	testutil.CheckTransferLeader(c, s.schedule(), operator.OpBalance, 1, 3)
 }
 
 func (s *testBalanceLeaderSchedulerSuite) TestBalanceSelector(c *C) {
