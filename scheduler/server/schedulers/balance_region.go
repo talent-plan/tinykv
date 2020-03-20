@@ -85,7 +85,7 @@ func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) *operator.Operato
 	var stores []*core.StoreInfo
 
 	for _, store := range allStores {
-		if store.DownTime() > cluster.GetMaxStoreDownTime() || store.IsTombstone() || store.IsBusy() || !store.IsAvailable() {
+		if !store.IsUp() || store.DownTime() > cluster.GetMaxStoreDownTime() {
 			continue
 		}
 		stores = append(stores, store)
@@ -184,7 +184,7 @@ func selectBestReplacementStore(cluster opt.Cluster, region *core.RegionInfo) ui
 			continue
 		}
 
-		if !store.IsUp() || store.IsBusy() || store.DownTime() > cluster.GetMaxStoreDownTime() {
+		if !store.IsUp() || store.DownTime() > cluster.GetMaxStoreDownTime() {
 			continue
 		}
 
