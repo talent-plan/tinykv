@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"github.com/pingcap-incubator/tinykv/scheduler/pkg/tsoutil"
 
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/storage/raft_storage"
@@ -101,4 +102,9 @@ func (server *Server) KvResolveLock(_ context.Context, req *kvrpcpb.ResolveLockR
 // SQL push down commands.
 func (server *Server) Coprocessor(_ context.Context, req *coprocessor.Request) (*coprocessor.Response, error) {
 	return &coprocessor.Response{}, nil
+}
+
+// PhysicalTime returns the physical time part of the timestamp.
+func PhysicalTime(ts uint64) uint64 {
+	return ts >> tsoutil.PhysicalShiftBits
 }

@@ -9,7 +9,7 @@ import (
 
 // MvccTxn groups together writes as part of a single transaction. It also provides an abstraction over low-level
 // storage, lowering the concepts of timestamps, writes, and locks into plain keys and values.
-type MvccTxn struct{
+type MvccTxn struct {
 	// Your code here (4a).
 }
 
