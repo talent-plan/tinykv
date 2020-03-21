@@ -26,6 +26,7 @@ func (s *Scan) Read(txn *mvcc.RoTxn) (interface{}, [][]byte, error) {
 	response := new(kvrpcpb.ScanResponse)
 
 	scanner := mvcc.NewScanner(s.request.StartKey, txn)
+	defer scanner.Close()
 	limit := s.request.Limit
 	for {
 		if limit == 0 {

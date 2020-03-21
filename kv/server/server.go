@@ -4,7 +4,6 @@ import (
 	"context"
 	"reflect"
 
-	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/storage/raft_storage"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/commands"
@@ -119,11 +118,9 @@ func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kv
 	if !rawRegionError(err, response) {
 		val, err := reader.GetCF(req.Cf, req.Key)
 		if err != nil {
-			if err == badger.ErrKeyNotFound {
-				response.NotFound = true
-			} else {
-				rawRegionError(err, response)
-			}
+			rawRegionError(err, response)
+		} else if val == nil {
+			response.NotFound = true
 		} else {
 			response.Value = val
 		}

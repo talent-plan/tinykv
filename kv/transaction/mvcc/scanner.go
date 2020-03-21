@@ -23,6 +23,10 @@ func NewScanner(startKey []byte, txn *RoTxn) *Scanner {
 	}
 }
 
+func (scan *Scanner) Close() {
+	scan.writeIter.Close()
+}
+
 // Next returns the next key/value pair from the scanner. If the scanner is exhausted, then it will return `nil, nil, nil`.
 func (scan *Scanner) Next() ([]byte, []byte, interface{}) {
 	// Search for the next relevant key/value.
