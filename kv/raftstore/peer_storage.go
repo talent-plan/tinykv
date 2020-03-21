@@ -35,6 +35,9 @@ type PeerStorage struct {
 	region *metapb.Region
 	// current raft state of the peer
 	raftState rspb.RaftLocalState
+	// current apply state of the peer
+	applyState rspb.RaftApplyState
+
 	// current snapshot state
 	snapState snap.SnapState
 	// regionSched used to schedule task to region worker
@@ -244,12 +247,6 @@ func (ps *PeerStorage) validateSnap(snap *eraftpb.Snapshot) bool {
 	return true
 }
 
-// Append the given entries to the raft log and update ps.raftState also delete log entries that will
-// never be committed
-func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.WriteBatch) error {
-	// Your Code Here (2B).
-}
-
 func (ps *PeerStorage) clearMeta(kvWB, raftWB *engine_util.WriteBatch) error {
 	return ClearMeta(ps.Engines, kvWB, raftWB, ps.region.Id, ps.raftState.LastIndex)
 }
@@ -304,18 +301,15 @@ func ClearMeta(engines *engine_util.Engines, kvWB, raftWB *engine_util.WriteBatc
 	return nil
 }
 
-// Apply the peer with given snapshot
-func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB *engine_util.WriteBatch, raftWB *engine_util.WriteBatch) (*ApplySnapResult, error) {
-	// Hint: things need to do here including: update peer storage state like raftState and applyState, etc,
-	// and send RegionTaskApply task to region worker through ps.regionSched, also remenber call ps.clearMeta
-	// and ps.clearExtraData to delete stale data
-	// Your Code Here (2B).
-}
-
-/// Save memory states to disk.
-/// Do not modify ready in this function, this is a requirement to advance the ready object properly later.
+// Save memory states to disk.
+// Do not modify ready in this function, this is a requirement to advance the ready object properly later.
 func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (*ApplySnapResult, error) {
+	// Hint: things need to do here including: update peer storage state like raftState and applyState, etc,
+	// When applying snapshot, send RegionTaskApply task to region worker through ps.regionSched, also remember call ps.clearMeta
+	// and ps.clearExtraData to delete stale data
+
 	// Your Code Here (2B).
+	return nil, nil
 }
 
 func (ps *PeerStorage) ClearData() {
