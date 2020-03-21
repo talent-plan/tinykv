@@ -43,6 +43,9 @@ func (server *Server) KvGet(_ context.Context, req *kvrpcpb.GetRequest) (*kvrpcp
 	// Your code here 4A
 	cmd := commands.NewGet(req)
 	resp, err := server.Run(&cmd)
+	if err != nil {
+		return nil, err
+	}
 	return resp.(*kvrpcpb.GetResponse), err
 }
 
@@ -50,6 +53,9 @@ func (server *Server) KvScan(_ context.Context, req *kvrpcpb.ScanRequest) (*kvrp
 	// Your code here 4B
 	cmd := commands.NewScan(req)
 	resp, err := server.Run(&cmd)
+	if err != nil {
+		return nil, err
+	}
 	return resp.(*kvrpcpb.ScanResponse), err
 }
 
@@ -57,6 +63,9 @@ func (server *Server) KvPrewrite(_ context.Context, req *kvrpcpb.PrewriteRequest
 	// Your code here 4A
 	cmd := commands.NewPrewrite(req)
 	resp, err := server.Run(&cmd)
+	if err != nil {
+		return nil, err
+	}
 	return resp.(*kvrpcpb.PrewriteResponse), err
 }
 
@@ -64,6 +73,9 @@ func (server *Server) KvCommit(_ context.Context, req *kvrpcpb.CommitRequest) (*
 	// Your code here 4A
 	cmd := commands.NewCommit(req)
 	resp, err := server.Run(&cmd)
+	if err != nil {
+		return nil, err
+	}
 	return resp.(*kvrpcpb.CommitResponse), err
 }
 
@@ -71,6 +83,9 @@ func (server *Server) KvCheckTxnStatus(_ context.Context, req *kvrpcpb.CheckTxnS
 	// Your code here 4B
 	cmd := commands.NewCheckTxnStatus(req)
 	resp, err := server.Run(&cmd)
+	if err != nil {
+		return nil, err
+	}
 	return resp.(*kvrpcpb.CheckTxnStatusResponse), err
 }
 
@@ -78,6 +93,9 @@ func (server *Server) KvBatchRollback(_ context.Context, req *kvrpcpb.BatchRollb
 	// Your code here 4B
 	cmd := commands.NewRollback(req)
 	resp, err := server.Run(&cmd)
+	if err != nil {
+		return nil, err
+	}
 	return resp.(*kvrpcpb.BatchRollbackResponse), err
 }
 
@@ -85,6 +103,9 @@ func (server *Server) KvResolveLock(_ context.Context, req *kvrpcpb.ResolveLockR
 	// Your code here 4B
 	cmd := commands.NewResolveLock(req)
 	resp, err := server.Run(&cmd)
+	if err != nil {
+		return nil, err
+	}
 	return resp.(*kvrpcpb.ResolveLockResponse), err
 }
 
