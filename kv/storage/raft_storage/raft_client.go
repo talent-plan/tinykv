@@ -54,30 +54,27 @@ func (c *raftConn) Send(msg *raft_serverpb.RaftMessage) error {
 	return c.stream.Send(msg)
 }
 
-type connKey struct {
-	addr  string
-	index int
-}
-
 type RaftClient struct {
 	config *config.Config
 	sync.RWMutex
-	conn  *raftConn
+	conns map[string]*raftConn
 	addrs map[uint64]string
 }
 
 func newRaftClient(config *config.Config) *RaftClient {
 	return &RaftClient{
 		config: config,
+		conns:  make(map[string]*raftConn),
 		addrs:  make(map[uint64]string),
 	}
 }
 
 func (c *RaftClient) getConn(addr string, regionID uint64) (*raftConn, error) {
 	c.RLock()
-	if c.conn != nil {
+	conn, ok := c.conns[addr]
+	if ok {
 		c.RUnlock()
-		return c.conn, nil
+		return conn, nil
 	}
 	c.RUnlock()
 	newConn, err := newRaftConn(addr, c.config)
@@ -86,11 +83,11 @@ func (c *RaftClient) getConn(addr string, regionID uint64) (*raftConn, error) {
 	}
 	c.Lock()
 	defer c.Unlock()
-	if c.conn != nil {
+	if conn, ok := c.conns[addr]; ok {
 		newConn.Stop()
-		return c.conn, nil
+		return conn, nil
 	}
-	c.conn = newConn
+	c.conns[addr] = newConn
 	return newConn, nil
 }
 
@@ -108,7 +105,7 @@ func (c *RaftClient) Send(storeID uint64, addr string, msg *raft_serverpb.RaftMe
 	c.Lock()
 	defer c.Unlock()
 	conn.Stop()
-	c.conn = nil
+	delete(c.conns, addr)
 	if oldAddr, ok := c.addrs[storeID]; ok && oldAddr == addr {
 		delete(c.addrs, storeID)
 	}
