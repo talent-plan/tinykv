@@ -4,7 +4,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/storage/standalone_storage"
@@ -183,8 +182,9 @@ func TestRawDelete1(t *testing.T) {
 	_, err := server.RawDelete(nil, req)
 	assert.Nil(t, err)
 
-	_, err = Get(s, cf, []byte{99})
-	assert.Equal(t, err, badger.ErrKeyNotFound)
+	val, err := Get(s, cf, []byte{99})
+	assert.Equal(t, err, nil)
+	assert.Equal(t, val, []byte(nil))
 }
 
 func TestRawScan1(t *testing.T) {
