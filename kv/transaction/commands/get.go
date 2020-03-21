@@ -41,6 +41,11 @@ func (g *Get) Read(txn *mvcc.RoTxn) (interface{}, [][]byte, error) {
 		return regionErrorRo(err, response)
 	}
 
-	response.Value = value
+	if value == nil {
+		response.NotFound = true
+	} else {
+		response.Value = value
+	}
+
 	return response, nil, nil
 }
