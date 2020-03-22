@@ -45,7 +45,7 @@ func (c *Commit) PrepareWrites(txn *mvcc.MvccTxn) (interface{}, error) {
 func commitKey(key []byte, commitTs uint64, txn *mvcc.MvccTxn, response interface{}) (interface{}, error) {
 	lock, err := txn.GetLock(key)
 	if err != nil {
-		return regionError(err, response)
+		return nil, err
 	}
 	if lock == nil {
 		return nil, nil
@@ -55,7 +55,7 @@ func commitKey(key []byte, commitTs uint64, txn *mvcc.MvccTxn, response interfac
 		// Key is locked by a different transaction.
 		write, _, err := txn.CurrentWrite(key)
 		if err != nil {
-			return regionError(err, response)
+			return nil, err
 		}
 		if write == nil || write.Kind == mvcc.WriteKindRollback {
 			// Transaction has been rolled back.

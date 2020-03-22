@@ -45,10 +45,10 @@ func (s *Scan) Read(txn *mvcc.RoTxn) (interface{}, [][]byte, error) {
 				continue
 			} else if e, ok := err.(error); ok {
 				// Any other kind of error, we can't handle so quit the scan.
-				return regionErrorRo(e, response)
+				return nil, nil, e
 			} else {
 				// No way we should get here.
-				continue
+				panic("unreachable")
 			}
 		}
 		if key == nil {
