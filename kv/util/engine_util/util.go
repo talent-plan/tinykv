@@ -76,6 +76,12 @@ func PutMeta(engine *badger.DB, key []byte, msg proto.Message) error {
 	})
 }
 
+func DeleteCF(engine *badger.DB, cf string, key []byte) error {
+	return engine.Update(func(txn *badger.Txn) error {
+		return txn.Delete(KeyWithCF(cf, key))
+	})
+}
+
 func DeleteRange(db *badger.DB, startKey, endKey []byte) error {
 	batch := new(WriteBatch)
 	txn := db.NewTransaction(false)
