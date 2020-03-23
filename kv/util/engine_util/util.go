@@ -13,11 +13,7 @@ func KeyWithCF(cf string, key []byte) []byte {
 
 func GetCF(db *badger.DB, cf string, key []byte) (val []byte, err error) {
 	err = db.View(func(txn *badger.Txn) error {
-		item, err := txn.Get(KeyWithCF(cf, key))
-		if err != nil {
-			return err
-		}
-		val, err = item.ValueCopy(val)
+		val, err = GetCFFromTxn(txn, cf, key)
 		return err
 	})
 	return
