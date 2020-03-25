@@ -131,16 +131,19 @@ type Raft struct {
 	// the leader id
 	Lead uint64
 
-	// heartbeat interval
+	// heartbeat interval, should send
 	heartbeatTimeout int
 	// baseline of election interval
 	electionTimeout int
-	// randomizedElectionTimeout is a random number between
-	// [electiontimeout, 2 * electiontimeout - 1].
-	randomizedElectionTimeout int
+	// number of ticks since it reached last heartbeatTimeout.
+	// only leader keeps heartbeatElapsed.
+	heartbeatElapsed int
+	// number of ticks since it reached last electionTimeout
+	electionElapsed int
 
 	// leadTransferee is id of the leader transfer target when its value is not zero.
 	// Follow the procedure defined in raft thesis 3.10.
+	// (Used in 3A leader transfer)
 	leadTransferee uint64
 
 	// Only one conf change may be pending (in the log, but not yet
@@ -149,14 +152,8 @@ type Raft struct {
 	// configuration change (if any). Config changes are only allowed to
 	// be proposed if the leader's applied index is greater than this
 	// value.
+	// (Used in 3A conf change)
 	PendingConfIndex uint64
-
-	// number of ticks since it reached last electionTimeout
-	electionElapsed int
-
-	// number of ticks since it reached last heartbeatTimeout.
-	// only leader keeps heartbeatElapsed.
-	heartbeatElapsed int
 }
 
 // newRaft return a raft peer with the given config

@@ -21,10 +21,6 @@ The state machine is kept in sync through the use of a replicated log.
 For more details on Raft, see "In Search of an Understandable Consensus Algorithm"
 (https://ramcloud.stanford.edu/raft.pdf) by Diego Ongaro and John Ousterhout.
 
-A simple example application, _raftexample_, is also available to help illustrate
-how to use this package in practice:
-https://github.com/etcd-io/etcd/tree/master/contrib/raftexample
-
 Usage
 
 The primary object in raft is a Node. You either start a Node from scratch
@@ -38,7 +34,6 @@ To start a node from scratch:
     ElectionTick:    10,
     HeartbeatTick:   1,
     Storage:         storage,
-    MaxInflightMsgs: 256,
   }
   n := raft.StartNode(c, []raft.Peer{{ID: 0x02}, {ID: 0x03}})
 
@@ -77,11 +72,7 @@ previously-persisted entries with Index >= i must be discarded.
 2. Send all Messages to the nodes named in the To field. It is important that
 no messages be sent until the latest HardState has been persisted to disk,
 and all Entries written by any previous Ready batch (Messages may be sent while
-entries from the same batch are being persisted). To reduce the I/O latency, an
-optimization can be applied to make leader write to disk in parallel with its
-followers (as explained at section 10.2.1 in Raft thesis). If any Message has type
-MessageType_MsgSnapshot, call Node.ReportSnapshot() after it has been sent (these messages may be
-large).
+entries from the same batch are being persisted).
 
 Note: Marshalling messages is not thread-safe; it is important that you
 make sure that no new entries are persisted while marshalling.
@@ -145,7 +136,7 @@ The total state machine handling loop will look something like this:
 To propose changes to the state machine from your node take your application
 data, serialize it into a byte slice and call:
 
-	n.Propose(ctx, data)
+	n.Propose(data)
 
 If the proposal is committed, data will appear in committed entries with type
 eraftpb.EntryType_EntryNormal. There is no guarantee that a proposed command will be
@@ -153,7 +144,7 @@ committed; you may have to re-propose after a timeout.
 
 To add or remove a node in a cluster, build ConfChange struct 'cc' and call:
 
-	n.ProposeConfChange(ctx, cc)
+	n.ProposeConfChange(cc)
 
 After config change is committed, some committed entry with type
 eraftpb.EntryType_EntryConfChange will be returned. You must apply it to node through:
@@ -261,14 +252,6 @@ stale log entries:
 	follower. In 'sendAppend', if a leader fails to get term or entries,
 	the leader requests snapshot by sending 'MessageType_MsgSnapshot' type message.
 
-	'MessageType_MsgSnapStatus' tells the result of snapshot install message. When a
-	follower rejected 'MessageType_MsgSnapshot', it indicates the snapshot request with
-	'MessageType_MsgSnapshot' had failed from network issues which causes the network layer
-	to fail to send out snapshots to its followers. Then leader considers
-	follower's progress as probe. When 'MessageType_MsgSnapshot' were not rejected, it
-	indicates that the snapshot succeeded and the leader sets follower's
-	progress to probe and resumes its log replication.
-
 	'MessageType_MsgHeartbeat' sends heartbeat from leader. When 'MessageType_MsgHeartbeat' is passed
 	to candidate and message's term is higher than candidate's, the candidate
 	reverts back to follower and updates its committed index from the one in
@@ -279,14 +262,7 @@ stale log entries:
 
 	'MessageType_MsgHeartbeatResponse' is a response to 'MessageType_MsgHeartbeat'. When 'MessageType_MsgHeartbeatResponse'
 	is passed to leader's Step method, the leader knows which follower
-	responded. And only when the leader's last committed index is greater than
-	follower's Match index, the leader runs 'sendAppend` method.
-
-	'MessageType_MsgUnreachable' tells that request(message) wasn't delivered. When
-	'MessageType_MsgUnreachable' is passed to leader's Step method, the leader discovers
-	that the follower that sent this 'MessageType_MsgUnreachable' is not reachable, often
-	indicating 'MessageType_MsgAppend' is lost. When follower's progress state is replicate,
-	the leader sets it back to probe.
+	responded.
 
 */
 package raft
