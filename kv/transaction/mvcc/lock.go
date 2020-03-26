@@ -96,13 +96,3 @@ func AllLocksForTxn(txn *RoTxn) ([]KlPair, error) {
 	}
 	return result, nil
 }
-
-func LockedError(info ...kvrpcpb.LockInfo) []*kvrpcpb.KeyError {
-	var result []*kvrpcpb.KeyError
-	for _, i := range info {
-		var ke kvrpcpb.KeyError
-		ke.Locked = &i
-		result = append(result, &ke)
-	}
-	return result
-}
