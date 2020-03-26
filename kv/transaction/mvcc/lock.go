@@ -77,7 +77,7 @@ func (lock *Lock) IsLockedFor(key []byte, txnStartTs uint64, resp interface{}) b
 // AllLocksForTxn returns all locks for the current transaction.
 func AllLocksForTxn(txn *MvccTxn) ([]KlPair, error) {
 	var result []KlPair
-	iter := txn.Reader.IterCF(engine_util.CfLock)
+	iter := txn.Reader().IterCF(engine_util.CfLock)
 	defer iter.Close()
 
 	for ; iter.Valid(); iter.Next() {
