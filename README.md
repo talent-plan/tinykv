@@ -41,11 +41,9 @@ mkdir -p data
 ./tinysql-server --store=tikv --path="127.0.0.1:2379"
 ```
 
-## Documentation(I)
+## Documentation
 
-[Course material] https://docs.google.com/document/d/1Z3OrUOq28a44UaipQiagwfM_py6gS9nLz-znk6jtMpU/edit# is in google doc now. It will be moved to github once polish finsihed.
+[Course material](https://docs.google.com/document/d/1Z3OrUOq28a44UaipQiagwfM_py6gS9nLz-znk6jtMpU/edit#) is in google doc now. It will be moved to github once polish finsihed.
 
 This repo contains a single module: tinykv. Each package is documented either in a doc.go file or, if it is a single
 file package, in the single file.
-
-See [doc.go](doc.go) for top-level documentation.
