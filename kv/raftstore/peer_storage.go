@@ -301,13 +301,26 @@ func ClearMeta(engines *engine_util.Engines, kvWB, raftWB *engine_util.WriteBatc
 	return nil
 }
 
+// Append the given entries to the raft log and update ps.raftState also delete log entries that will
+// never be committed
+func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.WriteBatch) error {
+	// Your Code Here (2B).
+	return nil
+}
+
+// Apply the peer with given snapshot
+func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB *engine_util.WriteBatch, raftWB *engine_util.WriteBatch) (*ApplySnapResult, error) {
+	// Hint: things need to do here including: update peer storage state like raftState and applyState, etc,
+	// and send RegionTaskApply task to region worker through ps.regionSched, also remember call ps.clearMeta
+	// and ps.clearExtraData to delete stale data
+	// Your Code Here (2B).
+	return nil, nil
+}
+
 // Save memory states to disk.
 // Do not modify ready in this function, this is a requirement to advance the ready object properly later.
 func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (*ApplySnapResult, error) {
-	// Hint: things need to do here including: update peer storage state like raftState and applyState, etc,
-	// When applying snapshot, send RegionTaskApply task to region worker through ps.regionSched, also remember call ps.clearMeta
-	// and ps.clearExtraData to delete stale data
-
+	// Hint: you may call `Append()` and `ApplySnapshot()` in this function
 	// Your Code Here (2B).
 	return nil, nil
 }
