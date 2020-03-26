@@ -2,9 +2,10 @@ package mvcc
 
 import (
 	"bytes"
+	"testing"
+
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
-	"testing"
 
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/stretchr/testify/assert"
@@ -30,13 +31,13 @@ func TestDecodeKey(t *testing.T) {
 	assert.Equal(t, []byte{42, 0, 5}, DecodeUserKey(EncodeKey([]byte{42, 0, 5}, 234234)))
 }
 
-func testTxn(startTs uint64, f func(m *storage.MemStorage)) MvccTxn {
+func testTxn(startTs uint64, f func(m *storage.MemStorage)) *MvccTxn {
 	mem := storage.NewMemStorage()
 	if f != nil {
 		f(mem)
 	}
 	reader, _ := mem.Reader(&kvrpcpb.Context{})
-	return NewTxn(reader, startTs)
+	return NewMvccTxn(reader, startTs)
 }
 
 func assertPutInTxn(t *testing.T, txn *MvccTxn, key []byte, value []byte, cf string) {
@@ -67,7 +68,7 @@ func TestPutLock4A(t *testing.T) {
 	}
 
 	txn.PutLock([]byte{1}, &lock)
-	assertPutInTxn(t, &txn, []byte{1}, lock.ToBytes(), engine_util.CfLock)
+	assertPutInTxn(t, txn, []byte{1}, lock.ToBytes(), engine_util.CfLock)
 }
 
 func TestPutWrite4A(t *testing.T) {
@@ -78,7 +79,7 @@ func TestPutWrite4A(t *testing.T) {
 	}
 
 	txn.PutWrite([]byte{16, 240}, 0, &write)
-	assertPutInTxn(t, &txn, EncodeKey([]byte{16, 240}, 0), write.ToBytes(), engine_util.CfWrite)
+	assertPutInTxn(t, txn, EncodeKey([]byte{16, 240}, 0), write.ToBytes(), engine_util.CfWrite)
 }
 
 func TestPutValue4A(t *testing.T) {
@@ -86,7 +87,7 @@ func TestPutValue4A(t *testing.T) {
 	value := []byte{1, 1, 2, 3, 5, 8, 13}
 
 	txn.PutValue([]byte{32}, value)
-	assertPutInTxn(t, &txn, EncodeKey([]byte{32}, 453325345), value, engine_util.CfDefault)
+	assertPutInTxn(t, txn, EncodeKey([]byte{32}, 453325345), value, engine_util.CfDefault)
 }
 
 func TestGetLock4A(t *testing.T) {
@@ -108,13 +109,13 @@ func TestGetLock4A(t *testing.T) {
 func TestDeleteLock4A(t *testing.T) {
 	txn := testTxn(42, nil)
 	txn.DeleteLock([]byte{1})
-	assertDeleteInTxn(t, &txn, []byte{1}, engine_util.CfLock)
+	assertDeleteInTxn(t, txn, []byte{1}, engine_util.CfLock)
 }
 
 func TestDeleteValue4A(t *testing.T) {
 	txn := testTxn(63454245, nil)
 	txn.DeleteValue([]byte{17, 255, 0})
-	assertDeleteInTxn(t, &txn, EncodeKey([]byte{17, 255, 0}, 63454245), engine_util.CfDefault)
+	assertDeleteInTxn(t, txn, EncodeKey([]byte{17, 255, 0}, 63454245), engine_util.CfDefault)
 }
 
 func singleEntry(m *storage.MemStorage) {
