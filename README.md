@@ -1,5 +1,5 @@
-# The TinyKV LAB
-This is a series of labs on a key-value storage system built with the Raft consensus algorithm. These labs are inspired by the famous [MIT  6.824](http://nil.csail.mit.edu/6.824/2018/index.html) course, but aim to be closer to industry implementations. The whole lab is pruned from [TiKV](github.com/tikv/tikv) and re-written in Go. After completing this course, you will have the knowledge to implement a basic key-value storage service with distributed transactions and fault-tolerance and better understanding of TiKV implementation.
+# The TinyKV Course
+This course is a series of labs on a key-value storage system built with the Raft consensus algorithm. These labs are inspired by the famous [MIT  6.824](http://nil.csail.mit.edu/6.824/2018/index.html) course, but aim to be closer to industry implementations. The whole course is pruned from [TiKV](github.com/tikv/tikv) and re-written in Go. After completing this course, you will have the knowledge to implement a basic key-value storage service with distributed transactions and fault-tolerance and better understanding of TiKV implementation.
 
 The whole project is a skeleton code for a kv server and a scheduler server at initial, and you need to finish the core logic step by step:
 - LAB1: build a standalone key-value server
@@ -41,9 +41,9 @@ mkdir -p data
 ./tinysql-server --store=tikv --path="127.0.0.1:2379"
 ```
 
-## Documentation(Incomplete)
+## Documentation
+
+[Course material](https://docs.google.com/document/d/1Z3OrUOq28a44UaipQiagwfM_py6gS9nLz-znk6jtMpU/edit#) is in google doc now. It will be moved to github once polish finsihed.
 
 This repo contains a single module: tinykv. Each package is documented either in a doc.go file or, if it is a single
 file package, in the single file.
-
-See [doc.go](doc.go) for top-level documentation.
