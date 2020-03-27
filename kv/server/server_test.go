@@ -183,8 +183,8 @@ func TestRawDelete1(t *testing.T) {
 	assert.Nil(t, err)
 
 	val, err := Get(s, cf, []byte{99})
-	assert.Equal(t, err, nil)
-	assert.Equal(t, val, []byte(nil))
+	assert.Equal(t, nil, err)
+	assert.Equal(t, []byte(nil), val)
 }
 
 func TestRawScan1(t *testing.T) {
@@ -286,7 +286,7 @@ func TestRawScanAfterRawDelete1(t *testing.T) {
 
 	resp, err := server.RawScan(nil, scan)
 	assert.Nil(t, err)
-	assert.Equal(t, len(resp.Kvs), len(expectedKeys))
+	assert.Equal(t, len(expectedKeys), len(resp.Kvs))
 	for i, kv := range resp.Kvs {
 		assert.Equal(t, expectedKeys[i], kv.Key)
 		assert.Equal(t, append([]byte{233}, expectedKeys[i]...), kv.Value)
