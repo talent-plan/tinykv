@@ -38,14 +38,14 @@ func (r *Rollback) PrepareWrites(txn *mvcc.MvccTxn) (interface{}, error) {
 func rollbackKey(key []byte, txn *mvcc.MvccTxn, response interface{}) (interface{}, error) {
 	lock, err := txn.GetLock(key)
 	if err != nil {
-		return regionError(err, response)
+		return nil, err
 	}
 
 	if lock == nil || lock.Ts != txn.StartTS {
 		// There is no lock, check the write status.
 		existingWrite, ts, err := txn.CurrentWrite(key)
 		if err != nil {
-			return regionError(err, response)
+			return nil, err
 		}
 		if existingWrite == nil {
 			// There is no write either, presumably the prewrite was lost. We insert a rollback write anyway.

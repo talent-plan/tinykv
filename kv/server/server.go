@@ -43,17 +43,24 @@ func (server *Server) KvGet(_ context.Context, req *kvrpcpb.GetRequest) (*kvrpcp
 	cmd := commands.NewGet(req)
 	resp, err := server.Run(&cmd)
 	if err != nil {
-		return nil, err
+		resp, err = regionError(err, new(kvrpcpb.GetResponse))
+		if err != nil {
+			return nil, err
+		}
 	}
 	return resp.(*kvrpcpb.GetResponse), err
 }
 
 func (server *Server) KvScan(_ context.Context, req *kvrpcpb.ScanRequest) (*kvrpcpb.ScanResponse, error) {
 	// Your code here 4B
+
 	cmd := commands.NewScan(req)
 	resp, err := server.Run(&cmd)
 	if err != nil {
-		return nil, err
+		resp, err = regionError(err, new(kvrpcpb.ScanResponse))
+		if err != nil {
+			return nil, err
+		}
 	}
 	return resp.(*kvrpcpb.ScanResponse), err
 }
@@ -63,7 +70,10 @@ func (server *Server) KvPrewrite(_ context.Context, req *kvrpcpb.PrewriteRequest
 	cmd := commands.NewPrewrite(req)
 	resp, err := server.Run(&cmd)
 	if err != nil {
-		return nil, err
+		resp, err = regionError(err, new(kvrpcpb.PrewriteResponse))
+		if err != nil {
+			return nil, err
+		}
 	}
 	return resp.(*kvrpcpb.PrewriteResponse), err
 }
@@ -73,7 +83,10 @@ func (server *Server) KvCommit(_ context.Context, req *kvrpcpb.CommitRequest) (*
 	cmd := commands.NewCommit(req)
 	resp, err := server.Run(&cmd)
 	if err != nil {
-		return nil, err
+		resp, err = regionError(err, new(kvrpcpb.CommitResponse))
+		if err != nil {
+			return nil, err
+		}
 	}
 	return resp.(*kvrpcpb.CommitResponse), err
 }
@@ -83,7 +96,10 @@ func (server *Server) KvCheckTxnStatus(_ context.Context, req *kvrpcpb.CheckTxnS
 	cmd := commands.NewCheckTxnStatus(req)
 	resp, err := server.Run(&cmd)
 	if err != nil {
-		return nil, err
+		resp, err = regionError(err, new(kvrpcpb.CheckTxnStatusResponse))
+		if err != nil {
+			return nil, err
+		}
 	}
 	return resp.(*kvrpcpb.CheckTxnStatusResponse), err
 }
@@ -93,7 +109,10 @@ func (server *Server) KvBatchRollback(_ context.Context, req *kvrpcpb.BatchRollb
 	cmd := commands.NewRollback(req)
 	resp, err := server.Run(&cmd)
 	if err != nil {
-		return nil, err
+		resp, err = regionError(err, new(kvrpcpb.BatchRollbackResponse))
+		if err != nil {
+			return nil, err
+		}
 	}
 	return resp.(*kvrpcpb.BatchRollbackResponse), err
 }
@@ -103,7 +122,10 @@ func (server *Server) KvResolveLock(_ context.Context, req *kvrpcpb.ResolveLockR
 	cmd := commands.NewResolveLock(req)
 	resp, err := server.Run(&cmd)
 	if err != nil {
-		return nil, err
+		resp, err = regionError(err, new(kvrpcpb.ResolveLockResponse))
+		if err != nil {
+			return nil, err
+		}
 	}
 	return resp.(*kvrpcpb.ResolveLockResponse), err
 }
@@ -206,10 +228,23 @@ func rawRegionError(err error, resp interface{}) bool {
 		return false
 	}
 	respValue := reflect.ValueOf(resp).Elem()
-	if regionErr, ok := err.(*raft_storage.RegionError); ok {
-		respValue.FieldByName("RegionError").Set(reflect.ValueOf(regionErr.RequestErr))
+	if regionError, ok := err.(*raft_storage.RegionError); ok {
+		respValue.FieldByName("RegionError").Set(reflect.ValueOf(regionError.RequestErr))
 	} else {
 		respValue.FieldByName("Error").Set(reflect.ValueOf(err.Error()))
 	}
 	return true
+}
+
+// regionError is a help method for handling region errors. If error is a region error, then it is added to resp (which
+// muse have a `RegionError` field; the response is returned. If the error is not a region error, then regionError returns
+// nil and the error.
+func regionError(err error, resp interface{}) (interface{}, error) {
+	if regionError, ok := err.(*raft_storage.RegionError); ok {
+		respValue := reflect.ValueOf(resp)
+		respValue.FieldByName("RegionError").Set(reflect.ValueOf(regionError.RequestErr))
+		return resp, nil
+	}
+
+	return nil, err
 }
