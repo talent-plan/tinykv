@@ -184,14 +184,17 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 		cfg.RaftLogGcCountLimit = uint64(maxraftlog)
 	}
 	if split {
-		cfg.RegionMaxSize = 800
-		cfg.RegionSplitSize = 500
+		cfg.RegionMaxSize = 300
+		cfg.RegionSplitSize = 200
 	}
 	cluster := NewTestCluster(nservers, cfg)
 	cluster.Start()
 	defer cluster.Shutdown()
 
 	electionTimeout := cfg.RaftBaseTickInterval * time.Duration(cfg.RaftElectionTimeoutTicks)
+	// Wait for leader election
+	time.Sleep(2 * electionTimeout)
+
 	done_partitioner := int32(0)
 	done_confchanger := int32(0)
 	done_clients := int32(0)
@@ -243,7 +246,7 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 			time.Sleep(100 * time.Millisecond)
 			go confchanger(t, cluster, ch_confchange, &done_confchanger)
 		}
-		time.Sleep(2 * time.Second)
+		time.Sleep(5 * time.Second)
 		atomic.StoreInt32(&done_clients, 1)     // tell clients to quit
 		atomic.StoreInt32(&done_partitioner, 1) // tell partitioner to quit
 		atomic.StoreInt32(&done_confchanger, 1) // tell confchanger to quit
@@ -548,6 +551,7 @@ func TestBasicConfChange3B(t *testing.T) {
 	cluster.Start()
 	defer cluster.Shutdown()
 
+	cluster.MustTransferLeader(1, NewPeer(1, 1))
 	cluster.MustRemovePeer(1, NewPeer(2, 2))
 	cluster.MustRemovePeer(1, NewPeer(3, 3))
 	cluster.MustRemovePeer(1, NewPeer(4, 4))

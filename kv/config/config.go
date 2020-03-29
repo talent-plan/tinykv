@@ -85,7 +85,7 @@ func NewTestConfig() *Config {
 	return &Config{
 		LogLevel:                 "info",
 		Raft:                     true,
-		RaftBaseTickInterval:     10 * time.Millisecond,
+		RaftBaseTickInterval:     50 * time.Millisecond,
 		RaftHeartbeatTicks:       2,
 		RaftElectionTimeoutTicks: 10,
 		RaftLogGCTickInterval:    50 * time.Millisecond,
