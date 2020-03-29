@@ -415,8 +415,12 @@ func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (*ApplySnapResult, erro
 		}
 	}
 
-	if !raft.IsEmptyHardState(ready.HardState) {
-		ps.raftState.HardState = &ready.HardState
+	// Last index is 0 means the peer is created from raft message
+	// and has not applied snapshot yet, so skip persistent hard state.
+	if ps.raftState.LastIndex > 0 {
+		if !raft.IsEmptyHardState(ready.HardState) {
+			ps.raftState.HardState = &ready.HardState
+		}
 	}
 
 	if !proto.Equal(&prevRaftState, &ps.raftState) {
