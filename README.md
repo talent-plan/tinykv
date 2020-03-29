@@ -34,7 +34,7 @@ mkdir -p data
 ```
 
 ```
-./tinykv-server --db-path=data
+./tinykv-server -path=data
 ```
 
 ```
