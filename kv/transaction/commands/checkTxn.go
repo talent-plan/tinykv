@@ -27,7 +27,7 @@ func (c *CheckTxnStatus) PrepareWrites(txn *mvcc.MvccTxn) (interface{}, error) {
 
 	lock, err := txn.GetLock(key)
 	if err != nil {
-		return regionError(err, response)
+		return nil, err
 	}
 	if lock != nil && lock.Ts == txn.StartTS {
 		if physical(lock.Ts)+lock.Ttl < physical(c.request.CurrentTs) {
@@ -50,7 +50,7 @@ func (c *CheckTxnStatus) PrepareWrites(txn *mvcc.MvccTxn) (interface{}, error) {
 
 	existingWrite, commitTs, err := txn.CurrentWrite(key)
 	if err != nil {
-		return regionError(err, response)
+		return nil, err
 	}
 	if existingWrite == nil {
 		// The lock never existed, roll it back.

@@ -28,7 +28,7 @@ func (g *Get) Read(txn *mvcc.RoTxn) (interface{}, [][]byte, error) {
 	// Check for locks.
 	lock, err := txn.GetLock(key)
 	if err != nil {
-		return regionErrorRo(err, response)
+		return nil, nil, err
 	}
 	if lock.IsLockedFor(key, txn.StartTS, response) {
 		// Key is locked.
@@ -38,7 +38,7 @@ func (g *Get) Read(txn *mvcc.RoTxn) (interface{}, [][]byte, error) {
 	// Search writes for a committed value.
 	value, err := txn.GetValue(key)
 	if err != nil {
-		return regionErrorRo(err, response)
+		return nil, nil, err
 	}
 
 	if value == nil {
