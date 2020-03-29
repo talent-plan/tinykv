@@ -548,6 +548,7 @@ func TestBasicConfChange3B(t *testing.T) {
 	cluster.Start()
 	defer cluster.Shutdown()
 
+	cluster.MustTransferLeader(1, NewPeer(1, 1))
 	cluster.MustRemovePeer(1, NewPeer(2, 2))
 	cluster.MustRemovePeer(1, NewPeer(3, 3))
 	cluster.MustRemovePeer(1, NewPeer(4, 4))
