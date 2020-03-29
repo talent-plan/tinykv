@@ -192,6 +192,9 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 	defer cluster.Shutdown()
 
 	electionTimeout := cfg.RaftBaseTickInterval * time.Duration(cfg.RaftElectionTimeoutTicks)
+	// Wait for leader election
+	time.Sleep(2 * electionTimeout)
+
 	done_partitioner := int32(0)
 	done_confchanger := int32(0)
 	done_clients := int32(0)
