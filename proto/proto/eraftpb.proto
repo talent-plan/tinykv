@@ -79,12 +79,9 @@ message Message {
     uint64 commit = 8;
     Snapshot snapshot = 9;
     bool reject = 10;
-    // TODO: Delete Start
-    uint64 reject_hint = 11;
-    // TODO: Delete End
 }
 
-// HardState contains the state of a node, including the current term, commit index 
+// HardState contains the state of a node need to be peristed, including the current term, commit index 
 // and the vote record
 message HardState {
     uint64 term = 1;
