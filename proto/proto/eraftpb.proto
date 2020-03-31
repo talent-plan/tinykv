@@ -72,12 +72,18 @@ message Message {
     MessageType msg_type = 1;
     uint64 to = 2;
     uint64 from = 3;
+    // sender's term
     uint64 term = 4;
-    uint64 log_term = 5;
-    uint64 index = 6;
+    // index of log entry immediately preceding new ones
+    uint64 prev_log_index = 5;
+    // term of prevLogIndex entry
+    uint64 prev_log_term = 6;
+    // log entries to store
     repeated Entry entries = 7;
+    // leader's commit index
     uint64 commit = 8;
     Snapshot snapshot = 9;
+    // response results, such as whether to vote when send MsgRequestVoteResponse
     bool reject = 10;
 }
 
