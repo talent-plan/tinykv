@@ -27,7 +27,7 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/etcdutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/logutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/typeutil"
@@ -140,7 +140,7 @@ func CreateServer(cfg *config.Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	etcdCfg.ServiceRegister = func(gs *grpc.Server) { pdpb.RegisterPDServer(gs, s) }
+	etcdCfg.ServiceRegister = func(gs *grpc.Server) { schedulerpb.RegisterSchedulerServer(gs, s) }
 	s.etcdCfg = etcdCfg
 	if EnableZap {
 		// The etcd master version has removed embed.Config.SetupLogging.
@@ -331,7 +331,7 @@ func (s *Server) stopServerLoop() {
 	s.serverLoopWg.Wait()
 }
 
-func (s *Server) bootstrapCluster(req *pdpb.BootstrapRequest) (*pdpb.BootstrapResponse, error) {
+func (s *Server) bootstrapCluster(req *schedulerpb.BootstrapRequest) (*schedulerpb.BootstrapResponse, error) {
 	clusterID := s.clusterID
 
 	log.Info("try to bootstrap raft cluster",
@@ -389,7 +389,7 @@ func (s *Server) bootstrapCluster(req *pdpb.BootstrapRequest) (*pdpb.BootstrapRe
 		return nil, err
 	}
 
-	return &pdpb.BootstrapResponse{}, nil
+	return &schedulerpb.BootstrapResponse{}, nil
 }
 
 func (s *Server) createRaftCluster() error {
@@ -410,8 +410,8 @@ func (s *Server) GetAddr() string {
 }
 
 // GetMemberInfo returns the server member information.
-func (s *Server) GetMemberInfo() *pdpb.Member {
-	return proto.Clone(s.member.Member()).(*pdpb.Member)
+func (s *Server) GetMemberInfo() *schedulerpb.Member {
+	return proto.Clone(s.member.Member()).(*schedulerpb.Member)
 }
 
 // GetEndpoints returns the etcd endpoints for outer use.
@@ -425,7 +425,7 @@ func (s *Server) GetClient() *clientv3.Client {
 }
 
 // GetLeader returns leader of etcd.
-func (s *Server) GetLeader() *pdpb.Member {
+func (s *Server) GetLeader() *schedulerpb.Member {
 	return s.member.GetLeader()
 }
 
@@ -550,8 +550,8 @@ func (s *Server) SetLogLevel(level string) {
 var healthURL = "/pd/ping"
 
 // CheckHealth checks if members are healthy.
-func (s *Server) CheckHealth(members []*pdpb.Member) map[uint64]*pdpb.Member {
-	unhealthMembers := make(map[uint64]*pdpb.Member)
+func (s *Server) CheckHealth(members []*schedulerpb.Member) map[uint64]*schedulerpb.Member {
+	unhealthMembers := make(map[uint64]*schedulerpb.Member)
 	for _, member := range members {
 		for _, cURL := range member.ClientUrls {
 			resp, err := dialClient.Get(fmt.Sprintf("%s%s", cURL, healthURL))

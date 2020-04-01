@@ -18,7 +18,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/testutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server"
 	"github.com/pingcap-incubator/tinykv/scheduler/tests"
@@ -94,7 +94,7 @@ func (s *testAllocIDSuite) TestCommand(c *C) {
 	cluster.WaitLeader()
 
 	leaderServer := cluster.GetServer(cluster.GetLeader())
-	req := &pdpb.AllocIDRequest{
+	req := &schedulerpb.AllocIDRequest{
 		Header: testutil.NewRequestHeader(leaderServer.GetClusterID()),
 	}
 

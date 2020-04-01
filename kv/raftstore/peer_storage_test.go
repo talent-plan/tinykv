@@ -75,9 +75,9 @@ func TestPeerStorageTerm(t *testing.T) {
 		peerStore := newTestPeerStorageFromEnts(t, ents)
 		term, err := peerStore.Term(tt.idx)
 		if err != nil {
-			assert.Equal(t, err, tt.err)
+			assert.Equal(t, tt.err, err)
 		} else {
-			assert.Equal(t, term, tt.term)
+			assert.Equal(t, tt.term, term)
 		}
 		cleanUpTestData(peerStore)
 	}

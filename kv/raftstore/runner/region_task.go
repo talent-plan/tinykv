@@ -11,25 +11,35 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
-	"github.com/pingcap-incubator/tinykv/kv/worker"
+	"github.com/pingcap-incubator/tinykv/kv/util/worker"
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 )
 
-// Region Task represents a task related to region for region-worker.
-// There're some tasks, such as
+// There're some tasks for region worker, such as:
 // `TaskTypeRegionGen` which will cause the worker to generate a snapshot according to RegionId,
 // `TaskTypeRegionApply` which will apply a snapshot to the region that id equals RegionId,
 // `TaskTypeRegionDestroy` which will clean up the key range from StartKey to EndKey.
-// When region-worker receive a Task, it would handle it according to task type. The type is not in RegionTask but in Task.Tp. RegionTask is the data field of Task.
-type RegionTask struct {
+
+type RegionTaskGen struct {
+	RegionId uint64                   // specify the region which the task is for.
+	Notifier chan<- *eraftpb.Snapshot // when it finishes snapshot generating, it notifies notifier.
+}
+
+type RegionTaskApply struct {
 	RegionId uint64                    // specify the region which the task is for.
-	Notifier chan<- *eraftpb.Snapshot  // used in `TaskTypeRegionGen` and `TaskTypeRegionApply`, when it finishes snapshot generating or applying, it notifies notifier.
-	SnapMeta *eraftpb.SnapshotMetadata // used in `TaskTypeRegionApply`
-	StartKey []byte
-	EndKey   []byte // `StartKey` and `EndKey` are used in `TaskTypeRegionDestroy` and `TaskTypeRegionApply` to destroy certain range of region.
+	Notifier chan<- bool               // when it finishes snapshot applying, it notifies notifier.
+	SnapMeta *eraftpb.SnapshotMetadata // the region meta information of the snapshot
+	StartKey []byte                    // `StartKey` and `EndKey` are origin region's range, it's used to clean up certain range of region before applying snapshot.
+	EndKey   []byte
+}
+
+type RegionTaskDestroy struct {
+	RegionId uint64 // specify the region which the task is for.
+	StartKey []byte // `StartKey` and `EndKey` are used to destroy certain range of region.
+	EndKey   []byte
 }
 
 type regionTaskHandler struct {
@@ -46,15 +56,17 @@ func NewRegionTaskHandler(engines *engine_util.Engines, mgr *snap.SnapManager) *
 }
 
 func (r *regionTaskHandler) Handle(t worker.Task) {
-	task := t.Data.(*RegionTask)
-	switch t.Tp {
-	case worker.TaskTypeRegionGen:
+	switch t.(type) {
+	case *RegionTaskGen:
+		task := t.(*RegionTaskGen)
 		// It is safe for now to handle generating and applying snapshot concurrently,
 		// but it may not when merge is implemented.
 		r.ctx.handleGen(task.RegionId, task.Notifier)
-	case worker.TaskTypeRegionApply:
+	case *RegionTaskApply:
+		task := t.(*RegionTaskApply)
 		r.ctx.handleApply(task.RegionId, task.Notifier, task.StartKey, task.EndKey, task.SnapMeta)
-	case worker.TaskTypeRegionDestroy:
+	case *RegionTaskDestroy:
+		task := t.(*RegionTaskDestroy)
 		r.ctx.cleanUpRange(task.RegionId, task.StartKey, task.EndKey)
 	}
 }
@@ -106,12 +118,13 @@ func (snapCtx *snapContext) applySnap(regionId uint64, startKey, endKey []byte, 
 }
 
 // handleApply tries to apply the snapshot of the specified Region. It calls `applySnap` to do the actual work.
-func (snapCtx *snapContext) handleApply(regionId uint64, notifier chan<- *eraftpb.Snapshot, startKey, endKey []byte, snapMeta *eraftpb.SnapshotMetadata) {
+func (snapCtx *snapContext) handleApply(regionId uint64, notifier chan<- bool, startKey, endKey []byte, snapMeta *eraftpb.SnapshotMetadata) {
 	err := snapCtx.applySnap(regionId, startKey, endKey, snapMeta)
 	if err != nil {
+		notifier <- false
 		log.Fatalf("failed to apply snap!!!. err: %v", err)
 	}
-	notifier <- nil
+	notifier <- true
 }
 
 // cleanUpRange cleans up the data within the range.

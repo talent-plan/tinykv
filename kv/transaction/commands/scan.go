@@ -26,6 +26,7 @@ func (s *Scan) Read(txn *mvcc.RoTxn) (interface{}, [][]byte, error) {
 	response := new(kvrpcpb.ScanResponse)
 
 	scanner := mvcc.NewScanner(s.request.StartKey, txn)
+	defer scanner.Close()
 	limit := s.request.Limit
 	for {
 		if limit == 0 {
@@ -37,17 +38,14 @@ func (s *Scan) Read(txn *mvcc.RoTxn) (interface{}, [][]byte, error) {
 		key, value, err := scanner.Next()
 		if err != nil {
 			// Key error (e.g., key is locked) is saved as an error in the scan for the client to handle.
-			if e, ok := err.(*kvrpcpb.KeyError); ok {
+			if e, ok := err.(*mvcc.KeyError); ok {
 				pair := new(kvrpcpb.KvPair)
-				pair.Error = e
+				pair.Error = &e.KeyError
 				response.Pairs = append(response.Pairs, pair)
 				continue
-			} else if e, ok := err.(error); ok {
-				// Any other kind of error, we can't handle so quit the scan.
-				return regionErrorRo(e, response)
 			} else {
-				// No way we should get here.
-				continue
+				// Any other kind of error, we can't handle so quit the scan.
+				return nil, nil, err
 			}
 		}
 		if key == nil {

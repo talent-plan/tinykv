@@ -67,7 +67,11 @@ func NewBadgerReader(txn *badger.Txn) *BadgerReader {
 }
 
 func (b *BadgerReader) GetCF(cf string, key []byte) ([]byte, error) {
-	return engine_util.GetCFFromTxn(b.txn, cf, key)
+	val, err := engine_util.GetCFFromTxn(b.txn, cf, key)
+	if err == badger.ErrKeyNotFound {
+		return nil, nil
+	}
+	return val, err
 }
 
 func (b *BadgerReader) IterCF(cf string) engine_util.DBIterator {

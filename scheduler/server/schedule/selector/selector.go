@@ -21,57 +21,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/opt"
 )
 
-// BalanceSelector selects source/target from store candidates based on their
-// resource scores.
-type BalanceSelector struct {
-	kind    core.ScheduleKind
-	filters []filter.Filter
-}
-
-// NewBalanceSelector creates a BalanceSelector instance.
-func NewBalanceSelector(kind core.ScheduleKind, filters []filter.Filter) *BalanceSelector {
-	return &BalanceSelector{
-		kind:    kind,
-		filters: filters,
-	}
-}
-
-// SelectSource selects the store that can pass all filters and has the maximal
-// resource score.
-func (s *BalanceSelector) SelectSource(opt opt.Options, stores []*core.StoreInfo, filters ...filter.Filter) *core.StoreInfo {
-	filters = append(filters, s.filters...)
-	var result *core.StoreInfo
-	for _, store := range stores {
-		if filter.Source(opt, store, filters) {
-			continue
-		}
-		if result == nil ||
-			result.ResourceScore(s.kind, 0) <
-				store.ResourceScore(s.kind, 0) {
-			result = store
-		}
-	}
-	return result
-}
-
-// SelectTarget selects the store that can pass all filters and has the minimal
-// resource score.
-func (s *BalanceSelector) SelectTarget(opt opt.Options, stores []*core.StoreInfo, filters ...filter.Filter) *core.StoreInfo {
-	filters = append(filters, s.filters...)
-	var result *core.StoreInfo
-	for _, store := range stores {
-		if filter.Target(opt, store, filters) {
-			continue
-		}
-		if result == nil ||
-			result.ResourceScore(s.kind, 0) >
-				store.ResourceScore(s.kind, 0) {
-			result = store
-		}
-	}
-	return result
-}
-
 // ReplicaSelector selects source/target store candidates based on their
 // distinct scores based on a region's peer stores.
 type ReplicaSelector struct {
@@ -130,12 +79,12 @@ func (s *ReplicaSelector) SelectTarget(opt opt.Options, stores []*core.StoreInfo
 // Returns -1 if store B is better than store A.
 func compareStoreScore(storeA *core.StoreInfo, storeB *core.StoreInfo) int {
 	// The store with lower region score is better.
-	if storeA.RegionScore() <
-		storeB.RegionScore() {
+	if storeA.GetRegionSize() <
+		storeB.GetRegionSize() {
 		return 1
 	}
-	if storeA.RegionScore() >
-		storeB.RegionScore() {
+	if storeA.GetRegionSize() >
+		storeB.GetRegionSize() {
 		return -1
 	}
 	return 0

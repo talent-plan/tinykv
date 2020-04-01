@@ -63,7 +63,7 @@ func (s *testOperatorSuite) newTestRegion(regionID uint64, leaderPeer uint64, pe
 			leader = peer
 		}
 	}
-	regionInfo := core.NewRegionInfo(&region, leader, core.SetApproximateSize(50), core.SetApproximateKeys(50))
+	regionInfo := core.NewRegionInfo(&region, leader, core.SetApproximateSize(50))
 	return regionInfo
 }
 

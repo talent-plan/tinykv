@@ -71,7 +71,7 @@ func TestGetEmpty4B(t *testing.T) {
 
 	assert.Nil(t, resp.RegionError)
 	assert.Nil(t, resp.Error)
-	assert.Equal(t, []byte(nil), resp.Value)
+	assert.True(t, resp.NotFound)
 }
 
 // TestGetNone4B tests that getting a missing key works.
@@ -91,7 +91,7 @@ func TestGetNone4B(t *testing.T) {
 	resp := builder.runOneRequest(&req).(*kvrpcpb.GetResponse)
 	assert.Nil(t, resp.RegionError)
 	assert.Nil(t, resp.Error)
-	assert.Equal(t, []byte(nil), resp.Value)
+	assert.True(t, resp.NotFound)
 }
 
 // TestGetVersions4B tests we get the correct value when there are multiple versions.
@@ -135,7 +135,7 @@ func TestGetVersions4B(t *testing.T) {
 
 	assert.Nil(t, resp0.RegionError)
 	assert.Nil(t, resp0.Error)
-	assert.Equal(t, []byte(nil), resp0.Value)
+	assert.True(t, resp0.NotFound)
 	assert.Nil(t, resp1.RegionError)
 	assert.Nil(t, resp1.Error)
 	assert.Equal(t, []byte{42}, resp1.Value)
@@ -203,10 +203,10 @@ func TestGetDeleted4B(t *testing.T) {
 	assert.Equal(t, []byte{42}, resp2.Value)
 	assert.Nil(t, resp3.RegionError)
 	assert.Nil(t, resp3.Error)
-	assert.Equal(t, []byte(nil), resp3.Value)
+	assert.True(t, resp3.NotFound)
 	assert.Nil(t, resp4.RegionError)
 	assert.Nil(t, resp4.Error)
-	assert.Equal(t, []byte(nil), resp4.Value)
+	assert.True(t, resp4.NotFound)
 	assert.Nil(t, resp5.RegionError)
 	assert.Nil(t, resp5.Error)
 	assert.Equal(t, []byte{44}, resp5.Value)
@@ -279,7 +279,7 @@ func TestPrewriteLocked4B(t *testing.T) {
 
 	assert.Empty(t, resps[0].(*kvrpcpb.PrewriteResponse).Errors)
 	assert.Nil(t, resps[0].(*kvrpcpb.PrewriteResponse).RegionError)
-	assert.Equal(t, len(resps[1].(*kvrpcpb.PrewriteResponse).Errors), 1)
+	assert.Equal(t, 1, len(resps[1].(*kvrpcpb.PrewriteResponse).Errors))
 	assert.Nil(t, resps[1].(*kvrpcpb.PrewriteResponse).RegionError)
 	builder.assertLens(1, 1, 0)
 	builder.assert([]kv{

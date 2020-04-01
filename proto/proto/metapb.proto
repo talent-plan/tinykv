@@ -10,7 +10,7 @@ option (gogoproto.unmarshaler_all) = true;
 message Cluster {
     uint64 id = 1;
     // max peer count for a region.
-    // pd will do the auto-balance if region peer count mismatches.
+    // scheduler will do the auto-balance if region peer count mismatches.
     uint32 max_peer_count = 2;
     // more attributes......
 }

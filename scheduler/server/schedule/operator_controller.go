@@ -22,7 +22,7 @@ import (
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/cache"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/operator"
@@ -45,7 +45,7 @@ var (
 
 // HeartbeatStreams is an interface of async region heartbeat.
 type HeartbeatStreams interface {
-	SendMsg(region *core.RegionInfo, msg *pdpb.RegionHeartbeatResponse)
+	SendMsg(region *core.RegionInfo, msg *schedulerpb.RegionHeartbeatResponse)
 }
 
 // OperatorController is used to limit the speed of scheduling.
@@ -98,7 +98,7 @@ func (oc *OperatorController) Dispatch(region *core.RegionInfo, source string) {
 				if oc.RemoveOperator(op) {
 					log.Info("stale operator", zap.Uint64("region-id", region.GetID()), zap.Duration("takes", op.RunningTime()),
 						zap.Reflect("operator", op), zap.Uint64("diff", changes))
-					oc.opRecords.Put(op, pdpb.OperatorStatus_CANCEL)
+					oc.opRecords.Put(op, schedulerpb.OperatorStatus_CANCEL)
 				}
 
 				return
@@ -109,10 +109,10 @@ func (oc *OperatorController) Dispatch(region *core.RegionInfo, source string) {
 		}
 		if op.IsFinish() && oc.RemoveOperator(op) {
 			log.Info("operator finish", zap.Uint64("region-id", region.GetID()), zap.Duration("takes", op.RunningTime()), zap.Reflect("operator", op))
-			oc.opRecords.Put(op, pdpb.OperatorStatus_SUCCESS)
+			oc.opRecords.Put(op, schedulerpb.OperatorStatus_SUCCESS)
 		} else if timeout && oc.RemoveOperator(op) {
 			log.Info("operator timeout", zap.Uint64("region-id", region.GetID()), zap.Duration("takes", op.RunningTime()), zap.Reflect("operator", op))
-			oc.opRecords.Put(op, pdpb.OperatorStatus_TIMEOUT)
+			oc.opRecords.Put(op, schedulerpb.OperatorStatus_TIMEOUT)
 		}
 	}
 }
@@ -133,7 +133,7 @@ func (oc *OperatorController) AddOperator(ops ...*operator.Operator) bool {
 
 	if !oc.checkAddOperator(ops...) {
 		for _, op := range ops {
-			oc.opRecords.Put(op, pdpb.OperatorStatus_CANCEL)
+			oc.opRecords.Put(op, schedulerpb.OperatorStatus_CANCEL)
 		}
 		return false
 	}
@@ -181,7 +181,7 @@ func (oc *OperatorController) addOperatorLocked(op *operator.Operator) bool {
 	if old, ok := oc.operators[regionID]; ok {
 		_ = oc.removeOperatorLocked(old)
 		log.Info("replace old operator", zap.Uint64("region-id", regionID), zap.Duration("takes", old.RunningTime()), zap.Reflect("operator", old))
-		oc.opRecords.Put(old, pdpb.OperatorStatus_REPLACE)
+		oc.opRecords.Put(old, schedulerpb.OperatorStatus_REPLACE)
 	}
 
 	oc.operators[regionID] = op
@@ -213,7 +213,7 @@ func (oc *OperatorController) GetOperatorStatus(id uint64) *OperatorWithStatus {
 	if op, ok := oc.operators[id]; ok {
 		return &OperatorWithStatus{
 			Op:     op,
-			Status: pdpb.OperatorStatus_RUNNING,
+			Status: schedulerpb.OperatorStatus_RUNNING,
 		}
 	}
 	return oc.opRecords.Get(id)
@@ -254,8 +254,8 @@ func (oc *OperatorController) SendScheduleCommand(region *core.RegionInfo, step 
 	log.Info("send schedule command", zap.Uint64("region-id", region.GetID()), zap.Stringer("step", step), zap.String("source", source))
 	switch st := step.(type) {
 	case operator.TransferLeader:
-		cmd := &pdpb.RegionHeartbeatResponse{
-			TransferLeader: &pdpb.TransferLeader{
+		cmd := &schedulerpb.RegionHeartbeatResponse{
+			TransferLeader: &schedulerpb.TransferLeader{
 				Peer: region.GetStorePeer(st.ToStore),
 			},
 		}
@@ -265,8 +265,8 @@ func (oc *OperatorController) SendScheduleCommand(region *core.RegionInfo, step 
 			// The newly added peer is pending.
 			return
 		}
-		cmd := &pdpb.RegionHeartbeatResponse{
-			ChangePeer: &pdpb.ChangePeer{
+		cmd := &schedulerpb.RegionHeartbeatResponse{
+			ChangePeer: &schedulerpb.ChangePeer{
 				ChangeType: eraftpb.ConfChangeType_AddNode,
 				Peer: &metapb.Peer{
 					Id:      st.PeerID,
@@ -276,8 +276,8 @@ func (oc *OperatorController) SendScheduleCommand(region *core.RegionInfo, step 
 		}
 		oc.hbStreams.SendMsg(region, cmd)
 	case operator.RemovePeer:
-		cmd := &pdpb.RegionHeartbeatResponse{
-			ChangePeer: &pdpb.ChangePeer{
+		cmd := &schedulerpb.RegionHeartbeatResponse{
+			ChangePeer: &schedulerpb.ChangePeer{
 				ChangeType: eraftpb.ConfChangeType_RemoveNode,
 				Peer:       region.GetStorePeer(st.FromStore),
 			},
@@ -321,7 +321,7 @@ func (oc *OperatorController) SetOperator(op *operator.Operator) {
 // OperatorWithStatus records the operator and its status.
 type OperatorWithStatus struct {
 	Op     *operator.Operator
-	Status pdpb.OperatorStatus
+	Status schedulerpb.OperatorStatus
 }
 
 // MarshalJSON returns the status of operator as a JSON string
@@ -353,7 +353,7 @@ func (o *OperatorRecords) Get(id uint64) *OperatorWithStatus {
 }
 
 // Put puts the operator and its status.
-func (o *OperatorRecords) Put(op *operator.Operator, status pdpb.OperatorStatus) {
+func (o *OperatorRecords) Put(op *operator.Operator, status schedulerpb.OperatorStatus) {
 	id := op.RegionID()
 	record := &OperatorWithStatus{
 		Op:     op,

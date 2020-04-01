@@ -31,29 +31,29 @@ type Simulator interface {
 }
 
 type Cluster struct {
-	pdClient  *MockPDClient
-	count     int
-	engines   map[uint64]*engine_util.Engines
-	snapPaths map[uint64]string
-	dirs      []string
-	simulator Simulator
-	cfg       *config.Config
+	schedulerClient *MockSchedulerClient
+	count           int
+	engines         map[uint64]*engine_util.Engines
+	snapPaths       map[uint64]string
+	dirs            []string
+	simulator       Simulator
+	cfg             *config.Config
 }
 
-func NewCluster(count int, pdClient *MockPDClient, simulator Simulator, cfg *config.Config) *Cluster {
+func NewCluster(count int, schedulerClient *MockSchedulerClient, simulator Simulator, cfg *config.Config) *Cluster {
 	return &Cluster{
-		count:     count,
-		pdClient:  pdClient,
-		engines:   make(map[uint64]*engine_util.Engines),
-		snapPaths: make(map[uint64]string),
-		simulator: simulator,
-		cfg:       cfg,
+		count:           count,
+		schedulerClient: schedulerClient,
+		engines:         make(map[uint64]*engine_util.Engines),
+		snapPaths:       make(map[uint64]string),
+		simulator:       simulator,
+		cfg:             cfg,
 	}
 }
 
 func (c *Cluster) Start() {
 	ctx := context.TODO()
-	clusterID := c.pdClient.GetClusterID(ctx)
+	clusterID := c.schedulerClient.GetClusterID(ctx)
 
 	for storeID := uint64(1); storeID <= uint64(c.count); storeID++ {
 		dbPath, err := ioutil.TempDir("", "test-raftstore")
@@ -114,7 +114,7 @@ func (c *Cluster) Start() {
 		Id:      1,
 		Address: "",
 	}
-	resp, err := c.pdClient.Bootstrap(context.TODO(), store)
+	resp, err := c.schedulerClient.Bootstrap(context.TODO(), store)
 	if err != nil {
 		panic(err)
 	}
@@ -127,7 +127,7 @@ func (c *Cluster) Start() {
 			Id:      storeID,
 			Address: "",
 		}
-		err := c.pdClient.PutStore(context.TODO(), store)
+		err := c.schedulerClient.PutStore(context.TODO(), store)
 		if err != nil {
 			panic(err)
 		}
@@ -172,7 +172,7 @@ func (c *Cluster) StartServer(storeID uint64) {
 }
 
 func (c *Cluster) AllocPeer(storeID uint64) *metapb.Peer {
-	id, err := c.pdClient.AllocID(context.TODO())
+	id, err := c.schedulerClient.AllocID(context.TODO())
 	if err != nil {
 		panic(err)
 	}
@@ -219,10 +219,10 @@ func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeou
 		request.Header.Peer = leader
 		resp, txn := c.CallCommand(request, 1*time.Second)
 		if resp == nil {
-			log.Warnf("can't call command %s on leader %d of region %d", request.String(), leader.GetId(), regionID)
+			log.Debugf("can't call command %s on leader %d of region %d", request.String(), leader.GetId(), regionID)
 			newLeader := c.LeaderOfRegion(regionID)
 			if leader == newLeader {
-				region, _, err := c.pdClient.GetRegionByID(context.TODO(), regionID)
+				region, _, err := c.schedulerClient.GetRegionByID(context.TODO(), regionID)
 				if err != nil {
 					return nil, nil
 				}
@@ -253,7 +253,7 @@ func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeou
 
 func (c *Cluster) LeaderOfRegion(regionID uint64) *metapb.Peer {
 	for i := 0; i < 500; i++ {
-		_, leader, err := c.pdClient.GetRegionByID(context.TODO(), regionID)
+		_, leader, err := c.schedulerClient.GetRegionByID(context.TODO(), regionID)
 		if err == nil && leader != nil {
 			return leader
 		}
@@ -264,7 +264,7 @@ func (c *Cluster) LeaderOfRegion(regionID uint64) *metapb.Peer {
 
 func (c *Cluster) GetRegion(key []byte) *metapb.Region {
 	for i := 0; i < 100; i++ {
-		region, _, _ := c.pdClient.GetRegion(context.TODO(), key)
+		region, _, _ := c.schedulerClient.GetRegion(context.TODO(), key)
 		if region != nil {
 			return region
 		}
@@ -276,11 +276,11 @@ func (c *Cluster) GetRegion(key []byte) *metapb.Region {
 }
 
 func (c *Cluster) GetRandomRegion() *metapb.Region {
-	return c.pdClient.getRandomRegion()
+	return c.schedulerClient.getRandomRegion()
 }
 
 func (c *Cluster) GetStoreIdsOfRegion(regionID uint64) []uint64 {
-	region, _, err := c.pdClient.GetRegionByID(context.TODO(), regionID)
+	region, _, err := c.schedulerClient.GetRegionByID(context.TODO(), regionID)
 	if err != nil {
 		panic(err)
 	}
@@ -381,6 +381,7 @@ func (c *Cluster) Scan(start, end []byte) [][]byte {
 			}
 			values = append(values, value)
 		}
+		iter.Close()
 
 		key = region.EndKey
 		if len(key) == 0 {
@@ -391,19 +392,47 @@ func (c *Cluster) Scan(start, end []byte) [][]byte {
 	return values
 }
 
+func (c *Cluster) TransferLeader(regionID uint64, leader *metapb.Peer) {
+	region, _, err := c.schedulerClient.GetRegionByID(context.TODO(), regionID)
+	if err != nil {
+		panic(err)
+	}
+	epoch := region.RegionEpoch
+	transferLeader := NewAdminRequest(regionID, epoch, NewTransferLeaderCmd(leader))
+	resp, _ := c.CallCommandOnLeader(transferLeader, 5*time.Second)
+	if resp.AdminResponse.CmdType != raft_cmdpb.AdminCmdType_TransferLeader {
+		panic("resp.AdminResponse.CmdType != raft_cmdpb.AdminCmdType_TransferLeader")
+	}
+}
+
+func (c *Cluster) MustTransferLeader(regionID uint64, leader *metapb.Peer) {
+	timer := time.Now()
+	for {
+		currentLeader := c.LeaderOfRegion(regionID)
+		if currentLeader.Id == leader.Id &&
+			currentLeader.StoreId == leader.StoreId {
+			return
+		}
+		if time.Now().Sub(timer) > 5*time.Second {
+			panic(fmt.Sprintf("failed to transfer leader to [%d] %s", regionID, leader.String()))
+		}
+		c.TransferLeader(regionID, leader)
+	}
+}
+
 func (c *Cluster) MustAddPeer(regionID uint64, peer *metapb.Peer) {
-	c.pdClient.AddPeer(regionID, peer)
+	c.schedulerClient.AddPeer(regionID, peer)
 	c.MustHavePeer(regionID, peer)
 }
 
 func (c *Cluster) MustRemovePeer(regionID uint64, peer *metapb.Peer) {
-	c.pdClient.RemovePeer(regionID, peer)
+	c.schedulerClient.RemovePeer(regionID, peer)
 	c.MustNonePeer(regionID, peer)
 }
 
 func (c *Cluster) MustHavePeer(regionID uint64, peer *metapb.Peer) {
 	for i := 0; i < 500; i++ {
-		region, _, err := c.pdClient.GetRegionByID(context.TODO(), regionID)
+		region, _, err := c.schedulerClient.GetRegionByID(context.TODO(), regionID)
 		if err != nil {
 			panic(err)
 		}
@@ -420,7 +449,7 @@ func (c *Cluster) MustHavePeer(regionID uint64, peer *metapb.Peer) {
 
 func (c *Cluster) MustNonePeer(regionID uint64, peer *metapb.Peer) {
 	for i := 0; i < 500; i++ {
-		region, _, err := c.pdClient.GetRegionByID(context.TODO(), regionID)
+		region, _, err := c.schedulerClient.GetRegionByID(context.TODO(), regionID)
 		if err != nil {
 			panic(err)
 		}

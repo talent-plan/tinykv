@@ -33,7 +33,7 @@ func (p *Prewrite) PrepareWrites(txn *mvcc.MvccTxn) (interface{}, error) {
 		if keyError != nil {
 			response.Errors = append(response.Errors, keyError)
 		} else if err != nil {
-			return regionError(err, response)
+			return nil, err
 		}
 	}
 

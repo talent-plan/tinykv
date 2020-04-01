@@ -9,7 +9,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/util/codec"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
-	"github.com/pingcap-incubator/tinykv/kv/worker"
+	"github.com/pingcap-incubator/tinykv/kv/util/worker"
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 )
@@ -35,7 +35,11 @@ func NewSplitCheckHandler(engine *badger.DB, router message.RaftRouter, conf *co
 
 /// run checks a region with split checkers to produce split keys and generates split admin command.
 func (r *splitCheckHandler) Handle(t worker.Task) {
-	spCheckTask := t.Data.(*SplitCheckTask)
+	spCheckTask, ok := t.(*SplitCheckTask)
+	if !ok {
+		log.Error("unsupported worker.Task: %+v", t)
+		return
+	}
 	region := spCheckTask.Region
 	regionId := region.Id
 	log.Debugf("executing split check worker.Task: [regionId: %d, startKey: %s, endKey: %s]", regionId,

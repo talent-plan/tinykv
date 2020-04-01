@@ -27,7 +27,7 @@ func newTicker(regionID uint64, cfg *config.Config) *ticker {
 	t.schedules[int(PeerTickRaft)].interval = 1
 	t.schedules[int(PeerTickRaftLogGC)].interval = int64(cfg.RaftLogGCTickInterval / baseInterval)
 	t.schedules[int(PeerTickSplitRegionCheck)].interval = int64(cfg.SplitRegionCheckTickInterval / baseInterval)
-	t.schedules[int(PeerTickPdHeartbeat)].interval = int64(cfg.PdHeartbeatTickInterval / baseInterval)
+	t.schedules[int(PeerTickSchedulerHeartbeat)].interval = int64(cfg.SchedulerHeartbeatTickInterval / baseInterval)
 	return t
 }
 
@@ -38,7 +38,7 @@ func newStoreTicker(cfg *config.Config) *ticker {
 	t := &ticker{
 		schedules: make([]tickSchedule, 4),
 	}
-	t.schedules[int(StoreTickPdStoreHeartbeat)].interval = int64(cfg.PdStoreHeartbeatTickInterval / baseInterval)
+	t.schedules[int(StoreTickSchedulerStoreHeartbeat)].interval = int64(cfg.SchedulerStoreHeartbeatTickInterval / baseInterval)
 	t.schedules[int(StoreTickSnapGC)].interval = int64(SnapMgrGcTickInterval / baseInterval)
 	return t
 }

@@ -12,7 +12,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap/errors"
 )
 
@@ -62,7 +62,7 @@ type OpTransferLeader struct {
 
 type Store struct {
 	store                    metapb.Store
-	heartbeatResponseHandler func(*pdpb.RegionHeartbeatResponse)
+	heartbeatResponseHandler func(*schedulerpb.RegionHeartbeatResponse)
 }
 
 func NewStore(store *metapb.Store) *Store {
@@ -72,7 +72,7 @@ func NewStore(store *metapb.Store) *Store {
 	}
 }
 
-type MockPDClient struct {
+type MockSchedulerClient struct {
 	sync.RWMutex
 
 	clusterID uint64
@@ -91,8 +91,8 @@ type MockPDClient struct {
 	bootstrapped bool
 }
 
-func NewMockPDClient(clusterID uint64, baseID uint64) *MockPDClient {
-	return &MockPDClient{
+func NewMockSchedulerClient(clusterID uint64, baseID uint64) *MockSchedulerClient {
+	return &MockSchedulerClient{
 		clusterID: clusterID,
 		meta: metapb.Cluster{
 			Id: clusterID,
@@ -107,14 +107,14 @@ func NewMockPDClient(clusterID uint64, baseID uint64) *MockPDClient {
 	}
 }
 
-// Implement PDClient interface
-func (m *MockPDClient) GetClusterID(ctx context.Context) uint64 {
+// Implement SchedulerClient interface
+func (m *MockSchedulerClient) GetClusterID(ctx context.Context) uint64 {
 	m.RLock()
 	defer m.RUnlock()
 	return m.clusterID
 }
 
-func (m *MockPDClient) AllocID(ctx context.Context) (uint64, error) {
+func (m *MockSchedulerClient) AllocID(ctx context.Context) (uint64, error) {
 	m.Lock()
 	defer m.Unlock()
 	ret := m.baseID
@@ -122,18 +122,18 @@ func (m *MockPDClient) AllocID(ctx context.Context) (uint64, error) {
 	return ret, nil
 }
 
-func (m *MockPDClient) Bootstrap(ctx context.Context, store *metapb.Store) (*pdpb.BootstrapResponse, error) {
+func (m *MockSchedulerClient) Bootstrap(ctx context.Context, store *metapb.Store) (*schedulerpb.BootstrapResponse, error) {
 	m.Lock()
 	defer m.Unlock()
 
-	resp := &pdpb.BootstrapResponse{
-		Header: &pdpb.ResponseHeader{ClusterId: m.clusterID},
+	resp := &schedulerpb.BootstrapResponse{
+		Header: &schedulerpb.ResponseHeader{ClusterId: m.clusterID},
 	}
 
 	if m.bootstrapped == true || len(m.regionsKey) != 0 {
 		m.bootstrapped = true
-		resp.Header.Error = &pdpb.Error{
-			Type:    pdpb.ErrorType_ALREADY_BOOTSTRAPPED,
+		resp.Header.Error = &schedulerpb.Error{
+			Type:    schedulerpb.ErrorType_ALREADY_BOOTSTRAPPED,
 			Message: "cluster is already bootstrapped",
 		}
 		return resp, nil
@@ -144,20 +144,20 @@ func (m *MockPDClient) Bootstrap(ctx context.Context, store *metapb.Store) (*pdp
 	return resp, nil
 }
 
-func (m *MockPDClient) IsBootstrapped(ctx context.Context) (bool, error) {
+func (m *MockSchedulerClient) IsBootstrapped(ctx context.Context) (bool, error) {
 	m.RLock()
 	defer m.RUnlock()
 	return m.bootstrapped, nil
 }
 
-func (m *MockPDClient) checkBootstrap() error {
+func (m *MockSchedulerClient) checkBootstrap() error {
 	if bootstrapped, _ := m.IsBootstrapped(context.TODO()); !bootstrapped {
 		return errors.New("not bootstrapped")
 	}
 	return nil
 }
 
-func (m *MockPDClient) PutStore(ctx context.Context, store *metapb.Store) error {
+func (m *MockSchedulerClient) PutStore(ctx context.Context, store *metapb.Store) error {
 	if err := m.checkBootstrap(); err != nil {
 		return err
 	}
@@ -169,7 +169,7 @@ func (m *MockPDClient) PutStore(ctx context.Context, store *metapb.Store) error 
 	return nil
 }
 
-func (m *MockPDClient) GetStore(ctx context.Context, storeID uint64) (*metapb.Store, error) {
+func (m *MockSchedulerClient) GetStore(ctx context.Context, storeID uint64) (*metapb.Store, error) {
 	if err := m.checkBootstrap(); err != nil {
 		return nil, err
 	}
@@ -183,7 +183,7 @@ func (m *MockPDClient) GetStore(ctx context.Context, storeID uint64) (*metapb.St
 	return &s.store, nil
 }
 
-func (m *MockPDClient) GetRegion(ctx context.Context, key []byte) (*metapb.Region, *metapb.Peer, error) {
+func (m *MockSchedulerClient) GetRegion(ctx context.Context, key []byte) (*metapb.Region, *metapb.Peer, error) {
 	if err := m.checkBootstrap(); err != nil {
 		return nil, nil, err
 	}
@@ -193,7 +193,7 @@ func (m *MockPDClient) GetRegion(ctx context.Context, key []byte) (*metapb.Regio
 	return region, leader, nil
 }
 
-func (m *MockPDClient) getRegionLocked(key []byte) (*metapb.Region, *metapb.Peer) {
+func (m *MockSchedulerClient) getRegionLocked(key []byte) (*metapb.Region, *metapb.Peer) {
 	result := m.findRegion(key)
 	if result == nil {
 		return nil, nil
@@ -203,7 +203,7 @@ func (m *MockPDClient) getRegionLocked(key []byte) (*metapb.Region, *metapb.Peer
 	return &result.region, leader
 }
 
-func (m *MockPDClient) GetRegionByID(ctx context.Context, regionID uint64) (*metapb.Region, *metapb.Peer, error) {
+func (m *MockSchedulerClient) GetRegionByID(ctx context.Context, regionID uint64) (*metapb.Region, *metapb.Peer, error) {
 	if err := m.checkBootstrap(); err != nil {
 		return nil, nil, err
 	}
@@ -212,15 +212,15 @@ func (m *MockPDClient) GetRegionByID(ctx context.Context, regionID uint64) (*met
 	return m.getRegionByIDLocked(regionID)
 }
 
-func (m *MockPDClient) getRegionByIDLocked(regionID uint64) (*metapb.Region, *metapb.Peer, error) {
+func (m *MockSchedulerClient) getRegionByIDLocked(regionID uint64) (*metapb.Region, *metapb.Peer, error) {
 	startKey := m.regionsKey[regionID]
 	region, leader := m.getRegionLocked(startKey)
 	return region, leader, nil
 }
 
-func (m *MockPDClient) AskSplit(ctx context.Context, region *metapb.Region) (*pdpb.AskSplitResponse, error) {
-	resp := new(pdpb.AskSplitResponse)
-	resp.Header = &pdpb.ResponseHeader{ClusterId: m.clusterID}
+func (m *MockSchedulerClient) AskSplit(ctx context.Context, region *metapb.Region) (*schedulerpb.AskSplitResponse, error) {
+	resp := new(schedulerpb.AskSplitResponse)
+	resp.Header = &schedulerpb.ResponseHeader{ClusterId: m.clusterID}
 	curRegion, _, err := m.GetRegionByID(ctx, region.GetId())
 	if err != nil {
 		return resp, err
@@ -240,7 +240,7 @@ func (m *MockPDClient) AskSplit(ctx context.Context, region *metapb.Region) (*pd
 	return resp, nil
 }
 
-func (m *MockPDClient) StoreHeartbeat(ctx context.Context, stats *pdpb.StoreStats) error {
+func (m *MockSchedulerClient) StoreHeartbeat(ctx context.Context, stats *schedulerpb.StoreStats) error {
 	if err := m.checkBootstrap(); err != nil {
 		return err
 	}
@@ -248,7 +248,7 @@ func (m *MockPDClient) StoreHeartbeat(ctx context.Context, stats *pdpb.StoreStat
 	return nil
 }
 
-func (m *MockPDClient) RegionHeartbeat(req *pdpb.RegionHeartbeatRequest) error {
+func (m *MockSchedulerClient) RegionHeartbeat(req *schedulerpb.RegionHeartbeatRequest) error {
 	if err := m.checkBootstrap(); err != nil {
 		return err
 	}
@@ -272,8 +272,8 @@ func (m *MockPDClient) RegionHeartbeat(req *pdpb.RegionHeartbeatRequest) error {
 		return err
 	}
 
-	resp := &pdpb.RegionHeartbeatResponse{
-		Header:      &pdpb.ResponseHeader{ClusterId: m.clusterID},
+	resp := &schedulerpb.RegionHeartbeatResponse{
+		Header:      &schedulerpb.ResponseHeader{ClusterId: m.clusterID},
 		RegionId:    regionID,
 		RegionEpoch: req.Region.GetRegionEpoch(),
 		TargetPeer:  req.Leader,
@@ -292,7 +292,7 @@ func (m *MockPDClient) RegionHeartbeat(req *pdpb.RegionHeartbeatRequest) error {
 	return nil
 }
 
-func (m *MockPDClient) handleHeartbeatVersion(region *metapb.Region) error {
+func (m *MockSchedulerClient) handleHeartbeatVersion(region *metapb.Region) error {
 	if engine_util.ExceedEndKey(region.GetStartKey(), region.GetEndKey()) {
 		panic("start key > end key")
 	}
@@ -333,7 +333,7 @@ func (m *MockPDClient) handleHeartbeatVersion(region *metapb.Region) error {
 	}
 }
 
-func (m *MockPDClient) handleHeartbeatConfVersion(region *metapb.Region) error {
+func (m *MockSchedulerClient) handleHeartbeatConfVersion(region *metapb.Region) error {
 	searchRegion, _ := m.getRegionLocked(region.GetStartKey())
 	if util.IsEpochStale(region.RegionEpoch, searchRegion.RegionEpoch) {
 		return errors.New("epoch is stale")
@@ -387,7 +387,7 @@ func (m *MockPDClient) handleHeartbeatConfVersion(region *metapb.Region) error {
 	return nil
 }
 
-func (m *MockPDClient) tryFinished(op *Operator, region *metapb.Region, leader *metapb.Peer) bool {
+func (m *MockSchedulerClient) tryFinished(op *Operator, region *metapb.Region, leader *metapb.Peer) bool {
 	switch op.Type {
 	case OperatorTypeAddPeer:
 		add := op.Data.(OpAddPeer)
@@ -419,33 +419,33 @@ func (m *MockPDClient) tryFinished(op *Operator, region *metapb.Region, leader *
 	panic("unreachable")
 }
 
-func (m *MockPDClient) makeRegionHeartbeatResponse(op *Operator, resp *pdpb.RegionHeartbeatResponse) {
+func (m *MockSchedulerClient) makeRegionHeartbeatResponse(op *Operator, resp *schedulerpb.RegionHeartbeatResponse) {
 	switch op.Type {
 	case OperatorTypeAddPeer:
 		add := op.Data.(OpAddPeer)
 		if !add.pending {
-			resp.ChangePeer = &pdpb.ChangePeer{
+			resp.ChangePeer = &schedulerpb.ChangePeer{
 				ChangeType: eraftpb.ConfChangeType_AddNode,
 				Peer:       add.peer,
 			}
 		}
 	case OperatorTypeRemovePeer:
 		remove := op.Data.(OpRemovePeer)
-		resp.ChangePeer = &pdpb.ChangePeer{
+		resp.ChangePeer = &schedulerpb.ChangePeer{
 			ChangeType: eraftpb.ConfChangeType_RemoveNode,
 			Peer:       remove.peer,
 		}
 	case OperatorTypeTransferLeader:
 		transfer := op.Data.(OpTransferLeader)
-		resp.TransferLeader = &pdpb.TransferLeader{
+		resp.TransferLeader = &schedulerpb.TransferLeader{
 			Peer: transfer.peer,
 		}
 	}
 }
 
-func (m *MockPDClient) SetRegionHeartbeatResponseHandler(storeID uint64, h func(*pdpb.RegionHeartbeatResponse)) {
+func (m *MockSchedulerClient) SetRegionHeartbeatResponseHandler(storeID uint64, h func(*schedulerpb.RegionHeartbeatResponse)) {
 	if h == nil {
-		h = func(*pdpb.RegionHeartbeatResponse) {}
+		h = func(*schedulerpb.RegionHeartbeatResponse) {}
 	}
 	m.Lock()
 	defer m.Unlock()
@@ -453,11 +453,11 @@ func (m *MockPDClient) SetRegionHeartbeatResponseHandler(storeID uint64, h func(
 	store.heartbeatResponseHandler = h
 }
 
-func (m *MockPDClient) Close() {
+func (m *MockSchedulerClient) Close() {
 	// do nothing
 }
 
-func (m *MockPDClient) findRegion(key []byte) *regionItem {
+func (m *MockSchedulerClient) findRegion(key []byte) *regionItem {
 	item := &regionItem{region: metapb.Region{StartKey: key}}
 
 	var result *regionItem
@@ -473,12 +473,12 @@ func (m *MockPDClient) findRegion(key []byte) *regionItem {
 	return result
 }
 
-func (m *MockPDClient) addRegionLocked(region *metapb.Region) {
+func (m *MockSchedulerClient) addRegionLocked(region *metapb.Region) {
 	m.regionsKey[region.GetId()] = region.GetStartKey()
 	m.regionsRange.ReplaceOrInsert(&regionItem{region: *region})
 }
 
-func (m *MockPDClient) removeRegionLocked(region *metapb.Region) {
+func (m *MockSchedulerClient) removeRegionLocked(region *metapb.Region) {
 	delete(m.regionsKey, region.GetId())
 	result := m.findRegion(region.GetStartKey())
 	if result == nil || result.region.GetId() != region.GetId() {
@@ -488,7 +488,7 @@ func (m *MockPDClient) removeRegionLocked(region *metapb.Region) {
 }
 
 // Extra API for tests
-func (m *MockPDClient) AddPeer(regionID uint64, peer *metapb.Peer) {
+func (m *MockSchedulerClient) AddPeer(regionID uint64, peer *metapb.Peer) {
 	m.scheduleOperator(regionID, &Operator{
 		Type: OperatorTypeAddPeer,
 		Data: OpAddPeer{
@@ -498,7 +498,7 @@ func (m *MockPDClient) AddPeer(regionID uint64, peer *metapb.Peer) {
 	})
 }
 
-func (m *MockPDClient) RemovePeer(regionID uint64, peer *metapb.Peer) {
+func (m *MockSchedulerClient) RemovePeer(regionID uint64, peer *metapb.Peer) {
 	m.scheduleOperator(regionID, &Operator{
 		Type: OperatorTypeRemovePeer,
 		Data: OpRemovePeer{
@@ -507,7 +507,7 @@ func (m *MockPDClient) RemovePeer(regionID uint64, peer *metapb.Peer) {
 	})
 }
 
-func (m *MockPDClient) TransferLeader(regionID uint64, peer *metapb.Peer) {
+func (m *MockSchedulerClient) TransferLeader(regionID uint64, peer *metapb.Peer) {
 	m.scheduleOperator(regionID, &Operator{
 		Type: OperatorTypeTransferLeader,
 		Data: OpTransferLeader{
@@ -516,7 +516,7 @@ func (m *MockPDClient) TransferLeader(regionID uint64, peer *metapb.Peer) {
 	})
 }
 
-func (m *MockPDClient) getRandomRegion() *metapb.Region {
+func (m *MockSchedulerClient) getRandomRegion() *metapb.Region {
 	m.RLock()
 	defer m.RUnlock()
 
@@ -527,7 +527,7 @@ func (m *MockPDClient) getRandomRegion() *metapb.Region {
 	return nil
 }
 
-func (m *MockPDClient) scheduleOperator(regionID uint64, op *Operator) {
+func (m *MockSchedulerClient) scheduleOperator(regionID uint64, op *Operator) {
 	m.Lock()
 	defer m.Unlock()
 	m.operators[regionID] = op

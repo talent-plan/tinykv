@@ -21,7 +21,7 @@ import (
 )
 
 // a client runs the function f and then signals it is done
-func run_client(t *testing.T, me int, ca chan bool, fn func(me int, t *testing.T)) {
+func runClient(t *testing.T, me int, ca chan bool, fn func(me int, t *testing.T)) {
 	ok := false
 	defer func() { ca <- ok }()
 	fn(me, t)
@@ -29,17 +29,17 @@ func run_client(t *testing.T, me int, ca chan bool, fn func(me int, t *testing.T
 }
 
 // spawn ncli clients and wait until they are all done
-func spawn_clients_and_wait(t *testing.T, ch chan bool, ncli int, fn func(me int, t *testing.T)) {
+func SpawnClientsAndWait(t *testing.T, ch chan bool, ncli int, fn func(me int, t *testing.T)) {
 	defer func() { ch <- true }()
 	ca := make([]chan bool, ncli)
 	for cli := 0; cli < ncli; cli++ {
 		ca[cli] = make(chan bool)
-		go run_client(t, cli, ca[cli], fn)
+		go runClient(t, cli, ca[cli], fn)
 	}
-	// log.Printf("spawn_clients_and_wait: waiting for clients")
+	// log.Printf("SpawnClientsAndWait: waiting for clients")
 	for cli := 0; cli < ncli; cli++ {
 		ok := <-ca[cli]
-		// log.Infof("spawn_clients_and_wait: client %d is done\n", cli)
+		// log.Infof("SpawnClientsAndWait: client %d is done\n", cli)
 		if ok == false {
 			t.Fatalf("failure")
 		}
@@ -184,14 +184,17 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 		cfg.RaftLogGcCountLimit = uint64(maxraftlog)
 	}
 	if split {
-		cfg.RegionMaxSize = 800
-		cfg.RegionSplitSize = 500
+		cfg.RegionMaxSize = 300
+		cfg.RegionSplitSize = 200
 	}
 	cluster := NewTestCluster(nservers, cfg)
 	cluster.Start()
 	defer cluster.Shutdown()
 
 	electionTimeout := cfg.RaftBaseTickInterval * time.Duration(cfg.RaftElectionTimeoutTicks)
+	// Wait for leader election
+	time.Sleep(2 * electionTimeout)
+
 	done_partitioner := int32(0)
 	done_confchanger := int32(0)
 	done_clients := int32(0)
@@ -206,7 +209,7 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 		// log.Printf("Iteration %v\n", i)
 		atomic.StoreInt32(&done_clients, 0)
 		atomic.StoreInt32(&done_partitioner, 0)
-		go spawn_clients_and_wait(t, ch_clients, nclients, func(cli int, t *testing.T) {
+		go SpawnClientsAndWait(t, ch_clients, nclients, func(cli int, t *testing.T) {
 			j := 0
 			defer func() {
 				clnts[cli] <- j
@@ -243,7 +246,7 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 			time.Sleep(100 * time.Millisecond)
 			go confchanger(t, cluster, ch_confchange, &done_confchanger)
 		}
-		time.Sleep(2 * time.Second)
+		time.Sleep(5 * time.Second)
 		atomic.StoreInt32(&done_clients, 1)     // tell clients to quit
 		atomic.StoreInt32(&done_partitioner, 1) // tell partitioner to quit
 		atomic.StoreInt32(&done_confchanger, 1) // tell confchanger to quit
@@ -528,12 +531,27 @@ func TestSnapshotUnreliableRecoverConcurrentPartition2B(t *testing.T) {
 	GenericTest(t, "2B", 5, true, true, true, 100, false, false)
 }
 
+func TestTransferLeader3B(t *testing.T) {
+	cfg := config.NewTestConfig()
+	cluster := NewTestCluster(5, cfg)
+	cluster.Start()
+	defer cluster.Shutdown()
+
+	regionID := cluster.GetRegion([]byte("")).GetId()
+	cluster.MustTransferLeader(regionID, NewPeer(1, 1))
+	cluster.MustTransferLeader(regionID, NewPeer(2, 2))
+	cluster.MustTransferLeader(regionID, NewPeer(3, 3))
+	cluster.MustTransferLeader(regionID, NewPeer(4, 4))
+	cluster.MustTransferLeader(regionID, NewPeer(5, 5))
+}
+
 func TestBasicConfChange3B(t *testing.T) {
 	cfg := config.NewTestConfig()
 	cluster := NewTestCluster(5, cfg)
 	cluster.Start()
 	defer cluster.Shutdown()
 
+	cluster.MustTransferLeader(1, NewPeer(1, 1))
 	cluster.MustRemovePeer(1, NewPeer(2, 2))
 	cluster.MustRemovePeer(1, NewPeer(3, 3))
 	cluster.MustRemovePeer(1, NewPeer(4, 4))
@@ -619,7 +637,7 @@ func TestConfChangeSnapshotUnreliableRecoverConcurrentPartition3B(t *testing.T) 
 	GenericTest(t, "3B", 5, true, true, true, 100, true, false)
 }
 
-func TestOneSplit(t *testing.T) {
+func TestOneSplit3B(t *testing.T) {
 	cfg := config.NewTestConfig()
 	cfg.RegionMaxSize = 800
 	cfg.RegionSplitSize = 500

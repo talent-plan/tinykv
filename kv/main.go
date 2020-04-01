@@ -22,22 +22,31 @@ import (
 )
 
 var (
-	pdAddr    = flag.String("pd", "", "pd address")
-	storeAddr = flag.String("addr", "", "store address")
+	schedulerAddr = flag.String("scheduler", "", "scheduler address")
+	storeAddr     = flag.String("addr", "", "store address")
+	dbPath        = flag.String("path", "", "directory path of db")
+	logLevel      = flag.String("loglevel", "", "the level of log")
 )
 
 func main() {
 	flag.Parse()
 	conf := config.NewDefaultConfig()
-	if *pdAddr != "" {
-		conf.PDAddr = *pdAddr
+	if *schedulerAddr != "" {
+		conf.SchedulerAddr = *schedulerAddr
 	}
 	if *storeAddr != "" {
 		conf.StoreAddr = *storeAddr
 	}
+	if *dbPath != "" {
+		conf.DBPath = *dbPath
+	}
+	if *logLevel != "" {
+		conf.LogLevel = *logLevel
+	}
+
 	log.SetLevelByString(conf.LogLevel)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
-	log.Infof("conf %v", conf)
+	log.Infof("Server started with conf %+v", conf)
 
 	var storage storage.Storage
 	if conf.Raft {

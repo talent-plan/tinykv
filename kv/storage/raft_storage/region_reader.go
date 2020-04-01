@@ -23,7 +23,11 @@ func (r *RegionReader) GetCF(cf string, key []byte) ([]byte, error) {
 	if err := util.CheckKeyInRegion(key, r.region); err != nil {
 		return nil, err
 	}
-	return engine_util.GetCFFromTxn(r.txn, cf, key)
+	val, err := engine_util.GetCFFromTxn(r.txn, cf, key)
+	if err == badger.ErrKeyNotFound {
+		return nil, nil
+	}
+	return val, err
 }
 
 func (r *RegionReader) IterCF(cf string) engine_util.DBIterator {

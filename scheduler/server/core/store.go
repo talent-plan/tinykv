@@ -15,12 +15,11 @@ package core
 
 import (
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap/errcode"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
@@ -29,7 +28,7 @@ import (
 // StoreInfo contains information about a store.
 type StoreInfo struct {
 	meta  *metapb.Store
-	stats *pdpb.StoreStats
+	stats *schedulerpb.StoreStats
 	// Blocked means that the store is blocked from balance.
 	blocked          bool
 	leaderCount      int
@@ -47,7 +46,7 @@ type StoreInfo struct {
 func NewStoreInfo(store *metapb.Store, opts ...StoreCreateOption) *StoreInfo {
 	storeInfo := &StoreInfo{
 		meta:         store,
-		stats:        &pdpb.StoreStats{},
+		stats:        &schedulerpb.StoreStats{},
 		leaderWeight: 1.0,
 		regionWeight: 1.0,
 	}
@@ -135,7 +134,7 @@ func (s *StoreInfo) GetID() uint64 {
 }
 
 // GetStoreStats returns the statistics information of the store.
-func (s *StoreInfo) GetStoreStats() *pdpb.StoreStats {
+func (s *StoreInfo) GetStoreStats() *schedulerpb.StoreStats {
 	return s.stats
 }
 
@@ -221,16 +220,6 @@ func (s *StoreInfo) GetLastHeartbeatTS() time.Time {
 
 const minWeight = 1e-6
 
-// LeaderScore returns the store's leader score.
-func (s *StoreInfo) LeaderScore(delta int64) float64 {
-	return float64(int64(s.GetLeaderCount())+delta) / math.Max(s.GetLeaderWeight(), minWeight)
-}
-
-// RegionScore returns the store's region score.
-func (s *StoreInfo) RegionScore() float64 {
-	return float64(s.GetRegionSize()) / math.Max(s.GetRegionWeight(), minWeight)
-}
-
 // StorageSize returns store's used storage size reported from tikv.
 func (s *StoreInfo) StorageSize() uint64 {
 	return s.GetUsedSize()
@@ -268,18 +257,6 @@ func (s *StoreInfo) ResourceSize(kind ResourceKind) int64 {
 		return s.GetLeaderSize()
 	case RegionKind:
 		return s.GetRegionSize()
-	default:
-		return 0
-	}
-}
-
-// ResourceScore returns score of leader/region in the store.
-func (s *StoreInfo) ResourceScore(scheduleKind ScheduleKind, delta int64) float64 {
-	switch scheduleKind.Resource {
-	case LeaderKind:
-		return s.LeaderScore(delta)
-	case RegionKind:
-		return s.RegionScore()
 	default:
 		return 0
 	}

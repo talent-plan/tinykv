@@ -8,10 +8,10 @@ import (
 )
 
 type Config struct {
-	StoreAddr string
-	Raft      bool
-	PDAddr    string
-	LogLevel  string
+	StoreAddr     string
+	Raft          bool
+	SchedulerAddr string
+	LogLevel      string
 
 	DBPath string // Directory to store the data in. Should exist and be writable.
 
@@ -28,8 +28,8 @@ type Config struct {
 	// Interval (ms) to check region whether need to be split or not.
 	SplitRegionCheckTickInterval time.Duration
 	// delay time before deleting a stale peer
-	PdHeartbeatTickInterval      time.Duration
-	PdStoreHeartbeatTickInterval time.Duration
+	SchedulerHeartbeatTickInterval      time.Duration
+	SchedulerStoreHeartbeatTickInterval time.Duration
 
 	// When region [a,e) size meets regionMaxSize, it will be split into
 	// several regions [a,b), [b,c), [c,d), [d,e). And the size of [a,b),
@@ -62,38 +62,40 @@ const (
 
 func NewDefaultConfig() *Config {
 	return &Config{
-		PDAddr:                   "127.0.0.1:2379",
+		SchedulerAddr:            "127.0.0.1:2379",
 		StoreAddr:                "127.0.0.1:20160",
 		LogLevel:                 "info",
+		Raft:                     true,
 		RaftBaseTickInterval:     1 * time.Second,
 		RaftHeartbeatTicks:       2,
 		RaftElectionTimeoutTicks: 10,
 		RaftLogGCTickInterval:    10 * time.Second,
 		// Assume the average size of entries is 1k.
-		RaftLogGcCountLimit:          128000,
-		SplitRegionCheckTickInterval: 10 * time.Second,
-		PdHeartbeatTickInterval:      100 * time.Millisecond,
-		PdStoreHeartbeatTickInterval: 10 * time.Second,
-		RegionMaxSize:                144 * MB,
-		RegionSplitSize:              96 * MB,
-		DBPath:                       "/tmp/badger",
+		RaftLogGcCountLimit:                 128000,
+		SplitRegionCheckTickInterval:        10 * time.Second,
+		SchedulerHeartbeatTickInterval:      100 * time.Millisecond,
+		SchedulerStoreHeartbeatTickInterval: 10 * time.Second,
+		RegionMaxSize:                       144 * MB,
+		RegionSplitSize:                     96 * MB,
+		DBPath:                              "/tmp/badger",
 	}
 }
 
 func NewTestConfig() *Config {
 	return &Config{
 		LogLevel:                 "info",
-		RaftBaseTickInterval:     10 * time.Millisecond,
+		Raft:                     true,
+		RaftBaseTickInterval:     50 * time.Millisecond,
 		RaftHeartbeatTicks:       2,
 		RaftElectionTimeoutTicks: 10,
 		RaftLogGCTickInterval:    50 * time.Millisecond,
 		// Assume the average size of entries is 1k.
-		RaftLogGcCountLimit:          128000,
-		SplitRegionCheckTickInterval: 100 * time.Millisecond,
-		PdHeartbeatTickInterval:      100 * time.Millisecond,
-		PdStoreHeartbeatTickInterval: 500 * time.Millisecond,
-		RegionMaxSize:                144 * MB,
-		RegionSplitSize:              96 * MB,
-		DBPath:                       "/tmp/badger",
+		RaftLogGcCountLimit:                 128000,
+		SplitRegionCheckTickInterval:        100 * time.Millisecond,
+		SchedulerHeartbeatTickInterval:      100 * time.Millisecond,
+		SchedulerStoreHeartbeatTickInterval: 500 * time.Millisecond,
+		RegionMaxSize:                       144 * MB,
+		RegionSplitSize:                     96 * MB,
+		DBPath:                              "/tmp/badger",
 	}
 }

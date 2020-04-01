@@ -20,7 +20,7 @@ import (
 	"sync"
 
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/pdpb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockid"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/testutil"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
@@ -209,17 +209,6 @@ func (s *testClusterInfoSuite) TestRegionChangeApproximateSize3C(c *C) {
 	}
 }
 
-func (s *testClusterInfoSuite) TestRegionChangeApproximateKeys3C(c *C) {
-	cluster, regions := s.setUpTestCluster(c)
-
-	for i, region := range regions {
-		region = region.Clone(core.SetApproximateKeys(144000))
-		regions[i] = region
-		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
-		checkRegions(c, cluster.core.Regions, regions)
-	}
-}
-
 func (s *testClusterInfoSuite) TestRegionCounts3C(c *C) {
 	cluster, regions := s.setUpTestCluster(c)
 
@@ -390,7 +379,7 @@ func (s *testClusterSuite) TestConcurrentHandleRegion3C(c *C) {
 	s.svr, cleanup, err = NewTestServer(c)
 	c.Assert(err, IsNil)
 	mustWaitLeader(c, []*Server{s.svr})
-	s.grpcPDClient = testutil.MustNewGrpcClient(c, s.svr.GetAddr())
+	s.grpcSchedulerClient = testutil.MustNewGrpcClient(c, s.svr.GetAddr())
 	defer cleanup()
 	storeAddrs := []string{"127.0.1.1:0", "127.0.1.1:1", "127.0.1.1:2"}
 	_, err = s.svr.bootstrapCluster(s.newBootstrapRequest(c, s.svr.clusterID, "127.0.0.1:0"))
@@ -402,16 +391,16 @@ func (s *testClusterSuite) TestConcurrentHandleRegion3C(c *C) {
 	for _, addr := range storeAddrs {
 		store := s.newStore(c, 0, addr)
 		stores = append(stores, store)
-		_, err := putStore(c, s.grpcPDClient, s.svr.clusterID, store)
+		_, err := putStore(c, s.grpcSchedulerClient, s.svr.clusterID, store)
 		c.Assert(err, IsNil)
 	}
 
 	var wg sync.WaitGroup
 	// register store and bind stream
 	for i, store := range stores {
-		req := &pdpb.StoreHeartbeatRequest{
+		req := &schedulerpb.StoreHeartbeatRequest{
 			Header: testutil.NewRequestHeader(s.svr.clusterID),
-			Stats: &pdpb.StoreStats{
+			Stats: &schedulerpb.StoreStats{
 				StoreId:   store.GetId(),
 				Capacity:  1000 * (1 << 20),
 				Available: 1000 * (1 << 20),
@@ -419,10 +408,10 @@ func (s *testClusterSuite) TestConcurrentHandleRegion3C(c *C) {
 		}
 		_, err := s.svr.StoreHeartbeat(context.TODO(), req)
 		c.Assert(err, IsNil)
-		stream, err := s.grpcPDClient.RegionHeartbeat(context.Background())
+		stream, err := s.grpcSchedulerClient.RegionHeartbeat(context.Background())
 		c.Assert(err, IsNil)
 		peer := &metapb.Peer{Id: s.allocID(c), StoreId: store.GetId()}
-		regionReq := &pdpb.RegionHeartbeatRequest{
+		regionReq := &schedulerpb.RegionHeartbeatRequest{
 			Header: testutil.NewRequestHeader(s.svr.clusterID),
 			Region: &metapb.Region{
 				Id:    s.allocID(c),
@@ -523,7 +512,7 @@ func (s *testClusterInfoSuite) TestStoreHeartbeat(c *C) {
 	c.Assert(cluster.core.Regions.GetRegionCount(), Equals, int(n))
 
 	for i, store := range stores {
-		storeStats := &pdpb.StoreStats{
+		storeStats := &schedulerpb.StoreStats{
 			StoreId:     store.GetID(),
 			Capacity:    100,
 			Available:   50,
@@ -555,8 +544,8 @@ func (s *testClusterInfoSuite) TestStoreHeartbeat(c *C) {
 }
 
 type baseCluster struct {
-	svr          *Server
-	grpcPDClient pdpb.PDClient
+	svr                 *Server
+	grpcSchedulerClient schedulerpb.SchedulerClient
 }
 
 func (s *baseCluster) allocID(c *C) uint64 {
@@ -623,12 +612,12 @@ func (s *testClusterSuite) TestBootstrap(c *C) {
 	defer cleanup()
 	c.Assert(err, IsNil)
 	mustWaitLeader(c, []*Server{s.svr})
-	s.grpcPDClient = testutil.MustNewGrpcClient(c, s.svr.GetAddr())
+	s.grpcSchedulerClient = testutil.MustNewGrpcClient(c, s.svr.GetAddr())
 	clusterID := s.svr.clusterID
 
 	// IsBootstrapped returns false.
 	req := s.newIsBootstrapRequest(clusterID)
-	resp, err := s.grpcPDClient.IsBootstrapped(context.Background(), req)
+	resp, err := s.grpcSchedulerClient.IsBootstrapped(context.Background(), req)
 	c.Assert(err, IsNil)
 	c.Assert(resp, NotNil)
 	c.Assert(resp.GetBootstrapped(), IsFalse)
@@ -639,30 +628,30 @@ func (s *testClusterSuite) TestBootstrap(c *C) {
 
 	// IsBootstrapped returns true.
 	req = s.newIsBootstrapRequest(clusterID)
-	resp, err = s.grpcPDClient.IsBootstrapped(context.Background(), req)
+	resp, err = s.grpcSchedulerClient.IsBootstrapped(context.Background(), req)
 	c.Assert(err, IsNil)
 	c.Assert(resp.GetBootstrapped(), IsTrue)
 
 	// check bootstrapped error.
 	reqBoot := s.newBootstrapRequest(c, clusterID, storeAddr)
-	respBoot, err := s.grpcPDClient.Bootstrap(context.Background(), reqBoot)
+	respBoot, err := s.grpcSchedulerClient.Bootstrap(context.Background(), reqBoot)
 	c.Assert(err, IsNil)
 	c.Assert(respBoot.GetHeader().GetError(), NotNil)
-	c.Assert(respBoot.GetHeader().GetError().GetType(), Equals, pdpb.ErrorType_ALREADY_BOOTSTRAPPED)
+	c.Assert(respBoot.GetHeader().GetError().GetType(), Equals, schedulerpb.ErrorType_ALREADY_BOOTSTRAPPED)
 }
 
-func (s *baseCluster) newIsBootstrapRequest(clusterID uint64) *pdpb.IsBootstrappedRequest {
-	req := &pdpb.IsBootstrappedRequest{
+func (s *baseCluster) newIsBootstrapRequest(clusterID uint64) *schedulerpb.IsBootstrappedRequest {
+	req := &schedulerpb.IsBootstrappedRequest{
 		Header: testutil.NewRequestHeader(clusterID),
 	}
 
 	return req
 }
 
-func (s *baseCluster) newBootstrapRequest(c *C, clusterID uint64, storeAddr string) *pdpb.BootstrapRequest {
+func (s *baseCluster) newBootstrapRequest(c *C, clusterID uint64, storeAddr string) *schedulerpb.BootstrapRequest {
 	store := s.newStore(c, 0, storeAddr)
 
-	req := &pdpb.BootstrapRequest{
+	req := &schedulerpb.BootstrapRequest{
 		Header: testutil.NewRequestHeader(clusterID),
 		Store:  store,
 	}
@@ -673,16 +662,16 @@ func (s *baseCluster) newBootstrapRequest(c *C, clusterID uint64, storeAddr stri
 // helper function to check and bootstrap.
 func (s *baseCluster) bootstrapCluster(c *C, clusterID uint64, storeAddr string) {
 	req := s.newBootstrapRequest(c, clusterID, storeAddr)
-	_, err := s.grpcPDClient.Bootstrap(context.Background(), req)
+	_, err := s.grpcSchedulerClient.Bootstrap(context.Background(), req)
 	c.Assert(err, IsNil)
 }
 
 func (s *baseCluster) getStore(c *C, clusterID uint64, storeID uint64) *metapb.Store {
-	req := &pdpb.GetStoreRequest{
+	req := &schedulerpb.GetStoreRequest{
 		Header:  testutil.NewRequestHeader(clusterID),
 		StoreId: storeID,
 	}
-	resp, err := s.grpcPDClient.GetStore(context.Background(), req)
+	resp, err := s.grpcSchedulerClient.GetStore(context.Background(), req)
 	c.Assert(err, IsNil)
 	c.Assert(resp.GetStore().GetId(), Equals, storeID)
 
@@ -690,12 +679,12 @@ func (s *baseCluster) getStore(c *C, clusterID uint64, storeID uint64) *metapb.S
 }
 
 func (s *baseCluster) getRegion(c *C, clusterID uint64, regionKey []byte) *metapb.Region {
-	req := &pdpb.GetRegionRequest{
+	req := &schedulerpb.GetRegionRequest{
 		Header:    testutil.NewRequestHeader(clusterID),
 		RegionKey: regionKey,
 	}
 
-	resp, err := s.grpcPDClient.GetRegion(context.Background(), req)
+	resp, err := s.grpcSchedulerClient.GetRegion(context.Background(), req)
 	c.Assert(err, IsNil)
 	c.Assert(resp.GetRegion(), NotNil)
 
@@ -703,12 +692,12 @@ func (s *baseCluster) getRegion(c *C, clusterID uint64, regionKey []byte) *metap
 }
 
 func (s *baseCluster) getRegionByID(c *C, clusterID uint64, regionID uint64) *metapb.Region {
-	req := &pdpb.GetRegionByIDRequest{
+	req := &schedulerpb.GetRegionByIDRequest{
 		Header:   testutil.NewRequestHeader(clusterID),
 		RegionId: regionID,
 	}
 
-	resp, err := s.grpcPDClient.GetRegionByID(context.Background(), req)
+	resp, err := s.grpcSchedulerClient.GetRegionByID(context.Background(), req)
 	c.Assert(err, IsNil)
 	c.Assert(resp.GetRegion(), NotNil)
 
@@ -721,114 +710,47 @@ func (s *baseCluster) getRaftCluster(c *C) *RaftCluster {
 	return cluster
 }
 
-func (s *baseCluster) getClusterConfig(c *C, clusterID uint64) *metapb.Cluster {
-	req := &pdpb.GetClusterConfigRequest{
-		Header: testutil.NewRequestHeader(clusterID),
-	}
-
-	resp, err := s.grpcPDClient.GetClusterConfig(context.Background(), req)
-	c.Assert(err, IsNil)
-	c.Assert(resp.GetCluster(), NotNil)
-
-	return resp.GetCluster()
-}
-
-func (s *testClusterSuite) TestGetPutConfig(c *C) {
-	var err error
-	var cleanup func()
-	s.svr, cleanup, err = NewTestServer(c)
-	defer cleanup()
-	c.Assert(err, IsNil)
-	mustWaitLeader(c, []*Server{s.svr})
-	s.grpcPDClient = testutil.MustNewGrpcClient(c, s.svr.GetAddr())
-	clusterID := s.svr.clusterID
-
-	storeAddr := "127.0.0.1:0"
-	bootstrapRequest := s.newBootstrapRequest(c, s.svr.clusterID, storeAddr)
-	_, err = s.svr.bootstrapCluster(bootstrapRequest)
-	c.Assert(err, IsNil)
-
-	store := bootstrapRequest.Store
-	peer := s.newPeer(c, store.GetId(), 0)
-	region := s.newRegion(c, 0, []byte{}, []byte{}, []*metapb.Peer{peer}, nil)
-	err = s.svr.cluster.processRegionHeartbeat(core.NewRegionInfo(region, nil))
-	c.Assert(err, IsNil)
-	// Get region.
-	region = s.getRegion(c, clusterID, []byte("abc"))
-	c.Assert(region.GetPeers(), HasLen, 1)
-	peer = region.GetPeers()[0]
-
-	// Get region by id.
-	regionByID := s.getRegionByID(c, clusterID, region.GetId())
-	c.Assert(region, DeepEquals, regionByID)
-
-	// Get store.
-	storeID := peer.GetStoreId()
-	store = s.getStore(c, clusterID, storeID)
-
-	// Update store.
-	store.Address = "127.0.0.1:1"
-	s.testPutStore(c, clusterID, store)
-
-	// Remove store.
-	s.testRemoveStore(c, clusterID, store)
-
-	// Update cluster config.
-	req := &pdpb.PutClusterConfigRequest{
-		Header: testutil.NewRequestHeader(clusterID),
-		Cluster: &metapb.Cluster{
-			Id:           clusterID,
-			MaxPeerCount: 5,
-		},
-	}
-	resp, err := s.grpcPDClient.PutClusterConfig(context.Background(), req)
-	c.Assert(err, IsNil)
-	c.Assert(resp, NotNil)
-	meta := s.getClusterConfig(c, clusterID)
-	c.Assert(meta.GetMaxPeerCount(), Equals, uint32(5))
-}
-
-func putStore(c *C, grpcPDClient pdpb.PDClient, clusterID uint64, store *metapb.Store) (*pdpb.PutStoreResponse, error) {
-	req := &pdpb.PutStoreRequest{
+func putStore(c *C, grpcSchedulerClient schedulerpb.SchedulerClient, clusterID uint64, store *metapb.Store) (*schedulerpb.PutStoreResponse, error) {
+	req := &schedulerpb.PutStoreRequest{
 		Header: testutil.NewRequestHeader(clusterID),
 		Store:  store,
 	}
-	resp, err := grpcPDClient.PutStore(context.Background(), req)
+	resp, err := grpcSchedulerClient.PutStore(context.Background(), req)
 	return resp, err
 }
 
 func (s *baseCluster) testPutStore(c *C, clusterID uint64, store *metapb.Store) {
 	// Update store.
-	_, err := putStore(c, s.grpcPDClient, clusterID, store)
+	_, err := putStore(c, s.grpcSchedulerClient, clusterID, store)
 	c.Assert(err, IsNil)
 	updatedStore := s.getStore(c, clusterID, store.GetId())
 	c.Assert(updatedStore, DeepEquals, store)
 
 	// Update store again.
-	_, err = putStore(c, s.grpcPDClient, clusterID, store)
+	_, err = putStore(c, s.grpcSchedulerClient, clusterID, store)
 	c.Assert(err, IsNil)
 
 	// Put new store with a duplicated address when old store is up will fail.
-	_, err = putStore(c, s.grpcPDClient, clusterID, s.newStore(c, 0, store.GetAddress()))
+	_, err = putStore(c, s.grpcSchedulerClient, clusterID, s.newStore(c, 0, store.GetAddress()))
 	c.Assert(err, NotNil)
 
 	// Put new store with a duplicated address when old store is offline will fail.
 	s.resetStoreState(c, store.GetId(), metapb.StoreState_Offline)
-	_, err = putStore(c, s.grpcPDClient, clusterID, s.newStore(c, 0, store.GetAddress()))
+	_, err = putStore(c, s.grpcSchedulerClient, clusterID, s.newStore(c, 0, store.GetAddress()))
 	c.Assert(err, NotNil)
 
 	// Put new store with a duplicated address when old store is tombstone is OK.
 	s.resetStoreState(c, store.GetId(), metapb.StoreState_Tombstone)
-	_, err = putStore(c, s.grpcPDClient, clusterID, s.newStore(c, 0, store.GetAddress()))
+	_, err = putStore(c, s.grpcSchedulerClient, clusterID, s.newStore(c, 0, store.GetAddress()))
 	c.Assert(err, IsNil)
 
 	// Put a new store.
-	_, err = putStore(c, s.grpcPDClient, clusterID, s.newStore(c, 0, "127.0.0.1:12345"))
+	_, err = putStore(c, s.grpcSchedulerClient, clusterID, s.newStore(c, 0, "127.0.0.1:12345"))
 	c.Assert(err, IsNil)
 
 	// Put an existed store with duplicated address with other old stores.
 	s.resetStoreState(c, store.GetId(), metapb.StoreState_Up)
-	_, err = putStore(c, s.grpcPDClient, clusterID, s.newStore(c, store.GetId(), "127.0.0.1:12345"))
+	_, err = putStore(c, s.grpcSchedulerClient, clusterID, s.newStore(c, store.GetId(), "127.0.0.1:12345"))
 	c.Assert(err, NotNil)
 }
 
@@ -899,19 +821,19 @@ func (s *baseCluster) testRemoveStore(c *C, clusterID uint64, store *metapb.Stor
 
 	{
 		// Put after removed should return tombstone error.
-		resp, err := putStore(c, s.grpcPDClient, clusterID, store)
+		resp, err := putStore(c, s.grpcSchedulerClient, clusterID, store)
 		c.Assert(err, IsNil)
-		c.Assert(resp.GetHeader().GetError().GetType(), Equals, pdpb.ErrorType_STORE_TOMBSTONE)
+		c.Assert(resp.GetHeader().GetError().GetType(), Equals, schedulerpb.ErrorType_STORE_TOMBSTONE)
 	}
 	{
 		// Update after removed should return tombstone error.
-		req := &pdpb.StoreHeartbeatRequest{
+		req := &schedulerpb.StoreHeartbeatRequest{
 			Header: testutil.NewRequestHeader(clusterID),
-			Stats:  &pdpb.StoreStats{StoreId: store.GetId()},
+			Stats:  &schedulerpb.StoreStats{StoreId: store.GetId()},
 		}
-		resp, err := s.grpcPDClient.StoreHeartbeat(context.Background(), req)
+		resp, err := s.grpcSchedulerClient.StoreHeartbeat(context.Background(), req)
 		c.Assert(err, IsNil)
-		c.Assert(resp.GetHeader().GetError().GetType(), Equals, pdpb.ErrorType_STORE_TOMBSTONE)
+		c.Assert(resp.GetHeader().GetError().GetType(), Equals, schedulerpb.ErrorType_STORE_TOMBSTONE)
 	}
 }
 
@@ -945,12 +867,12 @@ func (s *testClusterSuite) TestGetPDMembers(c *C) {
 	defer cleanup()
 	c.Assert(err, IsNil)
 	mustWaitLeader(c, []*Server{s.svr})
-	s.grpcPDClient = testutil.MustNewGrpcClient(c, s.svr.GetAddr())
-	req := &pdpb.GetMembersRequest{
+	s.grpcSchedulerClient = testutil.MustNewGrpcClient(c, s.svr.GetAddr())
+	req := &schedulerpb.GetMembersRequest{
 		Header: testutil.NewRequestHeader(s.svr.ClusterID()),
 	}
 
-	resp, err := s.grpcPDClient.GetMembers(context.Background(), req)
+	resp, err := s.grpcSchedulerClient.GetMembers(context.Background(), req)
 	c.Assert(err, IsNil)
 	// A more strict test can be found at api/member_test.go
 	c.Assert(len(resp.GetMembers()), Not(Equals), 0)

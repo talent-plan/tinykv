@@ -126,6 +126,7 @@ func (txn *RoTxn) MostRecentWrite(key []byte) (*Write, uint64, error) {
 // Postcondition: the returned ts is <= the ts arg.
 func (txn *RoTxn) mostRecentWriteBefore(key []byte, ts uint64) (*Write, uint64, error) {
 	iter := txn.Reader.IterCF(engine_util.CfWrite)
+	defer iter.Close()
 	iter.Seek(EncodeKey(key, ts))
 	if !iter.Valid() {
 		return nil, 0, nil
@@ -173,6 +174,7 @@ func (txn *RoTxn) CurrentWrite(key []byte) (*Write, uint64, error) {
 // I.e., the most recent value committed before the start of this transaction.
 func (txn *RoTxn) GetValue(key []byte) ([]byte, error) {
 	iter := txn.Reader.IterCF(engine_util.CfWrite)
+	defer iter.Close()
 	bts := [8]byte{}
 	ts := txn.StartTS
 	binary.BigEndian.PutUint64(bts[:], ts)
