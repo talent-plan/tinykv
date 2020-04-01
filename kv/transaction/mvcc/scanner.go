@@ -28,7 +28,7 @@ func (scan *Scanner) Close() {
 }
 
 // Next returns the next key/value pair from the scanner. If the scanner is exhausted, then it will return `nil, nil, nil`.
-func (scan *Scanner) Next() ([]byte, []byte, interface{}) {
+func (scan *Scanner) Next() ([]byte, []byte, error) {
 	// Search for the next relevant key/value.
 	for {
 		if !scan.writeIter.Valid() {
@@ -52,7 +52,7 @@ func (scan *Scanner) Next() ([]byte, []byte, interface{}) {
 		}
 		if lock != nil && lock.Ts < scan.txn.StartTS {
 			// The key is currently locked.
-			keyError := new(kvrpcpb.KeyError)
+			keyError := new(KeyError)
 			keyError.Locked = lock.Info(userKey)
 			return nil, nil, keyError
 		}
@@ -80,4 +80,13 @@ func (scan *Scanner) Next() ([]byte, []byte, interface{}) {
 
 		return userKey, value, nil
 	}
+}
+
+// KeyError is a wrapper type so we can implement the `error` interface.
+type KeyError struct {
+	kvrpcpb.KeyError
+}
+
+func (ke *KeyError) Error() string {
+	return ke.String()
 }
