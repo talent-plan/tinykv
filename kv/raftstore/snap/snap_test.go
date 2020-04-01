@@ -119,9 +119,9 @@ func TestSnapGenMeta(t *testing.T) {
 	meta, err := genSnapshotMeta(cfFiles)
 	require.Nil(t, err)
 	for i, cfFileMeta := range meta.CfFiles {
-		assert.Equal(t, cfFileMeta.Cf, cfFiles[i].CF)
-		assert.Equal(t, cfFileMeta.Size_, cfFiles[i].Size)
-		assert.Equal(t, cfFileMeta.Checksum, cfFiles[i].Checksum)
+		assert.Equal(t, cfFiles[i].CF, cfFileMeta.Cf)
+		assert.Equal(t, cfFiles[i].Size, cfFileMeta.Size_)
+		assert.Equal(t, cfFiles[i].Checksum, cfFileMeta.Checksum)
 	}
 }
 
@@ -197,19 +197,19 @@ func doTestSnapFile(t *testing.T, dbHasData bool) {
 	// Ensure snapshot data could be read out of `s2`, and write into `s3`.
 	copySize, err := io.Copy(s3, s2)
 	require.Nil(t, err)
-	assert.Equal(t, copySize, size)
+	assert.Equal(t, size, copySize)
 	assert.False(t, s3.Exists())
 	assert.Nil(t, s3.Save())
 	assert.True(t, s3.Exists())
 
 	// Ensure the tracked size is handled correctly after receiving a snapshot.
-	assert.Equal(t, atomic.LoadInt64(sizeTrack), size*2)
+	assert.Equal(t, size*2, atomic.LoadInt64(sizeTrack))
 
 	// Ensure `delete()` works to delete the source snapshot.
 	s2.Delete()
 	assert.False(t, s2.Exists())
 	assert.False(t, s1.Exists())
-	assert.Equal(t, atomic.LoadInt64(sizeTrack), size)
+	assert.Equal(t, size, atomic.LoadInt64(sizeTrack))
 
 	// Ensure a snapshot could be applied to DB.
 	s4, err := NewSnapForApplying(dstDir, key, sizeTrack, deleter)
@@ -232,7 +232,7 @@ func doTestSnapFile(t *testing.T, dbHasData bool) {
 	s4.Delete()
 	assert.False(t, s4.Exists())
 	assert.False(t, s3.Exists())
-	assert.Equal(t, atomic.LoadInt64(sizeTrack), int64(0))
+	assert.Equal(t, int64(0), atomic.LoadInt64(sizeTrack))
 
 	// Verify the data is correct after applying snapshot.
 	if dbHasData {

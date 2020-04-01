@@ -35,11 +35,11 @@ func TestCheckKeyInRegion(t *testing.T) {
 		region.StartKey = c.StartKey
 		region.EndKey = c.EndKey
 		result := CheckKeyInRegion(c.Key, region)
-		assert.Equal(t, result == nil, c.IsInRegion)
+		assert.Equal(t, c.IsInRegion, result == nil)
 		result = CheckKeyInRegionInclusive(c.Key, region)
-		assert.Equal(t, result == nil, c.Inclusive)
+		assert.Equal(t, c.Inclusive, result == nil)
 		result = CheckKeyInRegionExclusive(c.Key, region)
-		assert.Equal(t, result == nil, c.Exclusive)
+		assert.Equal(t, c.Exclusive, result == nil)
 	}
 }
 
@@ -59,7 +59,7 @@ func TestIsInitialMsg(t *testing.T) {
 		msg := new(eraftpb.Message)
 		msg.MsgType = m.MessageType
 		msg.Commit = m.Commit
-		assert.Equal(t, IsInitialMsg(msg), m.IsInitialMsg)
+		assert.Equal(t, m.IsInitialMsg, IsInitialMsg(msg))
 	}
 }
 
@@ -83,7 +83,7 @@ func TestEpochStale(t *testing.T) {
 		checkEpoch := new(metapb.RegionEpoch)
 		checkEpoch.Version = e.Version
 		checkEpoch.ConfVer = e.ConfVer
-		assert.Equal(t, IsEpochStale(epoch, checkEpoch), e.IsStale)
+		assert.Equal(t, e.IsStale, IsEpochStale(epoch, checkEpoch))
 	}
 }
 

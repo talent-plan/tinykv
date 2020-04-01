@@ -279,7 +279,7 @@ func TestPrewriteLocked4B(t *testing.T) {
 
 	assert.Empty(t, resps[0].(*kvrpcpb.PrewriteResponse).Errors)
 	assert.Nil(t, resps[0].(*kvrpcpb.PrewriteResponse).RegionError)
-	assert.Equal(t, len(resps[1].(*kvrpcpb.PrewriteResponse).Errors), 1)
+	assert.Equal(t, 1, len(resps[1].(*kvrpcpb.PrewriteResponse).Errors))
 	assert.Nil(t, resps[1].(*kvrpcpb.PrewriteResponse).RegionError)
 	builder.assertLens(1, 1, 0)
 	builder.assert([]kv{

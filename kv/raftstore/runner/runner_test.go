@@ -194,7 +194,7 @@ func raftLogMustNotExist(t *testing.T, db *badger.DB, regionId, startIdx, endIdx
 		k := meta.RaftLogKey(regionId, i)
 		db.View(func(txn *badger.Txn) error {
 			_, err := txn.Get(k)
-			assert.Equal(t, err, badger.ErrKeyNotFound)
+			assert.Equal(t, badger.ErrKeyNotFound, err)
 			return nil
 		})
 	}
@@ -274,5 +274,5 @@ func TestSplitCheck(t *testing.T) {
 	msg := <-taskResCh
 	split, ok := msg.Data.(*message.MsgSplitRegion)
 	assert.True(t, ok)
-	assert.Equal(t, split.SplitKey, codec.EncodeBytes([]byte("k2")))
+	assert.Equal(t, codec.EncodeBytes([]byte("k2")), split.SplitKey)
 }

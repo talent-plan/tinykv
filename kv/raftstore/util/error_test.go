@@ -13,26 +13,26 @@ func TestRaftstoreErrToPbError(t *testing.T) {
 	notLeader := &ErrNotLeader{RegionId: regionId, Leader: nil}
 	pbErr := RaftstoreErrToPbError(notLeader)
 	require.NotNil(t, pbErr.NotLeader)
-	assert.Equal(t, pbErr.NotLeader.RegionId, regionId)
+	assert.Equal(t, regionId, pbErr.NotLeader.RegionId)
 
 	regionNotFound := &ErrRegionNotFound{RegionId: regionId}
 	pbErr = RaftstoreErrToPbError(regionNotFound)
 	require.NotNil(t, pbErr.RegionNotFound)
-	assert.Equal(t, pbErr.RegionNotFound.RegionId, regionId)
+	assert.Equal(t, regionId, pbErr.RegionNotFound.RegionId)
 
 	region := &metapb.Region{Id: regionId, StartKey: []byte{0}, EndKey: []byte{1}}
 
 	keyNotInRegion := &ErrKeyNotInRegion{Key: []byte{2}, Region: region}
 	pbErr = RaftstoreErrToPbError(keyNotInRegion)
 	require.NotNil(t, pbErr.KeyNotInRegion)
-	assert.Equal(t, pbErr.KeyNotInRegion.StartKey, []byte{0})
-	assert.Equal(t, pbErr.KeyNotInRegion.EndKey, []byte{1})
-	assert.Equal(t, pbErr.KeyNotInRegion.Key, []byte{2})
+	assert.Equal(t, []byte{0}, pbErr.KeyNotInRegion.StartKey)
+	assert.Equal(t, []byte{1}, pbErr.KeyNotInRegion.EndKey)
+	assert.Equal(t, []byte{2}, pbErr.KeyNotInRegion.Key)
 
 	epochNotMatch := &ErrEpochNotMatch{Regions: []*metapb.Region{region}}
 	pbErr = RaftstoreErrToPbError(epochNotMatch)
 	require.NotNil(t, pbErr.EpochNotMatch)
-	assert.Equal(t, pbErr.EpochNotMatch.CurrentRegions, []*metapb.Region{region})
+	assert.Equal(t, []*metapb.Region{region}, pbErr.EpochNotMatch.CurrentRegions)
 
 	staleCommand := &ErrStaleCommand{}
 	pbErr = RaftstoreErrToPbError(staleCommand)
@@ -42,6 +42,6 @@ func TestRaftstoreErrToPbError(t *testing.T) {
 	storeNotMatch := &ErrStoreNotMatch{RequestStoreId: requestStoreId, ActualStoreId: actualStoreId}
 	pbErr = RaftstoreErrToPbError(storeNotMatch)
 	require.NotNil(t, pbErr.StoreNotMatch)
-	assert.Equal(t, pbErr.StoreNotMatch.RequestStoreId, requestStoreId)
-	assert.Equal(t, pbErr.StoreNotMatch.ActualStoreId, actualStoreId)
+	assert.Equal(t, requestStoreId, pbErr.StoreNotMatch.RequestStoreId)
+	assert.Equal(t, actualStoreId, pbErr.StoreNotMatch.ActualStoreId)
 }
