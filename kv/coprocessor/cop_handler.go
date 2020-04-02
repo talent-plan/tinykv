@@ -22,17 +22,15 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/mvcc"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/coprocessor"
-	"github.com/pingcap/parser/mysql"
-	"github.com/pingcap/parser/terror"
+	"github.com/pingcap/tidb/parser/mysql"
+	"github.com/pingcap/tidb/parser/terror"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/expression/aggregation"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/types"
-	"github.com/pingcap/tidb/util/chunk"
-	"github.com/pingcap/tidb/util/codec"
-	"github.com/pingcap/tidb/util/rowcodec"
+	"github.com/pingcap-incubator/tinykv/kv/coprocessor/rowcodec"
 	"github.com/pingcap/tipb/go-tipb"
 )
 
@@ -154,42 +152,38 @@ func (e *evalContext) setColumnInfo(cols []*tipb.ColumnInfo) {
 	}
 }
 
-func (e *evalContext) newRowDecoder() (*rowcodec.ChunkDecoder, error) {
+func (e *evalContext) newRowDecoder() (*rowcodec.Decoder, error) {
+	colIDs := make([]int64, len(e.columnInfos))
+	defaultVals := make([][]byte, len(e.columnInfos))
+	var handleColID int64
+	for i, colInfo := range e.columnInfos {
+		colIDs[i] = colInfo.ColumnId
+		defaultVals[i] = colInfo.DefaultVal
+		if colInfo.PkHandle {
+			handleColID = colInfo.ColumnId
+		}
+	}
+	return rowcodec.NewDecoder(colIDs, handleColID, e.fieldTps, defaultVals, e.sc.TimeZone)
+}
+
+func (e *evalContext) newRowDecoderForOffsets(colOffsets []int) (*rowcodec.Decoder, error) {
 	var (
 		handleColID int64
-		cols        = make([]rowcodec.ColInfo, 0, len(e.columnInfos))
+		colIDs      = make([]int64, len(colOffsets))
+		defaultVals = make([][]byte, len(colOffsets))
+		fieldsTps   = make([]*types.FieldType, len(colOffsets))
 	)
-	for i := range e.columnInfos {
-		info := e.columnInfos[i]
-		ft := e.fieldTps[i]
-		col := rowcodec.ColInfo{
-			ID:         info.ColumnId,
-			Tp:         int32(ft.Tp),
-			Flag:       int32(ft.Flag),
-			IsPKHandle: info.PkHandle,
-			Flen:       ft.Flen,
-			Decimal:    ft.Decimal,
-			Elems:      ft.Elems,
-		}
-		cols = append(cols, col)
+	for i, off := range colOffsets {
+		info := e.columnInfos[off]
+		colIDs[i] = info.ColumnId
+		defaultVals[i] = info.DefaultVal
+		fieldsTps[i] = e.fieldTps[off]
 		if info.PkHandle {
 			handleColID = info.ColumnId
 		}
 	}
-	def := func(i int, chk *chunk.Chunk) error {
-		info := e.columnInfos[i]
-		if info.PkHandle || len(info.DefaultVal) == 0 {
-			chk.AppendNull(i)
-			return nil
-		}
-		decoder := codec.NewDecoder(chk, e.sc.TimeZone)
-		_, err := decoder.DecodeOne(info.DefaultVal, i, e.fieldTps[i])
-		if err != nil {
-			return err
-		}
-		return nil
-	}
-	return rowcodec.NewChunkDecoder(cols, handleColID, def, e.sc.TimeZone), nil
+
+	return rowcodec.NewDecoder(colIDs, handleColID, fieldsTps, defaultVals, e.sc.TimeZone)
 }
 
 // decodeRelatedColumnVals decodes data to Datum slice according to the row information.
@@ -213,13 +207,17 @@ const (
 	// This flag only matters if FlagIgnoreTruncate is not set, in strict sql mode, truncate error should
 	// be returned as error, in non-strict sql mode, truncate error should be saved as warning.
 	FlagTruncateAsWarning uint64 = 1 << 1
+
+	// FlagPadCharToFullLength indicates if sql_mode 'PAD_CHAR_TO_FULL_LENGTH' is set.
+	FlagPadCharToFullLength uint64 = 1 << 2
 )
 
 // flagsToStatementContext creates a StatementContext from a `tipb.SelectRequest.Flags`.
 func flagsToStatementContext(flags uint64) *stmtctx.StatementContext {
 	sc := &stmtctx.StatementContext{
-		IgnoreTruncate:    (flags & FlagIgnoreTruncate) > 0,
-		TruncateAsWarning: (flags & FlagTruncateAsWarning) > 0,
+		IgnoreTruncate:      (flags & FlagIgnoreTruncate) > 0,
+		TruncateAsWarning:   (flags & FlagTruncateAsWarning) > 0,
+		PadCharToFullLength: (flags & FlagPadCharToFullLength) > 0,
 	}
 	return sc
 }

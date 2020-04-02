@@ -1,16 +1,3 @@
-// Copyright 2019-present PingCAP, Inc.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 package coprocessor
 
 import (
@@ -23,8 +10,8 @@ import (
 	"github.com/juju/errors"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/mvcc"
-	"github.com/pingcap/parser/model"
-	"github.com/pingcap/parser/mysql"
+	"github.com/pingcap/tidb/parser/model"
+	"github.com/pingcap/tidb/parser/mysql"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/expression/aggregation"
 	"github.com/pingcap/tidb/kv"
@@ -35,7 +22,7 @@ import (
 	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/codec"
 	mockpkg "github.com/pingcap/tidb/util/mock"
-	"github.com/pingcap/tidb/util/rowcodec"
+	"github.com/pingcap-incubator/tinykv/kv/coprocessor/rowcodec"
 	"github.com/pingcap/tipb/go-tipb"
 )
 
@@ -287,7 +274,7 @@ type scanCtx struct {
 	limit   int
 	chk     *chunk.Chunk
 	desc    bool
-	decoder *rowcodec.ChunkDecoder
+	decoder *rowcodec.Decoder
 }
 
 type idxScanCtx struct {
@@ -491,7 +478,7 @@ func (e *closureExecutor) tableScanProcessCore(key, value []byte) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	err = e.scanCtx.decoder.DecodeToChunk(value, handle, e.scanCtx.chk)
+	err = e.scanCtx.decoder.Decode(value, handle, e.scanCtx.chk)
 	if err != nil {
 		return errors.Trace(err)
 	}
