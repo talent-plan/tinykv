@@ -4,21 +4,24 @@ import (
 	"context"
 	"reflect"
 
+	"github.com/pingcap-incubator/tinykv/kv/coprocessor"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/storage/raft_storage"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/commands"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/latches"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/coprocessor"
+	coppb "github.com/pingcap-incubator/tinykv/proto/pkg/coprocessor"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tinykvpb"
+	"github.com/pingcap/tidb/kv"
 )
 
 var _ tinykvpb.TinyKvServer = new(Server)
 
 // Server is a TinyKV server, it 'faces outwards', sending and receiving messages from clients such as TinySQL.
 type Server struct {
-	storage storage.Storage
-	Latches *latches.Latches
+	storage    storage.Storage
+	Latches    *latches.Latches
+	copHandler *coprocessor.CopHandler
 }
 
 func NewServer(storage storage.Storage) *Server {
@@ -216,8 +219,23 @@ func (server *Server) Snapshot(stream tinykvpb.TinyKv_SnapshotServer) error {
 }
 
 // SQL push down commands.
-func (server *Server) Coprocessor(_ context.Context, req *coprocessor.Request) (*coprocessor.Response, error) {
-	return &coprocessor.Response{}, nil
+func (server *Server) Coprocessor(_ context.Context, req *coppb.Request) (*coppb.Response, error) {
+	resp := new(coppb.Response)
+	reader, err := server.storage.Reader(req.Context)
+	if err != nil {
+		resp, err := regionError(err, resp)
+		if err != nil {
+			return nil, err
+		}
+		return resp.(*coppb.Response), err
+	}
+	switch req.Tp {
+	case kv.ReqTypeDAG:
+		return server.copHandler.HandleCopDAGRequest(reader, req), nil
+	case kv.ReqTypeAnalyze:
+		return server.copHandler.HandleCopAnalyzeRequest(reader, req), nil
+	}
+	return nil, nil
 }
 
 // rawRegionError assigns region errors to a RegionError field, and other errors to the Error field,
