@@ -29,7 +29,7 @@ package coprocessor
 import (
 	"time"
 
-	"github.com/coocood/badger/y"
+	"github.com/Connor1996/badger/y"
 	"github.com/golang/protobuf/proto"
 	"github.com/juju/errors"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
