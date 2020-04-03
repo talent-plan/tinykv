@@ -70,20 +70,23 @@ enum MessageType {
 
 message Message {
     MessageType msg_type = 1;
+    // the peer id of the message sender
     uint64 to = 2;
+    // the peer id of the message receiver
     uint64 from = 3;
-    // sender's term
+    // the term of the message sender
     uint64 term = 4;
-    // index of log entry immediately preceding new ones
+    // Previous log index of the first log in the log entries
     uint64 prev_log_index = 5;
     // term of prevLogIndex entry
     uint64 prev_log_term = 6;
-    // log entries to store
+    // log entries to append
     repeated Entry entries = 7;
     // leader's commit index
     uint64 commit = 8;
+    // the data snapshot that leader sends to follower
     Snapshot snapshot = 9;
-    // response results, such as whether to vote when send MsgRequestVoteResponse
+    // false means candidate received vote or follower append the log entries successfully
     bool reject = 10;
     // TODO: Delete Start
     uint64 reject_hint = 11;
