@@ -611,9 +611,9 @@ var _TinyKv_serviceDesc = grpc.ServiceDesc{
 	Metadata: "tinykvpb.proto",
 }
 
-func init() { proto.RegisterFile("tinykvpb.proto", fileDescriptor_tinykvpb_71a6ae942ac295c5) }
+func init() { proto.RegisterFile("tinykvpb.proto", fileDescriptor_tinykvpb_e06f91132436afb8) }
 
-var fileDescriptor_tinykvpb_71a6ae942ac295c5 = []byte{
+var fileDescriptor_tinykvpb_e06f91132436afb8 = []byte{
 	// 452 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x74, 0x93, 0xdb, 0x6e, 0xd3, 0x30,
 	0x18, 0xc7, 0x5b, 0x09, 0xba, 0x62, 0x34, 0x18, 0x6e, 0x81, 0x2d, 0x8c, 0x20, 0xed, 0x8a, 0xab,

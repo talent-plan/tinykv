@@ -213,8 +213,8 @@ func TestVoteFromAnyState2A(t *testing.T) {
 			To:      1,
 			MsgType: vt,
 			Term:    newTerm,
-			LogTerm: newTerm,
-			Index:   42,
+			PrevLogTerm: newTerm,
+			PrevLogIndex:   42,
 		}
 		if err := r.Step(msg); err != nil {
 			t.Errorf("%s,%s: Step failed: %s", vt, st, err)
@@ -548,21 +548,21 @@ func TestHandleMessageType_MsgAppend2B(t *testing.T) {
 		wReject bool
 	}{
 		// Ensure 1
-		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, LogTerm: 3, Index: 2, Commit: 3}, 2, 0, true}, // previous log mismatch
-		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, LogTerm: 3, Index: 3, Commit: 3}, 2, 0, true}, // previous log non-exist
+		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, PrevLogTerm: 3, PrevLogIndex: 2, Commit: 3}, 2, 0, true}, // previous log mismatch
+		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, PrevLogTerm: 3, PrevLogIndex: 3, Commit: 3}, 2, 0, true}, // previous log non-exist
 
 		// Ensure 2
-		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, LogTerm: 1, Index: 1, Commit: 1}, 2, 1, false},
-		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, LogTerm: 0, Index: 0, Commit: 1, Entries: []*pb.Entry{{Index: 1, Term: 2}}}, 1, 1, false},
-		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, LogTerm: 2, Index: 2, Commit: 3, Entries: []*pb.Entry{{Index: 3, Term: 2}, {Index: 4, Term: 2}}}, 4, 3, false},
-		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, LogTerm: 2, Index: 2, Commit: 4, Entries: []*pb.Entry{{Index: 3, Term: 2}}}, 3, 3, false},
-		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, LogTerm: 1, Index: 1, Commit: 4, Entries: []*pb.Entry{{Index: 2, Term: 2}}}, 2, 2, false},
+		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, PrevLogTerm: 1, PrevLogIndex: 1, Commit: 1}, 2, 1, false},
+		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, PrevLogTerm: 0, PrevLogIndex: 0, Commit: 1, Entries: []*pb.Entry{{Index: 1, Term: 2}}}, 1, 1, false},
+		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, PrevLogTerm: 2, PrevLogIndex: 2, Commit: 3, Entries: []*pb.Entry{{Index: 3, Term: 2}, {Index: 4, Term: 2}}}, 4, 3, false},
+		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, PrevLogTerm: 2, PrevLogIndex: 2, Commit: 4, Entries: []*pb.Entry{{Index: 3, Term: 2}}}, 3, 3, false},
+		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, PrevLogTerm: 1, PrevLogIndex: 1, Commit: 4, Entries: []*pb.Entry{{Index: 2, Term: 2}}}, 2, 2, false},
 
 		// Ensure 3
-		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 1, LogTerm: 1, Index: 1, Commit: 3}, 2, 1, false},                                            // match entry 1, commit up to last new entry 1
-		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 1, LogTerm: 1, Index: 1, Commit: 3, Entries: []*pb.Entry{{Index: 2, Term: 2}}}, 2, 2, false}, // match entry 1, commit up to last new entry 2
-		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, LogTerm: 2, Index: 2, Commit: 3}, 2, 2, false},                                            // match entry 2, commit up to last new entry 2
-		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, LogTerm: 2, Index: 2, Commit: 4}, 2, 2, false},                                            // commit up to log.last()
+		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 1, PrevLogTerm: 1, PrevLogIndex: 1, Commit: 3}, 2, 1, false},                                            // match entry 1, commit up to last new entry 1
+		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 1, PrevLogTerm: 1, PrevLogIndex: 1, Commit: 3, Entries: []*pb.Entry{{Index: 2, Term: 2}}}, 2, 2, false}, // match entry 1, commit up to last new entry 2
+		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, PrevLogTerm: 2, PrevLogIndex: 2, Commit: 3}, 2, 2, false},                                            // match entry 2, commit up to last new entry 2
+		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, PrevLogTerm: 2, PrevLogIndex: 2, Commit: 4}, 2, 2, false},                                            // commit up to log.last()
 	}
 
 	for i, tt := range tests {
@@ -682,7 +682,7 @@ func TestRecvMessageType_MsgRequestVote2A(t *testing.T) {
 		}
 		term := max(lterm, tt.logTerm)
 		sm.Term = term
-		sm.Step(pb.Message{MsgType: msgType, Term: term, From: 2, Index: tt.index, LogTerm: tt.logTerm})
+		sm.Step(pb.Message{MsgType: msgType, Term: term, From: 2, PrevLogIndex: tt.index, PrevLogTerm: tt.logTerm})
 
 		msgs := sm.readMessages()
 		if g := len(msgs); g != 1 {
@@ -727,7 +727,7 @@ func TestAllServerStepdown2B(t *testing.T) {
 		}
 
 		for j, msgType := range tmsgTypes {
-			sm.Step(pb.Message{From: 2, MsgType: msgType, Term: tterm, LogTerm: tterm})
+			sm.Step(pb.Message{From: 2, MsgType: msgType, Term: tterm, PrevLogTerm: tterm})
 
 			if sm.State != tt.wstate {
 				t.Errorf("#%d.%d state = %v , want %v", i, j, sm.State, tt.wstate)
@@ -945,11 +945,11 @@ func TestBcastBeat2B(t *testing.T) {
 		if m.MsgType != pb.MessageType_MsgHeartbeat {
 			t.Fatalf("#%d: type = %v, want = %v", i, m.MsgType, pb.MessageType_MsgHeartbeat)
 		}
-		if m.Index != 0 {
-			t.Fatalf("#%d: prevIndex = %d, want %d", i, m.Index, 0)
+		if m.PrevLogIndex != 0 {
+			t.Fatalf("#%d: prevIndex = %d, want %d", i, m.PrevLogIndex, 0)
 		}
-		if m.LogTerm != 0 {
-			t.Fatalf("#%d: prevTerm = %d, want %d", i, m.LogTerm, 0)
+		if m.PrevLogTerm != 0 {
+			t.Fatalf("#%d: prevTerm = %d, want %d", i, m.PrevLogTerm, 0)
 		}
 		if wantCommitMap[m.To] == 0 {
 			t.Fatalf("#%d: unexpected to %d", i, m.To)
@@ -1082,7 +1082,7 @@ func TestProvideSnap2B(t *testing.T) {
 
 	// force set the next of node 2, so that node 2 needs a snapshot
 	sm.Prs[2].Next = 0
-	sm.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgAppendResponse, Index: sm.Prs[2].Next - 1, Reject: true})
+	sm.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgAppendResponse, PrevLogIndex: sm.Prs[2].Next - 1, Reject: true})
 
 	msgs := sm.readMessages()
 	if len(msgs) != 1 {
@@ -1236,7 +1236,7 @@ func TestCommitAfterRemoveNode3A(t *testing.T) {
 	r.Step(pb.Message{
 		MsgType: pb.MessageType_MsgAppendResponse,
 		From:    2,
-		Index:   ccIndex,
+		PrevLogIndex:   ccIndex,
 	})
 	ents := nextEnts(r, s)
 	if len(ents) != 2 {
@@ -1387,7 +1387,7 @@ func TestLeaderTransferReceiveHigherTermVote3C(t *testing.T) {
 
 	// Transfer leadership to isolated node to let transfer pending.
 	nt.send(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgTransferLeader})
-	nt.send(pb.Message{From: 2, To: 2, MsgType: pb.MessageType_MsgHup, Index: 1, Term: 2})
+	nt.send(pb.Message{From: 2, To: 2, MsgType: pb.MessageType_MsgHup, PrevLogIndex: 1, Term: 2})
 
 	checkLeaderTransferState(t, lead, StateFollower, 2)
 }

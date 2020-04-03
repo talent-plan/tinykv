@@ -328,8 +328,8 @@ func (r *Raft) sendAppend(to uint64) bool {
 		log.Debugf("%d paused sending replication messages to %d [%v]", r.id, to, pr)
 	} else {
 		m.MsgType = pb.MessageType_MsgAppend
-		m.Index = pr.Next - 1
-		m.LogTerm = term
+		m.PrevLogIndex = pr.Next - 1
+		m.PrevLogTerm = term
 
 		entries := make([]*pb.Entry, 0, len(ents))
 		for i := range ents {
@@ -561,7 +561,7 @@ func (r *Raft) campaign() {
 		log.Infof("%d [logterm: %d, index: %d] sent %s request to %d at term %d",
 			r.id, r.RaftLog.lastTerm(), r.RaftLog.LastIndex(), voteMsg, id, r.Term)
 
-		r.send(pb.Message{Term: term, To: id, MsgType: voteMsg, Index: r.RaftLog.LastIndex(), LogTerm: r.RaftLog.lastTerm()})
+		r.send(pb.Message{Term: term, To: id, MsgType: voteMsg, PrevLogIndex: r.RaftLog.LastIndex(), PrevLogTerm: r.RaftLog.lastTerm()})
 	}
 }
 
@@ -630,16 +630,16 @@ func (r *Raft) Step(m pb.Message) error {
 			// ...we haven't voted and we don't think there's a leader yet in this term...
 			(r.Vote == None && r.Lead == None)
 		// ...and we believe the candidate is up to date.
-		if canVote && r.RaftLog.isUpToDate(m.Index, m.LogTerm) {
+		if canVote && r.RaftLog.isUpToDate(m.PrevLogIndex, m.PrevLogTerm) {
 			log.Infof("%d [logterm: %d, index: %d, vote: %d] cast %s for %d [logterm: %d, index: %d] at term %d",
-				r.id, r.RaftLog.lastTerm(), r.RaftLog.LastIndex(), r.Vote, m.MsgType, m.From, m.LogTerm, m.Index, r.Term)
+				r.id, r.RaftLog.lastTerm(), r.RaftLog.LastIndex(), r.Vote, m.MsgType, m.From, m.PrevLogTerm, m.PrevLogIndex, r.Term)
 			r.send(pb.Message{To: m.From, Term: m.Term, MsgType: pb.MessageType_MsgRequestVoteResponse})
 			// Only record real votes.
 			r.electionElapsed = 0
 			r.Vote = m.From
 		} else {
 			log.Infof("%d [logterm: %d, index: %d, vote: %d] rejected %s from %d [logterm: %d, index: %d] at term %d",
-				r.id, r.RaftLog.lastTerm(), r.RaftLog.LastIndex(), r.Vote, m.MsgType, m.From, m.LogTerm, m.Index, r.Term)
+				r.id, r.RaftLog.lastTerm(), r.RaftLog.LastIndex(), r.Vote, m.MsgType, m.From, m.PrevLogTerm, m.PrevLogIndex, r.Term)
 			r.send(pb.Message{To: m.From, Term: r.Term, MsgType: pb.MessageType_MsgRequestVoteResponse, Reject: true})
 		}
 
@@ -721,12 +721,12 @@ func (r *Raft) stepLeader(m pb.Message) error {
 	case pb.MessageType_MsgAppendResponse:
 		if m.Reject {
 			log.Debugf("%d received MessageType_MsgAppend rejection(lastindex: %d) from %d for index %d",
-				r.id, m.RejectHint, m.From, m.Index)
-			if pr.maybeDecrTo(m.Index, m.RejectHint) {
+				r.id, m.RejectHint, m.From, m.PrevLogIndex)
+			if pr.maybeDecrTo(m.PrevLogIndex, m.RejectHint) {
 				r.sendAppend(m.From)
 			}
 		} else {
-			if pr.maybeUpdate(m.Index) {
+			if pr.maybeUpdate(m.PrevLogIndex) {
 
 				if r.maybeCommit() {
 					r.bcastAppend()
@@ -852,8 +852,8 @@ func (r *Raft) stepFollower(m pb.Message) error {
 func (r *Raft) handleAppendEntries(m pb.Message) {
 	// Your Code Here 2B
 	// TODO: Delete Start
-	if m.Index < r.RaftLog.committed {
-		r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, Index: r.RaftLog.committed})
+	if m.PrevLogIndex < r.RaftLog.committed {
+		r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, PrevLogIndex: r.RaftLog.committed})
 		return
 	}
 
@@ -861,12 +861,12 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 	for _, ent := range m.Entries {
 		ents = append(ents, *ent)
 	}
-	if mlastIndex, ok := r.RaftLog.maybeAppend(m.Index, m.LogTerm, m.Commit, ents...); ok {
-		r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, Index: mlastIndex})
+	if mlastIndex, ok := r.RaftLog.maybeAppend(m.PrevLogIndex, m.PrevLogTerm, m.Commit, ents...); ok {
+		r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, PrevLogIndex: mlastIndex})
 	} else {
 		log.Debugf("%d [logterm: %d, index: %d] rejected MessageType_MsgAppend [logterm: %d, index: %d] from %d",
-			r.id, r.RaftLog.zeroTermOnRangeErr(r.RaftLog.Term(m.Index)), m.Index, m.LogTerm, m.Index, m.From)
-		r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, Index: m.Index, Reject: true, RejectHint: r.RaftLog.LastIndex()})
+			r.id, r.RaftLog.zeroTermOnRangeErr(r.RaftLog.Term(m.PrevLogIndex)), m.PrevLogIndex, m.PrevLogTerm, m.PrevLogIndex, m.From)
+		r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, PrevLogIndex: m.PrevLogIndex, Reject: true, RejectHint: r.RaftLog.LastIndex()})
 	}
 	// TODO: Delete End
 }
@@ -888,11 +888,11 @@ func (r *Raft) handleSnapshot(m pb.Message) {
 	if r.restore(*m.Snapshot) {
 		log.Infof("%d [commit: %d] restored snapshot [index: %d, term: %d]",
 			r.id, r.RaftLog.committed, sindex, sterm)
-		r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, Index: r.RaftLog.LastIndex()})
+		r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, PrevLogIndex: r.RaftLog.LastIndex()})
 	} else {
 		log.Infof("%d [commit: %d] ignored snapshot [index: %d, term: %d]",
 			r.id, r.RaftLog.committed, sindex, sterm)
-		r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, Index: r.RaftLog.committed})
+		r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, PrevLogIndex: r.RaftLog.committed})
 	}
 	// TODO: Delete End
 }

@@ -82,7 +82,7 @@ func TestStartAsFollower2A(t *testing.T) {
 }
 
 // TestLeaderBcastBeat tests that if the leader receives a heartbeat tick,
-// it will send a MessageType_MsgHeartbeat with m.Index = 0, m.LogTerm=0 and empty entries
+// it will send a MessageType_MsgHeartbeat with m.PrevLogIndex = 0, m.PrevLogTerm=0 and empty entries
 // as heartbeat to all followers.
 // Reference: section 5.2
 func TestLeaderBcastBeat2A(t *testing.T) {
@@ -388,8 +388,8 @@ func TestLeaderStartReplication2B(t *testing.T) {
 	ent := pb.Entry{Index: li + 1, Term: 1, Data: []byte("some data")}
 	wents := []pb.Entry{ent}
 	wmsgs := []pb.Message{
-		{From: 1, To: 2, Term: 1, MsgType: pb.MessageType_MsgAppend, Index: li, LogTerm: 1, Entries: []*pb.Entry{&ent}, Commit: li},
-		{From: 1, To: 3, Term: 1, MsgType: pb.MessageType_MsgAppend, Index: li, LogTerm: 1, Entries: []*pb.Entry{&ent}, Commit: li},
+		{From: 1, To: 2, Term: 1, MsgType: pb.MessageType_MsgAppend, PrevLogIndex: li, PrevLogTerm: 1, Entries: []*pb.Entry{&ent}, Commit: li},
+		{From: 1, To: 3, Term: 1, MsgType: pb.MessageType_MsgAppend, PrevLogIndex: li, PrevLogTerm: 1, Entries: []*pb.Entry{&ent}, Commit: li},
 	}
 	if !reflect.DeepEqual(msgs, wmsgs) {
 		t.Errorf("msgs = %+v, want %+v", msgs, wmsgs)
@@ -600,7 +600,7 @@ func TestFollowerCheckMessageType_MsgAppend2B(t *testing.T) {
 		r.becomeFollower(2, 2)
 		msgs := r.readMessages() // clear message
 
-		r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgAppend, Term: 2, LogTerm: tt.term, Index: tt.index})
+		r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgAppend, Term: 2, PrevLogTerm: tt.term, PrevLogIndex: tt.index})
 
 		msgs = r.readMessages()
 		if len(msgs) != 1 {
@@ -658,7 +658,7 @@ func TestFollowerAppendEntries2B(t *testing.T) {
 		r := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, storage)
 		r.becomeFollower(2, 2)
 
-		r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgAppend, Term: 2, LogTerm: tt.term, Index: tt.index, Entries: tt.ents})
+		r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgAppend, Term: 2, PrevLogTerm: tt.term, PrevLogIndex: tt.index, Entries: tt.ents})
 
 		wents := make([]pb.Entry, 0, len(tt.wents))
 		for _, ent := range tt.wents {
@@ -773,7 +773,7 @@ func TestVoteRequest2B(t *testing.T) {
 	for j, tt := range tests {
 		r := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
 		r.Step(pb.Message{
-			From: 2, To: 1, MsgType: pb.MessageType_MsgAppend, Term: tt.wterm - 1, LogTerm: 0, Index: 0, Entries: tt.ents,
+			From: 2, To: 1, MsgType: pb.MessageType_MsgAppend, Term: tt.wterm - 1, PrevLogTerm: 0, PrevLogIndex: 0, Entries: tt.ents,
 		})
 		r.readMessages()
 
@@ -797,11 +797,11 @@ func TestVoteRequest2B(t *testing.T) {
 				t.Errorf("#%d: term = %d, want %d", i, m.Term, tt.wterm)
 			}
 			windex, wlogterm := tt.ents[len(tt.ents)-1].Index, tt.ents[len(tt.ents)-1].Term
-			if m.Index != windex {
-				t.Errorf("#%d: index = %d, want %d", i, m.Index, windex)
+			if m.PrevLogIndex != windex {
+				t.Errorf("#%d: index = %d, want %d", i, m.PrevLogIndex, windex)
 			}
-			if m.LogTerm != wlogterm {
-				t.Errorf("#%d: logterm = %d, want %d", i, m.LogTerm, wlogterm)
+			if m.PrevLogTerm != wlogterm {
+				t.Errorf("#%d: logterm = %d, want %d", i, m.PrevLogTerm, wlogterm)
 			}
 		}
 	}
@@ -836,7 +836,7 @@ func TestVoter2A(t *testing.T) {
 		storage.Append(tt.ents)
 		r := newTestRaft(1, []uint64{1, 2}, 10, 1, storage)
 
-		r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgRequestVote, Term: 3, LogTerm: tt.logterm, Index: tt.index})
+		r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgRequestVote, Term: 3, PrevLogTerm: tt.logterm, PrevLogIndex: tt.index})
 
 		msgs := r.readMessages()
 		if len(msgs) != 1 {
@@ -879,7 +879,7 @@ func TestLeaderOnlyCommitsLogFromCurrentTerm2B(t *testing.T) {
 		// propose a entry to current term
 		r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{}}})
 
-		r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgAppendResponse, Term: r.Term, Index: tt.index})
+		r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgAppendResponse, Term: r.Term, PrevLogIndex: tt.index})
 		if r.RaftLog.committed != tt.wcommit {
 			t.Errorf("#%d: commit = %d, want %d", i, r.RaftLog.committed, tt.wcommit)
 		}
@@ -927,6 +927,6 @@ func acceptAndReply(m pb.Message) pb.Message {
 		To:      m.From,
 		Term:    m.Term,
 		MsgType: pb.MessageType_MsgAppendResponse,
-		Index:   m.Index + uint64(len(m.Entries)),
+		PrevLogIndex:   m.PrevLogIndex + uint64(len(m.Entries)),
 	}
 }
