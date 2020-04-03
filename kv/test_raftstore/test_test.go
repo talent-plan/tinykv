@@ -24,8 +24,9 @@ import (
 func runClient(t *testing.T, me int, ca chan bool, fn func(me int, t *testing.T)) {
 	ok := false
 	defer func() { ca <- ok }()
-	fn(me, t)
-	ok = true
+	ok = t.Run(fmt.Sprintf("client-%v", me), func(t *testing.T) {
+		fn(me, t)
+	})
 }
 
 // spawn ncli clients and wait until they are all done
@@ -155,28 +156,7 @@ func confchanger(t *testing.T, cluster *Cluster, ch chan bool, done *int32) {
 // - If confchangee is set, the cluster will schedule random conf change concurrently.
 // - If split is set, split region when size exceed 1024 bytes.
 func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash bool, partitions bool, maxraftlog int, confchange bool, split bool) {
-	title := "Test: "
-	if unreliable {
-		// the network drops RPC requests and replies.
-		title = title + "unreliable net, "
-	}
-	if crash {
-		// peers re-start, and thus persistence must work.
-		title = title + "restarts, "
-	}
-	if partitions {
-		// the network may partition
-		title = title + "partitions, "
-	}
-	if maxraftlog != -1 {
-		title = title + "snapshots, "
-	}
-	if nclients > 1 {
-		title = title + "many clients"
-	} else {
-		title = title + "one client"
-	}
-	title = title + " (" + part + ")" // 3A or 3B
+	log.Infof("running test %v", t.Name())
 
 	nservers := 5
 	cfg := config.NewTestConfig()
@@ -215,7 +195,6 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 				clnts[cli] <- j
 			}()
 			last := ""
-			for atomic.LoadInt32(&done_clients) == 0 {
 				if (rand.Int() % 1000) < 500 {
 					key := strconv.Itoa(cli) + " " + fmt.Sprintf("%08d", j)
 					value := "x " + strconv.Itoa(cli) + " " + strconv.Itoa(j) + " y"
