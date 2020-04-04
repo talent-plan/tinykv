@@ -70,6 +70,7 @@ func NewPeerStorage(engines *engine_util.Engines, region *metapb.Region, regionS
 		region:      region,
 		Tag:         tag,
 		raftState:   *raftState,
+		applyState:  *applyState,
 		regionSched: regionSched,
 	}, nil
 }
