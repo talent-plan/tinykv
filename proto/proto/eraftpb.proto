@@ -76,7 +76,7 @@ message Message {
     uint64 from = 3;
     // the term of the message sender
     uint64 term = 4;
-    // Previous log index of the first log in the log entries
+    // previous log index of the first log in the log entries
     uint64 prev_log_index = 5;
     // term of prevLogIndex entry
     uint64 prev_log_term = 6;
