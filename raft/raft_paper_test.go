@@ -923,10 +923,10 @@ func acceptAndReply(m pb.Message) pb.Message {
 		panic("type should be MessageType_MsgAppend")
 	}
 	return pb.Message{
-		From:    m.To,
-		To:      m.From,
-		Term:    m.Term,
-		MsgType: pb.MessageType_MsgAppendResponse,
-		PrevLogIndex:   m.PrevLogIndex + uint64(len(m.Entries)),
+		From:         m.To,
+		To:           m.From,
+		Term:         m.Term,
+		MsgType:      pb.MessageType_MsgAppendResponse,
+		PrevLogIndex: m.PrevLogIndex + uint64(len(m.Entries)),
 	}
 }
