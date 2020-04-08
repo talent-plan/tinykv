@@ -15,6 +15,7 @@ package scheduler_client
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strings"
 	"sync"
@@ -269,7 +270,7 @@ func (c *client) doRequest(ctx context.Context, f func(context.Context, schedule
 			return ctx.Err()
 		}
 	}
-	return errors.New("failed too many times")
+	return errors.New(fmt.Sprintf("failed too many times: %v", err))
 }
 
 func (c *client) heartbeatStreamLoop() {
