@@ -8,13 +8,15 @@ import (
 	"sort"
 
 	"github.com/juju/errors"
+	"github.com/pingcap-incubator/tinykv/kv/coprocessor/rowcodec"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/mvcc"
-	"github.com/pingcap/tidb/parser/model"
-	"github.com/pingcap/tidb/parser/mysql"
+	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/expression/aggregation"
 	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/parser/model"
+	"github.com/pingcap/tidb/parser/mysql"
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/tablecodec"
@@ -22,7 +24,6 @@ import (
 	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/codec"
 	mockpkg "github.com/pingcap/tidb/util/mock"
-	"github.com/pingcap-incubator/tinykv/kv/coprocessor/rowcodec"
 	"github.com/pingcap/tipb/go-tipb"
 )
 
@@ -478,6 +479,7 @@ func (e *closureExecutor) tableScanProcessCore(key, value []byte) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+	log.Infof("key: %+v, value: %+v, handle:%v", key, value, handle)
 	err = e.scanCtx.decoder.Decode(value, handle, e.scanCtx.chk)
 	if err != nil {
 		return errors.Trace(err)
