@@ -37,7 +37,9 @@ type RaftLog struct {
 	// Invariant: applied <= committed
 	applied uint64
 
-	// log entries with index <= stabled are stabled to storage
+	// log entries with index <= stabled are persisted to storage.
+	// It is used to record the logs that are not persisted by storage yet.
+	// Everytime handling `Ready`, the unstabled logs will be included.
 	stabled uint64
 
 	// all entries that have not yet compact.
