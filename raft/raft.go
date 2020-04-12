@@ -142,7 +142,8 @@ type Raft struct {
 	electionElapsed int
 
 	// leadTransferee is id of the leader transfer target when its value is not zero.
-	// Follow the procedure defined in raft thesis 3.10.
+	// Follow the procedure defined in section 3.10 of Raft phd thesis.
+	// (https://web.stanford.edu/~ouster/cgi-bin/papers/OngaroPhD.pdf)
 	// (Used in 3A leader transfer)
 	leadTransferee uint64
 
