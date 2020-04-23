@@ -13,7 +13,7 @@ message RaftMessage {
     metapb.RegionEpoch region_epoch = 5;
     // true means to_peer is a tombstone peer and it should remove itself.
     bool is_tombstone = 6;
-    // Region key range [start_key, end_key).
+    // Region key range [start_key, end_key). (Used in 3B)
     bytes start_key = 7;
     bytes end_key = 8;
 }
@@ -27,8 +27,11 @@ message RaftLocalState {
 
 // Used to store the persistent state for Raft state machine.
 message RaftApplyState {
+    // Record the applied index of the state machine to make sure
+    // not apply any index twice after restart.
     uint64 applied_index = 1;
-    RaftTruncatedState truncated_state = 2;
+    // Record the index and term of the last raft log that have been truncated. (Used in 2C)
+    RaftTruncatedState truncated_state = 2; 
 }
 
 // The truncated state for Raft log compaction.
