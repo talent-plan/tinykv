@@ -60,7 +60,7 @@ message Response {
 }
 
 message ChangePeerRequest {
-    // This can be only called in internal RaftStore now.
+    // This can be only called in internal Raftstore now.
     eraftpb.ConfChangeType change_type = 1;
     metapb.Peer peer = 2;
 }
@@ -70,7 +70,7 @@ message ChangePeerResponse {
 }
 
 message SplitRequest {
-    // This can be only called in internal RaftStore now.
+    // This can be only called in internal Raftstore now.
     // The split_key has to exist in the splitting region.
     bytes split_key = 1;
     // We split the region into two. The first uses the origin 

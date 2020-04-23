@@ -31,7 +31,7 @@ type RaftStorage struct {
 	node          *raftstore.Node
 	snapManager   *snap.SnapManager
 	raftRouter    *raftstore.RaftstoreRouter
-	batchSystem   *raftstore.RaftBatchSystem
+	raftSystem    *raftstore.Raftstore
 	resolveWorker *worker.Worker
 	snapWorker    *worker.Worker
 
@@ -182,7 +182,7 @@ func (rs *RaftStorage) Start() error {
 	if err != nil {
 		return err
 	}
-	rs.raftRouter, rs.batchSystem = raftstore.CreateRaftBatchSystem(cfg)
+	rs.raftRouter, rs.raftSystem = raftstore.CreateRaftstore(cfg)
 
 	rs.resolveWorker = worker.NewWorker("resolver", &rs.wg)
 	resolveSender := rs.resolveWorker.Sender()
@@ -198,7 +198,7 @@ func (rs *RaftStorage) Start() error {
 	raftClient := newRaftClient(cfg)
 	trans := NewServerTransport(raftClient, snapSender, rs.raftRouter, resolveSender)
 
-	rs.node = raftstore.NewNode(rs.batchSystem, rs.config, schedulerClient)
+	rs.node = raftstore.NewNode(rs.raftSystem, rs.config, schedulerClient)
 	err = rs.node.Start(context.TODO(), rs.engines, trans, rs.snapManager)
 	if err != nil {
 		return err
