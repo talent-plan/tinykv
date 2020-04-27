@@ -55,7 +55,7 @@ The whole project is organized into the following directories:
 
 ## Deploy a cluster
 
-Rather than a course, you can try TinyKV by deploying a real cluster, and integrate with it by TinySQL.
+Rather than a course, you can try TinyKV by deploying a real cluster, and interact with it through TinySQL.
 
 ### Build
 
@@ -63,11 +63,11 @@ Rather than a course, you can try TinyKV by deploying a real cluster, and integr
 make
 ```
 
-It builds the binary of `tinykv-server` and `tinykvscheduler-server` to `bin` dir.
+It builds the binary of `tinykv-server` and `tinyscheduler-server` to `bin` dir.
 
 ### Run
 
-Put the binary of `tinyscheduler-server`, `tinykv-server` and `tidb-server` into a single dir.
+Put the binary of `tinyscheduler-server`, `tinykv-server` and `tinysql-server` into a single dir.
 
 Under the binary dir, run the following commands:
 
