@@ -110,7 +110,7 @@ These states are stored in two badger instances: raftdb and kvdb:
 -	raftdb stores raft log and `RaftLocalState`
 -	kvdb stores key-value data in different column families, `RegionLocalState` and `RaftApplyState`. You can regard kvdb as the state machine mentioned in Raft paper
 
-The format is as below and some helper functions are provided in `kv/raftstore/meta`, and set them to badger with writebatch.SetMeta().
+The format is as below and some helper functions are provided in `kv/raftstore/meta`, and set them to badger with `writebatch.SetMeta()`.
 
 | Key            | KeyFormat                      | Value          | DB |
 |:----           |:----                           |:----           |:---|
