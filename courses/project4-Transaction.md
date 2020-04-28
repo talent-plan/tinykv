@@ -42,11 +42,10 @@ This exercise requires implementing a single struct called `MvccTxn`. In parts B
 
 `MvccTxn` is defined in [transaction.go](/kv/transaction/mvcc/transaction.go). There is a stub implementation, and some helper functions for encoding and decoding keys. Tests are in [transaction_test.go](/kv/transaction/mvcc/transaction_test.go). For this exercise, you should implement each of the `MvccTxn` methods so that all tests pass. Each method is documented with its intended behaviour.
 
-### Hints:
-
-An `MvccTxn` should know the start timestamp of the request it is representing.
-
-The most challenging methods to implement are likely to be `GetValue` and the methods for retrieving writes. You will need to use `StorageReader` to iterate over a CF. Bear in mind the ordering of encoded keys, and remember that when deciding when a value is valid depends on the commit timestamp, not the start timestamp, of a transaction.
+> Hints:
+>
+> - An `MvccTxn` should know the start timestamp of the request it is representing.
+> - The most challenging methods to implement are likely to be `GetValue` and the methods for retrieving writes. You will need to use `StorageReader` to iterate over a CF. Bear in mind the ordering of encoded keys, and remember that when deciding when a value is valid depends on the commit timestamp, not the start timestamp, of a transaction.
 
 ## Part B
 
@@ -62,11 +61,10 @@ You'll need to implement the `KvGet`, `KvPrewrite`, and `KvCommit` methods defin
 
 TinyKV can handle multiple requests concurrently, so there is the possibility of local race conditions. For example, TinyKV might receive two requests from different clients at the same time, one of which commits a key and the other rolls back the same key. To avoid race conditions, you can *latch* any key in the database. This latch works much like a per-key mutex. One latch covers all CFs. [latches.go](/kv/transaction/latches/latches.go) defines a `Latches` object which provides API for this.
 
-### Hints:
-
-All commands will be a part of a transaction. Transactions are identified by a start timestamp (aka start version).
-
-Any request might cause a region error, these should be handled in the same way as for the raw requests. Most responses have a way to indicate non-fatal errors for situations like a key being locked. By reporting these to the client, it can retry a transaction after some time.
+> Hints:
+>
+> - All commands will be a part of a transaction. Transactions are identified by a start timestamp (aka start version).
+> - Any request might cause a region error, these should be handled in the same way as for the raw requests. Most responses have a way to indicate non-fatal errors for situations like a key being locked. By reporting these to the client, it can retry a transaction after some time.
 
 ## Part C
 
@@ -82,12 +80,9 @@ In this part, you will implement `KvScan`, `KvCheckTxnStatus`, `KvBatchRollback`
 
 `KvResolveLock` inspects a batch of locked keys and either rolls them all back or commits them all.
 
-### Hints:
-
-For scanning, you might find it helpful to implement your own scanner (iterator) abstraction which iterates over logical values, rather than the raw values in underlying storage.
-
-When scanning, some errors can be recorded for an individual key and should not cause the whole scan to stop. For other commands, any single key causing an error should cause the whole operation to stop.
-
-Since `KvResolveLock` either commits or rolls back its keys, you should be able to share code with the `KvBatchRollback` and `KvCommit` implementations.
-
-A timestamp consists of a physical and a logical component. The physical part is roughly a monotonic version of wall-clock time. Usually we use the whole timestamp, for example when comparing timestamps for equality. However, when calculating timeouts, we must only use the physical part of the timestamp. To do this you may find the `PhysicalTime` function in [server.go](/kv/server/server.go) useful.
+> Hints:
+>
+> - For scanning, you might find it helpful to implement your own scanner (iterator) abstraction which iterates over logical values, rather than the raw values in underlying storage.
+> - When scanning, some errors can be recorded for an individual key and should not cause the whole scan to stop. For other commands, any single key causing an error should cause the whole operation to stop.
+> - Since `KvResolveLock` either commits or rolls back its keys, you should be able to share code with the `KvBatchRollback` and `KvCommit` implementations.
+> - A timestamp consists of a physical and a logical component. The physical part is roughly a monotonic version of wall-clock time. Usually we use the whole timestamp, for example when comparing timestamps for equality. However, when calculating timeouts, we must only use the physical part of the timestamp. To do this you may find the `PhysicalTime` function in [server.go](/kv/server/server.go) useful.
