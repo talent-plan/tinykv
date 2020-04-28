@@ -104,9 +104,9 @@ So your task is to implement the process of handling split admin command, just l
 > - Use `engine_util.ExceedEndKey()` to compare with region’s end key. Because when the end key equals “”, any key will equal or greater than “”. > - There are more errors need to be considered: `ErrRegionNotFound`,
 `ErrKeyNotInRegion`, `ErrEpochNotMatch`.
 
-### Part C
+## Part C
 
-As we have instructed above, all data in our kv store is split into several regions, and every region contains multiple replicas. A problem emerged: where should we place every replica? and how can we find the best place for a replica? Who sends former AddPeer and RemovePeer commands? The Scheduler takes on this responsibility. 
+As we have instructed above, all data in our kv store is split into several regions, and every region contains multiple replicas. A problem emerged: where should we place every replica? and how can we find the best place for a replica? Who sends former AddPeer and RemovePeer commands? The Scheduler takes on this responsibility.
 
 In order to make informed decisions, the Scheduler should have some information about the whole cluster. It should know where every region is. It should know how many keys they have. It should know how big they are…  To get related information, the Scheduler requires that every region should send a heartbeat request to the Scheduler periodically. You can find the heartbeat request structure `RegionHeartbeatRequest` in `/proto/proto/pdpb.proto`. After receiving a heartbeat, the scheduler will update local region information.
 
@@ -114,13 +114,13 @@ Meanwhile, the Scheduler checks region information periodically to find whether 
 
 In this part, you will need to implement the above two functions for Scheduler. Follow our guide and framework, and it won’t be too difficult.
 
-#### The Code
+### The Code
 
-The code you need to modify is all about `scheduler/server/cluster.go` and `scheduler/server/schedulers/balance_region.go`. As described above, when the Scheduler received a region heartbeat, it will update its local region information first. Then it will check whether there are pending commands for this region. If there is, it will be sent back as the response. 
+The code you need to modify is all about `scheduler/server/cluster.go` and `scheduler/server/schedulers/balance_region.go`. As described above, when the Scheduler received a region heartbeat, it will update its local region information first. Then it will check whether there are pending commands for this region. If there is, it will be sent back as the response.
 
 You only need to implement `processRegionHeartbeat` function, in which the Scheduler updates local information; and `Schedule` function for balance-region scheduler, in which the Scheduler scans stores and determines whether there is an imbalance and which region it should move.
 
-#### Collect region heartbeat
+### Collect region heartbeat
 
 As you can see, the only argument of `processRegionHeartbeat` function is a regionInfo. It contains information about the sender region of this heartbeat. What the Scheduler needs to do is just to update local region records. But should it update these records for every heartbeat?
 
@@ -132,7 +132,7 @@ Which one is more credible? The Scheduler should use `conf_ver` and `version` to
 
 Simply speaking, you could organize the check routine in below way:
 
-1. Check whether there is a region with the same Id in local storage. If there is and at least one of the heartbeats’ `conf_ver` and `version` are less than its, this heartbeat region is stale 
+1. Check whether there is a region with the same Id in local storage. If there is and at least one of the heartbeats’ `conf_ver` and `version` are less than its, this heartbeat region is stale
 
 2. If there isn’t, scan all regions that overlap with it. The heartbeats’ `conf_ver` and `version` should be greater or equal than all of them, or the region is stale.
 
@@ -152,7 +152,7 @@ Don’t worry. You don’t need to find a strict sufficient and necessary condit
 
 If the Scheduler determines to update local storage according to this heartbeat, there are two things it should update: region tree and store status. You could use `RaftCluster.core.PutRegion` to update the region tree and use `RaftCluster.core.UpdateStoreStatus` to update related store’s status (such as leader count, region count, pending peer count… ).
 
-#### Implement region balance scheduler
+### Implement region balance scheduler
 
 There can be many different types of schedulers running in the Scheduler, for example, balance-region scheduler and balance-leader scheduler. This learning material will focus on the balance-region scheduler.
 
@@ -162,9 +162,9 @@ The core part of the Scheduler interface is `Schedule` method. The return value 
 
 You can use the `CreateMovePeerOperator` function in `scheduler/server/schedule/operator` package to create a `MovePeer` operator.
 
-![multiraft](imgs/balance1.png)
+![balance](imgs/balance1.png)
 
-![multiraft](imgs/balance2.png)
+![balance](imgs/balance2.png)
 
 In this part, the only function you need to implement is the `Schedule` method in `scheduler/server/schedulers/balance_region.go`. This scheduler avoids too many regions in one store. First, the Scheduler will select all suitable stores. Then sort them according to their region size. Then the Scheduler tries to find regions to move from the store with the biggest region size.
 
@@ -174,7 +174,7 @@ After you pick up one region to move, the Scheduler will select a store as the t
 
 As you might have noticed, the routine above is just a rough process. A lot of problems are left:
 
-* Which stores are suitable to move? 
+* Which stores are suitable to move?
 
 In short, a suitable store should be up and the down time cannot be longer than `MaxStoreDownTime` of the cluster, which you can get through `cluster.GetMaxStoreDownTime()`.
 
@@ -184,9 +184,4 @@ The Scheduler framework provides three methods to get regions. `GetPendingRegion
 
 * How to judge whether this operation is valuable?
 
-If the difference between the original and target stores’ region sizes are too small, after we move the region from original store to target store, the Scheduler may want to move back again next time. So we have to make sure that the difference has to be bigger than two times of the approximate size of the region, which ensures that after moving, the target store’s region size is still smaller than the original store. 
-
-reference: 
-
-- <https://pingcap.com/blog-cn/pd-scheduler/>
-- <https://pingcap-incubator.github.io/tidb-in-action/session1/chapter4/scheduling-overview.html>
+If the difference between the original and target stores’ region sizes are too small, after we move the region from original store to target store, the Scheduler may want to move back again next time. So we have to make sure that the difference has to be bigger than two times of the approximate size of the region, which ensures that after moving, the target store’s region size is still smaller than the original store.
