@@ -226,3 +226,5 @@ Then due to the log compaction, Raft module maybe needs to send a snapshot. `Pee
 
 Then the snapshot will reflect in the next Raft ready, so the task you should do is to modify the raft ready process to handle the case of snapshot. When you are sure to apply the snapshot, you can update the peer storage’s memory state like `RaftLocalState`, `RaftApplyState` and `RegionLocalState`. Also don’t forget to persist these states to kvdb and raftdb and remove stale state from kvdb and raftdb. Besides, you also need to update
 `PeerStorage.snapState` to `snap.SnapState_Applying` and send `runner.RegionTaskApply` task to region worker through `PeerStorage.regionSched` and wait until region worker finish.
+
+You should run `make project2c` to pass all the tests.
