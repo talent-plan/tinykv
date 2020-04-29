@@ -11,7 +11,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/coprocessor/rowcodec"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/mvcc"
-	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/expression/aggregation"
 	"github.com/pingcap/tidb/kv"
@@ -479,7 +478,6 @@ func (e *closureExecutor) tableScanProcessCore(key, value []byte) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	log.Infof("key: %+v, value: %+v, handle:%v", key, value, handle)
 	err = e.scanCtx.decoder.Decode(value, handle, e.scanCtx.chk)
 	if err != nil {
 		return errors.Trace(err)

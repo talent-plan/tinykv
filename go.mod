@@ -33,15 +33,11 @@ require (
 	github.com/stretchr/testify v1.4.0
 	github.com/struCoder/pidusage v0.1.2 // indirect
 	github.com/twinj/uuid v1.0.0 // indirect
-	github.com/ugorji/go/codec v0.0.0-20190204201341-e444a5086c43 // indirect
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20191023171146-3cf2f69b5738
 	go.uber.org/zap v1.14.0
 	golang.org/x/net v0.0.0-20200226121028-0de0cce0169b
 	google.golang.org/grpc v1.25.1
-	gopkg.in/airbrake/gobrake.v2 v2.0.9 // indirect
-	gopkg.in/gemnasium/logrus-airbrake-hook.v2 v2.1.2 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
-	gopkg.in/stretchr/testify.v1 v1.2.2 // indirect
 )
 
 go 1.13
