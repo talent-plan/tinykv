@@ -65,7 +65,6 @@ func (en *Engines) Destroy() error {
 // CreateDB creates a new Badger DB on disk at subPath.
 func CreateDB(subPath string, conf *config.Config) *badger.DB {
 	opts := badger.DefaultOptions
-	opts.MaxCacheSize = 100 * 1024 * 1024
 	if subPath == "raft" {
 		// Do not need to write blob for raft engine because it will be deleted soon.
 		opts.ValueThreshold = 0
