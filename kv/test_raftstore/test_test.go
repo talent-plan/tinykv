@@ -156,8 +156,6 @@ func confchanger(t *testing.T, cluster *Cluster, ch chan bool, done *int32) {
 // - If confchangee is set, the cluster will schedule random conf change concurrently.
 // - If split is set, split region when size exceed 1024 bytes.
 func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash bool, partitions bool, maxraftlog int, confchange bool, split bool) {
-	log.Infof("running test %v", t.Name())
-
 	nservers := 5
 	cfg := config.NewTestConfig()
 	if maxraftlog != -1 {
