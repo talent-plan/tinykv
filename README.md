@@ -48,6 +48,8 @@ The whole project is organized into the following directories:
 
 ### Course material
 
+Please follow the course material to learn the background knowledge and finish code step by step.
+
 - [Project1 - StandaloneKV](courses/project1-StandaloneKV.md)
 - [Project2 - RaftKV](courses/project2-RaftKV.md)
 - [Project3 - MultiRaftKV](courses/project3-MultiRaftKV.md)
@@ -55,7 +57,7 @@ The whole project is organized into the following directories:
 
 ## Deploy a cluster
 
-Rather than a course, you can try TinyKV by deploying a real cluster, and interact with it through TinySQL.
+After you finished the whole implementation, it's runnable now. You can try TinyKV by deploying a real cluster, and interact with it through TinySQL.
 
 ### Build
 
