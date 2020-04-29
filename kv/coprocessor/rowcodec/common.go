@@ -35,8 +35,8 @@ type row struct {
 	numNullCols    uint16
 	colIDs         []byte
 
-	offsets  []uint16
-	data     []byte
+	offsets []uint16
+	data    []byte
 
 	// for large row
 	colIDs32  []uint32
