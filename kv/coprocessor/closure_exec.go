@@ -319,6 +319,7 @@ func (e *closureExecutor) execute() ([]tipb.Chunk, error) {
 				for {
 					key, val, err := scanner.Next()
 					if err != nil {
+						scanner.Close()
 						return nil, err
 					}
 					if key == nil && val == nil {
@@ -333,6 +334,7 @@ func (e *closureExecutor) execute() ([]tipb.Chunk, error) {
 						if err == ScanBreak {
 							break
 						}
+						scanner.Close()
 						return nil, err
 					}
 

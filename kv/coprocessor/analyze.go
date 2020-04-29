@@ -27,12 +27,14 @@
 package coprocessor
 
 import (
+	"bytes"
 	"time"
 
 	"github.com/Connor1996/badger/y"
 	"github.com/golang/protobuf/proto"
 	"github.com/juju/errors"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
+	"github.com/pingcap-incubator/tinykv/kv/transaction/mvcc"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/coprocessor"
 
 	"github.com/pingcap/tidb/parser/ast"
@@ -84,28 +86,47 @@ func (svr *CopHandler) HandleCopAnalyzeRequest(reader storage.StorageReader, req
 }
 
 func (svr *CopHandler) handleAnalyzeIndexReq(reader storage.StorageReader, ran kv.KeyRange, analyzeReq *tipb.AnalyzeReq, startTS uint64) (*coprocessor.Response, error) {
-	// processor := &analyzeIndexProcessor{
-	// 	colLen:       int(analyzeReq.IdxReq.NumColumns),
-	// 	statsBuilder: statistics.NewSortedBuilder(flagsToStatementContext(analyzeReq.Flags), analyzeReq.IdxReq.BucketSize, 0, types.NewFieldType(mysql.TypeBlob)),
-	// }
-	// if analyzeReq.IdxReq.CmsketchDepth != nil && analyzeReq.IdxReq.CmsketchWidth != nil {
-	// 	processor.cms = statistics.NewCMSketch(*analyzeReq.IdxReq.CmsketchDepth, *analyzeReq.IdxReq.CmsketchWidth)
-	// }
-	// err := reader.Scan(ran.StartKey, ran.EndKey, math.MaxInt64, startTS, processor)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// hg := statistics.HistogramToProto(processor.statsBuilder.Hist())
-	// var cm *tipb.CMSketch
-	// if processor.cms != nil {
-	// 	cm = statistics.CMSketchToProto(processor.cms)
-	// }
-	// data, err := proto.Marshal(&tipb.AnalyzeIndexResp{Hist: hg, Cms: cm})
-	// if err != nil {
-	// 	return nil, errors.Trace(err)
-	// }
-	// return &coprocessor.Response{Data: data}, nil
-	panic("unsupported analyze req")
+	processor := &analyzeIndexProcessor{
+		colLen:       int(analyzeReq.IdxReq.NumColumns),
+		statsBuilder: statistics.NewSortedBuilder(flagsToStatementContext(analyzeReq.Flags), analyzeReq.IdxReq.BucketSize, 0, types.NewFieldType(mysql.TypeBlob)),
+	}
+	if analyzeReq.IdxReq.CmsketchDepth != nil && analyzeReq.IdxReq.CmsketchWidth != nil {
+		processor.cms = statistics.NewCMSketch(*analyzeReq.IdxReq.CmsketchDepth, *analyzeReq.IdxReq.CmsketchWidth)
+	}
+
+	txn := mvcc.RoTxn{Reader: reader, StartTS: startTS}
+	scanner := mvcc.NewScanner(ran.StartKey, &txn)
+	defer scanner.Close()
+	for {
+		key, val, err := scanner.Next()
+		if err != nil {
+			return nil, err
+		}
+		if key == nil && val == nil {
+			break
+		}
+		if bytes.Compare(key, ran.EndKey) >= 0 {
+			break
+		}
+
+		err = processor.Process(key, val)
+		if err != nil {
+			if err == ScanBreak {
+				break
+			}
+			return nil, err
+		}
+	}
+	hg := statistics.HistogramToProto(processor.statsBuilder.Hist())
+	var cm *tipb.CMSketch
+	if processor.cms != nil {
+		cm = statistics.CMSketchToProto(processor.cms)
+	}
+	data, err := proto.Marshal(&tipb.AnalyzeIndexResp{Hist: hg, Cms: cm})
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return &coprocessor.Response{Data: data}, nil
 }
 
 type analyzeIndexProcessor struct {
@@ -224,15 +245,36 @@ func (e *analyzeColumnsExec) Fields() []*ast.ResultField {
 }
 
 func (e *analyzeColumnsExec) Next(ctx context.Context, req *chunk.Chunk) error {
-	// req.Reset()
-	// e.req = req
-	// err := e.reader.Scan(e.seekKey, e.endKey, math.MaxInt64, e.startTS, e)
-	// if err != nil {
-	// 	return err
-	// }
-	// if req.NumRows() < req.Capacity() {
-	// 	e.seekKey = e.endKey
-	// }
+	req.Reset()
+	e.req = req
+	processor := e
+	txn := mvcc.RoTxn{Reader: e.reader, StartTS: e.startTS}
+	scanner := mvcc.NewScanner(e.seekKey, &txn)
+	defer scanner.Close()
+	for {
+		key, val, err := scanner.Next()
+		if err != nil {
+			return err
+		}
+		if key == nil && val == nil {
+			break
+		}
+		if bytes.Compare(key, e.endKey) >= 0 {
+			break
+		}
+
+		err = processor.Process(key, val)
+		if err != nil {
+			if err == ScanBreak {
+				break
+			}
+			return err
+		}
+	}
+
+	if req.NumRows() < req.Capacity() {
+		e.seekKey = e.endKey
+	}
 	return nil
 }
 

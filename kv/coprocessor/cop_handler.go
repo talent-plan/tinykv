@@ -274,8 +274,6 @@ func toPBError(err error) *tipb.Error {
 
 // extractKVRanges extracts kv.KeyRanges slice from a SelectRequest.
 func (svr *CopHandler) extractKVRanges(reader storage.StorageReader, keyRanges []*coprocessor.KeyRange, descScan bool) (kvRanges []kv.KeyRange, err error) {
-	// startKey := regCtx.rawStartKey()
-	// endKey := regCtx.rawEndKey()
 	kvRanges = make([]kv.KeyRange, 0, len(keyRanges))
 	for _, kran := range keyRanges {
 		if bytes.Compare(kran.GetStart(), kran.GetEnd()) >= 0 {
@@ -284,13 +282,7 @@ func (svr *CopHandler) extractKVRanges(reader storage.StorageReader, keyRanges [
 		}
 
 		upperKey := kran.GetEnd()
-		// if bytes.Compare(upperKey, startKey) <= 0 {
-		// 	continue
-		// }
 		lowerKey := kran.GetStart()
-		// if len(endKey) != 0 && bytes.Compare(lowerKey, endKey) >= 0 {
-		// 	break
-		// }
 		r := kv.KeyRange{
 			StartKey: kv.Key(lowerKey),
 			EndKey:   kv.Key(upperKey),
