@@ -56,7 +56,7 @@ func (x CmdType) String() string {
 	return proto.EnumName(CmdType_name, int32(x))
 }
 func (CmdType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{0}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{0}
 }
 
 type AdminCmdType int32
@@ -88,7 +88,7 @@ func (x AdminCmdType) String() string {
 	return proto.EnumName(AdminCmdType_name, int32(x))
 }
 func (AdminCmdType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{1}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{1}
 }
 
 type GetRequest struct {
@@ -103,7 +103,7 @@ func (m *GetRequest) Reset()         { *m = GetRequest{} }
 func (m *GetRequest) String() string { return proto.CompactTextString(m) }
 func (*GetRequest) ProtoMessage()    {}
 func (*GetRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{0}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{0}
 }
 func (m *GetRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -157,7 +157,7 @@ func (m *GetResponse) Reset()         { *m = GetResponse{} }
 func (m *GetResponse) String() string { return proto.CompactTextString(m) }
 func (*GetResponse) ProtoMessage()    {}
 func (*GetResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{1}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{1}
 }
 func (m *GetResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -206,7 +206,7 @@ func (m *PutRequest) Reset()         { *m = PutRequest{} }
 func (m *PutRequest) String() string { return proto.CompactTextString(m) }
 func (*PutRequest) ProtoMessage()    {}
 func (*PutRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{2}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{2}
 }
 func (m *PutRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -266,7 +266,7 @@ func (m *PutResponse) Reset()         { *m = PutResponse{} }
 func (m *PutResponse) String() string { return proto.CompactTextString(m) }
 func (*PutResponse) ProtoMessage()    {}
 func (*PutResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{3}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{3}
 }
 func (m *PutResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -307,7 +307,7 @@ func (m *DeleteRequest) Reset()         { *m = DeleteRequest{} }
 func (m *DeleteRequest) String() string { return proto.CompactTextString(m) }
 func (*DeleteRequest) ProtoMessage()    {}
 func (*DeleteRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{4}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{4}
 }
 func (m *DeleteRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -360,7 +360,7 @@ func (m *DeleteResponse) Reset()         { *m = DeleteResponse{} }
 func (m *DeleteResponse) String() string { return proto.CompactTextString(m) }
 func (*DeleteResponse) ProtoMessage()    {}
 func (*DeleteResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{5}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{5}
 }
 func (m *DeleteResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -399,7 +399,7 @@ func (m *SnapRequest) Reset()         { *m = SnapRequest{} }
 func (m *SnapRequest) String() string { return proto.CompactTextString(m) }
 func (*SnapRequest) ProtoMessage()    {}
 func (*SnapRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{6}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{6}
 }
 func (m *SnapRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -439,7 +439,7 @@ func (m *SnapResponse) Reset()         { *m = SnapResponse{} }
 func (m *SnapResponse) String() string { return proto.CompactTextString(m) }
 func (*SnapResponse) ProtoMessage()    {}
 func (*SnapResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{7}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{7}
 }
 func (m *SnapResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -490,7 +490,7 @@ func (m *Request) Reset()         { *m = Request{} }
 func (m *Request) String() string { return proto.CompactTextString(m) }
 func (*Request) ProtoMessage()    {}
 func (*Request) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{8}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{8}
 }
 func (m *Request) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -569,7 +569,7 @@ func (m *Response) Reset()         { *m = Response{} }
 func (m *Response) String() string { return proto.CompactTextString(m) }
 func (*Response) ProtoMessage()    {}
 func (*Response) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{9}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{9}
 }
 func (m *Response) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -634,7 +634,7 @@ func (m *Response) GetSnap() *SnapResponse {
 }
 
 type ChangePeerRequest struct {
-	// This can be only called in internal RaftStore now.
+	// This can be only called in internal Raftstore now.
 	ChangeType           eraftpb.ConfChangeType `protobuf:"varint,1,opt,name=change_type,json=changeType,proto3,enum=eraftpb.ConfChangeType" json:"change_type,omitempty"`
 	Peer                 *metapb.Peer           `protobuf:"bytes,2,opt,name=peer" json:"peer,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}               `json:"-"`
@@ -646,7 +646,7 @@ func (m *ChangePeerRequest) Reset()         { *m = ChangePeerRequest{} }
 func (m *ChangePeerRequest) String() string { return proto.CompactTextString(m) }
 func (*ChangePeerRequest) ProtoMessage()    {}
 func (*ChangePeerRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{10}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{10}
 }
 func (m *ChangePeerRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -700,7 +700,7 @@ func (m *ChangePeerResponse) Reset()         { *m = ChangePeerResponse{} }
 func (m *ChangePeerResponse) String() string { return proto.CompactTextString(m) }
 func (*ChangePeerResponse) ProtoMessage()    {}
 func (*ChangePeerResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{11}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{11}
 }
 func (m *ChangePeerResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -737,7 +737,7 @@ func (m *ChangePeerResponse) GetRegion() *metapb.Region {
 }
 
 type SplitRequest struct {
-	// This can be only called in internal RaftStore now.
+	// This can be only called in internal Raftstore now.
 	// The split_key has to exist in the splitting region.
 	SplitKey []byte `protobuf:"bytes,1,opt,name=split_key,json=splitKey,proto3" json:"split_key,omitempty"`
 	// We split the region into two. The first uses the origin
@@ -755,7 +755,7 @@ func (m *SplitRequest) Reset()         { *m = SplitRequest{} }
 func (m *SplitRequest) String() string { return proto.CompactTextString(m) }
 func (*SplitRequest) ProtoMessage()    {}
 func (*SplitRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{12}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{12}
 }
 func (m *SplitRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -817,7 +817,7 @@ func (m *SplitResponse) Reset()         { *m = SplitResponse{} }
 func (m *SplitResponse) String() string { return proto.CompactTextString(m) }
 func (*SplitResponse) ProtoMessage()    {}
 func (*SplitResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{13}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{13}
 }
 func (m *SplitResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -865,7 +865,7 @@ func (m *CompactLogRequest) Reset()         { *m = CompactLogRequest{} }
 func (m *CompactLogRequest) String() string { return proto.CompactTextString(m) }
 func (*CompactLogRequest) ProtoMessage()    {}
 func (*CompactLogRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{14}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{14}
 }
 func (m *CompactLogRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -918,7 +918,7 @@ func (m *CompactLogResponse) Reset()         { *m = CompactLogResponse{} }
 func (m *CompactLogResponse) String() string { return proto.CompactTextString(m) }
 func (*CompactLogResponse) ProtoMessage()    {}
 func (*CompactLogResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{15}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{15}
 }
 func (m *CompactLogResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -958,7 +958,7 @@ func (m *TransferLeaderRequest) Reset()         { *m = TransferLeaderRequest{} }
 func (m *TransferLeaderRequest) String() string { return proto.CompactTextString(m) }
 func (*TransferLeaderRequest) ProtoMessage()    {}
 func (*TransferLeaderRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{16}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{16}
 }
 func (m *TransferLeaderRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -1004,7 +1004,7 @@ func (m *TransferLeaderResponse) Reset()         { *m = TransferLeaderResponse{}
 func (m *TransferLeaderResponse) String() string { return proto.CompactTextString(m) }
 func (*TransferLeaderResponse) ProtoMessage()    {}
 func (*TransferLeaderResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{17}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{17}
 }
 func (m *TransferLeaderResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -1048,7 +1048,7 @@ func (m *AdminRequest) Reset()         { *m = AdminRequest{} }
 func (m *AdminRequest) String() string { return proto.CompactTextString(m) }
 func (*AdminRequest) ProtoMessage()    {}
 func (*AdminRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{18}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{18}
 }
 func (m *AdminRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -1127,7 +1127,7 @@ func (m *AdminResponse) Reset()         { *m = AdminResponse{} }
 func (m *AdminResponse) String() string { return proto.CompactTextString(m) }
 func (*AdminResponse) ProtoMessage()    {}
 func (*AdminResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{19}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{19}
 }
 func (m *AdminResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -1205,7 +1205,7 @@ func (m *RaftRequestHeader) Reset()         { *m = RaftRequestHeader{} }
 func (m *RaftRequestHeader) String() string { return proto.CompactTextString(m) }
 func (*RaftRequestHeader) ProtoMessage()    {}
 func (*RaftRequestHeader) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{20}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{20}
 }
 func (m *RaftRequestHeader) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -1275,7 +1275,7 @@ func (m *RaftResponseHeader) Reset()         { *m = RaftResponseHeader{} }
 func (m *RaftResponseHeader) String() string { return proto.CompactTextString(m) }
 func (*RaftResponseHeader) ProtoMessage()    {}
 func (*RaftResponseHeader) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{21}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{21}
 }
 func (m *RaftResponseHeader) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -1340,7 +1340,7 @@ func (m *RaftCmdRequest) Reset()         { *m = RaftCmdRequest{} }
 func (m *RaftCmdRequest) String() string { return proto.CompactTextString(m) }
 func (*RaftCmdRequest) ProtoMessage()    {}
 func (*RaftCmdRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{22}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{22}
 }
 func (m *RaftCmdRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -1403,7 +1403,7 @@ func (m *RaftCmdResponse) Reset()         { *m = RaftCmdResponse{} }
 func (m *RaftCmdResponse) String() string { return proto.CompactTextString(m) }
 func (*RaftCmdResponse) ProtoMessage()    {}
 func (*RaftCmdResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_raft_cmdpb_7d27a800501f9188, []int{23}
+	return fileDescriptor_raft_cmdpb_409ff26e8ae8c248, []int{23}
 }
 func (m *RaftCmdResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -5755,9 +5755,9 @@ var (
 	ErrIntOverflowRaftCmdpb   = fmt.Errorf("proto: integer overflow")
 )
 
-func init() { proto.RegisterFile("raft_cmdpb.proto", fileDescriptor_raft_cmdpb_7d27a800501f9188) }
+func init() { proto.RegisterFile("raft_cmdpb.proto", fileDescriptor_raft_cmdpb_409ff26e8ae8c248) }
 
-var fileDescriptor_raft_cmdpb_7d27a800501f9188 = []byte{
+var fileDescriptor_raft_cmdpb_409ff26e8ae8c248 = []byte{
 	// 1068 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x9c, 0x56, 0xcd, 0x6e, 0xdb, 0x46,
 	0x10, 0x0e, 0x45, 0xea, 0xc7, 0x43, 0x52, 0xa1, 0x37, 0x6e, 0x4c, 0x3b, 0xa8, 0xa0, 0x30, 0x45,

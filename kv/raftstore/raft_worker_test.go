@@ -123,7 +123,7 @@ func TestHandleRaftCommittedEntries(t *testing.T) {
 	defer engines.Destroy()
 
 	cfg := config.NewDefaultConfig()
-	raftRouter, _ := CreateRaftBatchSystem(cfg)
+	raftRouter, _ := CreateRaftstore(cfg)
 	router := raftRouter.router
 	ctx := &GlobalContext{
 		cfg:    cfg,

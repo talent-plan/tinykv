@@ -10,6 +10,9 @@ import (
 type raftWorker struct {
 	pr *router
 
+	// receiver of messages should sent to raft, including:
+	// * raft command from `raftStorage`
+	// * raft inner messages from other peers sent by network
 	raftCh chan message.Msg
 	ctx    *GlobalContext
 

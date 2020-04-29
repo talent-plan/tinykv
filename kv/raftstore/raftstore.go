@@ -105,7 +105,7 @@ type Transport interface {
 
 /// loadPeers loads peers in this store. It scans the db engine, loads all regions and their peers from it
 /// WARN: This store should not be used before initialized.
-func (bs *RaftBatchSystem) loadPeers() ([]*peer, error) {
+func (bs *Raftstore) loadPeers() ([]*peer, error) {
 	// Scan region meta to get saved regions.
 	startKey := meta.RegionMetaMinKey
 	endKey := meta.RegionMetaMaxKey
@@ -175,7 +175,7 @@ func (bs *RaftBatchSystem) loadPeers() ([]*peer, error) {
 	return regionPeers, nil
 }
 
-func (bs *RaftBatchSystem) clearStaleMeta(kvWB, raftWB *engine_util.WriteBatch, originState *rspb.RegionLocalState) {
+func (bs *Raftstore) clearStaleMeta(kvWB, raftWB *engine_util.WriteBatch, originState *rspb.RegionLocalState) {
 	region := originState.Region
 	raftState, err := meta.GetRaftLocalState(bs.ctx.engine.Raft, region.Id)
 	if err != nil {
@@ -199,7 +199,7 @@ type workers struct {
 	wg               *sync.WaitGroup
 }
 
-type RaftBatchSystem struct {
+type Raftstore struct {
 	ctx        *GlobalContext
 	storeState *storeState
 	router     *router
@@ -209,7 +209,7 @@ type RaftBatchSystem struct {
 	wg         *sync.WaitGroup
 }
 
-func (bs *RaftBatchSystem) start(
+func (bs *Raftstore) start(
 	meta *metapb.Store,
 	cfg *config.Config,
 	engines *engine_util.Engines,
@@ -260,7 +260,7 @@ func (bs *RaftBatchSystem) start(
 	return nil
 }
 
-func (bs *RaftBatchSystem) startWorkers(peers []*peer) {
+func (bs *Raftstore) startWorkers(peers []*peer) {
 	ctx := bs.ctx
 	workers := bs.workers
 	router := bs.router
@@ -285,7 +285,7 @@ func (bs *RaftBatchSystem) startWorkers(peers []*peer) {
 	go bs.tickDriver.run()
 }
 
-func (bs *RaftBatchSystem) shutDown() {
+func (bs *Raftstore) shutDown() {
 	close(bs.closeCh)
 	bs.wg.Wait()
 	bs.tickDriver.stop()
@@ -301,15 +301,15 @@ func (bs *RaftBatchSystem) shutDown() {
 	workers.wg.Wait()
 }
 
-func CreateRaftBatchSystem(cfg *config.Config) (*RaftstoreRouter, *RaftBatchSystem) {
+func CreateRaftstore(cfg *config.Config) (*RaftstoreRouter, *Raftstore) {
 	storeSender, storeState := newStoreState(cfg)
 	router := newRouter(storeSender)
-	raftBatchSystem := &RaftBatchSystem{
+	raftstore := &Raftstore{
 		router:     router,
 		storeState: storeState,
 		tickDriver: newTickDriver(cfg.RaftBaseTickInterval, router, storeState.ticker),
 		closeCh:    make(chan struct{}),
 		wg:         new(sync.WaitGroup),
 	}
-	return NewRaftstoreRouter(router), raftBatchSystem
+	return NewRaftstoreRouter(router), raftstore
 }

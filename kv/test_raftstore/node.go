@@ -148,9 +148,9 @@ func (c *NodeSimulator) RunStore(cfg *config.Config, engine *engine_util.Engines
 	c.Lock()
 	defer c.Unlock()
 
-	raftRouter, batchSystem := raftstore.CreateRaftBatchSystem(cfg)
+	raftRouter, raftSystem := raftstore.CreateRaftstore(cfg)
 	snapManager := snap.NewSnapManager(cfg.DBPath + "/snap")
-	node := raftstore.NewNode(batchSystem, cfg, c.schedulerClient)
+	node := raftstore.NewNode(raftSystem, cfg, c.schedulerClient)
 
 	err := node.Start(ctx, engine, c.trans, snapManager)
 	if err != nil {
