@@ -25,7 +25,7 @@ message Request {
 }
 
 message Response {
-    bytes data = 1 [(gogoproto.customtype) = "github.com/pingcap/kvproto/pkg/sharedbytes.SharedBytes", (gogoproto.nullable) = false];
+    bytes data = 1;
     errorpb.Error region_error = 2;
     kvrpcpb.LockInfo locked = 3;
     string other_error = 4;

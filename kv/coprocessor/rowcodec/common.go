@@ -35,11 +35,8 @@ type row struct {
 	numNullCols    uint16
 	colIDs         []byte
 
-	// valFlags is used for converting new row format to old row format.
-	// It can be removed once TiDB implemented the new row format.
-	valFlags []byte
-	offsets  []uint16
-	data     []byte
+	offsets []uint16
+	data    []byte
 
 	// for large row
 	colIDs32  []uint32
@@ -65,13 +62,7 @@ func (r row) String() string {
 			offEnd = int64(r.offsets[i])
 		}
 		colValData := r.data[offStart:offEnd]
-		valFlag := r.valFlags[i]
-		var colValStr string
-		if valFlag == BytesFlag {
-			colValStr = fmt.Sprintf("(%d:'%s')", colID, colValData)
-		} else {
-			colValStr = fmt.Sprintf("(%d:%d)", colID, colValData)
-		}
+		colValStr := fmt.Sprintf("(%d:%v)", colID, colValData)
 		colValStrs = append(colValStrs, colValStr)
 	}
 	return strings.Join(colValStrs, ",")
@@ -101,8 +92,6 @@ func (r *row) setRowData(rowData []byte) error {
 	r.numNotNullCols = binary.LittleEndian.Uint16(rowData[2:])
 	r.numNullCols = binary.LittleEndian.Uint16(rowData[4:])
 	cursor := 6
-	r.valFlags = rowData[cursor : cursor+int(r.numNotNullCols)]
-	cursor += int(r.numNotNullCols)
 	if r.large {
 		colIDsLen := int(r.numNotNullCols+r.numNullCols) * 4
 		r.colIDs32 = bytesToU32Slice(rowData[cursor : cursor+colIDsLen])

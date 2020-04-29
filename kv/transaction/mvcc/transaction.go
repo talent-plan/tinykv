@@ -5,7 +5,18 @@ import (
 
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/util/codec"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
+	"github.com/pingcap-incubator/tinykv/scheduler/pkg/tsoutil"
 )
+
+// KeyError is a wrapper type so we can implement the `error` interface.
+type KeyError struct {
+	kvrpcpb.KeyError
+}
+
+func (ke *KeyError) Error() string {
+	return ke.String()
+}
 
 // MvccTxn groups together writes as part of a single transaction. It also provides an abstraction over low-level
 // storage, lowering the concepts of timestamps, writes, and locks into plain keys and values.
@@ -106,4 +117,9 @@ func decodeTimestamp(key []byte) uint64 {
 		panic(err)
 	}
 	return ^binary.BigEndian.Uint64(left)
+}
+
+// PhysicalTime returns the physical time part of the timestamp.
+func PhysicalTime(ts uint64) uint64 {
+	return ts >> tsoutil.PhysicalShiftBits
 }

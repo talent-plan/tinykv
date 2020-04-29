@@ -3,14 +3,14 @@ package server
 import (
 	"context"
 
-	"github.com/pingcap-incubator/tinykv/scheduler/pkg/tsoutil"
-
+	"github.com/pingcap-incubator/tinykv/kv/coprocessor"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/storage/raft_storage"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/latches"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/coprocessor"
+	coppb "github.com/pingcap-incubator/tinykv/proto/pkg/coprocessor"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tinykvpb"
+	"github.com/pingcap/tidb/kv"
 )
 
 var _ tinykvpb.TinyKvServer = new(Server)
@@ -21,6 +21,9 @@ type Server struct {
 
 	// (Used in 4A/4B)
 	Latches *latches.Latches
+
+	// coprocessor API handler, out of course scope
+	copHandler *coprocessor.CopHandler
 }
 
 func NewServer(storage storage.Storage) *Server {
@@ -102,11 +105,21 @@ func (server *Server) KvResolveLock(_ context.Context, req *kvrpcpb.ResolveLockR
 }
 
 // SQL push down commands.
-func (server *Server) Coprocessor(_ context.Context, req *coprocessor.Request) (*coprocessor.Response, error) {
-	return &coprocessor.Response{}, nil
-}
-
-// PhysicalTime returns the physical time part of the timestamp.
-func PhysicalTime(ts uint64) uint64 {
-	return ts >> tsoutil.PhysicalShiftBits
+func (server *Server) Coprocessor(_ context.Context, req *coppb.Request) (*coppb.Response, error) {
+	resp := new(coppb.Response)
+	reader, err := server.storage.Reader(req.Context)
+	if err != nil {
+		if regionErr, ok := err.(*raft_storage.RegionError); ok {
+			resp.RegionError = regionErr.RequestErr
+			return resp, nil
+		}
+		return nil, err
+	}
+	switch req.Tp {
+	case kv.ReqTypeDAG:
+		return server.copHandler.HandleCopDAGRequest(reader, req), nil
+	case kv.ReqTypeAnalyze:
+		return server.copHandler.HandleCopAnalyzeRequest(reader, req), nil
+	}
+	return nil, nil
 }

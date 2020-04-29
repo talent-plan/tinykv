@@ -5,9 +5,8 @@ import (
 	"time"
 
 	"github.com/juju/errors"
-	"github.com/pingcap/parser/mysql"
+	"github.com/pingcap/tidb/parser/mysql"
 	"github.com/pingcap/tidb/types"
-	"github.com/pingcap/tidb/types/json"
 	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/codec"
 )
@@ -200,53 +199,9 @@ func (decoder *Decoder) decodeColData(colIdx int, colData []byte, chk *chunk.Chu
 	case mysql.TypeVarString, mysql.TypeVarchar, mysql.TypeString,
 		mysql.TypeBlob, mysql.TypeTinyBlob, mysql.TypeMediumBlob, mysql.TypeLongBlob:
 		chk.AppendBytes(colIdx, colData)
-	case mysql.TypeNewDecimal:
-		_, dec, _, _, err := codec.DecodeDecimal(colData)
-		if err != nil {
-			return err
-		}
-		chk.AppendMyDecimal(colIdx, dec)
-	case mysql.TypeDate, mysql.TypeDatetime, mysql.TypeTimestamp:
-		var t types.Time
-		t.Type = ft.Tp
-		t.Fsp = int8(ft.Decimal)
-		err := t.FromPackedUint(decodeUint(colData))
-		if err != nil {
-			return err
-		}
-		if ft.Tp == mysql.TypeTimestamp && !t.IsZero() {
-			err = t.ConvertTimeZone(time.UTC, decoder.loc)
-			if err != nil {
-				return err
-			}
-		}
-		chk.AppendTime(colIdx, t)
-	case mysql.TypeDuration:
-		var dur types.Duration
-		dur.Duration = time.Duration(decodeInt(colData))
-		dur.Fsp = int8(ft.Decimal)
-		chk.AppendDuration(colIdx, dur)
-	case mysql.TypeEnum:
-		// ignore error deliberately, to read empty enum value.
-		enum, err := types.ParseEnumValue(ft.Elems, decodeUint(colData))
-		if err != nil {
-			enum = types.Enum{}
-		}
-		chk.AppendEnum(colIdx, enum)
-	case mysql.TypeSet:
-		set, err := types.ParseSetValue(ft.Elems, decodeUint(colData))
-		if err != nil {
-			return err
-		}
-		chk.AppendSet(colIdx, set)
 	case mysql.TypeBit:
 		byteSize := (ft.Flen + 7) >> 3
 		chk.AppendBytes(colIdx, types.NewBinaryLiteralFromUint(decodeUint(colData), byteSize))
-	case mysql.TypeJSON:
-		var j json.BinaryJSON
-		j.TypeCode = colData[0]
-		j.Value = colData[1:]
-		chk.AppendJSON(colIdx, j)
 	default:
 		return errors.Errorf("unknown type %d", ft.Tp)
 	}

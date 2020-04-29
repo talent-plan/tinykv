@@ -116,18 +116,14 @@ func (encoder *Encoder) build(buf []byte) ([]byte, error) {
 			sort.Sort(smallNullSorter)
 		}
 	}
-	encoder.initValFlags()
 	for i := 0; i < notNullIdx; i++ {
 		d := encoder.values[i]
 		switch d.Kind() {
 		case types.KindInt64:
-			r.valFlags[i] = IntFlag
 			r.data = encodeInt(r.data, d.GetInt64())
 		case types.KindUint64:
-			r.valFlags[i] = UintFlag
 			r.data = encodeUint(r.data, d.GetUint64())
 		case types.KindString, types.KindBytes:
-			r.valFlags[i] = BytesFlag
 			r.data = append(r.data, d.GetBytes()...)
 		default:
 			var err error
@@ -135,7 +131,6 @@ func (encoder *Encoder) build(buf []byte) ([]byte, error) {
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
-			r.valFlags[i] = encoder.tempData[0]
 			r.data = append(r.data, encoder.tempData[1:]...)
 		}
 		if len(r.data) > math.MaxUint16 && !r.large {
@@ -178,7 +173,6 @@ func (encoder *Encoder) build(buf []byte) ([]byte, error) {
 	buf = append(buf, flag)
 	buf = append(buf, byte(r.numNotNullCols), byte(r.numNotNullCols>>8))
 	buf = append(buf, byte(r.numNullCols), byte(r.numNullCols>>8))
-	buf = append(buf, r.valFlags...)
 	if r.large {
 		buf = append(buf, u32SliceToBytes(r.colIDs32)...)
 		buf = append(buf, u32SliceToBytes(r.offsets32)...)
@@ -188,14 +182,6 @@ func (encoder *Encoder) build(buf []byte) ([]byte, error) {
 	}
 	buf = append(buf, r.data...)
 	return buf, nil
-}
-
-func (encoder *Encoder) initValFlags() {
-	if cap(encoder.valFlags) >= int(encoder.numNotNullCols) {
-		encoder.valFlags = encoder.valFlags[:encoder.numNotNullCols]
-	} else {
-		encoder.valFlags = make([]byte, encoder.numNotNullCols)
-	}
 }
 
 func (encoder *Encoder) initColIDs() {
@@ -314,55 +300,4 @@ func IsRowKeyWithShardByte(key []byte) bool {
 
 func IsRowKey(key []byte) bool {
 	return len(key) == rowKeyLen && key[0] == 't' && key[recordPrefixIdx] == 'r'
-}
-
-// RowToOldRow converts a row to old-format row.
-func RowToOldRow(rowData, buf []byte) ([]byte, error) {
-	if len(rowData) == 0 {
-		return rowData, nil
-	}
-	buf = buf[:0]
-	var r row
-	err := r.setRowData(rowData)
-	if err != nil {
-		return nil, err
-	}
-	if !r.large {
-		for i, colID := range r.colIDs {
-			buf = encodeOldOne(&r, buf, i, int64(colID))
-		}
-	} else {
-		for i, colID := range r.colIDs32 {
-			buf = encodeOldOne(&r, buf, i, int64(colID))
-		}
-	}
-	if len(buf) == 0 {
-		buf = append(buf, NilFlag)
-	}
-	return buf, nil
-}
-
-func encodeOldOne(r *row, buf []byte, i int, colID int64) []byte {
-	buf = append(buf, VarintFlag)
-	buf = codec.EncodeVarint(buf, colID)
-	if i < int(r.numNotNullCols) {
-		val := r.getData(i)
-		switch r.valFlags[i] {
-		case BytesFlag:
-			buf = append(buf, CompactBytesFlag)
-			buf = codec.EncodeCompactBytes(buf, val)
-		case IntFlag:
-			buf = append(buf, VarintFlag)
-			buf = codec.EncodeVarint(buf, decodeInt(val))
-		case UintFlag:
-			buf = append(buf, VaruintFlag)
-			buf = codec.EncodeUvarint(buf, decodeUint(val))
-		default:
-			buf = append(buf, r.valFlags[i])
-			buf = append(buf, val...)
-		}
-	} else {
-		buf = append(buf, NilFlag)
-	}
-	return buf
 }
