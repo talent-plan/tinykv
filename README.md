@@ -37,7 +37,7 @@ Now you can run `make` to check that everything is working as expected. You shou
 
 ### Overview of the code
 
-![overview](courses/imgs/overview.png)
+![overview](doc/imgs/overview.png)
 
 Same as the architect TiDB + TiKV + PD that separates the storage and computation, TinyKV only focuses on the storage layer of a distributed database system. If you are also interested in SQL layer, see [TinySQL](https://github.com/pingcap-incubator/tinysql). Besides that, there is a component called TinyScheduler as a center control of the whole TinyKV cluster, which collects information from the heartbeats of TinyKV. After that, the TinyScheduler can generate some scheduling tasks and distribute them to the TinyKV instances. All of them are communicated by RPC.
 
@@ -47,6 +47,7 @@ The whole project is organized into the following directories:
 - `proto`: all communication between nodes and processes uses Protocol Buffers over gRPC. This package contains the protocol definitions used by TinyKV, and generated Go code for using them.
 - `raft`: implementation of the Raft distributed consensus algorithm, used in TinyKV.
 - `scheduler`: implementation of the TinyScheduler which is responsible for managing TinyKV nodes and for generating timestamps.
+- `log`: log utility to output log base	on level.
 
 ### Course material
 

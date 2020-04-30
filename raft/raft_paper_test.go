@@ -14,10 +14,9 @@
 
 /*
 This file contains tests which verify that the scenarios described
-in the raft paper (https://ramcloud.stanford.edu/raft.pdf) are
-handled by the raft implementation correctly. Each test focuses on
-several sentences written in the paper. This could help us to prevent
-most implementation bugs.
+in the raft paper (https://raft.github.io/raft.pdf) are handled by the
+raft implementation correctly. Each test focuses on several sentences
+written in the paper.
 
 Each test is composed of three parts: init, test and check.
 Init part uses simple and understandable way to simulate the init state.

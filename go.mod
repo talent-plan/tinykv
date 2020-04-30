@@ -34,4 +34,4 @@ require (
 
 go 1.13
 
-replace github.com/pingcap/tidb => github.com/pingcap-incubator/tinysql v0.0.0-20200429065743-414e03ef38bd
+replace github.com/pingcap/tidb => github.com/pingcap-incubator/tinysql v0.0.0-20200429190545-ab844a9e29fe

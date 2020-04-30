@@ -1,4 +1,10 @@
-//high level log wrapper, so it can output different log based on level
+// High level log wrapper, so it can output different log based on level.
+//
+// There are five levels in total: FATAL, ERROR, WARNING, INFO, DEBUG.
+// The default log output level is INFO, you can change it by:
+// - call log.SetLevel()
+// - set environment variable `LOG_LEVEL`
+
 package log
 
 import (
@@ -264,5 +270,11 @@ func New() *Logger {
 }
 
 func NewLogger(w io.Writer, prefix string) *Logger {
-	return &Logger{_log: log.New(w, prefix, LstdFlags), level: LOG_LEVEL_INFO, highlighting: true}
+	var level LogLevel
+	if l := os.Getenv("LOG_LEVEL"); len(l) != 0 {
+		level = StringToLogLevel(os.Getenv("LOG_LEVEL"))
+	} else {
+		level = LOG_LEVEL_INFO
+	}
+	return &Logger{_log: log.New(w, prefix, LstdFlags), level: level, highlighting: true}
 }

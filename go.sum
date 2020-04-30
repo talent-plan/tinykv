@@ -205,8 +205,8 @@ github.com/pelletier/go-toml v1.3.0/go.mod h1:PN7xzY2wHTK0K9p34ErDQMlFxa51Fk0OUr
 github.com/petar/GoLLRB v0.0.0-20190514000832-33fb24c13b99 h1:KcEvVBAvyHkUdFAygKAzwB6LAcZ6LS32WHmRD2VyXMI=
 github.com/petar/GoLLRB v0.0.0-20190514000832-33fb24c13b99/go.mod h1:HUpKUBZnpzkdx0kD/+Yfuft+uD3zHGtXF/XJB14TUr4=
 github.com/pingcap-incubator/tinykv v0.0.0-20200320061650-f660f803e910/go.mod h1:YBDZKrKXGtZ8JnIwiiugENs8ykQiMNKOdaTC5lnEGVc=
-github.com/pingcap-incubator/tinysql v0.0.0-20200429065743-414e03ef38bd h1:mU/oD21p1lvolThE7AW+2s/LJ2YDdMtcmAnO927YoZU=
-github.com/pingcap-incubator/tinysql v0.0.0-20200429065743-414e03ef38bd/go.mod h1:r381uAExaY7K6lDM0lSpbWtdSbw1eDdLADMO7ZrvWV8=
+github.com/pingcap-incubator/tinysql v0.0.0-20200429190545-ab844a9e29fe h1:2826WhLU/2CtgfMgfhZCX2fNUhVByQeH3nD26GZ0a0s=
+github.com/pingcap-incubator/tinysql v0.0.0-20200429190545-ab844a9e29fe/go.mod h1:r381uAExaY7K6lDM0lSpbWtdSbw1eDdLADMO7ZrvWV8=
 github.com/pingcap/check v0.0.0-20190102082844-67f458068fc8 h1:USx2/E1bX46VG32FIw034Au6seQ2fY9NEILmNh/UlQg=
 github.com/pingcap/check v0.0.0-20190102082844-67f458068fc8/go.mod h1:B1+S9LNcuMyLH/4HMTViQOJevkGiik3wW2AN9zb2fNQ=
 github.com/pingcap/check v0.0.0-20191107115940-caf2b9e6ccf4/go.mod h1:PYMCGwN0JHjoqGr3HrZoD+b8Tgx8bKnArhSq8YVzUMc=

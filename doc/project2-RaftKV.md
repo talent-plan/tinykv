@@ -1,6 +1,6 @@
 # Project2 RaftKV
 
-Raft is a consensus algorithm that is designed to be easy to understand. You can read material about the Raft itself at [the Raft site](https://raft.github.io/), an interactive visualization of the Raft, and other resources, including [the extended Raft paper]( https://raft.github.io/raft.pdf).
+Raft is a consensus algorithm that is designed to be easy to understand. You can read material about the Raft itself at [the Raft site](https://raft.github.io/), an interactive visualization of the Raft, and other resources, including [the extended Raft paper](https://raft.github.io/raft.pdf).
 
 In this project you will implement a high available kv server based on raft,  which needs you not only to implement the Raft algorithm but also use it practically, and bring you more challenges like managing raft’s persisted state with `badger`, add flow control for snapshot message, etc.
 
@@ -199,7 +199,6 @@ In this stage, you may consider these errors, and others will be processed in pr
 > - You can apply the committed Raft log entries in an asynchronous way just like TiKV does. It’s not necessary, though a big challenge to improve performance.
 > - Record the callback of the command when proposing, and return the callback after applying.
 > - For the snap command response, should set badger Txn to callback explicitly.
-> - You can change the log level in `kv/config/config.go` to control whether to print some logs, which will be useful when debugging.
 
 ## Part C
 
