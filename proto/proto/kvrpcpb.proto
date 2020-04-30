@@ -1,0 +1,260 @@
+syntax = "proto3";
+package kvrpcpb;
+
+import "metapb.proto";
+import "errorpb.proto";
+import "gogoproto/gogo.proto";
+
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.sizer_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+
+// Raw commands.
+message RawGetRequest {
+    Context context = 1;
+    bytes key = 2;
+    string cf = 3;
+}
+
+message RawGetResponse {
+    errorpb.Error region_error = 1;
+    string error = 2;
+    bytes value = 3;
+    // True if the requested key doesn't exist; another error will not be signalled.
+    bool not_found = 4;
+}
+
+message RawPutRequest {
+    Context context = 1;
+    bytes key = 2;
+    bytes value = 3;
+    string cf = 4;
+}
+
+message RawPutResponse {
+    errorpb.Error region_error = 1;
+    string error = 2;
+}
+
+message RawDeleteRequest {
+    Context context = 1;
+    bytes key = 2;
+    string cf = 3;
+}
+
+message RawDeleteResponse {
+    errorpb.Error region_error = 1;
+    string error = 2;
+}
+
+message RawScanRequest {
+    Context context = 1;
+    bytes start_key = 2;
+    // The maximum number of values read.
+    uint32 limit = 3;
+    string cf = 4;
+
+}
+
+message RawScanResponse {
+    errorpb.Error region_error = 1;
+    // An error which affects the whole scan. Per-key errors are included in kvs.
+    string error = 2;
+    repeated KvPair kvs = 3;
+}
+
+// Transactional commands.
+// Note that "version" and "timestamp" are synonymous.
+
+// Read the value of a key at the given time.
+message GetRequest {
+    Context context = 1;
+    bytes key = 2;
+    uint64 version = 3;
+}
+
+message GetResponse {
+    errorpb.Error region_error = 1;
+    KeyError error = 2;
+    bytes value = 3;
+    // True if the requested key doesn't exist; another error will not be signalled.
+    bool not_found = 4;
+}
+
+// Prewrite is the first phase of two phase commit. A prewrite commit contains all the
+// writes (mutations) which a client would like to make as part of a transaction. The
+// request succeeds if none of the keys are locked. In that case all those keys will
+// be locked. If the prewrite fails, no changes are made to the DB.
+message PrewriteRequest {
+    Context context = 1;
+    repeated Mutation mutations = 2;
+    // Key of the primary lock.
+    bytes primary_lock = 3;
+    uint64 start_version = 4;
+    uint64 lock_ttl = 5;
+}
+
+// Empty if the prewrite is successful.
+message PrewriteResponse {
+    errorpb.Error region_error = 1;
+    repeated KeyError errors = 2;
+}
+
+// Commit is the second phase of 2pc. The client must have successfully prewritten
+// the transaction to all nodes. If all keys are locked by the given transaction,
+// then the commit should succeed. If any keys are locked by a different
+// transaction or are not locked at all (rolled back or expired), the commit
+// fails.
+message CommitRequest {
+    Context context = 1;
+    // Identifies the transaction, must match the start_version in the transaction's
+    // prewrite request.
+    uint64 start_version = 2;
+    // Must match the keys mutated by the transaction's prewrite request.
+    repeated bytes keys = 3;
+    // Must be greater than start_version.
+    uint64 commit_version = 4;
+}
+
+// Empty if the commit is successful.
+message CommitResponse {
+    errorpb.Error region_error = 1;
+    KeyError error = 2;
+}
+
+// Read multiple values from the DB.
+message ScanRequest {
+    Context context = 1;
+    bytes start_key = 2;
+    // The maximum number of values read.
+    uint32 limit = 3;
+    uint64 version = 4;
+}
+
+message ScanResponse {
+    errorpb.Error region_error = 1;
+    // Other errors are recorded for each key in pairs.
+    repeated KvPair pairs = 2;
+}
+
+// Rollback an un-committed transaction. Will fail if the transaction has already
+// been committed or keys are locked by a different transaction. If the keys were never
+// locked, no action is needed but it is not an error.  If successful all keys will be
+// unlocked and all uncommitted values removed.
+message BatchRollbackRequest {
+    Context context = 1;
+    uint64 start_version = 2;
+    repeated bytes keys = 3;
+}
+
+// Empty if the rollback is successful.
+message BatchRollbackResponse {
+    errorpb.Error region_error = 1;
+    KeyError error = 2;
+}
+
+// CheckTxnStatus reports on the status of a transaction and may take action to
+// rollback expired locks.
+// If the transaction has previously been rolled back or committed, return that information.
+// If the TTL of the transaction is exhausted, abort that transaction and roll back the primary lock.
+// Otherwise, returns the TTL information.
+message CheckTxnStatusRequest {
+    Context context = 1;
+    bytes primary_key = 2;
+    uint64 lock_ts = 3;	// primary key and lock ts together to locate the primary lock of a transaction.
+    uint64 current_ts = 4; // current_ts is used to check TTL timeout, it may be inaccurate.
+}
+
+message CheckTxnStatusResponse {
+    errorpb.Error region_error = 1;
+    // Three kinds of txn status:
+    // locked: lock_ttl > 0
+    // committed: commit_version > 0
+    // rolled back: lock_ttl == 0 && commit_version == 0
+    uint64 lock_ttl = 2;
+    uint64 commit_version = 3;
+    // The action performed by TinyKV in response to the CheckTxnStatus request.
+    Action action = 4;
+}
+
+// Resolve lock will find all locks belonging to the transaction with the given start timestamp.
+// If commit_version is 0, TinyKV will rollback all locks. If commit_version is greater than
+// 0 it will commit those locks with the given commit timestamp.
+// The client will make a resolve lock request for all secondary keys once it has successfully
+// committed or rolled back the primary key.
+message ResolveLockRequest {
+    Context context = 1;
+    uint64 start_version  = 2;
+    uint64 commit_version = 3;
+}
+
+// Empty if the lock is resolved successfully.
+message ResolveLockResponse {
+    errorpb.Error region_error = 1;
+    KeyError error = 2;
+}
+
+// Utility data types used by the above requests and responses.
+
+// Either a key/value pair or an error for a particular key.
+message KvPair {
+    KeyError error = 1;
+    bytes key = 2;
+    bytes value = 3;
+}
+
+enum Op {
+    Put = 0;
+    Del = 1;
+    Rollback = 2;
+    // Used by TinySQL but not TinyKV.
+    Lock = 3;
+}
+
+message Mutation {
+    Op op = 1;
+    bytes key = 2;
+    bytes value = 3;
+}
+
+enum Action {
+    NoAction = 0;
+    // The lock is rolled back because it has expired.
+    TTLExpireRollback = 1;
+    // The lock does not exist, TinyKV left a record of the rollback, but did not
+    // have to delete a lock.
+    LockNotExistRollback = 2;
+}
+
+// Data types used for errors.
+
+// Many responses can include a KeyError for some problem with one of the requested key.
+// Only one field is set and it indicates what the client should do in response.
+message KeyError {
+    LockInfo locked = 1;        // Client should backoff or cleanup the lock then retry.
+    string retryable = 2;       // Client may restart the txn. e.g write conflict.
+    string abort = 3;           // Client should abort the txn.
+    WriteConflict conflict = 4; // Another transaction is trying to write a key. The client can retry.
+}
+
+message LockInfo {
+    bytes primary_lock = 1;
+    uint64 lock_version = 2;
+    bytes key = 3;
+    uint64 lock_ttl = 4;
+}
+
+message WriteConflict {
+    uint64 start_ts = 1;
+    uint64 conflict_ts = 2;
+    bytes key = 3;
+    bytes primary = 4;
+}
+
+// Miscellaneous data present in each request.
+message Context {
+    uint64 region_id = 1;
+    metapb.RegionEpoch region_epoch = 2;
+    metapb.Peer peer = 3;
+    uint64 term = 5;
+}

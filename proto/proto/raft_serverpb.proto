@@ -1,0 +1,89 @@
+syntax = "proto3";
+package raft_serverpb;
+
+import "eraftpb.proto";
+import "metapb.proto";
+
+// The message sent between Raft peer, it wraps the raft meessage with some meta information.
+message RaftMessage {
+    uint64 region_id = 1;
+    metapb.Peer from_peer = 2;
+    metapb.Peer to_peer = 3;
+    eraftpb.Message message = 4;
+    metapb.RegionEpoch region_epoch = 5;
+    // true means to_peer is a tombstone peer and it should remove itself.
+    bool is_tombstone = 6;
+    // Region key range [start_key, end_key).
+    bytes start_key = 7;
+    bytes end_key = 8;
+}
+
+// Used to store the persistent state for Raft, including the hard state for raft and the last index of the raft log.
+message RaftLocalState {
+    eraftpb.HardState hard_state = 1;
+    uint64 last_index = 2;
+}
+
+// Used to store the persistent state for Raft state machine.
+message RaftApplyState {
+    uint64 applied_index = 1;
+    RaftTruncatedState truncated_state = 2;
+}
+
+// The truncated state for Raft log compaction.
+message RaftTruncatedState {
+    uint64 index = 1;
+    uint64 term = 2;
+}
+
+// Used to store Region information and the corresponding Peer state on this Store.
+message RegionLocalState {
+    PeerState state = 1;
+    metapb.Region region = 2;
+}
+
+// Normal indicates that this Peer is normal;
+// Tombstone shows that this Peer has been removed from Region and cannot join in Raft Group.
+enum PeerState {
+    Normal = 0;
+    Tombstone = 2;
+}
+
+// The persistent identification for Store.
+// It used to recover the store id after restart.
+message StoreIdent {
+    uint64 cluster_id = 1;
+    uint64 store_id = 2;
+}
+
+// Snapshot sending and reciveing related messages.
+// Not included in the course scope.
+message KeyValue {
+    bytes key      = 1;
+    bytes value    = 2;
+}
+
+message RaftSnapshotData {
+    metapb.Region region = 1;
+    uint64 file_size = 2;
+    repeated KeyValue data = 3;
+    SnapshotMeta meta = 5;
+}
+
+message SnapshotCFFile {
+    string cf = 1;
+    uint64 size = 2;
+    uint32 checksum = 3;
+}
+
+message SnapshotMeta {
+    repeated SnapshotCFFile cf_files = 1;
+}
+
+message SnapshotChunk {
+    RaftMessage message = 1;
+    bytes data = 2;
+}
+
+message Done {}
+

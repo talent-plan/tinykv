@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+#
+# Add standard retool options
+set -euo pipefail
+
+
+cd $(dirname "$0")/..
+exec retool -base-dir=$PWD "$@"

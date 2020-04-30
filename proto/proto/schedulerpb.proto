@@ -1,0 +1,439 @@
+syntax = "proto3";
+package schedulerpb;
+
+import "metapb.proto";
+import "eraftpb.proto";
+
+import "gogoproto/gogo.proto";
+
+option (gogoproto.sizer_all) = true;
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+
+service Scheduler {
+    // GetMembers get the member list of this cluster. It does not require
+    // the cluster_id in request matchs the id of this cluster.
+    rpc GetMembers(GetMembersRequest) returns (GetMembersResponse) {}
+
+    rpc Tso(stream TsoRequest) returns (stream TsoResponse) {}
+
+    rpc Bootstrap(BootstrapRequest) returns (BootstrapResponse) {}
+
+    rpc IsBootstrapped(IsBootstrappedRequest) returns (IsBootstrappedResponse) {}
+
+    rpc AllocID(AllocIDRequest) returns (AllocIDResponse) {}
+
+    rpc GetStore(GetStoreRequest) returns (GetStoreResponse) {}
+
+    rpc PutStore(PutStoreRequest) returns (PutStoreResponse) {}
+
+    rpc GetAllStores(GetAllStoresRequest) returns (GetAllStoresResponse) {}
+
+    rpc StoreHeartbeat(StoreHeartbeatRequest) returns (StoreHeartbeatResponse) {}
+
+    rpc RegionHeartbeat(stream RegionHeartbeatRequest) returns (stream RegionHeartbeatResponse) {}
+
+    rpc GetRegion(GetRegionRequest) returns (GetRegionResponse) {}
+
+    rpc GetPrevRegion(GetRegionRequest) returns (GetRegionResponse) {}
+
+    rpc GetRegionByID(GetRegionByIDRequest) returns (GetRegionResponse) {}
+
+    rpc ScanRegions(ScanRegionsRequest) returns (ScanRegionsResponse) {}
+
+    rpc AskSplit(AskSplitRequest) returns (AskSplitResponse) {}
+
+    rpc GetClusterConfig(GetClusterConfigRequest) returns (GetClusterConfigResponse) {}
+
+    rpc PutClusterConfig(PutClusterConfigRequest) returns (PutClusterConfigResponse) {}
+
+    rpc ScatterRegion(ScatterRegionRequest) returns (ScatterRegionResponse) {}
+
+    rpc GetGCSafePoint(GetGCSafePointRequest) returns (GetGCSafePointResponse) {}
+
+    rpc UpdateGCSafePoint(UpdateGCSafePointRequest) returns (UpdateGCSafePointResponse) {}
+
+    rpc GetOperator(GetOperatorRequest) returns (GetOperatorResponse) {}
+}
+
+message RequestHeader {
+    // cluster_id is the ID of the cluster which be sent to.
+    uint64 cluster_id = 1;
+}
+
+message ResponseHeader {
+    // cluster_id is the ID of the cluster which sent the response.
+    uint64 cluster_id = 1;
+    Error error = 2;
+}
+
+enum ErrorType {
+    OK = 0;
+    UNKNOWN = 1;
+    NOT_BOOTSTRAPPED = 2;
+    STORE_TOMBSTONE = 3;
+    ALREADY_BOOTSTRAPPED = 4;
+    INCOMPATIBLE_VERSION = 5;
+    REGION_NOT_FOUND = 6;
+}
+
+message Error {
+    ErrorType type = 1;
+    string message = 2;
+}
+
+message TsoRequest {
+    RequestHeader header = 1;
+
+    uint32 count = 2;
+}
+
+message Timestamp {
+    int64 physical = 1;
+    int64 logical = 2;
+}
+
+message TsoResponse {
+    ResponseHeader header = 1;
+
+    uint32 count = 2;
+    Timestamp timestamp = 3;
+}
+
+message BootstrapRequest {
+    RequestHeader header = 1;
+
+    metapb.Store store = 2;
+}
+
+message BootstrapResponse {
+    ResponseHeader header = 1;
+}
+
+message IsBootstrappedRequest {
+    RequestHeader header = 1;
+}
+
+message IsBootstrappedResponse {
+    ResponseHeader header = 1;
+
+    bool bootstrapped = 2;
+}
+
+message AllocIDRequest {
+    RequestHeader header = 1;
+}
+
+message AllocIDResponse {
+    ResponseHeader header = 1;
+
+    uint64 id = 2;
+}
+
+message GetStoreRequest {
+    RequestHeader header = 1;
+
+    uint64 store_id = 2;
+}
+
+message GetStoreResponse {
+    ResponseHeader header = 1;
+
+    metapb.Store store = 2;
+    StoreStats stats = 3;
+}
+
+message PutStoreRequest {
+    RequestHeader header = 1;
+
+    metapb.Store store = 2;
+}
+
+message PutStoreResponse {
+    ResponseHeader header = 1;
+}
+
+message GetAllStoresRequest {
+    RequestHeader header = 1;
+    // Do NOT return tombstone stores if set to true.
+    bool exclude_tombstone_stores = 2;
+}
+
+message GetAllStoresResponse {
+    ResponseHeader header = 1;
+
+    repeated metapb.Store stores = 2;
+}
+
+message GetRegionRequest {
+    RequestHeader header = 1;
+
+    bytes region_key = 2;
+}
+
+message GetRegionResponse {
+    ResponseHeader header = 1;
+
+    metapb.Region region = 2;
+    metapb.Peer leader = 3;
+    repeated metapb.Peer slaves = 4;
+}
+
+message GetRegionByIDRequest {
+    RequestHeader header = 1;
+
+    uint64 region_id = 2;
+}
+
+// Use GetRegionResponse as the response of GetRegionByIDRequest.
+
+message ScanRegionsRequest {
+    RequestHeader header = 1;
+
+    bytes start_key = 2;
+    int32 limit = 3; // no limit when limit <= 0.
+    bytes end_key = 4; // end_key is +inf when it is empty.
+}
+
+message ScanRegionsResponse {
+    ResponseHeader header = 1;
+
+    repeated metapb.Region regions = 2;
+    repeated metapb.Peer leaders = 3;
+}
+
+message GetClusterConfigRequest {
+    RequestHeader header = 1;
+}
+
+message GetClusterConfigResponse {
+    ResponseHeader header = 1;
+
+    metapb.Cluster cluster = 2;
+}
+
+message PutClusterConfigRequest {
+    RequestHeader header = 1;
+
+    metapb.Cluster cluster = 2;
+}
+
+message PutClusterConfigResponse {
+    ResponseHeader header = 1;
+}
+
+message Member {
+    // name is the name of the Scheduler member.
+    string name = 1;
+    // member_id is the unique id of the Scheduler member.
+    uint64 member_id = 2;
+    repeated string peer_urls = 3;
+    repeated string client_urls = 4;
+    int32 leader_priority = 5;
+}
+
+message GetMembersRequest {
+    RequestHeader header = 1;
+}
+
+message GetMembersResponse {
+    ResponseHeader header = 1;
+
+    repeated Member members = 2;
+    Member leader = 3;
+    Member etcd_leader = 4;
+}
+
+message RegionHeartbeatRequest {
+    RequestHeader header = 1;
+
+    metapb.Region region = 2;
+    // Leader Peer sending the heartbeat.
+    metapb.Peer leader = 3;
+    // Pending peers are the peers that the leader can't consider as
+    // working followers.
+    repeated metapb.Peer pending_peers = 5;
+    // Approximate region size.
+    uint64 approximate_size = 10;
+}
+
+message ChangePeer {
+    metapb.Peer peer = 1;
+    eraftpb.ConfChangeType change_type = 2;
+}
+
+message TransferLeader {
+    metapb.Peer peer = 1;
+}
+
+message RegionHeartbeatResponse {
+    ResponseHeader header = 1;
+
+    // Notice, Scheduleeer only allows handling reported epoch >= current scheduler's.
+    // Leader peer reports region status with RegionHeartbeatRequest
+    // to scheduler regularly, scheduler will determine whether this region
+    // should do ChangePeer or not.
+    // E,g, max peer number is 3, region A, first only peer 1 in A.
+    // 1. Scheduler region state -> Peers (1), ConfVer (1).
+    // 2. Leader peer 1 reports region state to scheduler, scheduler finds the
+    // peer number is < 3, so first changes its current region
+    // state -> Peers (1, 2), ConfVer (1), and returns ChangePeer Adding 2.
+    // 3. Leader does ChangePeer, then reports Peers (1, 2), ConfVer (2),
+    // scheduler updates its state -> Peers (1, 2), ConfVer (2).
+    // 4. Leader may report old Peers (1), ConfVer (1) to scheduler before ConfChange
+    // finished, scheduler stills responses ChangePeer Adding 2, of course, we must
+    // guarantee the second ChangePeer can't be applied in TiKV.
+    ChangePeer change_peer = 2;
+    // Scheduler can return transfer_leader to let TiKV does leader transfer itself.
+    TransferLeader transfer_leader = 3;
+    // ID of the region
+    uint64 region_id = 4;
+    metapb.RegionEpoch region_epoch = 5;
+    // Leader of the region at the moment of the corresponding request was made.
+    metapb.Peer target_peer = 6;
+}
+
+message AskSplitRequest {
+    RequestHeader header = 1;
+
+    metapb.Region region = 2;
+}
+
+message AskSplitResponse {
+    ResponseHeader header = 1;
+
+    // We split the region into two, first uses the origin
+    // parent region id, and the second uses the new_region_id.
+    // We must guarantee that the new_region_id is global unique.
+    uint64 new_region_id = 2;
+    // The peer ids for the new split region.
+    repeated uint64 new_peer_ids = 3;
+}
+
+message ReportSplitRequest {
+    RequestHeader header = 1;
+
+    metapb.Region left = 2;
+    metapb.Region right = 3;
+}
+
+message ReportSplitResponse {
+    ResponseHeader header = 1;
+}
+
+message SplitID {
+    uint64 new_region_id = 1;
+    repeated uint64 new_peer_ids = 2;
+}
+
+message TimeInterval {
+    // The unix timestamp in seconds of the start of this period.
+    uint64 start_timestamp = 1;
+    // The unix timestamp in seconds of the end of this period.
+    uint64 end_timestamp = 2;
+}
+
+message RecordPair {
+    string key = 1;
+    uint64 value = 2;
+}
+
+message StoreStats {
+    uint64 store_id = 1;
+    // Capacity for the store.
+    uint64 capacity = 2;
+    // Available size for the store.
+    uint64 available = 3;
+    // Total region count in this store.
+    uint32 region_count = 4;
+    // Current sending snapshot count.
+    uint32 sending_snap_count = 5;
+    // Current receiving snapshot count.
+    uint32 receiving_snap_count = 6;
+    // When the store is started (unix timestamp in seconds).
+    uint32 start_time = 7;
+    // How many region is applying snapshot.
+    uint32 applying_snap_count = 8;
+    // If the store is busy
+    bool is_busy = 9;
+    // Actually used space by db
+    uint64 used_size = 10;
+    // Actually reported time interval
+    TimeInterval interval = 15;
+    // Threads' CPU usages in the store
+    repeated RecordPair cpu_usages = 16;
+    // Threads' read disk I/O rates in the store
+    repeated RecordPair read_io_rates = 17;
+    // Threads' write disk I/O rates in the store
+    repeated RecordPair write_io_rates = 18;
+    // Operations' latencies in the store
+    repeated RecordPair op_latencies = 19;
+}
+
+message StoreHeartbeatRequest {
+    RequestHeader header = 1;
+
+    StoreStats stats = 2;
+}
+
+message StoreHeartbeatResponse {
+    ResponseHeader header = 1;
+}
+
+message ScatterRegionRequest {
+    RequestHeader header = 1;
+
+    uint64 region_id = 2;
+
+    // Scheduler will use these region information if it can't find the region.
+    // For example, the region is just split and hasn't report to Scheduler yet.
+    metapb.Region region = 3;
+    metapb.Peer   leader = 4;
+}
+
+message ScatterRegionResponse {
+    ResponseHeader header = 1;
+}
+
+message GetGCSafePointRequest {
+    RequestHeader header = 1;
+}
+
+message GetGCSafePointResponse {
+    ResponseHeader header = 1;
+
+    uint64 safe_point = 2;
+}
+
+message UpdateGCSafePointRequest {
+    RequestHeader header = 1;
+
+    uint64 safe_point = 2;
+}
+
+message UpdateGCSafePointResponse {
+    ResponseHeader header = 1;
+
+    uint64 new_safe_point = 2;
+}
+
+message GetOperatorRequest {
+   RequestHeader header = 1;
+   uint64 region_id = 2;
+}
+
+enum OperatorStatus {
+	SUCCESS = 0;
+	TIMEOUT = 1;
+	CANCEL  = 2;
+	REPLACE = 3;
+	RUNNING = 4;
+}
+
+message GetOperatorResponse {
+    ResponseHeader header = 1;
+    uint64 region_id = 2;
+    bytes desc = 3;
+    OperatorStatus status = 4;
+    bytes kind = 5;
+}

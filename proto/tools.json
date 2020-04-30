@@ -1,0 +1,14 @@
+{
+    "Tools": [
+      {
+        "Repository": "github.com/gogo/protobuf/protoc-gen-gofast",
+        "Commit": "636bf0302bc95575d69441b25a2603156ffdddf1"
+      },
+      {
+        "Repository": "golang.org/x/tools/cmd/goimports",
+        "Commit": "04b5d21e00f1f47bd824a6ade581e7189bacde87"
+      }
+    ],
+    "RetoolVersion": "1.3.7"
+  }
+  

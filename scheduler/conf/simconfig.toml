@@ -1,0 +1,32 @@
+# PD Simulator Configuration
+
+[tick]
+## the tick interval when starting PD inside (default: "100ms")
+sim-tick-interval = "100ms"
+
+[store]
+## the capacity size of a new store in GB (default: 1024)
+store-capacity = 1024
+## the available size of a new store in GB (default: 1024)
+store-available = 1024
+## the io rate of a new store in MB/s (default: 40)
+store-io-per-second = 40
+## the version of a new store (default: "2.1.0")
+store-version = "2.1.0"
+
+## the meaning of these configurations below are similar with config.toml
+[server]
+lease = 1
+tso-save-interval = "200ms"
+tick-interval = "100ms"
+election-interval = "3s"
+leader-priority-check-interval = "100ms"
+
+[server.schedule]
+split-merge-interval = "1ms"
+max-store-down-time = "30s"
+leader-schedule-limit = 32
+region-schedule-limit = 128
+replica-schedule-limit = 32
+merge-schedule-limit = 32
+store-balance-rate = 512.0
