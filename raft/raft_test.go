@@ -83,7 +83,7 @@ func TestLeaderElection2AA(t *testing.T) {
 		// are returned instead of the votes being ignored.
 		{newNetworkWithConfig(cfg,
 			nil, entsWithConfig(cfg, 1), entsWithConfig(cfg, 1), entsWithConfig(cfg, 1, 1), nil),
-			StateFollower, 1},
+			StateCandidate, 1},
 	}
 
 	for i, tt := range tests {
