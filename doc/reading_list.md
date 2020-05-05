@@ -81,7 +81,7 @@
       - <https://pdos.csail.mit.edu/6.824/labs/lab-raft.html>
 - Scale & Balance
   - Multi-Raft
-    - <https://tikv.org/docs/deep-dive/scalability/multi-raft/>
+    - <https://tikv.org/deep-dive/scalability/multi-raft/>
   - Split & Merge
     - <https://pingcap.com/blog/2017-07-20-tidbinternal3/>
   - Balance
