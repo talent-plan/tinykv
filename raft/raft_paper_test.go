@@ -181,11 +181,6 @@ func TestLeaderElectionInOneRoundRPC2AA(t *testing.T) {
 		{5, map[uint64]bool{2: true, 3: true, 4: true}, StateLeader},
 		{5, map[uint64]bool{2: true, 3: true}, StateLeader},
 
-		// return to follower state if it receives vote denial from a majority
-		{3, map[uint64]bool{2: false, 3: false}, StateFollower},
-		{5, map[uint64]bool{2: false, 3: false, 4: false, 5: false}, StateFollower},
-		{5, map[uint64]bool{2: true, 3: false, 4: false, 5: false}, StateFollower},
-
 		// stay in candidate if it does not obtain the majority
 		{3, map[uint64]bool{}, StateCandidate},
 		{5, map[uint64]bool{2: true}, StateCandidate},
