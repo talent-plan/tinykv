@@ -173,6 +173,7 @@ func TestRawDelete1(t *testing.T) {
 	defer cleanUpTestData(conf)
 
 	cf := engine_util.CfDefault
+	assert.Nil(t, Set(s, cf, []byte{99}, []byte{42}))
 
 	req := &kvrpcpb.RawDeleteRequest{
 		Key: []byte{99},
