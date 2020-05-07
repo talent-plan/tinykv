@@ -66,8 +66,6 @@ func TestProgressLeader2AB(t *testing.T) {
 
 func TestLeaderElection2AA(t *testing.T) {
 	var cfg func(*Config)
-	candState := StateCandidate
-	candTerm := uint64(1)
 	tests := []struct {
 		*network
 		state   StateType
@@ -75,15 +73,9 @@ func TestLeaderElection2AA(t *testing.T) {
 	}{
 		{newNetworkWithConfig(cfg, nil, nil, nil), StateLeader, 1},
 		{newNetworkWithConfig(cfg, nil, nil, nopStepper), StateLeader, 1},
-		{newNetworkWithConfig(cfg, nil, nopStepper, nopStepper), candState, candTerm},
-		{newNetworkWithConfig(cfg, nil, nopStepper, nopStepper, nil), candState, candTerm},
+		{newNetworkWithConfig(cfg, nil, nopStepper, nopStepper), StateCandidate, 1},
+		{newNetworkWithConfig(cfg, nil, nopStepper, nopStepper, nil), StateCandidate, 1},
 		{newNetworkWithConfig(cfg, nil, nopStepper, nopStepper, nil, nil), StateLeader, 1},
-
-		// three logs further along than 0, but in the same term so rejections
-		// are returned instead of the votes being ignored.
-		{newNetworkWithConfig(cfg,
-			nil, entsWithConfig(cfg, 1), entsWithConfig(cfg, 1), entsWithConfig(cfg, 1, 1), nil),
-			StateFollower, 1},
 	}
 
 	for i, tt := range tests {
