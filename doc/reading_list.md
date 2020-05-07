@@ -6,16 +6,14 @@
     - Amplification and RUM
       - <http://smalldatum.blogspot.com/2015/11/read-write-space-amplification-pick-2_23.html>
       - <http://daslab.seas.harvard.edu/rum-conjecture/>
-      - <http://smalldatum.blogspot.com/2019/05/crum-conject>
-        ure-read-write-space-and.html
+      - <http://smalldatum.blogspot.com/2019/05/crum-conjecture-read-write-space-and.html>
   - B-Tree (Optional)
     - Reading Materials
       - Database Internals: 2. B-Tree Basics
       - Database Internals: 3. File Formats
       - Database Internals: 4. Implementing B-Trees
     - Reference
-      - <https://www.cs.usfca.edu/~galles/visualization/Algorith>
-      ms.html
+      - <https://www.cs.usfca.edu/~galles/visualization/Algorithms.html>
       - <https://github.com/etcd-io/bbolt>
   - LSM-Tree
     - Reading Materials
@@ -81,7 +79,7 @@
       - <https://pdos.csail.mit.edu/6.824/labs/lab-raft.html>
 - Scale & Balance
   - Multi-Raft
-    - <https://tikv.org/docs/deep-dive/scalability/multi-raft/>
+    - <https://tikv.org/deep-dive/scalability/multi-raft/>
   - Split & Merge
     - <https://pingcap.com/blog/2017-07-20-tidbinternal3/>
   - Balance
