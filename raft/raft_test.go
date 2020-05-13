@@ -118,8 +118,8 @@ func TestLeaderCycle2AA(t *testing.T) {
 // log entries, and must overwrite higher-term log entries with
 // lower-term ones.
 func TestLeaderElectionOverwriteNewerLogs2AB(t *testing.T) {
-	cfg := func(c *Config) { 
-		c.peers = idsBySize(5) 
+	cfg := func(c *Config) {
+		c.peers = idsBySize(5)
 	}
 	// This network represents the results of the following sequence of
 	// events:
