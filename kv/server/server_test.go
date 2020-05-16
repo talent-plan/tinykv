@@ -4,11 +4,14 @@ import (
 	"os"
 	"testing"
 
+	"github.com/Connor1996/badger"
+
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/storage/standalone_storage"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -76,6 +79,8 @@ func TestRawGetNotFound1(t *testing.T) {
 		Key: []byte{99},
 		Cf:  cf,
 	}
+
+	// see line 192
 	resp, err := server.RawGet(nil, req)
 	assert.Nil(t, err)
 	assert.True(t, resp.NotFound)
@@ -182,9 +187,8 @@ func TestRawDelete1(t *testing.T) {
 
 	_, err := server.RawDelete(nil, req)
 	assert.Nil(t, err)
-
 	val, err := Get(s, cf, []byte{99})
-	assert.Equal(t, nil, err)
+	assert.Equal(t, badger.ErrKeyNotFound, err)
 	assert.Equal(t, []byte(nil), val)
 }
 
