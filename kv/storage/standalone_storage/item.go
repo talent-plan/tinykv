@@ -1,32 +1,29 @@
 package standalone_storage
 
 import (
-	"github.com/petar/GoLLRB/llrb"
+	"github.com/Connor1996/badger/y"
 )
 
 type item struct {
 	key   []byte
 	value []byte
+
 	fresh bool
 }
 
 func (it item) Key() []byte {
-	return nil
+	return []byte(keyWithoutPrefix(string(it.key)))
 }
 
 func (it item) KeyCopy(dst []byte) []byte {
-	return nil
+	return y.SafeCopy(dst, it.key)
 }
 func (it item) Value() ([]byte, error) {
-	return nil, nil
+	return it.value, nil
 }
 func (it item) ValueSize() int {
-	return 0
+	return len(it.value)
 }
 func (it item) ValueCopy(dst []byte) ([]byte, error) {
-	return nil, nil
-}
-
-func (it item) Less(than llrb.Item) bool {
-	return false
+	return y.SafeCopy(dst, it.value), nil
 }

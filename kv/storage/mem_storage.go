@@ -169,6 +169,7 @@ func (mr *memReader) IterCF(cf string) engine_util.DBIterator {
 		return nil
 	}
 
+	// 怎么理解这个？
 	mr.iterCount += 1
 	min := data.Min()
 	if min == nil {
@@ -183,6 +184,7 @@ func (r *memReader) Close() {
 	}
 }
 
+// 链表
 type memIter struct {
 	data   *llrb.LLRB
 	item   memItem
@@ -232,6 +234,7 @@ type memItem struct {
 func (it memItem) Key() []byte {
 	return it.key
 }
+
 func (it memItem) KeyCopy(dst []byte) []byte {
 	return y.SafeCopy(dst, it.key)
 }
