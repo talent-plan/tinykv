@@ -1,0 +1,43 @@
+# TiDB Configuration.
+
+# TiDB server host.
+host = "0.0.0.0"
+
+# tidb server advertise IP.
+advertise-address = ""
+
+# TiDB server port.
+port = 4000
+
+# Registered store name, [tikv, mocktikv]
+store = "mocktikv"
+
+# TiDB storage path.
+path = "/tmp/tinysql"
+
+# Schema lease duration, very dangerous to change only if you know what you do.
+lease = "45s"
+
+[log]
+# Log level: debug, info, warn, error, fatal.
+level = "info"
+
+# File logging.
+[log.file]
+# Log file name.
+filename = ""
+
+# Max log file size in MB (upper limit to 4096MB).
+max-size = 300
+
+[status]
+# If enable status report HTTP service.
+report-status = true
+
+# TiDB status host.
+status-host = "0.0.0.0"
+
+## status-host is the HTTP address for reporting the internal status of a TiDB server, for example:
+## API for pprof:      http://${status-host}:${status_port}/debug/pprof
+# TiDB status port.
+status-port = 10080
