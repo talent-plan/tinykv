@@ -38,22 +38,102 @@ func NewServer(storage storage.Storage) *Server {
 // Raw API.
 func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
 	// Your Code Here (1).
-	return nil, nil
+	reader, err := server.storage.Reader(req.GetContext())
+	if err != nil {
+		ret := &kvrpcpb.RawGetResponse{
+			Error:    err.Error(),
+			NotFound: true,
+		}
+		return ret, err
+	}
+	value, err := reader.GetCF(req.GetCf(), req.GetKey())
+	isNotFound := value == nil
+	_err := ""
+	if err != nil {
+		_err = err.Error()
+	}
+	ret := &kvrpcpb.RawGetResponse{
+		Error:    _err,
+		Value:    value,
+		NotFound: isNotFound,
+	}
+	return ret, nil
 }
 
 func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
-	// Your Code Here (1).
-	return nil, nil
+	err := server.storage.Write(
+		req.GetContext(),
+		[]storage.Modify{
+			storage.Modify{
+				Data: storage.Put{
+					Key:   req.GetKey(),
+					Value: req.GetValue(),
+					Cf:    req.GetCf(),
+				},
+			},
+		})
+	_err := ""
+	if err != nil {
+		_err = err.Error()
+	}
+	ret := &kvrpcpb.RawPutResponse{
+		Error: _err,
+	}
+	return ret, nil
 }
 
 func (server *Server) RawDelete(_ context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
 	// Your Code Here (1).
-	return nil, nil
+	err := server.storage.Write(
+		req.GetContext(),
+		[]storage.Modify{
+			storage.Modify{
+				Data: storage.Delete{
+					Key: req.GetKey(),
+					Cf:  req.GetCf(),
+				},
+			},
+		})
+	_err := ""
+
+	if err != nil {
+		_err = err.Error()
+	}
+	ret := &kvrpcpb.RawDeleteResponse{
+		Error: _err,
+	}
+	return ret, err
 }
 
 func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*kvrpcpb.RawScanResponse, error) {
-	// Your Code Here (1).
-	return nil, nil
+	reader, err := server.storage.Reader(req.GetContext())
+	if err != nil {
+		ret := &kvrpcpb.RawScanResponse{
+			Error: err.Error(),
+		}
+		return ret, err
+	}
+
+	_iter := reader.IterCF(req.GetCf())
+	pairs := []*kvrpcpb.KvPair{}
+	_iter.Seek(req.GetStartKey())
+	var i uint32 = 0
+	for ; _iter.Valid() && i < req.GetLimit(); i = i + 1 {
+		item := _iter.Item()
+		_key := item.Key()
+		_value, _ := item.Value()
+		pairs = append(pairs, &kvrpcpb.KvPair{
+			Error: nil,
+			Key:   _key,
+			Value: _value,
+		})
+		_iter.Next()
+	}
+	ret := &kvrpcpb.RawScanResponse{
+		Kvs: pairs,
+	}
+	reader.Close()
+	return ret, nil
 }
 
 // Raft commands (tinykv <-> tinykv)
