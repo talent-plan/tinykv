@@ -79,7 +79,7 @@ project3a:
 	$(GOTEST) ./raft -run 3A
 
 project3b:
-	$(GOTEST) ./raft -run 3B
+	$(GOTEST) ./kv/test_raftstore -run 3B
 
 project3c:
 	$(GOTEST) ./scheduler/... -run 3C
