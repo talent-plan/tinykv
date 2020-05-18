@@ -118,7 +118,9 @@ func TestLeaderCycle2AA(t *testing.T) {
 // log entries, and must overwrite higher-term log entries with
 // lower-term ones.
 func TestLeaderElectionOverwriteNewerLogs2AB(t *testing.T) {
-	var cfg func(*Config)
+	cfg := func(c *Config) {
+		c.peers = idsBySize(5)
+	}
 	// This network represents the results of the following sequence of
 	// events:
 	// - Node 1 won the election in term 1.
@@ -1594,10 +1596,6 @@ func newNetworkWithConfig(configFunc func(*Config), peers ...stateMachine) *netw
 			npeers[id] = sm
 		case *Raft:
 			v.id = id
-			v.Prs = make(map[uint64]*Progress)
-			for i := 0; i < size; i++ {
-				v.Prs[peerAddrs[i]] = &Progress{}
-			}
 			npeers[id] = v
 		case *blackHole:
 			npeers[id] = v
