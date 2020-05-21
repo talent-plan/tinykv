@@ -51,7 +51,7 @@ type MessageType int32
 
 const (
 	// 'MessageType_MsgHup' is a local message used for election. If an election timeout happened,
-	// the node should passes 'MessageType_MsgHup' to its Step method and start a new election.
+	// the node should pass 'MessageType_MsgHup' to its Step method and start a new election.
 	MessageType_MsgHup MessageType = 0
 	// 'MessageType_MsgBeat' is a local message that signals the leader to send a heartbeat
 	// of the 'MessageType_MsgHeartbeat' type to its followers.
@@ -219,7 +219,7 @@ func (m *Entry) GetData() []byte {
 	return nil
 }
 
-// SnapshotMetadata cantains the log index and term of the last log applied to this
+// SnapshotMetadata contains the log index and term of the last log applied to this
 // Snapshot, along with the membership information of the time the last log applied.
 type SnapshotMetadata struct {
 	ConfState            *ConfState `protobuf:"bytes,1,opt,name=conf_state,json=confState" json:"conf_state,omitempty"`
