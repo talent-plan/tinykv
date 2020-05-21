@@ -34,9 +34,9 @@ type PeerStorage struct {
 	// current region information of the peer
 	region *metapb.Region
 	// current raft state of the peer
-	raftState rspb.RaftLocalState
+	raftState *rspb.RaftLocalState
 	// current apply state of the peer
-	applyState rspb.RaftApplyState
+	applyState *rspb.RaftApplyState
 
 	// current snapshot state
 	snapState snap.SnapState
@@ -69,8 +69,8 @@ func NewPeerStorage(engines *engine_util.Engines, region *metapb.Region, regionS
 		Engines:     engines,
 		region:      region,
 		Tag:         tag,
-		raftState:   *raftState,
-		applyState:  *applyState,
+		raftState:   raftState,
+		applyState:  applyState,
 		regionSched: regionSched,
 	}, nil
 }
