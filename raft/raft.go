@@ -162,8 +162,18 @@ func newRaft(c *Config) *Raft {
 	if err := c.validate(); err != nil {
 		panic(err.Error())
 	}
+
 	// Your Code Here (2A).
-	return nil
+	// new raft log
+	raftLog := newLog(c.Storage)
+	// c.Applied ? 设置为哪一个？
+	return &Raft{
+		id:      c.ID,
+		Term:    0,
+		Prs:     make(map[uint64]*Progress),
+		State:   StateFollower,
+		RaftLog: raftLog,
+	}
 }
 
 // sendAppend sends an append RPC with new entries (if any) and the
@@ -186,6 +196,10 @@ func (r *Raft) tick() {
 // becomeFollower transform this peer's state to Follower
 func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	// Your Code Here (2A).
+	// TODO: no validate yet.
+	r.State = StateFollower
+	r.Term = term
+	r.Lead = lead
 }
 
 // becomeCandidate transform this peer's state to candidate
@@ -205,6 +219,8 @@ func (r *Raft) Step(m pb.Message) error {
 	// Your Code Here (2A).
 	switch r.State {
 	case StateFollower:
+		// follower's responsibility
+
 	case StateCandidate:
 	case StateLeader:
 	}
