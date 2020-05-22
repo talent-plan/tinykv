@@ -66,8 +66,6 @@ func TestProgressLeader2AB(t *testing.T) {
 
 func TestLeaderElection2AA(t *testing.T) {
 	var cfg func(*Config)
-	candState := StateCandidate
-	candTerm := uint64(1)
 	tests := []struct {
 		*network
 		state   StateType
@@ -75,15 +73,9 @@ func TestLeaderElection2AA(t *testing.T) {
 	}{
 		{newNetworkWithConfig(cfg, nil, nil, nil), StateLeader, 1},
 		{newNetworkWithConfig(cfg, nil, nil, nopStepper), StateLeader, 1},
-		{newNetworkWithConfig(cfg, nil, nopStepper, nopStepper), candState, candTerm},
-		{newNetworkWithConfig(cfg, nil, nopStepper, nopStepper, nil), candState, candTerm},
+		{newNetworkWithConfig(cfg, nil, nopStepper, nopStepper), StateCandidate, 1},
+		{newNetworkWithConfig(cfg, nil, nopStepper, nopStepper, nil), StateCandidate, 1},
 		{newNetworkWithConfig(cfg, nil, nopStepper, nopStepper, nil, nil), StateLeader, 1},
-
-		// three logs further along than 0, but in the same term so rejections
-		// are returned instead of the votes being ignored.
-		{newNetworkWithConfig(cfg,
-			nil, entsWithConfig(cfg, 1), entsWithConfig(cfg, 1), entsWithConfig(cfg, 1, 1), nil),
-			StateFollower, 1},
 	}
 
 	for i, tt := range tests {
@@ -126,7 +118,9 @@ func TestLeaderCycle2AA(t *testing.T) {
 // log entries, and must overwrite higher-term log entries with
 // lower-term ones.
 func TestLeaderElectionOverwriteNewerLogs2AB(t *testing.T) {
-	var cfg func(*Config)
+	cfg := func(c *Config) {
+		c.peers = idsBySize(5)
+	}
 	// This network represents the results of the following sequence of
 	// events:
 	// - Node 1 won the election in term 1.
@@ -559,8 +553,8 @@ func TestHandleMessageType_MsgAppend2AB(t *testing.T) {
 		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, LogTerm: 1, Index: 1, Commit: 4, Entries: []*pb.Entry{{Index: 2, Term: 2}}}, 2, 2, false},
 
 		// Ensure 3
-		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 1, LogTerm: 1, Index: 1, Commit: 3}, 2, 1, false},                                            // match entry 1, commit up to last new entry 1
-		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 1, LogTerm: 1, Index: 1, Commit: 3, Entries: []*pb.Entry{{Index: 2, Term: 2}}}, 2, 2, false}, // match entry 1, commit up to last new entry 2
+		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, LogTerm: 1, Index: 1, Commit: 3}, 2, 1, false},                                            // match entry 1, commit up to last new entry 1
+		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, LogTerm: 1, Index: 1, Commit: 3, Entries: []*pb.Entry{{Index: 2, Term: 2}}}, 2, 2, false}, // match entry 1, commit up to last new entry 2
 		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, LogTerm: 2, Index: 2, Commit: 3}, 2, 2, false},                                            // match entry 2, commit up to last new entry 2
 		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, LogTerm: 2, Index: 2, Commit: 4}, 2, 2, false},                                            // commit up to log.last()
 	}
@@ -746,7 +740,7 @@ func TestAllServerStepdown2AB(t *testing.T) {
 				wlead = None
 			}
 			if sm.Lead != wlead {
-				t.Errorf("#%d, sm.Lead = %d, want %d", i, sm.Lead, None)
+				t.Errorf("#%d, sm.Lead = %d, want %d", i, sm.Lead, wlead)
 			}
 		}
 	}
@@ -1602,10 +1596,6 @@ func newNetworkWithConfig(configFunc func(*Config), peers ...stateMachine) *netw
 			npeers[id] = sm
 		case *Raft:
 			v.id = id
-			v.Prs = make(map[uint64]*Progress)
-			for i := 0; i < size; i++ {
-				v.Prs[peerAddrs[i]] = &Progress{}
-			}
 			npeers[id] = v
 		case *blackHole:
 			npeers[id] = v
