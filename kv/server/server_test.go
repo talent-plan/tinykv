@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/Connor1996/badger"
 	"os"
 	"testing"
 
@@ -184,7 +185,7 @@ func TestRawDelete1(t *testing.T) {
 	assert.Nil(t, err)
 
 	val, err := Get(s, cf, []byte{99})
-	assert.Equal(t, nil, err)
+	assert.Equal(t, badger.ErrKeyNotFound, err)
 	assert.Equal(t, []byte(nil), val)
 }
 
