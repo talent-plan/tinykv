@@ -690,6 +690,9 @@ func (s *Snap) Apply(opts ApplyOptions) error {
 		externalFiles = append(externalFiles, file)
 	}
 	n, err := opts.DB.IngestExternalFiles(externalFiles)
+	for _, file := range externalFiles {
+		file.Close()
+	}
 	if err != nil {
 		log.Errorf("ingest sst failed (first %d files succeeded): %s", n, err)
 		return err
