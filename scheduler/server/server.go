@@ -297,10 +297,6 @@ func (s *Server) IsClosed() bool {
 
 // Run runs the pd server.
 func (s *Server) Run(ctx context.Context) error {
-	go StartMonitor(ctx, time.Now, func() {
-		log.Error("system time jumps backward")
-	})
-
 	if err := s.startEtcd(ctx); err != nil {
 		return err
 	}
