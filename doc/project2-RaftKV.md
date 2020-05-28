@@ -40,7 +40,7 @@ To implement log replication, you may want to start with handling `MsgAppend` an
 
 You can run `make project2ab` to test the implementation, and see some hints at the end of this part.
 
-### Implement the raw node interface
+#### Implement the raw node interface
 
 `raft.RawNode` in `raft/rawnode.go` is the interface we interact with the upper application, `raft.RawNode` contains `raft.Raft` and provide some wrapper functions like `RawNode.Tick()`and `RawNode.Step()`. It also provides `RawNode.Propose()` to let the upper application propose new raft logs.
 
