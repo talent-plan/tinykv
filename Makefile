@@ -82,7 +82,7 @@ project3b:
 	$(GOTEST) ./kv/test_raftstore -run 3B
 
 project3c:
-	$(GOTEST) ./scheduler/... -run 3C
+	$(GOTEST) ./scheduler/server ./scheduler/server/schedulers -check.f="3C"
 
 project4: project4a project4b project4c
 
