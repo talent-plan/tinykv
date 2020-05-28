@@ -37,6 +37,8 @@ func newTestPeerStorageFromEnts(t *testing.T, ents []eraftpb.Entry) *PeerStorage
 		Term:  ents[0].Term,
 	}
 	applyState.AppliedIndex = ents[len(ents)-1].Index
+	peerStore.applyState = applyState
+
 	kvWB.SetMeta(meta.ApplyStateKey(peerStore.region.GetId()), applyState)
 	require.Nil(t, peerStore.Engines.WriteRaft(raftWB))
 	peerStore.Engines.WriteKV(kvWB)
