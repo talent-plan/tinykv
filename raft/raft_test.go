@@ -589,8 +589,10 @@ func TestHandleHeartbeat2AA(t *testing.T) {
 		m       pb.Message
 		wCommit uint64
 	}{
-		{pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeat, Term: 2, Commit: commit + 1}, commit + 1},
-		{pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeat, Term: 2, Commit: commit - 1}, commit}, // do not decrease commit
+		{pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeat, Term: 2, LogTerm: 3, Commit: commit + 1}, commit + 1},
+		{pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeat, Term: 2, LogTerm: 1, Commit: commit - 1}, commit}, // do not decrease commit
+		{pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeat, Term: 2, LogTerm: 4, Commit: commit + 1}, commit},
+		{pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeat, Term: 2, LogTerm: 3, Commit: commit + 2}, commit},
 	}
 
 	for i, tt := range tests {
@@ -599,13 +601,13 @@ func TestHandleHeartbeat2AA(t *testing.T) {
 		sm := newTestRaft(1, []uint64{1, 2}, 5, 1, storage)
 		sm.becomeFollower(2, 2)
 		sm.RaftLog.committed = commit
-		sm.handleHeartbeat(tt.m)
+		sm.Step(tt.m)
 		if sm.RaftLog.committed != tt.wCommit {
 			t.Errorf("#%d: committed = %d, want %d", i, sm.RaftLog.committed, tt.wCommit)
 		}
 		m := sm.readMessages()
 		if len(m) != 1 {
-			t.Fatalf("#%d: msg = nil, want 1", i)
+			t.Fatalf("#%d: len(msg) != 1, want 1", i)
 		}
 		if m[0].MsgType != pb.MessageType_MsgHeartbeatResponse {
 			t.Errorf("#%d: type = %v, want MessageType_MsgHeartbeatResponse", i, m[0].MsgType)
