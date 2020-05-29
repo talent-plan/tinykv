@@ -343,8 +343,13 @@ func (p *peer) Term() uint64 {
 }
 
 func (p *peer) HeartbeatScheduler(ch chan<- worker.Task) {
+	clonedRegion := new(metapb.Region)
+	err := util.CloneMsg(p.Region(), clonedRegion)
+	if err != nil {
+		return
+	}
 	ch <- &runner.SchedulerRegionHeartbeatTask{
-		Region:          p.Region(),
+		Region:          clonedRegion,
 		Peer:            p.Meta,
 		PendingPeers:    p.CollectPendingPeers(),
 		ApproximateSize: p.ApproximateSize,
