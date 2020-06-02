@@ -390,12 +390,11 @@ func (m *MockSchedulerClient) handleHeartbeatConfVersion(region *metapb.Region) 
 func (m *MockSchedulerClient) tryFinished(op *Operator, region *metapb.Region, leader *metapb.Peer) bool {
 	switch op.Type {
 	case OperatorTypeAddPeer:
-		add := op.Data.(OpAddPeer)
+		add := op.Data.(*OpAddPeer)
 		if !add.pending {
 			for _, p := range region.GetPeers() {
 				if add.peer.GetId() == p.GetId() {
 					add.pending = true
-					op.Data = add
 					return false
 				}
 			}
@@ -423,7 +422,7 @@ func (m *MockSchedulerClient) tryFinished(op *Operator, region *metapb.Region, l
 func (m *MockSchedulerClient) makeRegionHeartbeatResponse(op *Operator, resp *schedulerpb.RegionHeartbeatResponse) {
 	switch op.Type {
 	case OperatorTypeAddPeer:
-		add := op.Data.(OpAddPeer)
+		add := op.Data.(*OpAddPeer)
 		if !add.pending {
 			resp.ChangePeer = &schedulerpb.ChangePeer{
 				ChangeType: eraftpb.ConfChangeType_AddNode,
@@ -492,7 +491,7 @@ func (m *MockSchedulerClient) removeRegionLocked(region *metapb.Region) {
 func (m *MockSchedulerClient) AddPeer(regionID uint64, peer *metapb.Peer) {
 	m.scheduleOperator(regionID, &Operator{
 		Type: OperatorTypeAddPeer,
-		Data: OpAddPeer{
+		Data: &OpAddPeer{
 			peer:    peer,
 			pending: false,
 		},
