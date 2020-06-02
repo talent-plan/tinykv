@@ -589,7 +589,7 @@ func TestHandleHeartbeat2AA(t *testing.T) {
 		m       pb.Message
 		wCommit uint64
 	}{
-		{pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeat, Term: 2, LogTerm: 3, Commit: commit + 1}, commit + 1},
+		{pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeat, Term: 3, LogTerm: 3, Commit: commit + 1}, commit + 1},
 		{pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeat, Term: 2, LogTerm: 1, Commit: commit - 1}, commit}, // do not decrease commit
 		{pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeat, Term: 2, LogTerm: 4, Commit: commit + 1}, commit},
 		{pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeat, Term: 2, LogTerm: 3, Commit: commit + 2}, commit},
@@ -599,7 +599,7 @@ func TestHandleHeartbeat2AA(t *testing.T) {
 		storage := NewMemoryStorage()
 		storage.Append([]pb.Entry{{Index: 1, Term: 1}, {Index: 2, Term: 2}, {Index: 3, Term: 3}})
 		sm := newTestRaft(1, []uint64{1, 2}, 5, 1, storage)
-		sm.becomeFollower(2, 2)
+		sm.becomeFollower(3, 2)
 		sm.RaftLog.committed = commit
 		sm.Step(tt.m)
 		if sm.RaftLog.committed != tt.wCommit {
