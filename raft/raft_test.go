@@ -591,8 +591,8 @@ func TestHandleHeartbeat2AA(t *testing.T) {
 	}{
 		{pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeat, Term: 3, LogTerm: 3, Commit: commit + 1}, commit + 1},
 		{pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeat, Term: 2, LogTerm: 1, Commit: commit - 1}, commit}, // do not decrease commit
-		{pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeat, Term: 2, LogTerm: 4, Commit: commit + 1}, commit},
-		{pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeat, Term: 2, LogTerm: 3, Commit: commit + 2}, commit},
+		{pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeat, Term: 4, LogTerm: 4, Commit: commit + 1}, commit},
+		{pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeat, Term: 3, LogTerm: 3, Commit: commit + 2}, commit},
 	}
 
 	for i, tt := range tests {
