@@ -395,11 +395,12 @@ func (m *MockSchedulerClient) tryFinished(op *Operator, region *metapb.Region, l
 			for _, p := range region.GetPeers() {
 				if add.peer.GetId() == p.GetId() {
 					add.pending = true
-				} else {
-					// TinyKV rejects AddNode.
+					op.Data = add
 					return false
 				}
 			}
+			// TinyKV rejects AddNode.
+			return false
 		} else {
 			_, found := m.pendingPeers[add.peer.GetId()]
 			return !found
