@@ -405,7 +405,7 @@ func (m *MockSchedulerClient) tryFinished(op *Operator, region *metapb.Region, l
 			return !found
 		}
 	case OperatorTypeRemovePeer:
-		remove := op.Data.(OpRemovePeer)
+		remove := op.Data.(*OpRemovePeer)
 		for _, p := range region.GetPeers() {
 			if remove.peer.GetId() == p.GetId() {
 				return false
@@ -413,7 +413,7 @@ func (m *MockSchedulerClient) tryFinished(op *Operator, region *metapb.Region, l
 		}
 		return true
 	case OperatorTypeTransferLeader:
-		transfer := op.Data.(OpTransferLeader)
+		transfer := op.Data.(*OpTransferLeader)
 		return leader.GetId() == transfer.peer.GetId()
 	}
 	panic("unreachable")
@@ -430,13 +430,13 @@ func (m *MockSchedulerClient) makeRegionHeartbeatResponse(op *Operator, resp *sc
 			}
 		}
 	case OperatorTypeRemovePeer:
-		remove := op.Data.(OpRemovePeer)
+		remove := op.Data.(*OpRemovePeer)
 		resp.ChangePeer = &schedulerpb.ChangePeer{
 			ChangeType: eraftpb.ConfChangeType_RemoveNode,
 			Peer:       remove.peer,
 		}
 	case OperatorTypeTransferLeader:
-		transfer := op.Data.(OpTransferLeader)
+		transfer := op.Data.(*OpTransferLeader)
 		resp.TransferLeader = &schedulerpb.TransferLeader{
 			Peer: transfer.peer,
 		}
@@ -501,7 +501,7 @@ func (m *MockSchedulerClient) AddPeer(regionID uint64, peer *metapb.Peer) {
 func (m *MockSchedulerClient) RemovePeer(regionID uint64, peer *metapb.Peer) {
 	m.scheduleOperator(regionID, &Operator{
 		Type: OperatorTypeRemovePeer,
-		Data: OpRemovePeer{
+		Data: &OpRemovePeer{
 			peer: peer,
 		},
 	})
@@ -510,7 +510,7 @@ func (m *MockSchedulerClient) RemovePeer(regionID uint64, peer *metapb.Peer) {
 func (m *MockSchedulerClient) TransferLeader(regionID uint64, peer *metapb.Peer) {
 	m.scheduleOperator(regionID, &Operator{
 		Type: OperatorTypeTransferLeader,
-		Data: OpTransferLeader{
+		Data: &OpTransferLeader{
 			peer: peer,
 		},
 	})
