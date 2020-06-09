@@ -582,39 +582,6 @@ func TestHandleMessageType_MsgAppend2AB(t *testing.T) {
 	}
 }
 
-// TestHandleHeartbeat ensures that the follower commits to the commit in the message.
-func TestHandleHeartbeat2AA(t *testing.T) {
-	commit := uint64(2)
-	tests := []struct {
-		m       pb.Message
-		wCommit uint64
-	}{
-		{pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeat, Term: 3, LogTerm: 3, Commit: commit + 1}, commit + 1},
-		{pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeat, Term: 2, LogTerm: 1, Commit: commit - 1}, commit}, // do not decrease commit
-		{pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeat, Term: 4, LogTerm: 4, Commit: commit + 1}, commit},
-		{pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgHeartbeat, Term: 3, LogTerm: 3, Commit: commit + 2}, commit},
-	}
-
-	for i, tt := range tests {
-		storage := NewMemoryStorage()
-		storage.Append([]pb.Entry{{Index: 1, Term: 1}, {Index: 2, Term: 2}, {Index: 3, Term: 3}})
-		sm := newTestRaft(1, []uint64{1, 2}, 5, 1, storage)
-		sm.becomeFollower(3, 2)
-		sm.RaftLog.committed = commit
-		sm.Step(tt.m)
-		if sm.RaftLog.committed != tt.wCommit {
-			t.Errorf("#%d: committed = %d, want %d", i, sm.RaftLog.committed, tt.wCommit)
-		}
-		m := sm.readMessages()
-		if len(m) != 1 {
-			t.Fatalf("#%d: len(msg) != 1, want 1", i)
-		}
-		if m[0].MsgType != pb.MessageType_MsgHeartbeatResponse {
-			t.Errorf("#%d: type = %v, want MessageType_MsgHeartbeatResponse", i, m[0].MsgType)
-		}
-	}
-}
-
 func TestRecvMessageType_MsgRequestVote2AA(t *testing.T) {
 	msgType := pb.MessageType_MsgRequestVote
 	msgRespType := pb.MessageType_MsgRequestVoteResponse
@@ -902,61 +869,55 @@ func TestDisruptiveFollower2AA(t *testing.T) {
 	}
 }
 
-// When the leader receives a heartbeat tick, it should
-// send a MessageType_MsgHeartbeat with m.Index = 0, m.LogTerm=0 and empty entries.
-func TestBcastBeat2AB(t *testing.T) {
-	offset := uint64(1000)
-	// make a state machine with log.offset = 1000
-	s := pb.Snapshot{
-		Metadata: &pb.SnapshotMetadata{
-			Index:     offset,
-			Term:      1,
-			ConfState: &pb.ConfState{Nodes: []uint64{1, 2, 3}},
-		},
+func TestHeartbeatUpdateCommit2AB(t *testing.T) {
+	tests := []struct {
+		failCnt    int
+		successCnt int
+	}{
+		{1, 1},
+		{5, 3},
+		{10, 10},
 	}
-	storage := NewMemoryStorage()
-	storage.ApplySnapshot(s)
-	sm := newTestRaft(1, nil, 10, 1, storage)
-	sm.Term = 1
+	for i, tt := range tests {
+		sm1 := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
+		sm2 := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
+		sm3 := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
+		nt := newNetwork(sm1, sm2, sm3)
+		nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
+		nt.isolate(1)
+		// propose log to old leader should fail
+		for i := 0; i < tt.failCnt; i++ {
+			nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{}}})
+		}
+		if sm1.RaftLog.committed > 1 {
+			t.Fatalf("#%d: unexpected commit: %d", i, sm1.RaftLog.committed)
+		}
+		// propose log to cluster should success
+		nt.send(pb.Message{From: 2, To: 2, MsgType: pb.MessageType_MsgHup})
+		for i := 0; i < tt.successCnt; i++ {
+			nt.send(pb.Message{From: 2, To: 2, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{}}})
+		}
+		wCommit := uint64(2 + tt.successCnt) // 2 elctions
+		if sm2.RaftLog.committed != wCommit {
+			t.Fatalf("#%d: expected sm2 commit: %d, got: %d", i, wCommit, sm2.RaftLog.committed)
+		}
+		if sm3.RaftLog.committed != wCommit {
+			t.Fatalf("#%d: expected sm3 commit: %d, got: %d", i, wCommit, sm3.RaftLog.committed)
+		}
 
-	sm.becomeCandidate()
-	sm.becomeLeader()
-	sm.Step(pb.Message{MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{}}})
-	sm.readMessages() // clear message
-	// slow follower
-	sm.Prs[2].Match, sm.Prs[2].Next = 5, 6
-	// normal follower
-	sm.Prs[3].Match, sm.Prs[3].Next = sm.RaftLog.LastIndex(), sm.RaftLog.LastIndex()+1
-
-	sm.Step(pb.Message{MsgType: pb.MessageType_MsgBeat})
-	msgs := sm.readMessages()
-	if len(msgs) != 2 {
-		t.Fatalf("len(msgs) = %v, want 2", len(msgs))
-	}
-	wantCommitMap := map[uint64]uint64{
-		2: min(sm.RaftLog.committed, sm.Prs[2].Match),
-		3: min(sm.RaftLog.committed, sm.Prs[3].Match),
-	}
-	for i, m := range msgs {
-		if m.MsgType != pb.MessageType_MsgHeartbeat {
-			t.Fatalf("#%d: type = %v, want = %v", i, m.MsgType, pb.MessageType_MsgHeartbeat)
-		}
-		if m.Index != 0 {
-			t.Fatalf("#%d: prevIndex = %d, want %d", i, m.Index, 0)
-		}
-		if m.LogTerm != 0 {
-			t.Fatalf("#%d: prevTerm = %d, want %d", i, m.LogTerm, 0)
-		}
-		if wantCommitMap[m.To] == 0 {
-			t.Fatalf("#%d: unexpected to %d", i, m.To)
-		} else {
-			if m.Commit != wantCommitMap[m.To] {
-				t.Fatalf("#%d: commit = %d, want %d", i, m.Commit, wantCommitMap[m.To])
+		nt.recover()
+		nt.send(pb.Message{From: 2, To: 2, MsgType: pb.MessageType_MsgBeat})
+		committed := sm1.RaftLog.nextEnts()
+		for _, log := range committed {
+			if log.Index == 1 {
+				continue
 			}
-			delete(wantCommitMap, m.To)
+			if log.Term != sm2.Term {
+				t.Fatalf("#%d: sm1 should commit entrie from sm2, got: %v", i, log)
+			}
 		}
-		if len(m.Entries) != 0 {
-			t.Fatalf("#%d: len(entries) = %d, want 0", i, len(m.Entries))
+		if sm1.RaftLog.committed != wCommit {
+			t.Fatalf("#%d: expected sm1 commit: %d, got: %d", i, wCommit, sm1.RaftLog.committed)
 		}
 	}
 }
