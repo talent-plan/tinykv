@@ -11,9 +11,9 @@ The project can be broken down into 2 steps, including:
 
 ### The Code
 
-The `gRPC` server is initialized in `kv/main.go` and it contains a `tinykv.Server` which provides a `gRPC` service named `TinyKv`. It was defined by [protocol-buffer]( https://developers.google.com/protocol-buffers ) in `proto/proto/tinykvpb.proto`, and the detail of rpc requests and responses are defined in `proto/proto/kvrpc.proto`.
+The `gRPC` server is initialized in `kv/main.go` and it contains a `tinykv.Server` which provides a `gRPC` service named `TinyKv`. It was defined by [protocol-buffer]( https://developers.google.com/protocol-buffers ) in `proto/proto/tinykvpb.proto`, and the detail of rpc requests and responses are defined in `proto/proto/kvrpcpb.proto`.
 
-Generally, you don’t need to change the proto files because all necessary fields have been defined for you. But if you still need to change, you can modify the proto file and run `make proto` to update related generated go code in `proto/pkg/xxx.pb.go`.
+Generally, you don’t need to change the proto files because all necessary fields have been defined for you. But if you still need to change, you can modify the proto file and run `make proto` to update related generated go code in `proto/pkg/xxx/xxx.pb.go`.
 
 In addition, `Server` depends on a `Storage`, an interface you need to implement for the standalone storage engine located in `kv/storage/standalone_storage/standalone_storage.go`. Once the interface `Storage` is implemented in `StandaloneStorage`, you could implement the raw key/value service for the `Server` with it.
 
