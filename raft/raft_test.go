@@ -908,9 +908,8 @@ func TestHeartbeatUpdateCommit2AB(t *testing.T) {
 		nt.recover()
 		nt.ignore(pb.MessageType_MsgAppend)
 		nt.send(pb.Message{From: 2, To: 2, MsgType: pb.MessageType_MsgBeat})
-		}
-		if sm1.RaftLog.committed == wCommit {
-			t.Fatalf("#%d: expected sm1 commit: %d, got: %d", i, wCommit, sm1.RaftLog.committed)
+		if sm1.RaftLog.committed > 1 {
+			t.Fatalf("#%d: expected sm1 commit: 1, got: %d", i, sm1.RaftLog.committed)
 		}
 	}
 }
