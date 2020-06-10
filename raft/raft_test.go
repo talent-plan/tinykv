@@ -574,7 +574,7 @@ func TestHandleMessageType_MsgAppend2AB(t *testing.T) {
 		}
 		m := sm.readMessages()
 		if len(m) != 1 {
-			t.Fatalf("#%d: msg = nil, want 1", i)
+			t.Fatalf("#%d: len(m) != 1, want 1", i)
 		}
 		if m[0].Reject != tt.wReject {
 			t.Errorf("#%d: reject = %v, want %v", i, m[0].Reject, tt.wReject)
@@ -605,7 +605,7 @@ func TestHandleHeartbeat2AA(t *testing.T) {
 		}
 		m := sm.readMessages()
 		if len(m) != 1 {
-			t.Fatalf("#%d: msg = nil, want 1", i)
+			t.Fatalf("#%d: len(m) != 1, want 1", i)
 		}
 		if m[0].MsgType != pb.MessageType_MsgHeartbeatResponse {
 			t.Errorf("#%d: type = %v, want MessageType_MsgHeartbeatResponse", i, m[0].MsgType)
@@ -902,7 +902,7 @@ func TestDisruptiveFollower2AA(t *testing.T) {
 
 // When the leader receives a heartbeat tick, it should
 // send a MessageType_MsgHeartbeat with m.Index = 0, m.LogTerm=0 and empty entries.
-func TestBcastBeat2AB(t *testing.T) {
+func TestBcastBeat2C(t *testing.T) {
 	offset := uint64(1000)
 	// make a state machine with log.offset = 1000
 	s := pb.Snapshot{
