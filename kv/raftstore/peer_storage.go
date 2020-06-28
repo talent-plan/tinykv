@@ -156,7 +156,9 @@ func (ps *PeerStorage) Snapshot() (eraftpb.Snapshot, error) {
 	if ps.snapState.StateType == snap.SnapState_Generating {
 		select {
 		case s := <-ps.snapState.Receiver:
-			snapshot = *s
+			if s != nil {
+				snapshot = *s
+			}
 		default:
 			return snapshot, raft.ErrSnapshotTemporarilyUnavailable
 		}
