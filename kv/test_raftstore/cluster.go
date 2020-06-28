@@ -445,6 +445,7 @@ func (c *Cluster) MustHavePeer(regionID uint64, peer *metapb.Peer) {
 		}
 		SleepMS(10)
 	}
+	panic(fmt.Sprintf("no peer: %v", peer))
 }
 
 func (c *Cluster) MustNonePeer(regionID uint64, peer *metapb.Peer) {
@@ -464,4 +465,5 @@ func (c *Cluster) MustNonePeer(regionID uint64, peer *metapb.Peer) {
 		}
 		SleepMS(10)
 	}
+	panic(fmt.Sprintf("have peer: %v", peer))
 }
