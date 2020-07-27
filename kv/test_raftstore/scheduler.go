@@ -3,7 +3,6 @@ package test_raftstore
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/google/btree"
@@ -350,7 +349,6 @@ func (m *MockSchedulerClient) handleHeartbeatConfVersion(region *metapb.Region) 
 			if searchRegionPeerLen-regionPeerLen != 1 {
 				panic("should only one conf change")
 			}
-			fmt.Println(searchRegion, region)
 			if len(GetDiffPeers(searchRegion, region)) != 1 {
 				panic("should only one different peer")
 			}
