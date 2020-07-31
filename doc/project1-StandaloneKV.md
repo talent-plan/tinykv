@@ -38,7 +38,7 @@ And you don’t need to consider the `kvrpcpb.Context` now, it’s used in the f
 > Hints:
 >
 > - You should use [badger.Txn]( https://godoc.org/github.com/dgraph-io/badger#Txn ) to implement the `Reader` function, because the transcation handler provided by badger could provide a consistent snapshot of the keys and values.
-> - Badger doesn’t give support for column families. engine_util package (`kv/util/engine_util`) simulates column families by adding a prefix to keys. For example, a key `key` that belongs to a specific column family `cf` is stored as `${cf}_${key}`. It warps `badger` to provide operations with CFs, and also offers many useful helper functions. So you should do all read/write operations through `engine_util` provided methods. Please read `util/engine_util/doc.go` to learn more.
+> - Badger doesn’t give support for column families. engine_util package (`kv/util/engine_util`) simulates column families by adding a prefix to keys. For example, a key `key` that belongs to a specific column family `cf` is stored as `${cf}_${key}`. It wraps `badger` to provide operations with CFs, and also offers many useful helper functions. So you should do all read/write operations through `engine_util` provided methods. Please read `util/engine_util/doc.go` to learn more.
 > - TinyKV uses a fork of the original version of `badger` with some fix, so just use `github.com/Connor1996/badger` instead of `github.com/dgraph-io/badger`.
 > - Don’t forget to call `Discard()` for badger.Txn and close all iterators before discarding.
 
