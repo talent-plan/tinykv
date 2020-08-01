@@ -2,10 +2,8 @@ package engine_util
 
 import (
 	"os"
-	"path/filepath"
 
 	"github.com/Connor1996/badger"
-	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/log"
 )
 
@@ -63,13 +61,13 @@ func (en *Engines) Destroy() error {
 }
 
 // CreateDB creates a new Badger DB on disk at subPath.
-func CreateDB(subPath string, conf *config.Config) *badger.DB {
+func CreateDB(path string, raft bool) *badger.DB {
 	opts := badger.DefaultOptions
-	if subPath == "raft" {
+	if raft {
 		// Do not need to write blob for raft engine because it will be deleted soon.
 		opts.ValueThreshold = 0
 	}
-	opts.Dir = filepath.Join(conf.DBPath, subPath)
+	opts.Dir = path
 	opts.ValueDir = opts.Dir
 	if err := os.MkdirAll(opts.Dir, os.ModePerm); err != nil {
 		log.Fatal(err)

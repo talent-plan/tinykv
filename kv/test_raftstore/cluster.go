@@ -80,8 +80,8 @@ func (c *Cluster) Start() {
 			panic(err)
 		}
 
-		raftDB := engine_util.CreateDB("raft", c.cfg)
-		kvDB := engine_util.CreateDB("kv", c.cfg)
+		raftDB := engine_util.CreateDB(raftPath, true)
+		kvDB := engine_util.CreateDB(kvPath, false)
 		engine := engine_util.NewEngines(kvDB, raftDB, kvPath, raftPath)
 		c.engines[storeID] = engine
 	}
