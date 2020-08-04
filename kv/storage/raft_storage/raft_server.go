@@ -68,8 +68,8 @@ func NewRaftStorage(conf *config.Config) *RaftStorage {
 	os.MkdirAll(raftPath, os.ModePerm)
 	os.Mkdir(snapPath, os.ModePerm)
 
-	raftDB := engine_util.CreateDB("raft", conf)
-	kvDB := engine_util.CreateDB("kv", conf)
+	raftDB := engine_util.CreateDB(raftPath, true)
+	kvDB := engine_util.CreateDB(kvPath, false)
 	engines := engine_util.NewEngines(kvDB, raftDB, kvPath, raftPath)
 
 	return &RaftStorage{engines: engines, config: conf}
