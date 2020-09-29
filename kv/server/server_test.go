@@ -327,6 +327,7 @@ func TestIterWithRawDelete1(t *testing.T) {
 	assert.Nil(t, Set(s, cf, []byte{4}, []byte{233, 4}))
 
 	it, err := Iter(s, cf)
+	defer it.Close()
 	assert.Nil(t, err)
 
 	delete := &kvrpcpb.RawDeleteRequest{
