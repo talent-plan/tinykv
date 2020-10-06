@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
@@ -103,6 +104,7 @@ func TestRawPut1(t *testing.T) {
 	_, err := server.RawPut(nil, req)
 
 	got, err := Get(s, cf, []byte{99})
+	fmt.Println(got, err)
 	assert.Nil(t, err)
 	assert.Equal(t, []byte{42}, got)
 }
