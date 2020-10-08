@@ -42,15 +42,16 @@ func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kv
 	}
 	val, err := reader.GetCF(req.GetCf(), req.GetKey())
 	if err != nil {
-		if err.Error() == "Key not found" {
-			return &kvrpcpb.RawGetResponse{
-				NotFound: true,
-				Value:    val,
-			}, nil
-		}
 		return nil, err
 	}
+	if val == nil {
+		return &kvrpcpb.RawGetResponse{
+			NotFound: true,
+			Value:    val,
+		}, nil
+	}
 	return &kvrpcpb.RawGetResponse{
+		NotFound: false,
 		Value: val,
 	}, nil
 }
@@ -58,7 +59,11 @@ func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kv
 func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
 	var batch = []storage.Modify{
 		{
-			Data: req.GetValue(),
+			Data: storage.Put{
+				Key:   req.GetKey(),
+				Value: req.GetValue(),
+				Cf:    req.GetCf(),
+			},
 		},
 	}
 	err := server.storage.Write(req.Context, batch)
@@ -71,7 +76,18 @@ func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kv
 }
 
 func (server *Server) RawDelete(_ context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
-	// TODO:
+	var batch = []storage.Modify{
+		{
+			Data: storage.Delete{
+				Key: req.GetKey(),
+				Cf: req.GetCf(),
+			},
+		},
+	}
+	err := server.storage.Write(req.Context, batch)
+	if err != nil {
+		return nil, err
+	}
 	return &kvrpcpb.RawDeleteResponse{
 		Error: "",
 	}, nil

@@ -16,7 +16,11 @@ type badgerReader struct {
 }
 
 func (b badgerReader) GetCF(cf string, key []byte) ([]byte, error) {
-	return engine_util.GetCF(b.db, cf, key)
+	val, err := engine_util.GetCF(b.db, cf, key)
+	if err != nil && err.Error() == "Key not found" {
+		return []byte(nil), nil
+	}
+	return val, err
 }
 
 func (b badgerReader) IterCF(cf string) engine_util.DBIterator {
@@ -57,18 +61,25 @@ func (s *StandAloneStorage) Stop() error {
 	return s.db.Close()
 }
 
-func (s *StandAloneStorage) Reader(ctx *kvrpcpb.Context) (storage.StorageReader, error) {
+func (s *StandAloneStorage) Reader(_ *kvrpcpb.Context) (storage.StorageReader, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database has not been initialized")
 	}
 	return badgerReader{db: s.db}, nil
 }
 
-func (s *StandAloneStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) error {
+func (s *StandAloneStorage) Write(_ *kvrpcpb.Context, batch []storage.Modify) error {
 	var err error
 
 	for _, item := range batch {
-		err = engine_util.PutCF(s.db, item.Cf(), item.Key(), item.Value())
+		switch item.Data.(type) {
+		case storage.Put:
+			err = engine_util.PutCF(s.db, item.Cf(), item.Key(), item.Value())
+		case storage.Delete:
+			err = engine_util.DeleteCF(s.db, item.Cf(), item.Key())
+		default:
+			err = fmt.Errorf("unrecognized modify type: %v", item.Data)
+		}
 		if err != nil {
 			return err
 		}
