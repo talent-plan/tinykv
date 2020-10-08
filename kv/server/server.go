@@ -52,7 +52,7 @@ func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kv
 	}
 	return &kvrpcpb.RawGetResponse{
 		NotFound: false,
-		Value: val,
+		Value:    val,
 	}, nil
 }
 
@@ -80,7 +80,7 @@ func (server *Server) RawDelete(_ context.Context, req *kvrpcpb.RawDeleteRequest
 		{
 			Data: storage.Delete{
 				Key: req.GetKey(),
-				Cf: req.GetCf(),
+				Cf:  req.GetCf(),
 			},
 		},
 	}
@@ -102,23 +102,28 @@ func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*
 	kvps := make([]*kvrpcpb.KvPair, 0)
 
 	iter := reader.IterCF(req.GetCf())
-	for {
-		if !iter.Valid() {
+	defer iter.Close()
+
+	var cnt uint32
+	for iter.Seek(req.StartKey); iter.Valid(); iter.Next() {
+		if cnt >= req.GetLimit() {
 			break
 		}
 
+		cnt += 1
 		item := iter.Item()
+		k := item.Key()
+
 		val, err := item.Value()
 		if err != nil {
 			return nil, err
 		}
-		kvp := kvrpcpb.KvPair{
-			Key:                  item.Key(),
-			Value:                val,
-		}
 
+		kvp := kvrpcpb.KvPair{
+			Key:   k,
+			Value: val,
+		}
 		kvps = append(kvps, &kvp)
-		iter.Next()
 	}
 
 	return &kvrpcpb.RawScanResponse{
