@@ -3,7 +3,12 @@ module github.com/pingcap-incubator/tinykv
 require (
 	github.com/BurntSushi/toml v0.3.1
 	github.com/Connor1996/badger v1.5.1-0.20200306031920-9bbcbd8ba570
+	github.com/alecthomas/assert v0.0.0-20170929043011-405dbfeb8e38
+	github.com/alecthomas/colour v0.1.0 // indirect
+	github.com/alecthomas/repr v0.0.0-20201120212035-bb82daffcca2 // indirect
 	github.com/coreos/pkg v0.0.0-20180928190104-399ea9e2e55f
+	github.com/dgraph-io/badger v1.6.0
+	github.com/dgraph-io/badger/v2 v2.2007.2
 	github.com/docker/go-units v0.4.0
 	github.com/gogo/protobuf v1.3.1
 	github.com/golang/protobuf v1.3.4
@@ -14,6 +19,7 @@ require (
 	github.com/onsi/gomega v1.10.0 // indirect
 	github.com/opentracing/opentracing-go v1.0.2
 	github.com/petar/GoLLRB v0.0.0-20190514000832-33fb24c13b99
+	github.com/pingcap/badger v1.5.0
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errcode v0.0.0-20180921232412-a1a7271709d9
 	github.com/pingcap/errors v0.11.5-0.20190809092503-95897b64e011

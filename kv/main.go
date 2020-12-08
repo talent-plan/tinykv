@@ -30,7 +30,9 @@ var (
 
 func main() {
 	flag.Parse()
+
 	conf := config.NewDefaultConfig()
+
 	if *schedulerAddr != "" {
 		conf.SchedulerAddr = *schedulerAddr
 	}
@@ -49,6 +51,7 @@ func main() {
 	log.Infof("Server started with conf %+v", conf)
 
 	var storage storage.Storage
+	// 当前 raft 默认为 true
 	if conf.Raft {
 		storage = raft_storage.NewRaftStorage(conf)
 	} else {
