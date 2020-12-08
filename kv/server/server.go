@@ -37,23 +37,83 @@ func NewServer(storage storage.Storage) *Server {
 
 // Raw API.
 func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
-	// Your Code Here (1).
-	return nil, nil
+	ctx := &kvrpcpb.Context{}
+	r, _ := server.storage.Reader(ctx)
+	defer r.Close()
+
+	ret, _ := r.GetCF(req.GetCf(), req.Key)
+	response := &kvrpcpb.RawGetResponse{
+		Value:    ret,
+		NotFound: ret == nil,
+	}
+	return response, nil
 }
 
 func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
-	// Your Code Here (1).
+	ctx := &kvrpcpb.Context{}
+	batch := []storage.Modify{
+		{
+			Data: storage.Put{
+				Key:   req.Key,
+				Value: req.Value,
+				Cf:    req.Cf,
+			},
+		},
+	}
+	err := server.storage.Write(ctx, batch)
+	if err != nil {
+		return &kvrpcpb.RawPutResponse{
+			Error: err.Error(),
+		}, nil
+	}
 	return nil, nil
 }
 
 func (server *Server) RawDelete(_ context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
-	// Your Code Here (1).
+	ctx := &kvrpcpb.Context{}
+	batch := []storage.Modify{
+		{
+			Data: storage.Delete{
+				Key: req.Key,
+				Cf:  req.Cf,
+			},
+		},
+	}
+	err := server.storage.Write(ctx, batch)
+	if err != nil {
+		return &kvrpcpb.RawDeleteResponse{
+			Error: err.Error(),
+		}, nil
+	}
 	return nil, nil
 }
 
 func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*kvrpcpb.RawScanResponse, error) {
 	// Your Code Here (1).
-	return nil, nil
+	ctx := &kvrpcpb.Context{}
+	r, _ := server.storage.Reader(ctx)
+	defer r.Close()
+
+	iter := r.IterCF(req.Cf)
+	iter.Seek(req.StartKey)
+
+	var kvs []*kvrpcpb.KvPair
+	for i := 0; i < int(req.Limit); i++ {
+		item := iter.Item()
+		key := item.Key()
+		val, _ := item.Value()
+		kvs = append(kvs, &kvrpcpb.KvPair{
+			Key:   key,
+			Value: val,
+		})
+		iter.Next()
+		if !iter.Valid() {
+			break
+		}
+	}
+	return &kvrpcpb.RawScanResponse{
+		Kvs: kvs,
+	}, nil
 }
 
 // Raft commands (tinykv <-> tinykv)

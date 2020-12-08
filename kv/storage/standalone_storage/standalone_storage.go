@@ -84,7 +84,11 @@ func NewStandAloneStorageReader(storage StandAloneStorage) *StandAloneStorageRea
 var _ storage.StorageReader = (*StandAloneStorageReader)(nil)
 
 func (r *StandAloneStorageReader) GetCF(cf string, key []byte) ([]byte, error) {
-	return engine_util.GetCF(r.Storage.DB, cf, key)
+	ret, err := engine_util.GetCF(r.Storage.DB, cf, key)
+	if ret == nil {
+		return ret, nil
+	}
+	return ret, err
 }
 
 func (r *StandAloneStorageReader) IterCF(cf string) engine_util.DBIterator {
