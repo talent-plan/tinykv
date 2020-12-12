@@ -165,7 +165,6 @@ func newRaft(c *Config) *Raft {
 	// Your Code Here (2A).
 	raft := &Raft{
 		id:               c.ID,
-		Term:             uint64(1),
 		heartbeatTimeout: c.HeartbeatTick,
 		electionTimeout:  c.ElectionTick,
 		RaftLog: &RaftLog{
@@ -345,7 +344,11 @@ func (r *Raft) send(m pb.Message) {
 func (r *Raft) largerTermStep(m pb.Message) {
 	switch r.State {
 	case StateLeader:
+		// 变回 follower
+		r.becomeFollower(m.Term, m.From)
 	case StateCandidate:
+		// 变回 follower
+		r.becomeFollower(m.Term, m.From)
 	case StateFollower:
 	}
 	// 如果消息 Term 比我大，那我就应该变成 From 的 follower，无论是什么消息类型
