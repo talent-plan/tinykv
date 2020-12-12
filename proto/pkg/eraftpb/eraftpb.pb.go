@@ -52,24 +52,24 @@ type MessageType int32
 const (
 	// 'MessageType_MsgHup' is a local message used for election. If an election timeout happened,
 	// the node should pass 'MessageType_MsgHup' to its Step method and start a new election.
-	MessageType_MsgHup MessageType = 0
+	MessageType_MsgHup MessageType = 0 // 需要，local，election timeout 发起，收到后开启新一轮选举
 	// 'MessageType_MsgBeat' is a local message that signals the leader to send a heartbeat
 	// of the 'MessageType_MsgHeartbeat' type to its followers.
-	MessageType_MsgBeat MessageType = 1
+	MessageType_MsgBeat MessageType = 1 // 需要，local，收到后 leader 发送 heartbeat
 	// 'MessageType_MsgPropose' is a local message that proposes to append data to the leader's log entries.
-	MessageType_MsgPropose MessageType = 2
+	MessageType_MsgPropose MessageType = 2 // 需要，local，收到后 leader append log
 	// 'MessageType_MsgAppend' contains log entries to replicate.
-	MessageType_MsgAppend MessageType = 3
+	MessageType_MsgAppend MessageType = 3 // 需要
 	// 'MessageType_MsgAppendResponse' is response to log replication request('MessageType_MsgAppend').
 	MessageType_MsgAppendResponse MessageType = 4
 	// 'MessageType_MsgRequestVote' requests votes for election.
-	MessageType_MsgRequestVote MessageType = 5
+	MessageType_MsgRequestVote MessageType = 5 // 需要
 	// 'MessageType_MsgRequestVoteResponse' contains responses from voting request.
-	MessageType_MsgRequestVoteResponse MessageType = 6
+	MessageType_MsgRequestVoteResponse MessageType = 6 // 需要
 	// 'MessageType_MsgSnapshot' requests to install a snapshot message.
 	MessageType_MsgSnapshot MessageType = 7
 	// 'MessageType_MsgHeartbeat' sends heartbeat from leader to its followers.
-	MessageType_MsgHeartbeat MessageType = 8
+	MessageType_MsgHeartbeat MessageType = 8 // 需要
 	// 'MessageType_MsgHeartbeatResponse' is a response to 'MessageType_MsgHeartbeat'.
 	MessageType_MsgHeartbeatResponse MessageType = 9
 	// 'MessageType_MsgTransferLeader' requests the leader to transfer its leadership.

@@ -71,6 +71,7 @@ func TestLeaderElection2AA(t *testing.T) {
 		state   StateType
 		expTerm uint64
 	}{
+		// nil 会创建正常的 follower 参与投票， nopStepper 不返回投票
 		{newNetworkWithConfig(cfg, nil, nil, nil), StateLeader, 1},
 		{newNetworkWithConfig(cfg, nil, nil, nopStepper), StateLeader, 1},
 		{newNetworkWithConfig(cfg, nil, nopStepper, nopStepper), StateCandidate, 1},
@@ -1542,6 +1543,7 @@ func newNetworkWithConfig(configFunc func(*Config), peers ...stateMachine) *netw
 		id := peerAddrs[j]
 		switch v := p.(type) {
 		case nil:
+			// 如果 peer 是 nil，则生成一个默认的 raft 节点（那肯定是 follower）
 			nstorage[id] = NewMemoryStorage()
 			cfg := newTestConfig(id, peerAddrs, 10, 1, nstorage[id])
 			if configFunc != nil {

@@ -163,7 +163,17 @@ func newRaft(c *Config) *Raft {
 		panic(err.Error())
 	}
 	// Your Code Here (2A).
-	return nil
+	raft := &Raft{
+		id:               c.ID,
+		Term:             uint64(1),
+		heartbeatTimeout: c.HeartbeatTick,
+		electionTimeout:  c.ElectionTick,
+		RaftLog: &RaftLog{
+			storage: c.Storage,
+		},
+	}
+	// raft.becomeFollower(raft.Term, lead uint64)
+	return raft
 }
 
 // sendAppend sends an append RPC with new entries (if any) and the
@@ -181,34 +191,175 @@ func (r *Raft) sendHeartbeat(to uint64) {
 // tick advances the internal logical clock by a single tick.
 func (r *Raft) tick() {
 	// Your Code Here (2A).
+	switch r.State {
+	case StateFollower:
+	case StateCandidate:
+	case StateLeader:
+	}
+	// r.heartbeatElapsed++
+	// r.electionElapsed++
+
+	// if r.State == StateFollower {
+	// 	// 超时变成 Candidate
+	// 	if r.electionElapsed >= r.electionTimeout {
+	// 		r.becomeCandidate()
+	// 	}
+	// 	return
+	// }
+
+	// if r.State == StateLeader {
+	// 	// leader 发送心跳
+	// 	if r.heartbeatElapsed >= r.heartbeatTimeout {
+	// 		// r.sendHeartbeat(to uint64)
+	// 	}
+	// }
+
 }
 
 // becomeFollower transform this peer's state to Follower
 func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	// Your Code Here (2A).
+	r.State = StateFollower
+	r.Term = term
+	r.Lead = lead
 }
 
 // becomeCandidate transform this peer's state to candidate
 func (r *Raft) becomeCandidate() {
 	// Your Code Here (2A).
+	if r.State == StateLeader {
+		panic("cannot transit from leader to candidate")
+	}
+	r.State = StateCandidate
+	// Term + 1
+	r.Term += 1
+	// 先投自己一票再说
+	r.Vote = r.id
 }
 
 // becomeLeader transform this peer's state to leader
 func (r *Raft) becomeLeader() {
 	// Your Code Here (2A).
 	// NOTE: Leader should propose a noop entry on its term
+	if r.State == StateFollower {
+		panic("cannot transit from follower to leader")
+	}
+	r.State = StateLeader
+	r.Lead = r.id
+
 }
 
 // Step the entrance of handle message, see `MessageType`
 // on `eraftpb.proto` for what msgs should be handled
+// 每收到一条消息会走一次 Step，不同 State 对不同的消息类型处理方式不同
 func (r *Raft) Step(m pb.Message) error {
 	// Your Code Here (2A).
-	switch r.State {
-	case StateFollower:
-	case StateCandidate:
-	case StateLeader:
+	switch {
+	case m.Term == 0:
+	case m.Term > r.Term:
+		r.largerTermStep(m)
+	case m.Term < r.Term:
+		r.smallerTermStep(m)
+	case m.Term == r.Term:
+		r.equalTermStep(m)
 	}
 	return nil
+}
+
+func (r *Raft) equalTermStep(m pb.Message) {
+	switch r.State {
+	case StateLeader:
+		r.eTermLeaderStep(m)
+	case StateCandidate:
+		r.eTermCandidateStep(m)
+	case StateFollower:
+		r.eTermFollowerStep(m)
+	}
+	return
+}
+
+func (r *Raft) eTermLeaderStep(m pb.Message) {
+	switch m.MsgType {
+	case pb.MessageType_MsgBeat: // 心跳前消息
+		// 发送心跳
+	case pb.MessageType_MsgAppendResponse: // Append 回执消息
+		// 检查法定人数并 apply log
+	}
+
+	// pr := r.Prs[m.From]
+	switch m.MsgType {
+	case pb.MessageType_MsgHeartbeatResponse: // 心跳回执
+		// 简单点，暂时不发送心跳回执
+		// From 的 Match 是否滞后于 LastIndex，如果滞后，则 sendAppend
+	}
+}
+
+func (r *Raft) eTermCandidateStep(m pb.Message) {
+}
+
+func (r *Raft) eTermFollowerStep(m pb.Message) {
+	switch m.MsgType {
+	case pb.MessageType_MsgHeartbeat:
+		r.electionElapsed = 0
+		r.Lead = m.From
+		r.send(pb.Message{
+			MsgType: pb.MessageType_MsgHeartbeatResponse,
+			To:      m.From,
+			From:    r.id,
+			Term:    r.Term,
+		})
+		// 简单点，暂时不发送心跳回执
+	case pb.MessageType_MsgHup: // 新一轮选举
+		// 变成 candidate
+		r.Term += 1
+		r.becomeCandidate()
+		// 发送 vote request
+		for id, _ := range r.Prs {
+			r.send(pb.Message{
+				MsgType: pb.MessageType_MsgRequestVote,
+				To:      id,
+				Term:    r.Term,
+				Index:   r.RaftLog.LastIndex(),
+			})
+		}
+
+	case pb.MessageType_MsgRequestVote: // 投票请求
+		// reset
+		canVote := r.Vote == m.From ||
+			(r.Vote == None && r.Lead == None)
+		if canVote {
+			r.send(pb.Message{
+				MsgType: pb.MessageType_MsgRequestVoteResponse,
+				To:      m.From,
+				From:    r.id,
+				Term:    r.Term,
+			})
+		}
+	}
+}
+
+func (r *Raft) send(m pb.Message) {
+	r.msgs = append(r.msgs, m)
+}
+
+func (r *Raft) largerTermStep(m pb.Message) {
+	switch r.State {
+	case StateLeader:
+	case StateCandidate:
+	case StateFollower:
+	}
+	// 如果消息 Term 比我大，那我就应该变成 From 的 follower，无论是什么消息类型
+	r.becomeFollower(m.Term, m.From)
+}
+
+func (r *Raft) smallerTermStep(m pb.Message) {
+	switch r.State {
+	case StateLeader:
+	case StateCandidate:
+	case StateFollower:
+	}
+	// TODO 如果消息类型比我小，而且是 leader 发来的消息，我得发消息通知他该更新 Term 了
+	// 意外情况，先不着急处理
 }
 
 // handleAppendEntries handle AppendEntries RPC request
