@@ -138,7 +138,8 @@ type Raft struct {
 	// number of ticks since it reached last heartbeatTimeout.
 	// only leader keeps heartbeatElapsed.
 	heartbeatElapsed int
-	// number of ticks since it reached last electionTimeout
+	// number of ticks since it received last heartbeat.
+	// followers and candidates keeps electionElapsed.
 	electionElapsed int
 
 	// leadTransferee is id of the leader transfer target when its value is not zero.
