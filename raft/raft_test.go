@@ -41,6 +41,7 @@ type stateMachine interface {
 }
 
 func (r *Raft) readMessages() []pb.Message {
+	// 读取 r 发件箱里的消息，并清空发件箱
 	msgs := r.msgs
 	r.msgs = make([]pb.Message, 0)
 

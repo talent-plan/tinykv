@@ -107,6 +107,17 @@ type Progress struct {
 	Match, Next uint64
 }
 
+// Update 更新 follower 的同步进度
+func (p *Progress) Update(n uint64) bool {
+	var suc bool
+	if p.Match < n {
+		p.Match = n
+		suc = true
+	}
+	p.Next = max(p.Next, n+1)
+	return suc
+}
+
 type Raft struct {
 	id uint64
 
@@ -163,15 +174,20 @@ func newRaft(c *Config) *Raft {
 		panic(err.Error())
 	}
 	// Your Code Here (2A).
+	prs := make(map[uint64]*Progress, 0)
+	for _, pr := range c.peers {
+		prs[pr] = nil
+	}
+
 	raft := &Raft{
 		id:               c.ID,
 		heartbeatTimeout: c.HeartbeatTick,
 		electionTimeout:  c.ElectionTick,
+		Prs:              prs,
 		RaftLog: &RaftLog{
 			storage: c.Storage,
 		},
 	}
-	// raft.becomeFollower(raft.Term, lead uint64)
 	return raft
 }
 
@@ -185,6 +201,12 @@ func (r *Raft) sendAppend(to uint64) bool {
 // sendHeartbeat sends a heartbeat RPC to the given peer.
 func (r *Raft) sendHeartbeat(to uint64) {
 	// Your Code Here (2A).
+	r.send(pb.Message{
+		MsgType: pb.MessageType_MsgHeartbeat,
+		To:      to,
+		From:    r.id,
+		Term:    r.Term,
+	})
 }
 
 // tick advances the internal logical clock by a single tick.
@@ -194,9 +216,15 @@ func (r *Raft) tick() {
 	case StateFollower:
 	case StateCandidate:
 	case StateLeader:
+		r.heartbeatElapsed++
+		if r.heartbeatElapsed >= r.heartbeatTimeout {
+			for pr, _ := range r.Prs {
+				if pr != r.id {
+					r.sendHeartbeat(pr)
+				}
+			}
+		}
 	}
-	// r.heartbeatElapsed++
-	// r.electionElapsed++
 
 	// if r.State == StateFollower {
 	// 	// 超时变成 Candidate
@@ -283,6 +311,12 @@ func (r *Raft) eTermLeaderStep(m pb.Message) {
 		// 发送心跳
 	case pb.MessageType_MsgAppendResponse: // Append 回执消息
 		// 检查法定人数并 apply log
+	case pb.MessageType_MsgPropose: // leader 写自己 log 的消息
+		var entries []pb.Entry
+		for _, entry := range m.Entries {
+			entries = append(entries, *entry)
+		}
+		r.appendEntry(entries...)
 	}
 
 	// pr := r.Prs[m.From]
@@ -291,6 +325,28 @@ func (r *Raft) eTermLeaderStep(m pb.Message) {
 		// 简单点，暂时不发送心跳回执
 		// From 的 Match 是否滞后于 LastIndex，如果滞后，则 sendAppend
 	}
+}
+
+// appendEntry 负责添加 log entry
+func (r *Raft) appendEntry(es ...pb.Entry) bool {
+	lastIndex := r.RaftLog.LastIndex()
+	for i := range es {
+		es[i].Term = r.Term
+		es[i].Index = lastIndex + uint64(i) + 1
+	}
+	lastIndex = r.RaftLog.append(es...)
+	// 更新进度
+	prog := r.Prs[r.id]
+	prog.Update(lastIndex)
+	// 提交 raft log(即更新 committed 点)
+	r.Prs[r.id] = prog
+	r.Commit()
+	return true
+}
+
+func (r *Raft) Commit() bool {
+	r.RaftLog.committed = r.Prs[r.id].Match
+	return true
 }
 
 func (r *Raft) eTermCandidateStep(m pb.Message) {
