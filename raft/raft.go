@@ -229,6 +229,7 @@ func (r *Raft) tick() {
 		r.electionElapsed++
 		if r.electionElapsed >= r.electionTimeout {
 			r.becomeCandidate()
+			r.startElection()
 		}
 	case StateCandidate:
 		// candidate 的 electionElapsed 还是会增加，直到出现 leader 才复位
@@ -248,11 +249,37 @@ func (r *Raft) tick() {
 	}
 }
 
+// 所有的 peers
+func (r *Raft) allPeers() []uint64 {
+	var ret []uint64
+	for pr, _ := range r.Prs {
+		ret = append(ret, pr)
+	}
+	return ret
+}
+
 // restPeers 非自己的其他 peers
 func (r *Raft) restPeers() []uint64 {
 	var ret []uint64
 	for pr, _ := range r.Prs {
 		if pr != r.id {
+			ret = append(ret, pr)
+		}
+	}
+	return ret
+}
+
+// quorum 法定数，超半数
+func (r *Raft) quorum() int {
+	total := len(r.allPeers())
+	return total/2 + 1
+}
+
+// proVotePeers 选举投票同意的 peers
+func (r *Raft) proVotePeers() []uint64 {
+	var ret []uint64
+	for pr, vote := range r.votes {
+		if vote {
 			ret = append(ret, pr)
 		}
 	}
@@ -293,18 +320,28 @@ func (r *Raft) becomeLeader() {
 // startElection 开始新一轮选举
 func (r *Raft) startElection() {
 	// 先投自己一票再说
-	r.recVote(r.id)
+	r.Step(pb.Message{
+		From:    r.id,
+		To:      r.id,
+		Term:    r.Term,
+		MsgType: pb.MessageType_MsgRequestVoteResponse,
+		Reject:  false,
+	})
+	restPeers := r.restPeers()
 	// 然后给其他 peers 请求投票
-	for _, pr := range r.restPeers() {
+	for _, pr := range restPeers {
 		r.sendRequestVote(pr)
 	}
 	// reset electionElapsed
 	r.electionElapsed = 0
 }
 
-func (r *Raft) recVote(from uint64) {
-	r.Vote = from
-	r.votes[r.Vote] = true
+// recVote 接受投票
+func (r *Raft) recVote(m pb.Message) {
+	if !m.Reject {
+		r.Vote += 1
+	}
+	r.votes[m.From] = !m.Reject
 }
 
 // Step the entrance of handle message, see `MessageType`
@@ -313,7 +350,6 @@ func (r *Raft) recVote(from uint64) {
 func (r *Raft) Step(m pb.Message) error {
 	// Your Code Here (2A).
 	switch {
-	case m.Term == 0:
 	case m.Term > r.Term:
 		r.largerTermStep(m)
 	case m.Term < r.Term:
@@ -381,6 +417,15 @@ func (r *Raft) Commit() bool {
 }
 
 func (r *Raft) eTermCandidateStep(m pb.Message) {
+	switch m.MsgType {
+	case pb.MessageType_MsgRequestVoteResponse: // candidate 收到投票回执
+		r.recVote(m)
+		// 判断是否可以成为 leader，判断是否超过半数
+		// 不用非得等所有投票的返回
+		if int(r.Vote) >= r.quorum() {
+			r.becomeLeader()
+		}
+	}
 }
 
 func (r *Raft) eTermFollowerStep(m pb.Message) {
@@ -397,18 +442,8 @@ func (r *Raft) eTermFollowerStep(m pb.Message) {
 		// 简单点，暂时不发送心跳回执
 	case pb.MessageType_MsgHup: // 新一轮选举
 		// 变成 candidate
-		r.Term += 1
 		r.becomeCandidate()
-		// 发送 vote request
-		for id, _ := range r.Prs {
-			r.send(pb.Message{
-				MsgType: pb.MessageType_MsgRequestVote,
-				To:      id,
-				Term:    r.Term,
-				Index:   r.RaftLog.LastIndex(),
-			})
-		}
-
+		r.startElection()
 	case pb.MessageType_MsgRequestVote: // 投票请求
 		// reset
 		canVote := r.Vote == m.From ||
