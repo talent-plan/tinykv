@@ -181,6 +181,7 @@ func newRaft(c *Config) *Raft {
 
 	raft := &Raft{
 		id:               c.ID,
+		votes:            make(map[uint64]bool, 0),
 		heartbeatTimeout: c.HeartbeatTick,
 		electionTimeout:  c.ElectionTick,
 		Prs:              prs,
@@ -209,38 +210,53 @@ func (r *Raft) sendHeartbeat(to uint64) {
 	})
 }
 
+// sendRequestVote 请求投票
+func (r *Raft) sendRequestVote(to uint64) {
+	r.send(pb.Message{
+		MsgType: pb.MessageType_MsgRequestVote,
+		To:      to,
+		From:    r.id,
+		Term:    r.Term,
+	})
+}
+
 // tick advances the internal logical clock by a single tick.
 func (r *Raft) tick() {
 	// Your Code Here (2A).
 	switch r.State {
 	case StateFollower:
+		// 如果 election timemout，重新发起 election，编程 candidate
+		r.electionElapsed++
+		if r.electionElapsed >= r.electionTimeout {
+			r.becomeCandidate()
+		}
 	case StateCandidate:
+		// candidate 的 electionElapsed 还是会增加，直到出现 leader 才复位
+		r.electionElapsed++
+		if r.electionElapsed >= r.electionTimeout {
+			r.becomeCandidate()
+			r.startElection()
+		}
 	case StateLeader:
+		// 只要超过 heartbeatTimeout 就发送心跳
 		r.heartbeatElapsed++
 		if r.heartbeatElapsed >= r.heartbeatTimeout {
-			for pr, _ := range r.Prs {
-				if pr != r.id {
-					r.sendHeartbeat(pr)
-				}
+			for _, pr := range r.restPeers() {
+				r.sendHeartbeat(pr)
 			}
 		}
 	}
+}
 
-	// if r.State == StateFollower {
-	// 	// 超时变成 Candidate
-	// 	if r.electionElapsed >= r.electionTimeout {
-	// 		r.becomeCandidate()
-	// 	}
-	// 	return
-	// }
-
-	// if r.State == StateLeader {
-	// 	// leader 发送心跳
-	// 	if r.heartbeatElapsed >= r.heartbeatTimeout {
-	// 		// r.sendHeartbeat(to uint64)
-	// 	}
-	// }
-
+// restPeers 非自己的其他 peers
+func (r *Raft) restPeers() []uint64 {
+	var ret []uint64
+	for pr, _ := range r.Prs {
+		if pr != r.id {
+			ret = append(ret, pr)
+		}
+	}
+	return ret
 }
 
 // becomeFollower transform this peer's state to Follower
@@ -260,8 +276,6 @@ func (r *Raft) becomeCandidate() {
 	r.State = StateCandidate
 	// Term + 1
 	r.Term += 1
-	// 先投自己一票再说
-	r.Vote = r.id
 }
 
 // becomeLeader transform this peer's state to leader
@@ -274,6 +288,23 @@ func (r *Raft) becomeLeader() {
 	r.State = StateLeader
 	r.Lead = r.id
 
+}
+
+// startElection 开始新一轮选举
+func (r *Raft) startElection() {
+	// 先投自己一票再说
+	r.recVote(r.id)
+	// 然后给其他 peers 请求投票
+	for _, pr := range r.restPeers() {
+		r.sendRequestVote(pr)
+	}
+	// reset electionElapsed
+	r.electionElapsed = 0
+}
+
+func (r *Raft) recVote(from uint64) {
+	r.Vote = from
+	r.votes[r.Vote] = true
 }
 
 // Step the entrance of handle message, see `MessageType`

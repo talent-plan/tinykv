@@ -96,6 +96,7 @@ func TestLeaderBcastBeat2AA(t *testing.T) {
 	r.readMessages() // clear message
 
 	for i := 0; i < hi; i++ {
+		// 每 hi 发送心跳
 		r.tick()
 	}
 
