@@ -59,17 +59,17 @@ func newTestEntry(index, term uint64) eraftpb.Entry {
 
 func TestPeerStorageTerm(t *testing.T) {
 	ents := []eraftpb.Entry{
-		newTestEntry(3, 3), newTestEntry(4, 4), newTestEntry(5, 5),
+		newTestEntry(6, 6), newTestEntry(7, 7), newTestEntry(8, 8),
 	}
 	tests := []struct {
 		idx  uint64
 		term uint64
 		err  error
 	}{
-		{2, 0, raft.ErrCompacted},
-		{3, 3, nil},
-		{4, 4, nil},
-		{5, 5, nil},
+		{5, 0, raft.ErrCompacted},
+		{6, 6, nil},
+		{7, 7, nil},
+		{8, 8, nil},
 	}
 	for _, tt := range tests {
 		peerStore := newTestPeerStorageFromEnts(t, ents)
