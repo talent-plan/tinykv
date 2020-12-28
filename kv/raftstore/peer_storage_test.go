@@ -138,13 +138,13 @@ func getMetaKeyCount(t *testing.T, peerStore *PeerStorage) int {
 
 func TestPeerStorageClearMeta(t *testing.T) {
 	peerStore := newTestPeerStorageFromEnts(t, []eraftpb.Entry{
-		newTestEntry(3, 3),
-		newTestEntry(4, 4),
+		newTestEntry(6, 6),
+		newTestEntry(7, 7),
 	})
 	defer cleanUpTestData(peerStore)
 	appendEnts(t, peerStore, []eraftpb.Entry{
-		newTestEntry(5, 5),
-		newTestEntry(6, 6),
+		newTestEntry(8, 8),
+		newTestEntry(9, 9),
 	})
 	assert.Equal(t, 6, getMetaKeyCount(t, peerStore))
 	kvWB := new(engine_util.WriteBatch)
