@@ -157,10 +157,10 @@ func TestPeerStorageClearMeta(t *testing.T) {
 
 func TestPeerStorageEntries(t *testing.T) {
 	ents := []eraftpb.Entry{
-		newTestEntry(3, 3),
-		newTestEntry(4, 4),
-		newTestEntry(5, 5),
 		newTestEntry(6, 6),
+		newTestEntry(7, 7),
+		newTestEntry(8, 8),
+		newTestEntry(9, 9),
 	}
 	tests := []struct {
 		low     uint64
@@ -168,14 +168,14 @@ func TestPeerStorageEntries(t *testing.T) {
 		entries []eraftpb.Entry
 		err     error
 	}{
-		{2, 6, nil, raft.ErrCompacted},
-		{3, 4, nil, raft.ErrCompacted},
-		{4, 5, []eraftpb.Entry{
-			newTestEntry(4, 4),
+		{5, 9, nil, raft.ErrCompacted},
+		{6, 7, nil, raft.ErrCompacted},
+		{7, 8, []eraftpb.Entry{
+			newTestEntry(7, 7),
 		}, nil},
-		{4, 6, []eraftpb.Entry{
-			newTestEntry(4, 4),
-			newTestEntry(5, 5),
+		{7, 9, []eraftpb.Entry{
+			newTestEntry(7, 7),
+			newTestEntry(8, 8),
 		}, nil},
 	}
 
@@ -193,39 +193,39 @@ func TestPeerStorageEntries(t *testing.T) {
 
 func TestPeerStorageAppend(t *testing.T) {
 	ents := []eraftpb.Entry{
-		newTestEntry(3, 3), newTestEntry(4, 4), newTestEntry(5, 5)}
+		newTestEntry(6, 6), newTestEntry(7, 7), newTestEntry(8, 8)}
 	tests := []struct {
 		appends []eraftpb.Entry
 		results []eraftpb.Entry
 	}{
 		{
-			[]eraftpb.Entry{newTestEntry(3, 3), newTestEntry(4, 4), newTestEntry(5, 5)},
-			[]eraftpb.Entry{newTestEntry(4, 4), newTestEntry(5, 5)},
+			[]eraftpb.Entry{newTestEntry(6, 6), newTestEntry(7, 7), newTestEntry(8, 8)},
+			[]eraftpb.Entry{newTestEntry(7, 7), newTestEntry(8, 8)},
 		},
 		{
-			[]eraftpb.Entry{newTestEntry(3, 3), newTestEntry(4, 6), newTestEntry(5, 6)},
-			[]eraftpb.Entry{newTestEntry(4, 6), newTestEntry(5, 6)},
+			[]eraftpb.Entry{newTestEntry(6, 6), newTestEntry(7, 9), newTestEntry(8, 9)},
+			[]eraftpb.Entry{newTestEntry(7, 9), newTestEntry(8, 9)},
 		},
 		{
 			[]eraftpb.Entry{
-				newTestEntry(3, 3),
-				newTestEntry(4, 4),
-				newTestEntry(5, 5),
-				newTestEntry(6, 5),
+				newTestEntry(6, 6),
+				newTestEntry(7, 7),
+				newTestEntry(8, 8),
+				newTestEntry(9, 8),
 			},
-			[]eraftpb.Entry{newTestEntry(4, 4), newTestEntry(5, 5), newTestEntry(6, 5)},
+			[]eraftpb.Entry{newTestEntry(7, 7), newTestEntry(8, 8), newTestEntry(9, 8)},
 		},
 		// truncate incoming entries, truncate the existing entries and append
 		{
-			[]eraftpb.Entry{newTestEntry(2, 3), newTestEntry(3, 3), newTestEntry(4, 5)},
-			[]eraftpb.Entry{newTestEntry(4, 5)},
+			[]eraftpb.Entry{newTestEntry(5, 6), newTestEntry(6, 6), newTestEntry(7, 8)},
+			[]eraftpb.Entry{newTestEntry(7, 8)},
 		},
 		// truncate the existing entries and append
-		{[]eraftpb.Entry{newTestEntry(4, 5)}, []eraftpb.Entry{newTestEntry(4, 5)}},
+		{[]eraftpb.Entry{newTestEntry(7, 8)}, []eraftpb.Entry{newTestEntry(7, 8)}},
 		// direct append
 		{
-			[]eraftpb.Entry{newTestEntry(6, 5)},
-			[]eraftpb.Entry{newTestEntry(4, 4), newTestEntry(5, 5), newTestEntry(6, 5)},
+			[]eraftpb.Entry{newTestEntry(9, 8)},
+			[]eraftpb.Entry{newTestEntry(7, 7), newTestEntry(8, 8), newTestEntry(9, 8)},
 		},
 	}
 	for _, tt := range tests {
@@ -233,7 +233,7 @@ func TestPeerStorageAppend(t *testing.T) {
 		defer cleanUpTestData(peerStore)
 		appendEnts(t, peerStore, tt.appends)
 		li := peerStore.raftState.LastIndex
-		acutualEntries, err := peerStore.Entries(4, li+1)
+		acutualEntries, err := peerStore.Entries(7, li+1)
 		require.Nil(t, err)
 		assert.Equal(t, tt.results, acutualEntries)
 	}
