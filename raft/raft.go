@@ -122,7 +122,7 @@ type Raft struct {
 	id uint64
 
 	Term uint64
-	Vote uint64
+	Vote uint64 // 每个 Raft node 有一次投票机会，Vote 为投给的 peer
 
 	// the log
 	RaftLog *RaftLog
@@ -134,7 +134,7 @@ type Raft struct {
 	State StateType
 
 	// votes records
-	votes map[uint64]bool
+	votes map[uint64]bool // 接受投票的结果
 
 	// msgs need to send
 	msgs []pb.Message
@@ -338,9 +338,9 @@ func (r *Raft) startElection() {
 
 // recVote 接受投票
 func (r *Raft) recVote(m pb.Message) {
-	if !m.Reject {
-		r.Vote += 1
-	}
+	// if !m.Reject {
+	// 	r.Vote += 1
+	// }
 	r.votes[m.From] = !m.Reject
 }
 
@@ -422,9 +422,12 @@ func (r *Raft) eTermCandidateStep(m pb.Message) {
 		r.recVote(m)
 		// 判断是否可以成为 leader，判断是否超过半数
 		// 不用非得等所有投票的返回
-		if int(r.Vote) >= r.quorum() {
+		if len(r.proVotePeers()) >= r.quorum() {
 			r.becomeLeader()
 		}
+	case pb.MessageType_MsgAppend:
+		// 如果 candidate 收到 append message，变回 follower
+		r.becomeFollower(m.Term, m.From)
 	}
 }
 
@@ -445,17 +448,16 @@ func (r *Raft) eTermFollowerStep(m pb.Message) {
 		r.becomeCandidate()
 		r.startElection()
 	case pb.MessageType_MsgRequestVote: // 投票请求
-		// reset
+		// 每个 follower 只能投一票，同一个 From 可以重复投（反正是用 hash 记录的）
 		canVote := r.Vote == m.From ||
 			(r.Vote == None && r.Lead == None)
-		if canVote {
-			r.send(pb.Message{
-				MsgType: pb.MessageType_MsgRequestVoteResponse,
-				To:      m.From,
-				From:    r.id,
-				Term:    r.Term,
-			})
-		}
+		r.send(pb.Message{
+			MsgType: pb.MessageType_MsgRequestVoteResponse,
+			To:      m.From,
+			From:    r.id,
+			Term:    r.Term,
+			Reject:  !canVote,
+		})
 	}
 }
 
@@ -464,6 +466,7 @@ func (r *Raft) send(m pb.Message) {
 }
 
 func (r *Raft) largerTermStep(m pb.Message) {
+	// 无论是什么消息类型，因为 m.Term 大，都变回 follower
 	switch r.State {
 	case StateLeader:
 		// 变回 follower
