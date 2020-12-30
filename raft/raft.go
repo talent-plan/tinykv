@@ -16,6 +16,7 @@ package raft
 
 import (
 	"errors"
+	"math/rand"
 
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
@@ -145,7 +146,8 @@ type Raft struct {
 	// heartbeat interval, should send
 	heartbeatTimeout int
 	// baseline of election interval
-	electionTimeout int
+	electionTimeout    int
+	minElectionTimeout int
 	// number of ticks since it reached last heartbeatTimeout.
 	// only leader keeps heartbeatElapsed.
 	heartbeatElapsed int
@@ -180,15 +182,17 @@ func newRaft(c *Config) *Raft {
 	}
 
 	raft := &Raft{
-		id:               c.ID,
-		votes:            make(map[uint64]bool, 0),
-		heartbeatTimeout: c.HeartbeatTick,
-		electionTimeout:  c.ElectionTick,
-		Prs:              prs,
+		id:                 c.ID,
+		votes:              make(map[uint64]bool, 0),
+		heartbeatTimeout:   c.HeartbeatTick,
+		minElectionTimeout: c.ElectionTick,
+		Prs:                prs,
 		RaftLog: &RaftLog{
 			storage: c.Storage,
 		},
 	}
+
+	raft.reset()
 	return raft
 }
 
@@ -333,7 +337,19 @@ func (r *Raft) startElection() {
 		r.sendRequestVote(pr)
 	}
 	// reset electionElapsed
+	r.reset()
+}
+
+func (r *Raft) reset() {
 	r.electionElapsed = 0
+	r.heartbeatElapsed = 0
+	r.resetRandomizedElectionTimeout()
+	r.Lead = None
+}
+
+func (r *Raft) resetRandomizedElectionTimeout() {
+	// election timeout 是 minElectionTimeout -> 2*minElectionTimeout 之间的随机数
+	r.electionTimeout = r.minElectionTimeout + rand.Intn(r.minElectionTimeout)
 }
 
 // recVote 接受投票
