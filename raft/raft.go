@@ -464,9 +464,12 @@ func (r *Raft) eTermFollowerStep(m pb.Message) {
 		r.becomeCandidate()
 		r.startElection()
 	case pb.MessageType_MsgRequestVote: // 投票请求
-		// 每个 follower 只能投一票，同一个 From 可以重复投（反正是用 hash 记录的）
-		canVote := r.Vote == m.From ||
-			(r.Vote == None && r.Lead == None)
+		// 1. 每个 follower 只能投一票，同一个 From 可以重复投（反正是用 hash 记录的）
+		// 2. 同时 candidate 的 log 新旧程度 >= follower log，才能投
+		// 判断一个 log 是否更新：log term > 最新的 term，如果 log term == 最新 term，则看 log index 是否大于最后的 index
+		lastTerm, _ := r.RaftLog.Term(r.RaftLog.LastIndex())
+		canVote := (r.Vote == m.From || (r.Vote == None && r.Lead == None)) &&
+			((m.LogTerm > lastTerm) || (m.LogTerm == lastTerm && m.Index >= r.RaftLog.LastIndex()))
 		r.send(pb.Message{
 			MsgType: pb.MessageType_MsgRequestVoteResponse,
 			To:      m.From,
@@ -475,6 +478,11 @@ func (r *Raft) eTermFollowerStep(m pb.Message) {
 			Reject:  !canVote,
 		})
 	}
+}
+
+func (r *Raft) largerTermFollowerStep(m pb.Message) {
+	r.Term = m.Term
+	r.eTermFollowerStep(m)
 }
 
 func (r *Raft) send(m pb.Message) {
@@ -491,6 +499,7 @@ func (r *Raft) largerTermStep(m pb.Message) {
 		// 变回 follower
 		r.becomeFollower(m.Term, m.From)
 	case StateFollower:
+		r.largerTermFollowerStep(m)
 	}
 	// 如果消息 Term 比我大，那我就应该变成 From 的 follower，无论是什么消息类型
 	r.becomeFollower(m.Term, m.From)

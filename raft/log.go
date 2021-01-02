@@ -69,6 +69,7 @@ func newLog(storage Storage) *RaftLog {
 // grow unlimitedly in memory
 func (l *RaftLog) maybeCompact() {
 	// Your Code Here (2C).
+
 }
 
 // unstableEntries return all the unstable entries
@@ -86,13 +87,15 @@ func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 // LastIndex return the last index of the log entries
 func (l *RaftLog) LastIndex() uint64 {
 	// Your Code Here (2A).
-	return l.offset + uint64(len(l.entries)) - 1
+	// return l.offset + uint64(len(l.entries)) - 1
+	ret, _ := l.storage.LastIndex()
+	return ret
 }
 
 // Term return the term of the entry in the given index
 func (l *RaftLog) Term(i uint64) (uint64, error) {
 	// Your Code Here (2A).
-	return 0, nil
+	return l.storage.Term(i)
 }
 
 func (l *RaftLog) truncateAndAppend(ents []pb.Entry) {
