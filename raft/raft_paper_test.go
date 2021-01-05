@@ -916,6 +916,7 @@ func acceptAndReply(m pb.Message) pb.Message {
 	if m.MsgType != pb.MessageType_MsgAppend {
 		panic("type should be MessageType_MsgAppend")
 	}
+	// Note: reply message don't contain LogTerm
 	return pb.Message{
 		From:    m.To,
 		To:      m.From,
