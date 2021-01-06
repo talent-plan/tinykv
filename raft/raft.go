@@ -224,6 +224,17 @@ func (r *Raft) sendRequestVote(to uint64) {
 	})
 }
 
+func (r *Raft) sendVoteResponse(to uint64, reject bool) {
+	r.send(pb.Message{
+		MsgType: pb.MessageType_MsgRequestVoteResponse,
+		To:      to,
+		From:    r.id,
+		Term:    r.Term,
+		Reject:  reject,
+	})
+	r.Vote = to
+}
+
 // tick advances the internal logical clock by a single tick.
 func (r *Raft) tick() {
 	// Your Code Here (2A).
@@ -318,7 +329,6 @@ func (r *Raft) becomeLeader() {
 	}
 	r.State = StateLeader
 	r.Lead = r.id
-
 }
 
 // startElection 开始新一轮选举
@@ -331,12 +341,13 @@ func (r *Raft) startElection() {
 		MsgType: pb.MessageType_MsgRequestVoteResponse,
 		Reject:  false,
 	})
+	r.Vote = r.id
+
 	restPeers := r.restPeers()
 	// 然后给其他 peers 请求投票
 	for _, pr := range restPeers {
 		r.sendRequestVote(pr)
 	}
-	// reset electionElapsed
 	r.reset()
 }
 
@@ -365,6 +376,10 @@ func (r *Raft) recVote(m pb.Message) {
 // 每收到一条消息会走一次 Step，不同 State 对不同的消息类型处理方式不同
 func (r *Raft) Step(m pb.Message) error {
 	// Your Code Here (2A).
+	if m.Term == 0 && m.MsgType == pb.MessageType_MsgHup {
+		m.Term = r.Term
+	}
+
 	switch {
 	case m.Term > r.Term:
 		r.largerTermStep(m)
@@ -400,6 +415,9 @@ func (r *Raft) eTermLeaderStep(m pb.Message) {
 			entries = append(entries, *entry)
 		}
 		r.appendEntry(entries...)
+	case pb.MessageType_MsgRequestVote:
+		// 如果 term 一样，那 leader 是不会给其他节点投票的
+		r.sendVoteResponse(m.From, true)
 	}
 
 	// pr := r.Prs[m.From]
@@ -444,6 +462,12 @@ func (r *Raft) eTermCandidateStep(m pb.Message) {
 	case pb.MessageType_MsgAppend:
 		// 如果 candidate 收到 append message，变回 follower
 		r.becomeFollower(m.Term, m.From)
+	case pb.MessageType_MsgRequestVote:
+		// 如果 term 一样，那 candidate 是不会给其他节点投票的
+		r.sendVoteResponse(m.From, true)
+		// case pb.MessageType_MsgHeartbeat:
+		// 	// 如果 candidate 收到心跳，则变回 follower
+		// 	r.becomeFollower(m.Term, m.From)
 	}
 }
 
@@ -467,16 +491,8 @@ func (r *Raft) eTermFollowerStep(m pb.Message) {
 		// 1. 每个 follower 只能投一票，同一个 From 可以重复投（反正是用 hash 记录的）
 		// 2. 同时 candidate 的 log 新旧程度 >= follower log，才能投
 		// 判断一个 log 是否更新：log term > 最新的 term，如果 log term == 最新 term，则看 log index 是否大于最后的 index
-		lastTerm, _ := r.RaftLog.Term(r.RaftLog.LastIndex())
-		canVote := (r.Vote == m.From || (r.Vote == None && r.Lead == None)) &&
-			((m.LogTerm > lastTerm) || (m.LogTerm == lastTerm && m.Index >= r.RaftLog.LastIndex()))
-		r.send(pb.Message{
-			MsgType: pb.MessageType_MsgRequestVoteResponse,
-			To:      m.From,
-			From:    r.id,
-			Term:    r.Term,
-			Reject:  !canVote,
-		})
+		canVote := (r.Vote == m.From || (r.Vote == None && r.Lead == None)) && r.RaftLog.isUpToDate(m.Index, m.LogTerm)
+		r.sendVoteResponse(m.From, !canVote)
 	}
 }
 
@@ -490,19 +506,15 @@ func (r *Raft) send(m pb.Message) {
 }
 
 func (r *Raft) largerTermStep(m pb.Message) {
-	// 无论是什么消息类型，因为 m.Term 大，都变回 follower
-	switch r.State {
-	case StateLeader:
-		// 变回 follower
+	// 如果消息 Term 比我大，那我就应该变成 follower
+	if m.MsgType == pb.MessageType_MsgHeartbeat {
+		// 心跳消息只有 leader 能发，所以直接就确认了 leader
 		r.becomeFollower(m.Term, m.From)
-	case StateCandidate:
-		// 变回 follower
-		r.becomeFollower(m.Term, m.From)
-	case StateFollower:
-		r.largerTermFollowerStep(m)
+	} else {
+		r.becomeFollower(m.Term, None)
 	}
-	// 如果消息 Term 比我大，那我就应该变成 From 的 follower，无论是什么消息类型
-	r.becomeFollower(m.Term, m.From)
+
+	r.largerTermFollowerStep(m)
 }
 
 func (r *Raft) smallerTermStep(m pb.Message) {

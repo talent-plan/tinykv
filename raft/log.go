@@ -61,7 +61,9 @@ type RaftLog struct {
 // to the state that it just commits and applies the latest snapshot.
 func newLog(storage Storage) *RaftLog {
 	// Your Code Here (2A).
-	return nil
+	return &RaftLog{
+		storage: storage,
+	}
 }
 
 // We need to compact the log entries in some point of time like
@@ -96,6 +98,15 @@ func (l *RaftLog) LastIndex() uint64 {
 func (l *RaftLog) Term(i uint64) (uint64, error) {
 	// Your Code Here (2A).
 	return l.storage.Term(i)
+}
+
+func (l *RaftLog) LastTerm() uint64 {
+	ret, _ := l.Term(l.LastIndex())
+	return ret
+}
+
+func (l *RaftLog) isUpToDate(lasti, term uint64) bool {
+	return term > l.LastTerm() || (term == l.LastTerm() && lasti >= l.LastIndex())
 }
 
 func (l *RaftLog) truncateAndAppend(ents []pb.Entry) {
