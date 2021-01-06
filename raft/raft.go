@@ -376,7 +376,10 @@ func (r *Raft) recVote(m pb.Message) {
 // 每收到一条消息会走一次 Step，不同 State 对不同的消息类型处理方式不同
 func (r *Raft) Step(m pb.Message) error {
 	// Your Code Here (2A).
-	if m.Term == 0 && m.MsgType == pb.MessageType_MsgHup {
+	// term == 0 的都是 local message
+	// fmt.Println("====>", m.MsgType.String(), "From: ", m.From, "To: ", m.To, "Reject: ", m.Reject)
+	if m.Term == 0 && (m.MsgType == pb.MessageType_MsgHup ||
+		m.MsgType == pb.MessageType_MsgBeat) {
 		m.Term = r.Term
 	}
 
@@ -406,6 +409,10 @@ func (r *Raft) equalTermStep(m pb.Message) {
 func (r *Raft) eTermLeaderStep(m pb.Message) {
 	switch m.MsgType {
 	case pb.MessageType_MsgBeat: // 心跳前消息
+		// 然后给其他 peers 请求投票
+		for _, pr := range r.restPeers() {
+			r.sendHeartbeat(pr)
+		}
 		// 发送心跳
 	case pb.MessageType_MsgAppendResponse: // Append 回执消息
 		// 检查法定人数并 apply log
@@ -468,6 +475,10 @@ func (r *Raft) eTermCandidateStep(m pb.Message) {
 		// case pb.MessageType_MsgHeartbeat:
 		// 	// 如果 candidate 收到心跳，则变回 follower
 		// 	r.becomeFollower(m.Term, m.From)
+	case pb.MessageType_MsgHup: // 新一轮选举，election timeout 了，重新发起
+		// 变成 candidate
+		r.becomeCandidate()
+		r.startElection()
 	}
 }
 
@@ -506,6 +517,8 @@ func (r *Raft) send(m pb.Message) {
 }
 
 func (r *Raft) largerTermStep(m pb.Message) {
+	// 新 Term 出现，那么肯定要清空 Vote
+	r.Vote = None
 	// 如果消息 Term 比我大，那我就应该变成 follower
 	if m.MsgType == pb.MessageType_MsgHeartbeat {
 		// 心跳消息只有 leader 能发，所以直接就确认了 leader

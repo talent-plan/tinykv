@@ -95,26 +95,26 @@ func TestLeaderElection2AA(t *testing.T) {
 // testLeaderCycle verifies that each node in a cluster can campaign
 // and be elected in turn. This ensures that elections work when not
 // starting from a clean slate (as they do in TestLeaderElection)
-// func TestLeaderCycle2AA(t *testing.T) {
-// 	var cfg func(*Config)
-// 	n := newNetworkWithConfig(cfg, nil, nil, nil)
-// 	for campaignerID := uint64(1); campaignerID <= 3; campaignerID++ {
-// 		n.send(pb.Message{From: campaignerID, To: campaignerID, MsgType: pb.MessageType_MsgHup})
-// 		// Term 是会涨的啊，是在不知道这个意义是什么！！！先屏蔽掉这个测试吧
+func TestLeaderCycle2AA(t *testing.T) {
+	var cfg func(*Config)
+	n := newNetworkWithConfig(cfg, nil, nil, nil)
+	for campaignerID := uint64(1); campaignerID <= 3; campaignerID++ {
+		n.send(pb.Message{From: campaignerID, To: campaignerID, MsgType: pb.MessageType_MsgHup})
+		// Term 是会涨的啊，是在不知道这个意义是什么！！！先屏蔽掉这个测试吧
 
-// 		for _, peer := range n.peers {
-// 			sm := peer.(*Raft)
-// 			if sm.id == campaignerID && sm.State != StateLeader {
-// 				t.Errorf("campaigning node %d state = %v, want StateLeader",
-// 					sm.id, sm.State)
-// 			} else if sm.id != campaignerID && sm.State != StateFollower {
-// 				t.Errorf("after campaign of node %d, "+
-// 					"node %d had state = %v, want StateFollower",
-// 					campaignerID, sm.id, sm.State)
-// 			}
-// 		}
-// 	}
-// }
+		for _, peer := range n.peers {
+			sm := peer.(*Raft)
+			if sm.id == campaignerID && sm.State != StateLeader {
+				t.Errorf("campaigning node %d state = %v, want StateLeader",
+					sm.id, sm.State)
+			} else if sm.id != campaignerID && sm.State != StateFollower {
+				t.Errorf("after campaign of node %d, "+
+					"node %d had state = %v, want StateFollower",
+					campaignerID, sm.id, sm.State)
+			}
+		}
+	}
+}
 
 // TestLeaderElectionOverwriteNewerLogs tests a scenario in which a
 // newly-elected leader does *not* have the newest (i.e. highest term)
@@ -1456,7 +1456,6 @@ func TestSplitVote2AA(t *testing.T) {
 	if sm.State != StateCandidate {
 		t.Errorf("peer 3 state: %s, want %s", sm.State, StateCandidate)
 	}
-
 	// node 2 election timeout first
 	nt.send(pb.Message{From: 2, To: 2, MsgType: pb.MessageType_MsgHup})
 
