@@ -284,8 +284,8 @@ func handleStaleMsg(trans Transport, msg *rspb.RaftMessage, curEpoch *metapb.Reg
 	}
 	gcMsg := &rspb.RaftMessage{
 		RegionId:    regionID,
-		FromPeer:    fromPeer,
-		ToPeer:      toPeer,
+		FromPeer:    toPeer,
+		ToPeer:      fromPeer,
 		RegionEpoch: curEpoch,
 		IsTombstone: true,
 	}
