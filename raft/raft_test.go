@@ -996,6 +996,7 @@ func TestRestoreIgnoreSnapshot2C(t *testing.T) {
 	sm := newTestRaft(1, []uint64{1, 2}, 10, 1, storage)
 	sm.RaftLog.committed = 3
 
+	wcommit := uint64(3)
 	commit := uint64(1)
 	s := pb.Snapshot{
 		Metadata: &pb.SnapshotMetadata{
@@ -1007,8 +1008,8 @@ func TestRestoreIgnoreSnapshot2C(t *testing.T) {
 
 	// ignore snapshot
 	sm.handleSnapshot(pb.Message{Snapshot: &s})
-	if sm.RaftLog.committed == commit {
-		t.Errorf("commit = %d, want %d", sm.RaftLog.committed, commit)
+	if sm.RaftLog.committed != wcommit {
+		t.Errorf("commit = %d, want %d", sm.RaftLog.committed, wcommit)
 	}
 }
 
