@@ -215,7 +215,7 @@ All you need to change is based on the code written in part A and part B.
 Although we need some different handling for Snapshot messages, in the perspective of raft algorithm there should be no difference. See the definition of `eraftpb.Snapshot` in the proto file, the `data` field on `eraftpb.Snapshot` does not represent the actual state machine data but some metadata is used for the upper application you can ignore it for now. When the leader needs to send a Snapshot message to a follower, it can call `Storage.Snapshot()` to get a `eraftpb.Snapshot`, then send the snapshot message like other raft messages. How the state machine data is actually built and sent are implemented by the raftstore, it will be introduced in the next step. You can assume that once `Storage.Snapshot()` returns successfully, it’s safe for Raft leader to the snapshot message to the follower, and follower should call `handleSnapshot` to handle it, which namely just restore the raft internal state like the term, commit index and membership information, etc, from the
 `eraftpb.SnapshotMetadata` in the message, after that, the procedure of snapshot handling is finish.
 
-#### Implement in raftstore
+### Implement in raftstore
 
 In this step, you need to learn two more workers of raftstore — raftlog-gc worker and region worker.
 
