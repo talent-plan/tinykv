@@ -150,7 +150,7 @@ func (d *peerMsgHandler) onRaftBaseTick() {
 	d.ticker.schedule(PeerTickRaft)
 }
 
-func (d *peerMsgHandler) ScheduleCompactLog(firstIndex uint64, truncatedIndex uint64) {
+func (d *peerMsgHandler) ScheduleCompactLog(truncatedIndex uint64) {
 	raftLogGCTask := &runner.RaftLogGCTask{
 		RaftEngine: d.ctx.engine.Raft,
 		RegionID:   d.regionId,
@@ -284,8 +284,8 @@ func handleStaleMsg(trans Transport, msg *rspb.RaftMessage, curEpoch *metapb.Reg
 	}
 	gcMsg := &rspb.RaftMessage{
 		RegionId:    regionID,
-		FromPeer:    fromPeer,
-		ToPeer:      toPeer,
+		FromPeer:    toPeer,
+		ToPeer:      fromPeer,
 		RegionEpoch: curEpoch,
 		IsTombstone: true,
 	}
@@ -337,6 +337,8 @@ func (d *peerMsgHandler) checkSnapshot(msg *rspb.RaftMessage) (*snap.SnapKey, er
 		return &key, nil
 	}
 	meta := d.ctx.storeMeta
+	meta.Lock()
+	defer meta.Unlock()
 	if !util.RegionEqual(meta.regions[d.regionId], d.Region()) {
 		if !d.isInitialized() {
 			log.Infof("%s stale delegate detected, skip", d.Tag)
@@ -368,6 +370,8 @@ func (d *peerMsgHandler) destroyPeer() {
 	regionID := d.regionId
 	// We can't destroy a peer which is applying snapshot.
 	meta := d.ctx.storeMeta
+	meta.Lock()
+	defer meta.Unlock()
 	isInitialized := d.isInitialized()
 	if err := d.Destroy(d.ctx.engine, false); err != nil {
 		// If not panic here, the peer will be recreated in the next restart,
@@ -389,6 +393,8 @@ func (d *peerMsgHandler) destroyPeer() {
 
 func (d *peerMsgHandler) findSiblingRegion() (result *metapb.Region) {
 	meta := d.ctx.storeMeta
+	meta.RLock()
+	defer meta.RUnlock()
 	item := &regionItem{region: d.Region()}
 	meta.regionRanges.AscendGreaterOrEqual(item, func(i btree.Item) bool {
 		result = i.(*regionItem).region

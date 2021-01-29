@@ -34,15 +34,15 @@ type PeerStorage struct {
 	// current region information of the peer
 	region *metapb.Region
 	// current raft state of the peer
-	raftState rspb.RaftLocalState
+	raftState *rspb.RaftLocalState
 	// current apply state of the peer
-	applyState rspb.RaftApplyState
+	applyState *rspb.RaftApplyState
 
 	// current snapshot state
 	snapState snap.SnapState
 	// regionSched used to schedule task to region worker
 	regionSched chan<- worker.Task
-	// gennerate snapshot tried count
+	// generate snapshot tried count
 	snapTriedCnt int
 	// Engine include two badger instance: Raft and Kv
 	Engines *engine_util.Engines
@@ -69,8 +69,8 @@ func NewPeerStorage(engines *engine_util.Engines, region *metapb.Region, regionS
 		Engines:     engines,
 		region:      region,
 		Tag:         tag,
-		raftState:   *raftState,
-		applyState:  *applyState,
+		raftState:   raftState,
+		applyState:  applyState,
 		regionSched: regionSched,
 	}, nil
 }
@@ -156,7 +156,9 @@ func (ps *PeerStorage) Snapshot() (eraftpb.Snapshot, error) {
 	if ps.snapState.StateType == snap.SnapState_Generating {
 		select {
 		case s := <-ps.snapState.Receiver:
-			snapshot = *s
+			if s != nil {
+				snapshot = *s
+			}
 		default:
 			return snapshot, raft.ErrSnapshotTemporarilyUnavailable
 		}

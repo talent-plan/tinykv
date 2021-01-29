@@ -82,6 +82,7 @@ func (snapCtx *snapContext) handleGen(regionId uint64, notifier chan<- *eraftpb.
 	snap, err := doSnapshot(snapCtx.engines, snapCtx.mgr, regionId)
 	if err != nil {
 		log.Errorf("failed to generate snapshot!!!, [regionId: %d, err : %v]", regionId, err)
+		notifier <- nil
 	} else {
 		notifier <- snap
 	}
