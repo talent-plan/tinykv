@@ -1186,6 +1186,7 @@ func TestCommitAfterRemoveNode3A(t *testing.T) {
 		MsgType: pb.MessageType_MsgAppendResponse,
 		From:    2,
 		Index:   ccIndex,
+		Term:    r.Term,
 	})
 	ents := nextEnts(r, s)
 	if len(ents) != 2 {
@@ -1300,7 +1301,7 @@ func TestLeaderTransferAfterSnapshot3A(t *testing.T) {
 	// Transfer leadership to 3 when node 3 is lack of snapshot.
 	nt.send(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgTransferLeader})
 	// Send pb.MessageType_MsgHeartbeatResponse to leader to trigger a snapshot for node 3.
-	nt.send(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgHeartbeatResponse})
+	nt.send(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgHeartbeatResponse, Term: lead.Term})
 
 	checkLeaderTransferState(t, lead, StateFollower, 3)
 }
@@ -1399,10 +1400,10 @@ func checkLeaderTransferState(t *testing.T, r *Raft, state StateType, lead uint6
 // transitioned to StateLeader)
 func TestTransferNonMember3A(t *testing.T) {
 	r := newTestRaft(1, []uint64{2, 3, 4}, 5, 1, NewMemoryStorage())
-	r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgTimeoutNow})
+	r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgTimeoutNow, Term: r.Term})
 
-	r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgRequestVoteResponse})
-	r.Step(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgRequestVoteResponse})
+	r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgRequestVoteResponse, Term: r.Term})
+	r.Step(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgRequestVoteResponse, Term: r.Term})
 	if r.State != StateFollower {
 		t.Fatalf("state is %s, want StateFollower", r.State)
 	}
