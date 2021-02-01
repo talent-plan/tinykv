@@ -205,14 +205,14 @@ stale log entries:
 	send periodic 'MessageType_MsgHeartbeat' messages to its followers.
 
 	'MessageType_MsgPropose' proposes to append data to its log entries. This is a special
-	type to redirect proposals to leader. Therefore, send method overwrites
+	type to redirect proposals to the leader. Therefore, send method overwrites
 	eraftpb.Message's term with its HardState's term to avoid attaching its
 	local term to 'MessageType_MsgPropose'. When 'MessageType_MsgPropose' is passed to the leader's 'Step'
 	method, the leader first calls the 'appendEntry' method to append entries
 	to its log, and then calls 'bcastAppend' method to send those entries to
 	its peers. When passed to candidate, 'MessageType_MsgPropose' is dropped. When passed to
 	follower, 'MessageType_MsgPropose' is stored in follower's mailbox(msgs) by the send
-	method. It is stored with sender's ID and later forwarded to leader by
+	method. It is stored with sender's ID and later forwarded to the leader by
 	rafthttp package.
 
 	'MessageType_MsgAppend' contains log entries to replicate. A leader calls bcastAppend,
@@ -231,7 +231,7 @@ stale log entries:
 	candidate and 'MessageType_MsgHup' is passed to its Step method, then the node calls
 	'campaign' method to campaign itself to become a leader. Once 'campaign'
 	method is called, the node becomes candidate and sends 'MessageType_MsgRequestVote' to peers
-	in cluster to request votes. When passed to leader or candidate's Step
+	in cluster to request votes. When passed to the leader or candidate's Step
 	method and the message's Term is lower than leader's or candidate's,
 	'MessageType_MsgRequestVote' will be rejected ('MessageType_MsgRequestVoteResponse' is returned with Reject true).
 	If leader or candidate receives 'MessageType_MsgRequestVote' with higher term, it will revert
@@ -261,7 +261,7 @@ stale log entries:
 	from the message.
 
 	'MessageType_MsgHeartbeatResponse' is a response to 'MessageType_MsgHeartbeat'. When 'MessageType_MsgHeartbeatResponse'
-	is passed to leader's Step method, the leader knows which follower
+	is passed to the leader's Step method, the leader knows which follower
 	responded.
 
 */
