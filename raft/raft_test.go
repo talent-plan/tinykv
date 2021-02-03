@@ -342,6 +342,34 @@ func TestCommitWithoutNewTermEntry2AB(t *testing.T) {
 	}
 }
 
+// TestCommitWithHeartbeat tests leader can send log
+// to follower when it received a heartbeat response
+// which indicate it doesn't have update-to-date log
+func TestCommitWithHeartbeat2AB(t *testing.T) {
+	tt := newNetwork(nil, nil, nil, nil, nil)
+	tt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
+
+	// isolate node 5
+	tt.isolate(5)
+	tt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: []byte("some data")}}})
+	tt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: []byte("some data")}}})
+
+	sm := tt.peers[5].(*Raft)
+	if sm.RaftLog.committed != 1 {
+		t.Errorf("committed = %d, want %d", sm.RaftLog.committed, 1)
+	}
+
+	// network recovery
+	tt.recover()
+
+	// leader broadcast heartbeeat
+	tt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgBeat})
+
+	if sm.RaftLog.committed != 3 {
+		t.Errorf("committed = %d, want %d", sm.RaftLog.committed, 3)
+	}
+}
+
 func TestDuelingCandidates2AB(t *testing.T) {
 	a := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
 	b := newTestRaft(2, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
