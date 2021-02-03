@@ -24,6 +24,14 @@ import (
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
+// returns a new MemoryStorage with only ents filled
+func newMemoryStorageWithEnts(ents []pb.Entry) *MemoryStorage {
+	return &MemoryStorage{
+		ents:     ents,
+		snapshot: pb.Snapshot{Metadata: &pb.SnapshotMetadata{ConfState: &pb.ConfState{}}},
+	}
+}
+
 // nextEnts returns the appliable entries and updates the applied index
 func nextEnts(r *Raft, s *MemoryStorage) (ents []pb.Entry) {
 	// Transfer all unstable entries to "stable" storage.
@@ -400,7 +408,7 @@ func TestDuelingCandidates2AB(t *testing.T) {
 	// 3 will be follower again since both 1 and 2 rejects its vote request since 3 does not have a long enough log
 	nt.send(pb.Message{From: 3, To: 3, MsgType: pb.MessageType_MsgHup})
 
-	wlog := newLog(&MemoryStorage{ents: []pb.Entry{{}, {Data: nil, Term: 1, Index: 1}}})
+	wlog := newLog(newMemoryStorageWithEnts([]pb.Entry{{}, {Data: nil, Term: 1, Index: 1}}))
 	wlog.committed = 1
 	tests := []struct {
 		sm      *Raft
@@ -457,7 +465,7 @@ func TestCandidateConcede2AB(t *testing.T) {
 	if g := a.Term; g != 1 {
 		t.Errorf("term = %d, want %d", g, 1)
 	}
-	wlog := newLog(&MemoryStorage{ents: []pb.Entry{{}, {Data: nil, Term: 1, Index: 1}, {Term: 1, Index: 2, Data: data}}})
+	wlog := newLog(newMemoryStorageWithEnts([]pb.Entry{{}, {Data: nil, Term: 1, Index: 1}, {Term: 1, Index: 2, Data: data}}))
 	wlog.committed = 2
 	wantLog := ltoa(wlog)
 	for i, p := range tt.peers {
@@ -536,7 +544,7 @@ func TestProposal2AB(t *testing.T) {
 
 		wantLog := newLog(NewMemoryStorage())
 		if tt.success {
-			wantLog = newLog(&MemoryStorage{ents: []pb.Entry{{}, {Data: nil, Term: 1, Index: 1}, {Term: 1, Index: 2, Data: data}}})
+			wantLog = newLog(newMemoryStorageWithEnts([]pb.Entry{{}, {Data: nil, Term: 1, Index: 1}, {Term: 1, Index: 2, Data: data}}))
 			wantLog.committed = 2
 		}
 		base := ltoa(wantLog)
@@ -654,10 +662,10 @@ func TestRecvMessageType_MsgRequestVote2AA(t *testing.T) {
 	}
 
 	for i, tt := range tests {
-		sm := newTestRaft(1, []uint64{1}, 10, 1, NewMemoryStorage())
+		sm := newTestRaft(1, []uint64{1, 2}, 10, 1, NewMemoryStorage())
 		sm.State = tt.state
 		sm.Vote = tt.voteFor
-		sm.RaftLog = newLog(&MemoryStorage{ents: []pb.Entry{{}, {Index: 1, Term: 2}, {Index: 2, Term: 2}}})
+		sm.RaftLog = newLog(newMemoryStorageWithEnts([]pb.Entry{{}, {Index: 1, Term: 2}, {Index: 2, Term: 2}}))
 
 		// raft.Term is greater than or equal to raft.RaftLog.lastTerm. In this
 		// test we're only testing MessageType_MsgRequestVote responses when the campaigning node
@@ -956,7 +964,7 @@ func TestRecvMessageType_MsgBeat2AA(t *testing.T) {
 
 	for i, tt := range tests {
 		sm := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
-		sm.RaftLog = newLog(&MemoryStorage{ents: []pb.Entry{{}, {Index: 1, Term: 0}, {Index: 2, Term: 1}}})
+		sm.RaftLog = newLog(newMemoryStorageWithEnts([]pb.Entry{{}, {Index: 1, Term: 0}, {Index: 2, Term: 1}}))
 		sm.Term = 1
 		sm.State = tt.state
 		sm.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgBeat})
@@ -1024,6 +1032,7 @@ func TestRestoreIgnoreSnapshot2C(t *testing.T) {
 	sm := newTestRaft(1, []uint64{1, 2}, 10, 1, storage)
 	sm.RaftLog.committed = 3
 
+	wcommit := uint64(3)
 	commit := uint64(1)
 	s := pb.Snapshot{
 		Metadata: &pb.SnapshotMetadata{
@@ -1035,8 +1044,8 @@ func TestRestoreIgnoreSnapshot2C(t *testing.T) {
 
 	// ignore snapshot
 	sm.handleSnapshot(pb.Message{Snapshot: &s})
-	if sm.RaftLog.committed == commit {
-		t.Errorf("commit = %d, want %d", sm.RaftLog.committed, commit)
+	if sm.RaftLog.committed != wcommit {
+		t.Errorf("commit = %d, want %d", sm.RaftLog.committed, wcommit)
 	}
 }
 
@@ -1214,6 +1223,7 @@ func TestCommitAfterRemoveNode3A(t *testing.T) {
 		MsgType: pb.MessageType_MsgAppendResponse,
 		From:    2,
 		Index:   ccIndex,
+		Term:    r.Term,
 	})
 	ents := nextEnts(r, s)
 	if len(ents) != 2 {
@@ -1328,7 +1338,7 @@ func TestLeaderTransferAfterSnapshot3A(t *testing.T) {
 	// Transfer leadership to 3 when node 3 is lack of snapshot.
 	nt.send(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgTransferLeader})
 	// Send pb.MessageType_MsgHeartbeatResponse to leader to trigger a snapshot for node 3.
-	nt.send(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgHeartbeatResponse})
+	nt.send(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgHeartbeatResponse, Term: lead.Term})
 
 	checkLeaderTransferState(t, lead, StateFollower, 3)
 }
@@ -1427,10 +1437,10 @@ func checkLeaderTransferState(t *testing.T, r *Raft, state StateType, lead uint6
 // transitioned to StateLeader)
 func TestTransferNonMember3A(t *testing.T) {
 	r := newTestRaft(1, []uint64{2, 3, 4}, 5, 1, NewMemoryStorage())
-	r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgTimeoutNow})
+	r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgTimeoutNow, Term: r.Term})
 
-	r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgRequestVoteResponse})
-	r.Step(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgRequestVoteResponse})
+	r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgRequestVoteResponse, Term: r.Term})
+	r.Step(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgRequestVoteResponse, Term: r.Term})
 	if r.State != StateFollower {
 		t.Fatalf("state is %s, want StateFollower", r.State)
 	}
