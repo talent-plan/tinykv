@@ -502,13 +502,11 @@ func TestOldMessages2AB(t *testing.T) {
 	tt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: []byte("somedata")}}})
 
 	ilog := newLog(
-		&MemoryStorage{
-			ents: []pb.Entry{
-				{}, {Data: nil, Term: 1, Index: 1},
-				{Data: nil, Term: 2, Index: 2}, {Data: nil, Term: 3, Index: 3},
-				{Data: []byte("somedata"), Term: 3, Index: 4},
-			},
-		})
+		newMemoryStorageWithEnts([]pb.Entry{
+			{}, {Data: nil, Term: 1, Index: 1},
+			{Data: nil, Term: 2, Index: 2}, {Data: nil, Term: 3, Index: 3},
+			{Data: []byte("somedata"), Term: 3, Index: 4},
+		}))
 	ilog.committed = 4
 	base := ltoa(ilog)
 	for i, p := range tt.peers {
