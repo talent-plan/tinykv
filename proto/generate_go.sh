@@ -19,11 +19,11 @@ cmd_exists () {
 
 PROGRAM=$(basename "$0")
 
-if [ -z $GOPATH ]; then
+if [ -z $(go env GOPATH) ]; then
     printf "Error: the environment variable GOPATH is not set, please set it before running %s\n" $PROGRAM > /dev/stderr
     exit 1
 fi
-
+GOPATH=$(go env GOPATH)
 GO_PREFIX_PATH=github.com/pingcap-incubator/tinykv/proto/pkg
 export PATH=$(pwd)/_tools/bin:$GOPATH/bin:$PATH
 
