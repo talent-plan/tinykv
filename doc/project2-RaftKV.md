@@ -104,7 +104,7 @@ Peer storage is what you interact with through the `Storage` interface in part A
 
 - RaftLocalState: Used to store HardState of the current Raft and the last Log Index.
 - RaftApplyState: Used to store the last Log index that Raft applies and some truncated Log information.
-- RegionLocalState: Used to store Region information and the corresponding Peer state on this Store. Normal indicates that this Peer is normal, Applying means this Peer hasn’t finished the apply snapshot operation and Tombstone shows that this Peer has been removed from Region and cannot join in Raft Group.
+- RegionLocalState: Used to store Region information and the corresponding Peer state on this Store. Normal indicates that this Peer is normal and Tombstone shows that this Peer has been removed from Region and cannot join in Raft Group.
 
 These states are stored in two badger instances: raftdb and kvdb:
 
