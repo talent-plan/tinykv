@@ -300,6 +300,8 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 		}
 
 		if maxraftlog > 0 {
+			time.Sleep(1 * time.Second)
+
 			// Check maximum after the servers have processed all client
 			// requests and had time to checkpoint.
 			key := []byte("")

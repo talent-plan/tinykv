@@ -604,7 +604,7 @@ func TestFollowerCheckMessageType_MsgAppend2AB(t *testing.T) {
 			t.Errorf("#%d: term = %+v, want %+v", i, msgs[0].Term, 2)
 		}
 		if msgs[0].Reject != tt.wreject {
-			t.Errorf("#%d: term = %+v, want %+v", i, msgs[0].Reject, tt.wreject)
+			t.Errorf("#%d: reject = %+v, want %+v", i, msgs[0].Reject, tt.wreject)
 		}
 	}
 }
@@ -916,6 +916,7 @@ func acceptAndReply(m pb.Message) pb.Message {
 	if m.MsgType != pb.MessageType_MsgAppend {
 		panic("type should be MessageType_MsgAppend")
 	}
+	// Note: reply message don't contain LogTerm
 	return pb.Message{
 		From:    m.To,
 		To:      m.From,
