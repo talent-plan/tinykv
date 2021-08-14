@@ -6,12 +6,23 @@ The projects of this course are inspired by [MIT 6.824](https://pdos.csail.mit.e
 
 ## Course Architecture
 
-The whole project is a skeleton code for a kv server and a scheduler server at the beginning, and you need to finish the core logic step by step:
+The whole project is a skeleton code for a key-value server and a scheduler server at the beginning - you need to finish the core logic step by step:
 
-- Project1: build a standalone key-value server
-- Project2: build a highly available key-value server with Raft
-- Project3: support multi Raft group and balance scheduling on top of Project2
-- Project4: support distributed transaction on top of Project3
+* [Standalone KV](doc/project1-StandaloneKV.md)
+  * Implement a standalone storage engine.
+  * Implement raw key-value service handlers.
+* [Raft KV](doc/project2-RaftKV.md)
+  * Implement the basic Raft algorithm
+  * Build a fault-tolerant KV server on top of Raft
+  * Add the support of Raft log garbage collection and snapshot
+* [Multi-raft KV](doc/project3-MultiRaftKV.md)
+  * Implement membership change and leadership change to Raft algorithm.
+  * Implement conf change and region split on Raft store
+  * Implement a basic scheduler.
+* [Transaction](doc/project4-Transaction.md)
+  * Implement the multi-version concurrency control layer.
+  * Implement handlers of `KvGet`, `KvPrewrite`, and `KvCommit` requests.
+  * Implement handlers of `KvScan`, `KvCheckTxnStatus`, `KvBatchRollback`, and `KvResolveLock` requests.
 
 ## Code Structure
 
