@@ -67,8 +67,6 @@ export GOPATH=$(go env GOPATH)
 Clone the source code to your development machine.
 
 ```bash
-mkdir -p $GOPATH/src/github.com/tidb-incubator
-cd $GOPATH/src/github.com/tidb-incubator
 git clone https://github.com/tidb-incubator/tinykv.git
 ```
 
