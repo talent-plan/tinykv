@@ -38,6 +38,15 @@ The whole project is organized into the following directories:
 * `proto` contains the implementation of all communication between nodes and processes uses Protocol Buffers over gRPC. This package contains the protocol definitions used by TinyKV, and the generated Go code that you can use.
 * `log` contains utility to output log based on level.
 
+## Reading List
+
+We provide a [reading list](doc/reading_list.md) for the knowledge of distributed storage system. Though not all of them are highly related with this course, they can help you construct the knowledge system in this field.
+
+Also, you're encouraged to read the overview of TiKV's and PD's design to get a general impression on what you will build:
+
+* TiKV, the design of data storage ([English](https://pingcap.com/blog/2017-07-11-tidbinternal1), [Chinese](https://pingcap.com/blog-cn/tidb-internal-1))
+* PD, the design of scheduling ([English](https://pingcap.com/blog/2017-07-20-tidbinternal3), [Chinese](https://pingcap.com/blog-cn/tidb-internal-3))
+
 ## Build TinyKV from Source
 
 ### Prerequisites
