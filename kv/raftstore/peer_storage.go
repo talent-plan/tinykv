@@ -261,7 +261,7 @@ func (ps *PeerStorage) clearExtraData(newRegion *metapb.Region) {
 	if bytes.Compare(oldStartKey, newStartKey) < 0 {
 		ps.clearRange(newRegion.Id, oldStartKey, newStartKey)
 	}
-	if bytes.Compare(newEndKey, oldEndKey) < 0 || len(oldEndKey) == 0 {
+	if bytes.Compare(newEndKey, oldEndKey) < 0 || (len(oldEndKey) == 0 && len(newEndKey) != 0) {
 		ps.clearRange(newRegion.Id, newEndKey, oldEndKey)
 	}
 }
