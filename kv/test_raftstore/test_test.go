@@ -97,7 +97,7 @@ func checkConcurrentAppends(t *testing.T, v string, counts []int) {
 	}
 }
 
-// make network chaos between servers
+// make network chaos among servers
 func networkchaos(t *testing.T, cluster *Cluster, ch chan bool, done *int32, unreliable bool, partitions bool, electionTimeout time.Duration) {
 	defer func() { ch <- true }()
 	for atomic.LoadInt32(done) == 0 {
@@ -253,7 +253,6 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 		atomic.StoreInt32(&done_clients, 1)     // tell clients to quit
 		atomic.StoreInt32(&done_partitioner, 1) // tell partitioner to quit
 		atomic.StoreInt32(&done_confchanger, 1) // tell confchanger to quit
-
 		if unreliable || partitions {
 			// log.Printf("wait for partitioner\n")
 			<-ch_partitioner
