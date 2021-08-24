@@ -35,26 +35,8 @@ func NewServer(storage storage.Storage) *Server {
 
 // The below functions are Server's gRPC API (implements TinyKvServer).
 
-// Raw API.
-func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
-	// Your Code Here (1).
-	return nil, nil
-}
-
-func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
-	// Your Code Here (1).
-	return nil, nil
-}
-
-func (server *Server) RawDelete(_ context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
-	// Your Code Here (1).
-	return nil, nil
-}
-
-func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*kvrpcpb.RawScanResponse, error) {
-	// Your Code Here (1).
-	return nil, nil
-}
+// Project1:
+// Implement raw api in raw_api.go
 
 // Raft commands (tinykv <-> tinykv)
 // Only used for RaftStorage, so trivially forward it.
