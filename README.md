@@ -12,12 +12,12 @@ The whole project is a skeleton code for a key-value server and a scheduler serv
   * Implement a standalone storage engine.
   * Implement raw key-value service handlers.
 * [Raft KV](doc/project2-RaftKV.md)
-  * Implement the basic Raft algorithm
-  * Build a fault-tolerant KV server on top of Raft
-  * Add the support of Raft log garbage collection and snapshot
+  * Implement the basic Raft algorithm.
+  * Build a fault-tolerant KV server on top of Raft.
+  * Add the support of Raft log garbage collection and snapshot.
 * [Multi-raft KV](doc/project3-MultiRaftKV.md)
   * Implement membership change and leadership change to Raft algorithm.
-  * Implement conf change and region split on Raft store
+  * Implement conf change and region split on Raft store.
   * Implement a basic scheduler.
 * [Transaction](doc/project4-Transaction.md)
   * Implement the multi-version concurrency control layer.
@@ -44,8 +44,8 @@ We provide a [reading list](doc/reading_list.md) for the knowledge of distribute
 
 Also, you're encouraged to read the overview of TiKV's and PD's design to get a general impression on what you will build:
 
-* TiKV, the design of data storage ([English](https://pingcap.com/blog/2017-07-11-tidbinternal1), [Chinese](https://pingcap.com/blog-cn/tidb-internal-1))
-* PD, the design of scheduling ([English](https://pingcap.com/blog/2017-07-20-tidbinternal3), [Chinese](https://pingcap.com/blog-cn/tidb-internal-3))
+* TiKV, the design of data storage ([English](https://pingcap.com/blog/2017-07-11-tidbinternal1), [Chinese](https://pingcap.com/blog-cn/tidb-internal-1)).
+* PD, the design of scheduling ([English](https://pingcap.com/blog/2017-07-20-tidbinternal3), [Chinese](https://pingcap.com/blog-cn/tidb-internal-3)).
 
 ## Build TinyKV from Source
 
