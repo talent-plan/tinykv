@@ -35,9 +35,6 @@ func NewServer(storage storage.Storage) *Server {
 
 // The below functions are Server's gRPC API (implements TinyKvServer).
 
-// Project1:
-// Implement raw api in raw_api.go
-
 // Raft commands (tinykv <-> tinykv)
 // Only used for RaftStorage, so trivially forward it.
 func (server *Server) Raft(stream tinykvpb.TinyKv_RaftServer) error {
