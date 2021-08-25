@@ -128,7 +128,7 @@ Definitely not! There are two reasons. One is that updates could be skipped when
 
 For example, some Regions re-initiate elections and splits after they are split, but another isolated batch of nodes still sends the obsolete information to Scheduler through heartbeats. So for one Region, either of the two nodes might say that it's the leader, which means the Scheduler cannot trust them both.
 
-Which one is more credible? The Scheduler should use `conf_ver` and `version` to determine it, namely `RegionEpcoh`. The Scheduler should first compare the values of the Region version of two nodes. If the values are the same, the Scheduler compares the values of the configuration change version. The node with a larger configuration change version must have newer information.
+Which one is more credible? The Scheduler should use `conf_ver` and `version` to determine it, namely `RegionEpoch`. The Scheduler should first compare the values of the Region version of two nodes. If the values are the same, the Scheduler compares the values of the configuration change version. The node with a larger configuration change version must have newer information.
 
 Simply speaking, you could organize the check routine in the below way:
 
