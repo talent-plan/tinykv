@@ -54,7 +54,7 @@ Also, you're encouraged to read the overview of TiKV's and PD's design to get a 
 * `git`: The source code of TinyKV is hosted on GitHub as a git repository. To work with git repository, please [install `git`](https://git-scm.com/downloads).
 * `go`: TinyKV is a Go project. To build TinyKV from source, please [install `go`](https://golang.org/doc/install) with version greater or equal to 1.13.
 
-## Clone
+### Clone
 
 Clone the source code to your development machine.
 
@@ -62,7 +62,7 @@ Clone the source code to your development machine.
 git clone https://github.com/tidb-incubator/tinykv.git
 ```
 
-## Build
+### Build
 
 Build TiDB from the source code.
 
@@ -72,6 +72,25 @@ make
 ```
 
 It builds the binary of `tinykv-server` and `tinyscheduler-server` to `bin` dir.
+
+## Run TinyKV with TinySQL
+
+1. Get `tinysql-server` follow [its document](https://github.com/tidb-incubator/tinysql#deploy).
+2. Put the binary of `tinyscheduler-server`, `tinykv-server` and `tinysql-server` into a single dir.
+3. Under the binary dir, run the following commands:
+
+```bash
+mkdir -p data
+./tinyscheduler-server
+./tinykv-server -path=data
+./tinysql-server --store=tikv --path="127.0.0.1:2379"
+```
+
+Now you can connect to the database with an official MySQL client:
+
+```bash
+mysql -u root -h 127.0.0.1 -P 4000
+```
 
 ## Contributing
 
