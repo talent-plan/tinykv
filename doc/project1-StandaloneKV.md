@@ -52,7 +52,7 @@ For now, don't worry about `kvrpcpb.Context`, it’s used in the subsequent proj
 > Hints:
 >
 > - You should use [badger.Txn](https://godoc.org/github.com/dgraph-io/badger#Txn) to implement the `Reader` function because the transaction handler provided by badger could provide a consistent snapshot of the keys and values.
-> - Badger doesn't natively support Column Family store. So you should perform all read/ write operation through methods provided by engine_util package (`kv/util/engine_uti`). It simulates Column Family layer by adding prefix to keys (e.g., a key `key` that belongs to a specific column family `cf` is stored as `${cf}_${key}`${cf}_${key}).
+> - Badger doesn't natively support Column Family store. So you should perform all read/ write operation through methods provided by engine_util package (`kv/util/engine_uti`). It simulates Column Family layer by adding prefix to keys (e.g., a `key` that belongs to a specific column family `cf` is stored as `${cf}_${key}`.
 > - The engine_util package also provides many other useful helper functions, so make sure to take a look at them.
 > - TinyKV uses a modified version of `badger`, so when needed, import from `github.com/Connor1996/badger` instead of `github.com/dgraph-io/badger`.
 > - Don’t forget to call `Discard()` for badger.Txn and close all iterators before discarding.
@@ -69,7 +69,7 @@ The final step of this project is to use the implemented storage engine to build
 
 ## Validation
 
-Once you have finished both steps, you can run `make project 1` from the project root to run all test suites. The relevant test cases are located in `kv/server/server_test.go`.
+Once you have finished both steps, you can run `make project1` from the project root to run all test suites. The relevant test cases are located in `kv/server/server_test.go`.
 
 
 
