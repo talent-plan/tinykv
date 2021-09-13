@@ -266,7 +266,7 @@ func TestRawScanAfterRawPut1(t *testing.T) {
 
 	resp, err := server.RawScan(nil, scan)
 	assert.Nil(t, err)
-	assert.Equal(t, len(resp.Kvs), len(expectedKeys))
+	assert.Equal(t, len(expectedKeys), len(resp.Kvs))
 	for i, kv := range resp.Kvs {
 		assert.Equal(t, expectedKeys[i], kv.Key)
 		assert.Equal(t, append([]byte{233}, expectedKeys[i]...), kv.Value)
