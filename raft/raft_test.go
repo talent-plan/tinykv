@@ -552,8 +552,6 @@ func TestProposal2AB(t *testing.T) {
 				if g := diffu(base, l); g != "" {
 					t.Errorf("#%d: diff:\n%s", i, g)
 				}
-			} else {
-				t.Logf("#%d: empty log", i)
 			}
 		}
 		sm := tt.network.peers[1].(*Raft)
