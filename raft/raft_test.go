@@ -614,7 +614,7 @@ func TestHandleMessageType_MsgAppend2AB(t *testing.T) {
 	}
 }
 
-func TestRecvMessageType_MsgRequestVote2AA(t *testing.T) {
+func TestRecvMessageType_MsgRequestVote2AB(t *testing.T) {
 	msgType := pb.MessageType_MsgRequestVote
 	msgRespType := pb.MessageType_MsgRequestVoteResponse
 	tests := []struct {
