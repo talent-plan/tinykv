@@ -804,7 +804,7 @@ func TestVoteRequest2AB(t *testing.T) {
 // TestVoter tests the voter denies its vote if its own log is more up-to-date
 // than that of the candidate.
 // Reference: section 5.4.1
-func TestVoter2AA(t *testing.T) {
+func TestVoter2AB(t *testing.T) {
 	tests := []struct {
 		ents    []pb.Entry
 		logterm uint64
