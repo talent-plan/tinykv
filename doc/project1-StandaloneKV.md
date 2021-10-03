@@ -44,4 +44,4 @@ And you don’t need to consider the `kvrpcpb.Context` now, it’s used in the f
 
 #### Implement service handlers
 
-The final step of this project is to use the implemented storage engine to build raw key/value service handlers including RawGet/ RawScan/ RawPut/ RawDelete. The handler is already defined for you, you only need to fill up the implementation in `kv/server/server.go`. Once done, remember to run `make project1` to pass the test suite.
+The final step of this project is to use the implemented storage engine to build raw key/value service handlers including RawGet/ RawScan/ RawPut/ RawDelete. The handler is already defined for you, you only need to fill up the implementation in `kv/server/raw_api.go`. Once done, remember to run `make project1` to pass the test suite.
