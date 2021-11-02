@@ -635,7 +635,7 @@ func TestFollowerAppendEntries2AB(t *testing.T) {
 			[]*pb.Entry{{Term: 3, Index: 2}, {Term: 4, Index: 3}},
 		},
 		{
-			0, 0, 1,
+			0, 0, 2,
 			[]*pb.Entry{{Term: 1, Index: 1}},
 			[]*pb.Entry{{Term: 1, Index: 1}, {Term: 2, Index: 2}},
 			[]*pb.Entry{},
