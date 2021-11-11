@@ -165,7 +165,16 @@ func newRaft(c *Config) *Raft {
 		panic(err.Error())
 	}
 	// Your Code Here (2A).
-	return nil
+	//#Todo daniel
+	raftLog := newLog(c.Storage)
+	prs := make(map[uint64]*Progress)
+
+	return &Raft{
+		id: c.ID,
+		State: StateFollower,
+		Prs: prs,
+		RaftLog: raftLog,
+	}
 }
 
 // sendAppend sends an append RPC with new entries (if any) and the
