@@ -1,4 +1,4 @@
-SHELL := /bin/bash
+SHELL := /bin/sh
 PROJECT=tinykv
 GOPATH ?= $(shell go env GOPATH)
 
