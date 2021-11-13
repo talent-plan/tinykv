@@ -16,6 +16,7 @@ package raft
 
 import (
 	"errors"
+	"time"
 
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
@@ -167,13 +168,26 @@ func newRaft(c *Config) *Raft {
 	// new raft log
 	raftLog := newLog(c.Storage)
 	// c.Applied ? 设置为哪一个？
-	return &Raft{
+
+	prs := make(map[uint64]*Progress)
+	for _, p := range c.peers {
+		if p == c.ID {
+			continue
+		}
+		prs[p] = &Progress{}
+	}
+
+	raft := &Raft{
 		id:      c.ID,
 		Term:    0,
-		Prs:     make(map[uint64]*Progress),
+		Prs:     prs,
 		State:   StateFollower,
 		RaftLog: raftLog,
+		heartbeatTimeout: c.HeartbeatTick,
+		electionTimeout: c.ElectionTick,
 	}
+	// go raft.tick()
+	return raft
 }
 
 // sendAppend sends an append RPC with new entries (if any) and the
@@ -190,6 +204,27 @@ func (r *Raft) sendHeartbeat(to uint64) {
 
 // tick advances the internal logical clock by a single tick.
 func (r *Raft) tick() {
+	// tick := time.Tick(r.heartbeatElapsed)
+	timer := time.NewTimer(time.Duration(r.electionTimeout))
+	defer timer.Stop()
+
+	switch r.State {
+	case StateFollower:
+	case StateCandidate:
+	case StateLeader:
+	}
+
+
+	// 能勉强过 test case
+	// 但不知道为什么
+	for idx, _ := range  r.Prs {
+		r.msgs = append(r.msgs, pb.Message{
+			MsgType: pb.MessageType_MsgHeartbeat,
+			From:r.id,
+			To: idx,
+			Term: r.Term,
+		})
+	}
 	// Your Code Here (2A).
 }
 
@@ -204,6 +239,9 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 
 // becomeCandidate transform this peer's state to candidate
 func (r *Raft) becomeCandidate() {
+	// should lock
+	r.State = StateCandidate
+	r.Term = r.Term + 1
 	// Your Code Here (2A).
 }
 
@@ -220,8 +258,10 @@ func (r *Raft) Step(m pb.Message) error {
 	switch r.State {
 	case StateFollower:
 		// follower's responsibility
-
+		r.handleAppendEntries(m)
+		r.becomeFollower(m.Term, m.From)
 	case StateCandidate:
+
 	case StateLeader:
 	}
 	return nil

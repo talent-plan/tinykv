@@ -97,6 +97,8 @@ func TestLeaderBcastBeat2AA(t *testing.T) {
 	for i := 0; i < hi; i++ {
 		r.tick()
 	}
+	// msgs = [{MsgBeat 2 1 1 0 0 [] 0 <nil> false {} [] 0} {MsgBeat 3 1 1 0 0 [] 0 <nil> false {} [] 0}],
+	// want [{MsgHeartbeat 2 1 1 0 0 [] 0 <nil> false {} [] 0} {MsgHeartbeat 3 1 1 0 0 [] 0 <nil> false {} [] 0}]
 
 	msgs := r.readMessages()
 	sort.Sort(messageSlice(msgs))
