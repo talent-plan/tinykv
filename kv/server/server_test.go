@@ -337,7 +337,7 @@ func TestIterWithRawDelete1(t *testing.T) {
 	_, err = server.RawDelete(nil, delete)
 	assert.Nil(t, err)
 
-	expectedKeys := [][]byte{{1}, {2}, {3}, {4}}
+	expectedKeys := [][]byte{{1}, {2}, {4}}
 	i := 0
 	for it.Seek([]byte{1}); it.Valid(); it.Next() {
 		item := it.Item()
