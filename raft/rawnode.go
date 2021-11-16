@@ -158,7 +158,7 @@ func (rn *RawNode) Advance(rd Ready) {
 	// Your Code Here (2A).
 }
 
-// GetProgress return the the Progress of this node and its peers, if this
+// GetProgress return the Progress of this node and its peers, if this
 // node is leader.
 func (rn *RawNode) GetProgress() map[uint64]Progress {
 	prs := make(map[uint64]Progress)
