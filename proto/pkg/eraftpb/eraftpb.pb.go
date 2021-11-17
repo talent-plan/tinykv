@@ -42,7 +42,7 @@ func (x EntryType) String() string {
 	return proto.EnumName(EntryType_name, int32(x))
 }
 func (EntryType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_eraftpb_6ff387e2d76c3034, []int{0}
+	return fileDescriptor_eraftpb_2f2e0bcef614736b, []int{0}
 }
 
 // Some MessageType defined here are local messages which not come from the network, but should
@@ -112,7 +112,7 @@ func (x MessageType) String() string {
 	return proto.EnumName(MessageType_name, int32(x))
 }
 func (MessageType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_eraftpb_6ff387e2d76c3034, []int{1}
+	return fileDescriptor_eraftpb_2f2e0bcef614736b, []int{1}
 }
 
 type ConfChangeType int32
@@ -135,7 +135,7 @@ func (x ConfChangeType) String() string {
 	return proto.EnumName(ConfChangeType_name, int32(x))
 }
 func (ConfChangeType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_eraftpb_6ff387e2d76c3034, []int{2}
+	return fileDescriptor_eraftpb_2f2e0bcef614736b, []int{2}
 }
 
 // The entry is a type of change that needs to be applied. It contains two data fields.
@@ -162,7 +162,7 @@ func (m *Entry) Reset()         { *m = Entry{} }
 func (m *Entry) String() string { return proto.CompactTextString(m) }
 func (*Entry) ProtoMessage()    {}
 func (*Entry) Descriptor() ([]byte, []int) {
-	return fileDescriptor_eraftpb_6ff387e2d76c3034, []int{0}
+	return fileDescriptor_eraftpb_2f2e0bcef614736b, []int{0}
 }
 func (m *Entry) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -234,7 +234,7 @@ func (m *SnapshotMetadata) Reset()         { *m = SnapshotMetadata{} }
 func (m *SnapshotMetadata) String() string { return proto.CompactTextString(m) }
 func (*SnapshotMetadata) ProtoMessage()    {}
 func (*SnapshotMetadata) Descriptor() ([]byte, []int) {
-	return fileDescriptor_eraftpb_6ff387e2d76c3034, []int{1}
+	return fileDescriptor_eraftpb_2f2e0bcef614736b, []int{1}
 }
 func (m *SnapshotMetadata) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -296,7 +296,7 @@ func (m *Snapshot) Reset()         { *m = Snapshot{} }
 func (m *Snapshot) String() string { return proto.CompactTextString(m) }
 func (*Snapshot) ProtoMessage()    {}
 func (*Snapshot) Descriptor() ([]byte, []int) {
-	return fileDescriptor_eraftpb_6ff387e2d76c3034, []int{2}
+	return fileDescriptor_eraftpb_2f2e0bcef614736b, []int{2}
 }
 func (m *Snapshot) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -359,7 +359,7 @@ func (m *Message) Reset()         { *m = Message{} }
 func (m *Message) String() string { return proto.CompactTextString(m) }
 func (*Message) ProtoMessage()    {}
 func (*Message) Descriptor() ([]byte, []int) {
-	return fileDescriptor_eraftpb_6ff387e2d76c3034, []int{3}
+	return fileDescriptor_eraftpb_2f2e0bcef614736b, []int{3}
 }
 func (m *Message) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -473,7 +473,7 @@ func (m *HardState) Reset()         { *m = HardState{} }
 func (m *HardState) String() string { return proto.CompactTextString(m) }
 func (*HardState) ProtoMessage()    {}
 func (*HardState) Descriptor() ([]byte, []int) {
-	return fileDescriptor_eraftpb_6ff387e2d76c3034, []int{4}
+	return fileDescriptor_eraftpb_2f2e0bcef614736b, []int{4}
 }
 func (m *HardState) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -536,7 +536,7 @@ func (m *ConfState) Reset()         { *m = ConfState{} }
 func (m *ConfState) String() string { return proto.CompactTextString(m) }
 func (*ConfState) ProtoMessage()    {}
 func (*ConfState) Descriptor() ([]byte, []int) {
-	return fileDescriptor_eraftpb_6ff387e2d76c3034, []int{5}
+	return fileDescriptor_eraftpb_2f2e0bcef614736b, []int{5}
 }
 func (m *ConfState) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -587,7 +587,7 @@ func (m *ConfChange) Reset()         { *m = ConfChange{} }
 func (m *ConfChange) String() string { return proto.CompactTextString(m) }
 func (*ConfChange) ProtoMessage()    {}
 func (*ConfChange) Descriptor() ([]byte, []int) {
-	return fileDescriptor_eraftpb_6ff387e2d76c3034, []int{6}
+	return fileDescriptor_eraftpb_2f2e0bcef614736b, []int{6}
 }
 func (m *ConfChange) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -2234,9 +2234,9 @@ var (
 	ErrIntOverflowEraftpb   = fmt.Errorf("proto: integer overflow")
 )
 
-func init() { proto.RegisterFile("eraftpb.proto", fileDescriptor_eraftpb_6ff387e2d76c3034) }
+func init() { proto.RegisterFile("eraftpb.proto", fileDescriptor_eraftpb_2f2e0bcef614736b) }
 
-var fileDescriptor_eraftpb_6ff387e2d76c3034 = []byte{
+var fileDescriptor_eraftpb_2f2e0bcef614736b = []byte{
 	// 666 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x64, 0x94, 0x5f, 0x4e, 0xdb, 0x4e,
 	0x10, 0xc7, 0xb3, 0xf9, 0x67, 0x7b, 0x1c, 0xc2, 0xb2, 0x3f, 0x7e, 0x60, 0xfa, 0x10, 0xa5, 0x7e,

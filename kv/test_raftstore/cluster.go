@@ -80,8 +80,8 @@ func (c *Cluster) Start() {
 			panic(err)
 		}
 
-		raftDB := engine_util.CreateDB("raft", c.cfg)
-		kvDB := engine_util.CreateDB("kv", c.cfg)
+		raftDB := engine_util.CreateDB(raftPath, true)
+		kvDB := engine_util.CreateDB(kvPath, false)
 		engine := engine_util.NewEngines(kvDB, raftDB, kvPath, raftPath)
 		c.engines[storeID] = engine
 	}
@@ -445,6 +445,7 @@ func (c *Cluster) MustHavePeer(regionID uint64, peer *metapb.Peer) {
 		}
 		SleepMS(10)
 	}
+	panic(fmt.Sprintf("no peer: %v", peer))
 }
 
 func (c *Cluster) MustNonePeer(regionID uint64, peer *metapb.Peer) {
@@ -464,4 +465,5 @@ func (c *Cluster) MustNonePeer(regionID uint64, peer *metapb.Peer) {
 		}
 		SleepMS(10)
 	}
+	panic(fmt.Sprintf("have peer: %v", peer))
 }

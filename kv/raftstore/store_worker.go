@@ -69,7 +69,7 @@ func (sw *storeWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
 func (d *storeWorker) onTick(tick StoreTick) {
 	switch tick {
 	case StoreTickSchedulerStoreHeartbeat:
-		d.onSchedulerStoreHearbeatTick()
+		d.onSchedulerStoreHeartbeatTick()
 	case StoreTickSnapGC:
 		d.onSnapMgrGC()
 	}
@@ -118,6 +118,8 @@ func (d *storeWorker) checkMsg(msg *rspb.RaftMessage) (bool, error) {
 		// Maybe split, but not registered yet.
 		if util.IsFirstVoteMessage(msg.Message) {
 			meta := d.ctx.storeMeta
+			meta.RLock()
+			defer meta.RUnlock()
 			// Last check on whether target peer is created, otherwise, the
 			// vote message will never be comsumed.
 			if _, ok := meta.regions[regionID]; ok {
@@ -194,6 +196,8 @@ func (d *storeWorker) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage) (b
 	// we may encounter a message with larger peer id, which means
 	// current peer is stale, then we should remove current peer
 	meta := d.ctx.storeMeta
+	meta.Lock()
+	defer meta.Unlock()
 	if _, ok := meta.regions[regionID]; ok {
 		return true, nil
 	}
@@ -229,7 +233,10 @@ func (d *storeWorker) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage) (b
 func (d *storeWorker) storeHeartbeatScheduler() {
 	stats := new(schedulerpb.StoreStats)
 	stats.StoreId = d.ctx.store.Id
-	stats.RegionCount = uint32(len(d.ctx.storeMeta.regions))
+	meta := d.ctx.storeMeta
+	meta.RLock()
+	stats.RegionCount = uint32(len(meta.regions))
+	meta.RUnlock()
 	d.ctx.schedulerTaskSender <- &runner.SchedulerStoreHeartbeatTask{
 		Stats:  stats,
 		Engine: d.ctx.engine.Kv,
@@ -237,7 +244,7 @@ func (d *storeWorker) storeHeartbeatScheduler() {
 	}
 }
 
-func (d *storeWorker) onSchedulerStoreHearbeatTick() {
+func (d *storeWorker) onSchedulerStoreHeartbeatTick() {
 	d.storeHeartbeatScheduler()
 	d.ticker.scheduleStore(StoreTickSchedulerStoreHeartbeat)
 }
