@@ -42,7 +42,7 @@ type PeerStorage struct {
 	snapState snap.SnapState
 	// regionSched used to schedule task to region worker
 	regionSched chan<- worker.Task
-	// gennerate snapshot tried count
+	// generate snapshot tried count
 	snapTriedCnt int
 	// Engine include two badger instance: Raft and Kv
 	Engines *engine_util.Engines
@@ -156,7 +156,9 @@ func (ps *PeerStorage) Snapshot() (eraftpb.Snapshot, error) {
 	if ps.snapState.StateType == snap.SnapState_Generating {
 		select {
 		case s := <-ps.snapState.Receiver:
-			snapshot = *s
+			if s != nil {
+				snapshot = *s
+			}
 		default:
 			return snapshot, raft.ErrSnapshotTemporarilyUnavailable
 		}

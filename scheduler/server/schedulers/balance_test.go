@@ -15,6 +15,7 @@ package schedulers
 
 import (
 	"context"
+
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockcluster"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/mock/mockoption"
@@ -172,11 +173,9 @@ func (s *testBalanceRegionSchedulerSuite) TestReplacePendingRegion3C(c *C) {
 	sb, err := schedule.CreateScheduler("balance-region", oc, core.NewStorage(kv.NewMemoryKV()), nil)
 	c.Assert(err, IsNil)
 
-	// Store 1 has the largest region score, so the balancer try to replace peer in store 1.
 	tc.AddRegionStore(1, 16)
 	tc.AddRegionStore(2, 7)
 	tc.AddRegionStore(3, 15)
-	// Store 4 has smaller region score than store 1 and more better place than store 2.
 	tc.AddRegionStore(4, 10)
 
 	// set pending peer
@@ -187,7 +186,10 @@ func (s *testBalanceRegionSchedulerSuite) TestReplacePendingRegion3C(c *C) {
 	region = region.Clone(core.WithPendingPeers([]*metapb.Peer{region.GetStorePeer(1)}))
 	tc.PutRegion(region)
 
+	// region 3 has a pending peer
 	c.Assert(sb.Schedule(tc).RegionID(), Equals, uint64(3))
+
+	// the peers of region 3 are in store 2, 1, and 3, so the store 4 is the only choice
 	testutil.CheckTransferPeer(c, sb.Schedule(tc), operator.OpBalance, 1, 4)
 }
 

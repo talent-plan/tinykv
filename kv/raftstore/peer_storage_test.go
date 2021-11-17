@@ -15,7 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestPeerStorage(t *testing.T) *PeerStorage {
+// NewPeerStorageFromZero generates a PeerStorage whose Term & index starts at zero, instead of 5
+func NewPeerStorageFromZero(t *testing.T) *PeerStorage {
 	engines := util.NewTestEngines()
 	err := BootstrapStore(engines, 1, 1)
 	require.Nil(t, err)
@@ -23,11 +24,17 @@ func newTestPeerStorage(t *testing.T) *PeerStorage {
 	require.Nil(t, err)
 	peerStore, err := NewPeerStorage(engines, region, nil, "")
 	require.Nil(t, err)
+
+	peerStore.raftState = &rspb.RaftLocalState{}
+	peerStore.raftState.HardState = &eraftpb.HardState{}
+	peerStore.applyState = &rspb.RaftApplyState{}
+	peerStore.applyState.TruncatedState = &rspb.RaftTruncatedState{}
+
 	return peerStore
 }
 
 func newTestPeerStorageFromEnts(t *testing.T, ents []eraftpb.Entry) *PeerStorage {
-	peerStore := newTestPeerStorage(t)
+	peerStore := NewPeerStorageFromZero(t)
 	kvWB := new(engine_util.WriteBatch)
 	raftWB := new(engine_util.WriteBatch)
 	require.Nil(t, peerStore.Append(ents[1:], raftWB))
