@@ -287,7 +287,8 @@ func (bm *blobManager) Open(kv *DB, opt Options) error {
 	for k, v := range bm.physicalFiles {
 		gcHandler.physicalCache[k] = v
 	}
-	go gcHandler.run()
+	kv.closers.blobManager = y.NewCloser(1)
+	go gcHandler.run(kv.closers.blobManager)
 	return nil
 }
 
@@ -460,12 +461,18 @@ type blobGCHandler struct {
 	candidateDiscardSize uint64
 }
 
-func (h *blobGCHandler) run() {
-	for discardInfo := range h.discardCh {
-		h.handleDiscardInfo(discardInfo)
-		err := h.doGCIfNeeded()
-		if err != nil {
-			log.Error(err)
+func (h *blobGCHandler) run(c *y.Closer) {
+	defer c.Done()
+	for {
+		select {
+		case discardInfo := <-h.discardCh:
+			h.handleDiscardInfo(discardInfo)
+			err := h.doGCIfNeeded()
+			if err != nil {
+				log.Error(err)
+			}
+		case <-c.HasBeenClosed():
+			return
 		}
 	}
 }

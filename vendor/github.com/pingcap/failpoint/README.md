@@ -6,7 +6,7 @@
 [![Coverage Status](https://codecov.io/gh/pingcap/failpoint/branch/master/graph/badge.svg)](https://codecov.io/gh/pingcap/failpoint)
 [![Mentioned in Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go)  
 
-An implementation of [failpoints][failpoint] for Golang.
+An implementation of [failpoints][failpoint] for Golang. Fail points are used to add code points where errors may be injected in a user controlled fashion. Fail point is a code snippet that is only executed when the corresponding failpoint is active.
 
 [failpoint]: http://www.freebsd.org/cgi/man.cgi?query=fail
 

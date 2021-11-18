@@ -46,10 +46,12 @@ var (
 )
 
 type closers struct {
-	updateSize *y.Closer
-	compactors *y.Closer
-	memtable   *y.Closer
-	writes     *y.Closer
+	updateSize      *y.Closer
+	compactors      *y.Closer
+	resourceManager *y.Closer
+	blobManager     *y.Closer
+	memtable        *y.Closer
+	writes          *y.Closer
 }
 
 // DB provides the various functions required to interact with Badger.
@@ -300,7 +302,8 @@ func Open(opt Options) (db *DB, err error) {
 	go db.updateSize(db.closers.updateSize)
 	db.mt = <-db.memTableCh
 
-	db.resourceMgr = epoch.NewResourceManager(&db.minReadTsTracker)
+	db.closers.resourceManager = y.NewCloser(1)
+	db.resourceMgr = epoch.NewResourceManager(db.closers.resourceManager, &db.minReadTsTracker)
 
 	// newLevelsController potentially loads files in directory.
 	if db.lc, err = newLevelsController(db, &manifest, db.resourceMgr, opt.TableBuilderOptions); err != nil {
@@ -582,6 +585,15 @@ func (db *DB) Close() (err error) {
 		}
 	} else {
 		log.Infof("fillTables failed for level zero. No compaction required")
+	}
+
+	if db.closers.blobManager != nil {
+		db.closers.blobManager.SignalAndWait()
+		log.Info("BlobManager finished")
+	}
+	if db.closers.resourceManager != nil {
+		db.closers.resourceManager.SignalAndWait()
+		log.Info("ResourceManager finished")
 	}
 
 	if lcErr := db.lc.close(); err == nil {

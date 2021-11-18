@@ -3,6 +3,8 @@ package epoch
 import (
 	"time"
 	"unsafe"
+
+	"github.com/Connor1996/badger/y"
 )
 
 type GuardsInspector interface {
@@ -68,12 +70,12 @@ type ResourceManager struct {
 	inspector GuardsInspector
 }
 
-func NewResourceManager(inspector GuardsInspector) *ResourceManager {
+func NewResourceManager(c *y.Closer, inspector GuardsInspector) *ResourceManager {
 	rm := &ResourceManager{
 		currentEpoch: atomicEpoch{epoch: 1 << 1},
 		inspector:    inspector,
 	}
-	go rm.collectLoop()
+	go rm.collectLoop(c)
 	return rm
 }
 
@@ -91,10 +93,16 @@ func (rm *ResourceManager) Acquire() *Guard {
 	return rm.AcquireWithPayload(nil)
 }
 
-func (rm *ResourceManager) collectLoop() {
+func (rm *ResourceManager) collectLoop(c *y.Closer) {
+	defer c.Done()
 	ticker := time.NewTicker(100 * time.Millisecond)
-	for range ticker.C {
-		rm.collect()
+	for {
+		select {
+		case <-ticker.C:
+			rm.collect()
+		case <-c.HasBeenClosed():
+			return
+		}
 	}
 }
 

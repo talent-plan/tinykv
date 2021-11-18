@@ -74,8 +74,8 @@ func EvalContext(ctx context.Context, fpname string) (Value, bool) {
 // true if the failpoint is active
 func Eval(fpname string) (Value, bool) {
 	failpoints.mu.RLock()
-	defer failpoints.mu.RUnlock()
 	fp, found := failpoints.reg[fpname]
+	failpoints.mu.RUnlock()
 	if !found {
 		return nil, false
 	}
