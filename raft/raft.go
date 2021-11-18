@@ -168,11 +168,15 @@ func newRaft(c *Config) *Raft {
 	// Your Code Here (2A).
 	// new raft log
 	raftLog := newLog(c.Storage)
+	prsMap := make(map[uint64]*Progress, len(c.peers))
+	for _, peerId := range c.peers {
+		prsMap[peerId] = &Progress{}
+	}
 	// c.Applied ? 设置为哪一个？
 	return &Raft{
 		id:      c.ID,
 		Term:    0,
-		Prs:     make(map[uint64]*Progress),
+		Prs:     prsMap,
 		State:   StateFollower,
 		RaftLog: raftLog,
 	}
@@ -193,12 +197,24 @@ func (r *Raft) sendHeartbeat(to uint64) {
 // tick advances the internal logical clock by a single tick.
 func (r *Raft) tick() {
 	// Your Code Here (2A).
+	for pid, _ := range r.Prs {
+		if pid == r.id {
+			continue
+		}
+		r.msgs = append(r.msgs, pb.Message{
+			From:    r.Lead,
+			To:      pid,
+			Term:    r.Term,
+			MsgType: pb.MessageType_MsgHeartbeat,
+		})
+	}
 }
 
 // becomeFollower transform this peer's state to Follower
 func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	// Your Code Here (2A).
 	// TODO: no validate yet.
+
 	r.State = StateFollower
 	r.Term = term
 	r.Lead = lead
@@ -207,12 +223,17 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 // becomeCandidate transform this peer's state to candidate
 func (r *Raft) becomeCandidate() {
 	// Your Code Here (2A).
+	r.State = StateCandidate
 }
 
 // becomeLeader transform this peer's state to leader
 func (r *Raft) becomeLeader() {
 	// Your Code Here (2A).
+	// 怎么增加 entry ?
 	// NOTE: Leader should propose a noop entry on its term
+	r.Term += 1
+	r.State = StateLeader
+	r.Lead = r.id
 }
 
 // Step the entrance of handle message, see `MessageType`
@@ -222,10 +243,16 @@ func (r *Raft) Step(m pb.Message) error {
 	switch r.State {
 	case StateFollower:
 		// follower's responsibility
-
+		r.Term = m.Term
 	case StateCandidate:
+		r.Term = m.Term
+		r.becomeFollower(m.Term, m.From)
 	case StateLeader:
+		if r.Term < m.Term {
+			r.becomeFollower(m.Term, m.From)
+		}
 	}
+	r.msgs = append(r.msgs, m)
 	return nil
 }
 

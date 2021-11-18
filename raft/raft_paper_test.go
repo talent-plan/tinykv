@@ -88,6 +88,7 @@ func TestLeaderBcastBeat2AA(t *testing.T) {
 	// heartbeat interval
 	hi := 1
 	r := newTestRaft(1, []uint64{1, 2, 3}, 10, hi, NewMemoryStorage())
+
 	r.becomeCandidate()
 	r.becomeLeader()
 
@@ -104,6 +105,7 @@ func TestLeaderBcastBeat2AA(t *testing.T) {
 		{From: 1, To: 2, Term: 1, MsgType: pb.MessageType_MsgHeartbeat},
 		{From: 1, To: 3, Term: 1, MsgType: pb.MessageType_MsgHeartbeat},
 	}
+
 	if !reflect.DeepEqual(msgs, wmsgs) {
 		t.Errorf("msgs = %v, want %v", msgs, wmsgs)
 	}

@@ -1,8 +1,20 @@
 # Project2 RaftKV
 
-Raft is a consensus algorithm that is designed to be easy to understand. You can read material about the Raft itself at [the Raft site](https://raft.github.io/), an interactive visualization of the Raft, and other resources, including [the extended Raft paper](https://raft.github.io/raft.pdf).
+Raft is a consensus algorithm that is designed to be easy to understand. 
 
-In this project, you will implement a high available kv server based on raft,  which needs you not only to implement the Raft algorithm but also use it practically, and bring you more challenges like managing raft’s persisted state with `badger`, add flow control for snapshot message, etc.
+You can read material about the Raft itself at [the Raft site](https://raft.github.io/), 
+
+an interactive visualization of the Raft, 
+
+and other resources, including [the extended Raft paper](https://raft.github.io/raft.pdf).
+
+In this project, you will implement a high available kv server based on raft,  
+
+which needs you not only to implement the Raft algorithm 
+
+but also use it practically, and bring you more challenges like managing raft’s persisted state with `badger`, 
+
+add flow control for snapshot message, etc.
 
 The project has 3 parts you need to do, including:
 
@@ -14,9 +26,35 @@ The project has 3 parts you need to do, including:
 
 ### The Code
 
-In this part, you will implement the basic raft algorithm. The code you need to implement is under `raft/`. Inside `raft/`, there are some skeleton code and test cases waiting for you. The raft algorithm you're gonna implement here has a well-designed interface with the upper application. Moreover, it uses a logical clock (named tick here) to measure the election and heartbeat timeout instead of a physical clock. That is to say, do not set a timer in the Raft module itself, and the upper application is responsible to advance the logical clock by calling `RawNode.Tick()`. Apart from that, messages sending and receiving along with other things are processed asynchronously, it is also up to the upper application when to actually do these things (see below for more detail). For example, Raft will not block waiting on the response of any request message.
+In this part, you will implement the basic raft algorithm. 
 
-Before implementing, please checkout the hints for this part first. Also, you should take a rough look at the proto file `proto/proto/eraftpb.proto`. Raft sends and receives messages and related structs are defined there, you’ll use them for the implementation. Note that, unlike Raft paper, it divides Heartbeat and AppendEntries into different messages to make the logic more clear.
+The code you need to implement is under `raft/`. Inside `raft/`, 
+
+there are some skeleton code and test cases waiting for you. T
+
+he raft algorithm you're gonna implement here has a well-designed interface with the upper application. 
+
+Moreover, it uses a logical clock (named tick here) to measure the election and heartbeat timeout 
+
+instead of a physical clock. That is to say, do not set a timer in the Raft module itself, 
+
+and the upper application is responsible to advance the logical clock by calling `RawNode.Tick()`. 
+
+Apart from that, messages sending and receiving along with other things are processed asynchronously, 
+
+it is also up to the upper application when to actually do these things (see below for more detail). 
+
+For example, Raft will not block waiting on the response of any request message.
+
+Before implementing, please checkout the hints for this part first. 
+
+Also, you should take a rough look at the proto file `proto/proto/eraftpb.proto`. 
+
+Raft sends and receives messages and related structs are defined there, 
+
+you’ll use them for the implementation. Note that, unlike Raft paper, 
+
+it divides Heartbeat and AppendEntries into different messages to make the logic more clear.
 
 This part can be broken down into 3 steps, including:
 
@@ -26,11 +64,33 @@ This part can be broken down into 3 steps, including:
 
 ### Implement the Raft algorithm
 
-`raft.Raft` in `raft/raft.go` provides the core of the Raft algorithm including message handling, driving the logic clock, etc. For more implementation guides, please check `raft/doc.go` which contains an overview design and what these `MessageTypes` are responsible for.
+`raft.Raft` in `raft/raft.go` provides the core of the Raft algorithm 
+
+including message handling, driving the logic clock, etc. 
+
+For more implementation guides, please check `raft/doc.go` which contains an overview design 
+
+and what these `MessageTypes` are responsible for.
 
 #### Leader election
 
-To implement leader election, you may want to start with `raft.Raft.tick()` which is used to advance the internal logical clock by a single tick and hence drive the election timeout or heartbeat timeout. You don’t need to care about the message sending and receiving logic now. If you need to send out a message,  just push it to `raft.Raft.msgs` and all messages the raft received will be passed to `raft.Raft.Step()`. The test code will get the messages from `raft.Raft.msgs` and pass response messages through `raft.Raft.Step()`. The `raft.Raft.Step()` is the entrance of message handling, you should handle messages like `MsgRequestVote`, `MsgHeartbeat` and their response. And please also implement test stub functions and get them called properly like `raft.Raft.becomeXXX` which is used to update the raft internal state when the raft’s role changes.
+To implement leader election, you may want to start with `raft.Raft.tick()` 
+
+which is used to advance the internal logical clock by a single tick and hence drive the election timeout or heartbeat timeout. 
+
+You don’t need to care about the message sending and receiving logic now. 
+
+If you need to send out a message,  just push it to `raft.Raft.msgs` 
+
+and all messages the raft received will be passed to `raft.Raft.Step()`. 
+
+The test code will get the messages from `raft.Raft.msgs` and pass response messages through `raft.Raft.Step()`. 
+
+The `raft.Raft.Step()` is the entrance of message handling, 
+
+you should handle messages like `MsgRequestVote`, `MsgHeartbeat` and their response. 
+
+And please also implement test stub functions and get them called properly like `raft.Raft.becomeXXX` which is used to update the raft internal state when the raft’s role changes.
 
 You can run `make project2aa` to test the implementation and see some hints at the end of this part.
 
@@ -42,9 +102,15 @@ You can run `make project2ab` to test the implementation and see some hints at t
 
 ### Implement the raw node interface
 
-`raft.RawNode` in `raft/rawnode.go` is the interface we interact with the upper application, `raft.RawNode` contains `raft.Raft` and provide some wrapper functions like `RawNode.Tick()`and `RawNode.Step()`. It also provides `RawNode.Propose()` to let the upper application propose new raft logs.
+`raft.RawNode` in `raft/rawnode.go` is the interface we interact with the upper application, 
 
-Another important struct `Ready` is also defined here. When handling messages or advancing the logical clock, the `raft.Raft` may need to interact with the upper application, like:
+`raft.RawNode` contains `raft.Raft` and provide some wrapper functions like `RawNode.Tick()`and `RawNode.Step()`. 
+
+It also provides `RawNode.Propose()` to let the upper application propose new raft logs.
+
+Another important struct `Ready` is also defined here. When handling messages or advancing the logical clock, 
+
+the `raft.Raft` may need to interact with the upper application, like:
 
 - send messages to other peers
 - save log entries to stable storage
@@ -52,7 +118,17 @@ Another important struct `Ready` is also defined here. When handling messages or
 - apply committed log entries to the state machine
 - etc
 
-But these interactions do not happen immediately, instead, they are encapsulated in `Ready` and returned by `RawNode.Ready()` to the upper application. It is up to the upper application when to call `RawNode.Ready()` and handle it.  After handling the returned `Ready`, the upper application also needs to call some functions like `RawNode.Advance()` to update `raft.Raft`'s internal state like the applied index, stabled log index, etc.
+But these interactions do not happen immediately, 
+
+instead, they are encapsulated in `Ready` and returned by `RawNode.Ready()` to the upper application. 
+
+It is up to the upper application when to call `RawNode.Ready()` and handle it.  
+
+After handling the returned `Ready`, 
+
+the upper application also needs to call some functions like `RawNode.Advance()` 
+
+to update `raft.Raft`'s internal state like the applied index, stabled log index, etc.
 
 You can run `make project2ac` to test the implementation and run `make project2a` to test the whole part A.
 
@@ -61,11 +137,13 @@ You can run `make project2ac` to test the implementation and run `make project2a
 > - Add any state you need to `raft.Raft`, `raft.RaftLog`, `raft.RawNode` and message on `eraftpb.proto`
 > - The tests assume that the first time start raft should have term 0
 > - The tests assume that the newly elected leader should append a noop entry on its term
-> - The tests doesn’t set term for the local messages, `MessageType_MsgHup`, `MessageType_MsgBeat` and `MessageType_MsgPropose`.
-> - The log entries append are quite different between leader and non-leader, there are different sources, checking and handling, be careful with that.
+> - The tests doesn’t set term for the local messages, 
+> - `MessageType_MsgHup`, `MessageType_MsgBeat` and `> - When starting a new raft, get the last stabled state from `Storage` to initialize `raft.Raft` and `raft.RaftLog`
+MessageType_MsgPropose`.
+> - The log entries append are quite different between leader and non-leader, 
+> - there are different sources, checking and handling, be careful with that.
 > - Don’t forget the election timeout should be different between peers.
 > - Some wrapper functions in `rawnode.go` can implement with `raft.Step(local message)`
-> - When starting a new raft, get the last stabled state from `Storage` to initialize `raft.Raft` and `raft.RaftLog`
 
 ## Part B
 
@@ -137,7 +215,15 @@ To save the hard state is also very easy, just update peer storage’s `RaftLoca
 
 ### Implement Raft ready process
 
-In project2 part A, you have built a tick-based Raft module. Now you need to write the outer process to drive it. Most of the code is already implemented under `kv/raftstore/peer_msg_handler.go` and `kv/raftstore/peer.go`.  So you need to learn the code and finish the logic of `proposeRaftCommand` and `HandleRaftReady`. Here are some interpretations of the framework.
+In project2 part A, you have built a tick-based Raft module. 
+
+Now you need to write the outer process to drive it. 
+
+Most of the code is already implemented under `kv/raftstore/peer_msg_handler.go` 
+
+and `kv/raftstore/peer.go`.  
+
+So you need to learn the code and finish the logic of `proposeRaftCommand` and `HandleRaftReady`. Here are some interpretations of the framework.
 
 The Raft `RawNode` is already created with `PeerStorage` and stored in `peer`. In the raft worker, you can see that it takes the `peer` and wraps it by `peerMsgHandler`.  The `peerMsgHandler` mainly has two functions: one is `HandleMsgs` and the other is `HandleRaftReady`.
 
@@ -202,7 +288,9 @@ In this stage, you may consider these errors, and others will be processed in pr
 
 ## Part C
 
-As things stand now with your code, it's not practical for a long-running server to remember the complete Raft log forever. Instead, the server will check the number of Raft log, and discard log entries exceeding the threshold from time to time.
+As things stand now with your code, it's not practical for a long-running server to remember the complete Raft log forever. 
+
+Instead, the server will check the number of Raft log, and discard log entries exceeding the threshold from time to time.
 
 In this part, you will implement the Snapshot handling based on the above two part implementation. Generally, Snapshot is just a raft message like AppendEntries used to replicate data to followers, what makes it different is its size, Snapshot contains the whole state machine data at some point of time, and to build and send such a big message at once will consume many resource and time, which may block the handling of other raft messages, to amortize this problem, Snapshot message will use an independent connect, and split the data into chunks to transport. That’s the reason why there is a snapshot RPC API for TinyKV service. If you are interested in the detail of sending and receiving, check `snapRunner` and the reference <https://pingcap.com/blog-cn/tikv-source-code-reading-10/>
 

@@ -143,7 +143,23 @@ func (rn *RawNode) Step(m pb.Message) error {
 // Ready returns the current point-in-time state of this RawNode.
 func (rn *RawNode) Ready() Ready {
 	// Your Code Here (2A).
-	return Ready{}
+	return Ready{
+		SoftState: &SoftState{
+			Lead: rn.Raft.Lead,
+			RaftState: rn.Raft.State,
+		},
+		HardState:        pb.HardState{
+			Term:                 rn.Raft.Term,
+			Vote:                 rn.Raft.Vote,
+			Commit:               rn.Raft.RaftLog.committed,
+		},
+		Entries:          rn.Raft.RaftLog.entries,
+		// ? 如何检查有没有填对位置
+		Snapshot:         *rn.Raft.RaftLog.pendingSnapshot,
+		// 是否应该 bound committed entries
+		CommittedEntries: rn.Raft.RaftLog.entries[:rn.Raft.RaftLog.committed],
+		Messages:         rn.Raft.msgs,
+	}
 }
 
 // HasReady called when RawNode user need to check if any Ready pending.
