@@ -8,7 +8,6 @@ import (
 
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
-	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
 
@@ -25,7 +24,6 @@ func NewStandAloneStorage(conf *config.Config) *StandAloneStorage {
 	if err != nil {
 		panic(err)
 	}
-	log.Infof("create tmp dir:%s", dir)
 
 	opts := badger.DefaultOptions
 	opts.Dir = dir

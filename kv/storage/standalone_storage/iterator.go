@@ -1,8 +1,6 @@
 package standalone_storage
 
 import (
-	"fmt"
-
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 )
 
@@ -45,16 +43,11 @@ func (it *iterator) Next() {
 }
 
 func (it *iterator) Seek(key []byte) {
-	fmt.Println("seek")
-	fmt.Println(it.curIndex)
-	fmt.Println(len(it.collections))
 	for i := it.curIndex; i < it.iterCount; i++ {
-		fmt.Println("?")
 		if string(it.Item().Key()) == string(key) {
 			break
 		}
 		it.curIndex++
-		fmt.Println(i)
 	}
 }
 
