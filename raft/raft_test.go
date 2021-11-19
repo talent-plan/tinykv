@@ -370,7 +370,7 @@ func TestCommitWithHeartbeat2AB(t *testing.T) {
 	// network recovery
 	tt.recover()
 
-	// leader broadcast heartbeeat
+	// leader broadcast heartbeat
 	tt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgBeat})
 
 	if sm.RaftLog.committed != 3 {
