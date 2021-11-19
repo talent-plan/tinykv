@@ -158,6 +158,10 @@ func testNonleaderStartElection(t *testing.T, state StateType) {
 		{From: 1, To: 2, Term: 2, MsgType: pb.MessageType_MsgRequestVote},
 		{From: 1, To: 3, Term: 2, MsgType: pb.MessageType_MsgRequestVote},
 	}
+
+	t.Logf("%+v", msgs)
+	t.Logf("%+v", wmsgs)
+
 	if !reflect.DeepEqual(msgs, wmsgs) {
 		t.Errorf("msgs = %v, want %v", msgs, wmsgs)
 	}

@@ -17,6 +17,8 @@ package raft
 import (
 	"errors"
 
+	log "github.com/sirupsen/logrus"
+
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
@@ -174,11 +176,14 @@ func newRaft(c *Config) *Raft {
 	}
 	// c.Applied ? 设置为哪一个？
 	return &Raft{
-		id:      c.ID,
-		Term:    0,
-		Prs:     prsMap,
-		State:   StateFollower,
-		RaftLog: raftLog,
+		id:               c.ID,
+		Term:             0,
+		Prs:              prsMap,
+		State:            StateFollower,
+		RaftLog:          raftLog,
+		votes:            make(map[uint64]bool, len(c.peers)),
+		electionTimeout:  c.ElectionTick,
+		heartbeatTimeout: c.HeartbeatTick,
 	}
 }
 
@@ -192,21 +197,31 @@ func (r *Raft) sendAppend(to uint64) bool {
 // sendHeartbeat sends a heartbeat RPC to the given peer.
 func (r *Raft) sendHeartbeat(to uint64) {
 	// Your Code Here (2A).
+	r.msgs = append(r.msgs, pb.Message{From: r.id, Term: r.Term, To: to, MsgType: pb.MessageType_MsgHeartbeat})
 }
 
 // tick advances the internal logical clock by a single tick.
 func (r *Raft) tick() {
 	// Your Code Here (2A).
-	for pid, _ := range r.Prs {
-		if pid == r.id {
-			continue
+	r.heartbeatElapsed++
+	r.electionElapsed++
+
+	if r.electionElapsed >= r.electionTimeout {
+		r.electionElapsed = 0
+		r.Step(pb.Message{From: r.id, MsgType: pb.MessageType_MsgRequestVote})
+		// etcd 中的 checkQuorum 是什么意思
+		// abort leader transfer
+		// if r.State == StateLeader  {}
+	}
+
+	// NOTE: every tick leader should send heart heartbeat to its followers
+	if r.State == StateLeader {
+		// if r.heartbeatElapsed >= r.heartbeatTimeout {}
+		r.heartbeatElapsed = 0
+		err := r.Step(pb.Message{From: r.id, MsgType: pb.MessageType_MsgHeartbeat})
+		if err != nil {
+			log.WithError(err).Errorf("[tick] Step err with id:%d", r.id)
 		}
-		r.msgs = append(r.msgs, pb.Message{
-			From:    r.Lead,
-			To:      pid,
-			Term:    r.Term,
-			MsgType: pb.MessageType_MsgHeartbeat,
-		})
 	}
 }
 
@@ -223,6 +238,11 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 // becomeCandidate transform this peer's state to candidate
 func (r *Raft) becomeCandidate() {
 	// Your Code Here (2A).
+	// step1: increase term
+	r.Term += 1
+	// step3: vote for itself
+	r.Vote = r.id
+	r.votes[r.id] = true
 	r.State = StateCandidate
 }
 
@@ -231,7 +251,6 @@ func (r *Raft) becomeLeader() {
 	// Your Code Here (2A).
 	// 怎么增加 entry ?
 	// NOTE: Leader should propose a noop entry on its term
-	r.Term += 1
 	r.State = StateLeader
 	r.Lead = r.id
 }
@@ -243,16 +262,41 @@ func (r *Raft) Step(m pb.Message) error {
 	switch r.State {
 	case StateFollower:
 		// follower's responsibility
-		r.Term = m.Term
+		switch m.MsgType {
+		case pb.MessageType_MsgRequestVote:
+			// // request vote from other
+			r.becomeCandidate()
+			r.requestVotesFromPeers()
+		}
 	case StateCandidate:
-		r.Term = m.Term
-		r.becomeFollower(m.Term, m.From)
+		switch m.MsgType {
+		case pb.MessageType_MsgRequestVote:
+			// request vote from other
+			// 这个状态和 follow 时的处理过程一样
+			// 怎么可以抽一部分代码出来？
+			r.becomeCandidate()
+			r.requestVotesFromPeers()
+		default:
+			r.Term = m.Term
+			r.becomeFollower(m.Term, m.From)
+			r.msgs = append(r.msgs, m)
+		}
 	case StateLeader:
 		if r.Term < m.Term {
 			r.becomeFollower(m.Term, m.From)
 		}
+		switch m.MsgType {
+		case pb.MessageType_MsgHeartbeat:
+			for peerId, _ := range r.Prs {
+				if peerId == r.id {
+					continue
+				}
+				r.sendHeartbeat(peerId)
+			}
+		default:
+		}
 	}
-	r.msgs = append(r.msgs, m)
+
 	return nil
 }
 
@@ -279,4 +323,22 @@ func (r *Raft) addNode(id uint64) {
 // removeNode remove a node from raft group
 func (r *Raft) removeNode(id uint64) {
 	// Your Code Here (3A).
+}
+
+func (r *Raft) requestVotesFromPeers() {
+	if r.State != StateCandidate {
+		return
+	}
+	for peerId, _ := range r.Prs {
+		if r.id == peerId {
+			continue
+		}
+		r.msgs = append(
+			r.msgs, pb.Message{
+				From:    r.id,
+				Term:    r.Term,
+				To:      peerId,
+				MsgType: pb.MessageType_MsgRequestVote,
+			})
+	}
 }
