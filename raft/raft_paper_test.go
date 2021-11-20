@@ -158,9 +158,9 @@ func testNonleaderStartElection(t *testing.T, state StateType) {
 		{From: 1, To: 2, Term: 2, MsgType: pb.MessageType_MsgRequestVote},
 		{From: 1, To: 3, Term: 2, MsgType: pb.MessageType_MsgRequestVote},
 	}
-
-	t.Logf("%+v", msgs)
-	t.Logf("%+v", wmsgs)
+	// TODO: clean debug msg
+	//t.Logf("%+v", msgs)
+	//t.Logf("%+v", wmsgs)
 
 	if !reflect.DeepEqual(msgs, wmsgs) {
 		t.Errorf("msgs = %v, want %v", msgs, wmsgs)
@@ -181,13 +181,15 @@ func TestLeaderElectionInOneRoundRPC2AA(t *testing.T) {
 	}{
 		// win the election when receiving votes from a majority of the servers
 		{1, map[uint64]bool{}, StateLeader},
+
 		{3, map[uint64]bool{2: true, 3: true}, StateLeader},
 		{3, map[uint64]bool{2: true}, StateLeader},
+
 		{5, map[uint64]bool{2: true, 3: true, 4: true, 5: true}, StateLeader},
 		{5, map[uint64]bool{2: true, 3: true, 4: true}, StateLeader},
 		{5, map[uint64]bool{2: true, 3: true}, StateLeader},
-
-		// stay in candidate if it does not obtain the majority
+		//
+		//// stay in candidate if it does not obtain the majority
 		{3, map[uint64]bool{}, StateCandidate},
 		{5, map[uint64]bool{2: true}, StateCandidate},
 		{5, map[uint64]bool{2: false, 3: false}, StateCandidate},
@@ -197,8 +199,17 @@ func TestLeaderElectionInOneRoundRPC2AA(t *testing.T) {
 		r := newTestRaft(1, idsBySize(tt.size), 10, 1, NewMemoryStorage())
 
 		r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
+
+		// 1、handle msg hup first , how to start a election
+		// 2、handle vote response message
 		for id, vote := range tt.votes {
-			r.Step(pb.Message{From: id, To: 1, Term: r.Term, MsgType: pb.MessageType_MsgRequestVoteResponse, Reject: !vote})
+			r.Step(pb.Message{
+				From: id,
+				To: 1,
+				Term: r.Term,
+				MsgType: pb.MessageType_MsgRequestVoteResponse,
+				Reject: !vote,
+			})
 		}
 
 		if r.State != tt.state {

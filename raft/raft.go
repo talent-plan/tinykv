@@ -176,9 +176,10 @@ func newRaft(c *Config) *Raft {
 	}
 	// c.Applied ? 设置为哪一个？
 	return &Raft{
-		id:               c.ID,
-		Term:             0,
-		Prs:              prsMap,
+		id:   c.ID,
+		Term: 0,
+		Prs:  prsMap,
+		// should be always start up as a follower state
 		State:            StateFollower,
 		RaftLog:          raftLog,
 		votes:            make(map[uint64]bool, len(c.peers)),
@@ -241,8 +242,8 @@ func (r *Raft) becomeCandidate() {
 	// step1: increase term
 	r.Term += 1
 	// step3: vote for itself
-	r.Vote = r.id
-	r.votes[r.id] = true
+	r.resetVotes()
+	r.voteFor(r.id, true)
 	r.State = StateCandidate
 }
 
@@ -258,15 +259,25 @@ func (r *Raft) becomeLeader() {
 // Step the entrance of handle message, see `MessageType`
 // on `eraftpb.proto` for what msgs should be handled
 func (r *Raft) Step(m pb.Message) error {
-	// Your Code Here (2A).
+	// Mimic etcd/raft.go Step function
 	switch r.State {
 	case StateFollower:
 		// follower's responsibility
 		switch m.MsgType {
+		case pb.MessageType_MsgHup:
+			r.becomeCandidate()
+			r.campaignForLeader()
+			// log.Infof("ignoring MsgHup because already campaigning current state:%+v", r.State)
 		case pb.MessageType_MsgRequestVote:
-			// // request vote from other
+			// request vote from other
 			r.becomeCandidate()
 			r.requestVotesFromPeers()
+		case pb.MessageType_MsgAppend:
+			if m.Term > r.Term {
+				r.Term = m.Term
+				r.Lead = m.From
+			}
+			// where to append this message ?
 		}
 	case StateCandidate:
 		switch m.MsgType {
@@ -276,6 +287,9 @@ func (r *Raft) Step(m pb.Message) error {
 			// 怎么可以抽一部分代码出来？
 			r.becomeCandidate()
 			r.requestVotesFromPeers()
+		case pb.MessageType_MsgRequestVoteResponse:
+			r.recordVote(m)
+			r.campaignForLeader()
 		default:
 			r.Term = m.Term
 			r.becomeFollower(m.Term, m.From)
@@ -341,4 +355,89 @@ func (r *Raft) requestVotesFromPeers() {
 				MsgType: pb.MessageType_MsgRequestVote,
 			})
 	}
+}
+
+// becomeCandidate transform this peer's state to candidate
+func (r *Raft) campaignForLeader() {
+	granted, rejected, res := r.TallyVotes()
+	switch res {
+	case VoteWon:
+		r.becomeLeader()
+	case VoteLost:
+		// TODO: 当选举失败的时候，需要从 candidate 变成 follower
+		// 并且进行一些清理操作
+		// r.becomeFollower()
+	default:
+	}
+	_ = granted
+	_ = rejected
+	// log.Infof("node:%d campaignForLeader granted:%d rejected:%d res:%+v", r.id, granted, rejected, res)
+}
+
+func (r *Raft) voteFor(id uint64, accepted bool) {
+	_, ok := r.votes[id]
+	if !ok {
+		r.votes[id] = accepted
+		log.Infof("id:%d voteFor %d", id, r.id)
+	} else {
+		// log.Infof("node %d duplicate vote for id:%d", r.id, id)
+	}
+}
+
+func (r *Raft) resetVotes() {
+	r.votes = make(map[uint64]bool, len(r.Prs))
+	r.Vote = 0
+	// log.Infof("id:%d reset vote at term:%d current state:%d", r.id, r.Term, r.State)
+	return
+}
+
+type VoteResult uint8
+
+const (
+	// VotePending indicates that the decision of the vote depends on future
+	// votes, i.e. neither "yes" or "no" has reached quorum yet.
+	VotePending VoteResult = 1 + iota
+	// VoteLost indicates that the quorum has voted "no".
+	VoteLost
+	// VoteWon indicates that the quorum has voted "yes".
+	VoteWon
+)
+
+// From etcd
+// VoteResult takes a mapping of voters to yes/no (true/false) votes and returns
+// a result indicating whether the vote is pending (i.e. neither a quorum of
+// yes/no has been reached), won (a quorum of yes has been reached), or lost (a
+// quorum of no has been reached).
+
+func (r *Raft) TallyVotes() (granted int, rejected int, res VoteResult) {
+	for peerId, _ := range r.Prs {
+		v, voted := r.votes[peerId]
+		if !voted {
+			continue
+		}
+		if v {
+			granted++
+		} else {
+			rejected++
+		}
+	}
+
+	// NOTE: majority = len(r.Prs)/2 + 1 , instead of len(r.Prs) / 2
+	// Reason
+	majorityNum := len(r.Prs) / 2 + 1
+	switch {
+	// won the campaign, if the granted num exceeds the majority num.
+	case granted >= majorityNum:
+		return granted, rejected, VoteWon
+	case granted+rejected >= majorityNum:
+		return granted, rejected, VoteLost
+	// haven't receive the vote resp from the majority yet
+	default:
+		return granted, rejected, VotePending
+	}
+}
+
+func (r *Raft) recordVote(m pb.Message) {
+	r.voteFor(m.From, !m.Reject)
+	log.Infof("node:%d recordVote %+v", r.id, m)
 }
