@@ -16,6 +16,7 @@ package raft
 
 import (
 	"errors"
+	"math/rand"
 
 	log "github.com/sirupsen/logrus"
 
@@ -207,14 +208,17 @@ func (r *Raft) tick() {
 	r.heartbeatElapsed++
 	r.electionElapsed++
 
-	if r.electionElapsed >= r.electionTimeout {
+	// TODO: we don't have to generate randomized timeout everytime
+	randomizedElectionTimeout := r.getRandomizedElectionTimeout()
+	if r.electionElapsed >= randomizedElectionTimeout {
 		r.electionElapsed = 0
-		r.Step(pb.Message{From: r.id, MsgType: pb.MessageType_MsgRequestVote})
+		r.Step(pb.Message{From: r.id, MsgType: pb.MessageType_MsgHup})
 		// etcd 中的 checkQuorum 是什么意思
 		// abort leader transfer
 		// if r.State == StateLeader  {}
 	}
 
+	// The leader's duty is to send heartbeat message when tick is invoked
 	// NOTE: every tick leader should send heart heartbeat to its followers
 	if r.State == StateLeader {
 		// if r.heartbeatElapsed >= r.heartbeatTimeout {}
@@ -259,6 +263,29 @@ func (r *Raft) becomeLeader() {
 // Step the entrance of handle message, see `MessageType`
 // on `eraftpb.proto` for what msgs should be handled
 func (r *Raft) Step(m pb.Message) error {
+	switch m.MsgType {
+	// 这种状态应该是 follower，leader, candidates 都共同需要处理的
+	case pb.MessageType_MsgRequestVote:
+		// TODO: There will be more restrction here
+		canVote := r.Vote == m.From ||
+			(r.Vote == None && r.Lead == None)
+		r.send(pb.Message{
+			From: r.id,
+			To: m.From,
+			Term: r.Term,
+			MsgType: pb.MessageType_MsgRequestVoteResponse,
+			Reject: !canVote,
+		})
+	case pb.MessageType_MsgAppend:
+		if m.Term > r.Term {
+			if r.State != StateFollower {
+				r.becomeFollower(m.Term, m.From)
+			}
+			r.Term = m.Term
+			r.Lead = m.From
+		}
+	}
+
 	// Mimic etcd/raft.go Step function
 	switch r.State {
 	case StateFollower:
@@ -267,25 +294,15 @@ func (r *Raft) Step(m pb.Message) error {
 		case pb.MessageType_MsgHup:
 			r.becomeCandidate()
 			r.campaignForLeader()
-			// log.Infof("ignoring MsgHup because already campaigning current state:%+v", r.State)
-		case pb.MessageType_MsgRequestVote:
-			// request vote from other
-			r.becomeCandidate()
 			r.requestVotesFromPeers()
-		case pb.MessageType_MsgAppend:
-			if m.Term > r.Term {
-				r.Term = m.Term
-				r.Lead = m.From
-			}
-			// where to append this message ?
+			// log.Infof("ignoring MsgHup because already campaigning current state:%+v", r.State)
 		}
 	case StateCandidate:
 		switch m.MsgType {
-		case pb.MessageType_MsgRequestVote:
-			// request vote from other
-			// 这个状态和 follow 时的处理过程一样
-			// 怎么可以抽一部分代码出来？
+		case pb.MessageType_MsgHup:
+			// 和 follow 重复了，需要抽一个方法出来吗？
 			r.becomeCandidate()
+			r.campaignForLeader()
 			r.requestVotesFromPeers()
 		case pb.MessageType_MsgRequestVoteResponse:
 			r.recordVote(m)
@@ -347,13 +364,12 @@ func (r *Raft) requestVotesFromPeers() {
 		if r.id == peerId {
 			continue
 		}
-		r.msgs = append(
-			r.msgs, pb.Message{
-				From:    r.id,
-				Term:    r.Term,
-				To:      peerId,
-				MsgType: pb.MessageType_MsgRequestVote,
-			})
+		r.send(pb.Message{
+			From:    r.id,
+			Term:    r.Term,
+			To:      peerId,
+			MsgType: pb.MessageType_MsgRequestVote,
+		})
 	}
 }
 
@@ -378,7 +394,7 @@ func (r *Raft) voteFor(id uint64, accepted bool) {
 	_, ok := r.votes[id]
 	if !ok {
 		r.votes[id] = accepted
-		log.Infof("id:%d voteFor %d", id, r.id)
+		// log.Infof("id:%d voteFor %d", id, r.id)
 	} else {
 		// log.Infof("node %d duplicate vote for id:%d", r.id, id)
 	}
@@ -439,5 +455,27 @@ func (r *Raft) TallyVotes() (granted int, rejected int, res VoteResult) {
 
 func (r *Raft) recordVote(m pb.Message) {
 	r.voteFor(m.From, !m.Reject)
-	log.Infof("node:%d recordVote %+v", r.id, m)
+	// log.Infof("node:%d recordVote %+v", r.id, m)
+}
+
+// inspired by etcd send
+func (r *Raft) send(m pb.Message) {
+	r.msgs = append(r.msgs, m)
+}
+
+
+func (r *Raft) reset(term uint64) {
+	if r.Term != term {
+		r.Term = term
+		r.Vote = None
+	}
+	r.Lead = None
+
+	r.electionElapsed = 0
+	r.heartbeatElapsed = 0
+}
+
+// 为什么需要加 1 ？
+func (r *Raft) getRandomizedElectionTimeout() int {
+	return r.electionTimeout + rand.Intn(r.electionTimeout) + 1
 }

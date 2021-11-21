@@ -285,6 +285,7 @@ func TestCandidateFallback2AA(t *testing.T) {
 func TestFollowerElectionTimeoutRandomized2AA(t *testing.T) {
 	testNonleaderElectionTimeoutRandomized(t, StateFollower)
 }
+
 func TestCandidateElectionTimeoutRandomized2AA(t *testing.T) {
 	testNonleaderElectionTimeoutRandomized(t, StateCandidate)
 }
