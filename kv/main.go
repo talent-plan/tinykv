@@ -44,6 +44,7 @@ func main() {
 		conf.LogLevel = *logLevel
 	}
 
+	// log level
 	log.SetLevelByString(conf.LogLevel)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 	log.Infof("Server started with conf %+v", conf)
@@ -51,7 +52,7 @@ func main() {
 	var storage storage.Storage
 	if conf.Raft {
 		storage = raft_storage.NewRaftStorage(conf)
-	} else {
+	} else {	// 单机版本
 		storage = standalone_storage.NewStandAloneStorage(conf)
 	}
 	if err := storage.Start(); err != nil {
@@ -70,14 +71,20 @@ func main() {
 		grpc.InitialConnWindowSize(1<<30),
 		grpc.MaxRecvMsgSize(10*1024*1024),
 	)
+	// register grpcServer
 	tinykvpb.RegisterTinyKvServer(grpcServer, server)
 	listenAddr := conf.StoreAddr[strings.IndexByte(conf.StoreAddr, ':'):]
+	// create a listener
 	l, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		log.Fatal(err)
 	}
+	// 处理
 	handleSignal(grpcServer)
 
+	// 监听listener上的消息，为每个连接创建一个新的服务器，处理该gRPC请求
+	// 每次的处理程序
+	// 出现panic关闭listener
 	err = grpcServer.Serve(l)
 	if err != nil {
 		log.Fatal(err)

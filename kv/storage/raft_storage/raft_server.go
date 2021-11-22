@@ -58,6 +58,7 @@ func (rs *RaftStorage) checkResponse(resp *raft_cmdpb.RaftCmdResponse, reqCount 
 }
 
 // NewRaftStorage creates a new storage engine backed by a raftstore.
+// 由raft支持的存储引擎
 func NewRaftStorage(conf *config.Config) *RaftStorage {
 	dbPath := conf.DBPath
 	kvPath := filepath.Join(dbPath, "kv")

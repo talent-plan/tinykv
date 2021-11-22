@@ -60,6 +60,7 @@ const (
 	MB uint64 = 1024 * 1024
 )
 
+// NewDefaultConfig 默认的config
 func NewDefaultConfig() *Config {
 	return &Config{
 		SchedulerAddr:            "127.0.0.1:2379",
@@ -73,14 +74,15 @@ func NewDefaultConfig() *Config {
 		// Assume the average size of entries is 1k.
 		RaftLogGcCountLimit:                 128000,
 		SplitRegionCheckTickInterval:        10 * time.Second,
-		SchedulerHeartbeatTickInterval:      100 * time.Millisecond,
-		SchedulerStoreHeartbeatTickInterval: 10 * time.Second,
-		RegionMaxSize:                       144 * MB,
-		RegionSplitSize:                     96 * MB,
+		SchedulerHeartbeatTickInterval:      100 * time.Millisecond,	// 调度间隔
+		SchedulerStoreHeartbeatTickInterval: 10 * time.Second,			// 调度存储心跳间隔
+		RegionMaxSize:                       144 * MB,		// 分区最大值
+		RegionSplitSize:                     96 * MB,		// 分区分割大小
 		DBPath:                              "/tmp/badger",
 	}
 }
 
+// NewTestConfig test config
 func NewTestConfig() *Config {
 	return &Config{
 		LogLevel:                 "info",

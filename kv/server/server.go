@@ -20,9 +20,11 @@ type Server struct {
 	storage storage.Storage
 
 	// (Used in 4A/4B)
+	// lock for RW opts
 	Latches *latches.Latches
 
 	// coprocessor API handler, out of course scope
+	// 协处理器
 	copHandler *coprocessor.CopHandler
 }
 
