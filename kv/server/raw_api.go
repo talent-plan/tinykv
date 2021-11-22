@@ -17,8 +17,7 @@ func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kv
 	if err != nil {
 		return nil, err
 	}
-	cf := req.Cf
-	key := req.Key
+	cf, key := req.Cf, req.Key
 	value, err := reader.GetCF(cf, key)
 	if err != nil {
 		return nil, err
@@ -37,9 +36,7 @@ func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kv
 func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
 	// Your Code Here (1).
 	// Hint: Consider using Storage.Modify to store data to be modified
-	cf := req.Cf
-	key := req.Key
-	value := req.Value
+	cf, key, value := req.Cf, req.Key, req.Value
 	modify := []storage.Modify{
 		{
 			Data: storage.Put{
@@ -60,8 +57,7 @@ func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kv
 func (server *Server) RawDelete(_ context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
 	// Your Code Here (1).
 	// Hint: Consider using Storage.Modify to store data to be deleted
-	cf := req.Cf
-	key := req.Key
+	cf, key := req.Cf, req.Key
 	modify := []storage.Modify{
 		{
 			Data: storage.Delete{
