@@ -209,13 +209,13 @@ stale log entries:
 	eraftpb.Message's term with its HardState's term to avoid attaching its
 	local term to 'MessageType_MsgPropose'. When 'MessageType_MsgPropose' is passed to the leader's 'Step'
 	method, the leader first calls the 'appendEntry' method to append entries
-	to its log, and then calls 'bcastAppend' method to send those entries to
+	to its log, and then calls 'broadcastAppend' method to send those entries to
 	its peers. When passed to candidate, 'MessageType_MsgPropose' is dropped. When passed to
 	follower, 'MessageType_MsgPropose' is stored in follower's mailbox(msgs) by the send
 	method. It is stored with sender's ID and later forwarded to the leader by
 	rafthttp package.
 
-	'MessageType_MsgAppend' contains log entries to replicate. A leader calls bcastAppend,
+	'MessageType_MsgAppend' contains log entries to replicate. A leader calls broadcastAppend,
 	which calls sendAppend, which sends soon-to-be-replicated logs in 'MessageType_MsgAppend'
 	type. When 'MessageType_MsgAppend' is passed to candidate's Step method, candidate reverts
 	back to follower, because it indicates that there is a valid leader sending
@@ -242,13 +242,13 @@ stale log entries:
 
 	'MessageType_MsgRequestVoteResponse' contains responses from voting request. When 'MessageType_MsgRequestVoteResponse' is
 	passed to candidate, the candidate calculates how many votes it has won. If
-	it's more than majority (quorum), it becomes leader and calls 'bcastAppend'.
+	it's more than majority (quorum), it becomes leader and calls 'broadcastAppend'.
 	If candidate receives majority of votes of denials, it reverts back to
 	follower.
 
 	'MessageType_MsgSnapshot' requests to install a snapshot message. When a node has just
 	become a leader or the leader receives 'MessageType_MsgPropose' message, it calls
-	'bcastAppend' method, which then calls 'sendAppend' method to each
+	'broadcastAppend' method, which then calls 'sendAppend' method to each
 	follower. In 'sendAppend', if a leader fails to get term or entries,
 	the leader requests snapshot by sending 'MessageType_MsgSnapshot' type message.
 

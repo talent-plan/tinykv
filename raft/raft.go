@@ -104,7 +104,8 @@ func (c *Config) validate() error {
 	return nil
 }
 
-// Progress represents a follower’s progress in the view of the leader. Leader maintains
+// Progress represents a follower’s progress in the view of the leader.
+// Leader maintains
 // progresses of all followers, and sends entries to the follower based on its progress.
 type Progress struct {
 	Match, Next uint64
@@ -173,9 +174,9 @@ func newRaft(c *Config) *Raft {
 	raftLog := newLog(c.Storage)
 	prsMap := make(map[uint64]*Progress, len(c.peers))
 	for _, peerId := range c.peers {
-		prsMap[peerId] = &Progress{}
+		prsMap[peerId] = &Progress{
+		}
 	}
-	// c.Applied ? 设置为哪一个？
 	return &Raft{
 		id:   c.ID,
 		Term: 0,
@@ -193,7 +194,32 @@ func newRaft(c *Config) *Raft {
 // current commit index to the given peer. Returns true if a message was sent.
 func (r *Raft) sendAppend(to uint64) bool {
 	// Your Code Here (2A).
-	return false
+	msgReceiverPrs, ok  := r.Prs[to]
+	if !ok {
+		return false
+	}
+
+	m := pb.Message{}
+	// next - 1 or next ?
+	term, err := r.RaftLog.Term(msgReceiverPrs.Next )
+	entryToSend := r.RaftLog.fetchEntries(msgReceiverPrs.Next, 50)
+	msgToSend := pb.Message{
+		To:	to,
+	}
+
+	if err != nil {
+		// TODO: snapshot
+		// should send snapshot, if we fail to match index
+	} else {
+		msgToSend.MsgType = pb.MessageType_MsgAppend
+		msgToSend.Index = msgReceiverPrs.Next - 1
+		m.LogTerm = term
+		m.Entries = copyEntry(entryToSend)
+		m.Commit = r.RaftLog.committed
+	}
+
+	r.msgs = append(r.msgs, m)
+	return true
 }
 
 // sendHeartbeat sends a heartbeat RPC to the given peer.
@@ -313,6 +339,7 @@ func (r *Raft) Step(m pb.Message) error {
 			r.msgs = append(r.msgs, m)
 		}
 	case StateLeader:
+		// TODO: 这个判断太简单了，需要重构优化一下
 		if r.Term < m.Term {
 			r.becomeFollower(m.Term, m.From)
 		}
@@ -324,6 +351,21 @@ func (r *Raft) Step(m pb.Message) error {
 				}
 				r.sendHeartbeat(peerId)
 			}
+		case pb.MessageType_MsgPropose:
+			// 1. appendEntry()
+			// 2. broadcastAppend()
+			if len(m.Entries) == 0 {
+				// TODO: should return a understandable error
+				return nil
+			}
+			if _, ok := r.Prs[r.id]; !ok {
+				return ErrStepPeerNotFound
+			}
+			if !r.appendEntry(m.Entries...) {
+				return ErrProposalDropped
+			}
+
+			r.broadcastAppend()
 		default:
 		}
 	}
@@ -478,4 +520,40 @@ func (r *Raft) reset(term uint64) {
 // 为什么需要加 1 ？
 func (r *Raft) getRandomizedElectionTimeout() int {
 	return r.electionTimeout + rand.Intn(r.electionTimeout) + 1
+}
+
+func (r *Raft) appendEntry(es ...*pb.Entry) (accepted bool) {
+	li := r.RaftLog.LastIndex()
+	for i := range es {
+		es[i].Term = r.Term
+		es[i].Index = li + 1 + uint64(i)
+	}
+
+	if after := es[0].Index - 1; after < r.RaftLog.committed {
+		log.Panicf("after(%d) is out of range [committed(%d)]", after, r.RaftLog.committed)
+	}
+
+	currentLastIndex:= r.RaftLog.LastIndex()
+	// tracking the progress of itself
+	// see etcd MaybeUpdate
+	pr, ok := r.Prs[r.id]
+	if ok {
+		if pr.Match < currentLastIndex {
+			pr.Match = currentLastIndex
+		}
+		if pr.Next < currentLastIndex + 1 {
+			pr.Next = currentLastIndex + 1
+		}
+	}
+
+	return true
+}
+
+func (r *Raft) broadcastAppend() {
+	for peerId, _ := range r.Prs {
+		if r.id == peerId {
+			continue
+		}
+		r.sendAppend(peerId)
+	}
 }

@@ -14,7 +14,11 @@
 
 package raft
 
-import pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+import (
+	"errors"
+
+	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+)
 
 // RaftLog manage the log entries, its struct look like:
 //
@@ -58,6 +62,7 @@ func newLog(storage Storage) *RaftLog {
 	// Your Code Here (2A).
 	return &RaftLog{
 		storage: storage,
+		entries: make([]pb.Entry, 0),
 	}
 }
 
@@ -83,11 +88,14 @@ func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 // LastIndex return the last index of the log entries
 func (l *RaftLog) LastIndex() uint64 {
 	// Your Code Here (2A).
-	return l.applied
+	return uint64(len(l.entries))
 }
 
 // Term return the term of the entry in the given index
 func (l *RaftLog) Term(i uint64) (uint64, error) {
 	// Your Code Here (2A).
-	return 0, nil
+	if int(i) > len(l.entries) - 1 {
+		return 0, errors.New("index exceeds entries")
+	}
+	return l.entries[i].Term, nil
 }
