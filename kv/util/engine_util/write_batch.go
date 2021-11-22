@@ -6,7 +6,9 @@ import (
 	"github.com/pingcap/errors"
 )
 
+// WriteBatch 批量写
 type WriteBatch struct {
+	// key value userMeta
 	entries       []*badger.Entry
 	size          int
 	safePoint     int
@@ -31,10 +33,13 @@ func (wb *WriteBatch) SetCF(cf string, key, val []byte) {
 		Key:   KeyWithCF(cf, key),
 		Value: val,
 	})
+
+	// offset??
 	wb.size += len(key) + len(val)
 }
 
 func (wb *WriteBatch) DeleteMeta(key []byte) {
+	// only key, no value
 	wb.entries = append(wb.entries, &badger.Entry{
 		Key: key,
 	})
@@ -42,6 +47,7 @@ func (wb *WriteBatch) DeleteMeta(key []byte) {
 }
 
 func (wb *WriteBatch) DeleteCF(cf string, key []byte) {
+	// value == nil
 	wb.entries = append(wb.entries, &badger.Entry{
 		Key: KeyWithCF(cf, key),
 	})
@@ -53,6 +59,7 @@ func (wb *WriteBatch) SetMeta(key []byte, msg proto.Message) error {
 	if err != nil {
 		return errors.WithStack(err)
 	}
+	// set meta as value
 	wb.entries = append(wb.entries, &badger.Entry{
 		Key:   key,
 		Value: val,
@@ -77,8 +84,10 @@ func (wb *WriteBatch) WriteToDB(db *badger.DB) error {
 			for _, entry := range wb.entries {
 				var err1 error
 				if len(entry.Value) == 0 {
+					// only key, del opt
 					err1 = txn.Delete(entry.Key)
 				} else {
+					// meta? or normal?
 					err1 = txn.SetEntry(entry)
 				}
 				if err1 != nil {

@@ -29,14 +29,17 @@ func NewEngines(kvEngine, raftEngine *badger.DB, kvPath, raftPath string) *Engin
 	}
 }
 
+// WriteKV normal value
 func (en *Engines) WriteKV(wb *WriteBatch) error {
 	return wb.WriteToDB(en.Kv)
 }
 
+// WriteRaft raft value
 func (en *Engines) WriteRaft(wb *WriteBatch) error {
 	return wb.WriteToDB(en.Raft)
 }
 
+// Close only close
 func (en *Engines) Close() error {
 	if err := en.Kv.Close(); err != nil {
 		return err
@@ -47,6 +50,7 @@ func (en *Engines) Close() error {
 	return nil
 }
 
+// Destroy del db file
 func (en *Engines) Destroy() error {
 	if err := en.Close(); err != nil {
 		return err
@@ -72,6 +76,8 @@ func CreateDB(path string, raft bool) *badger.DB {
 	if err := os.MkdirAll(opts.Dir, os.ModePerm); err != nil {
 		log.Fatal(err)
 	}
+
+	// create db
 	db, err := badger.Open(opts)
 	if err != nil {
 		log.Fatal(err)

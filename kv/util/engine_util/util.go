@@ -7,11 +7,14 @@ import (
 	"github.com/golang/protobuf/proto"
 )
 
+// KeyWithCF cf(string)_key
 func KeyWithCF(cf string, key []byte) []byte {
 	return append([]byte(cf+"_"), key...)
 }
 
+// GetCF for normal value
 func GetCF(db *badger.DB, cf string, key []byte) (val []byte, err error) {
+	// read-only transaction
 	err = db.View(func(txn *badger.Txn) error {
 		val, err = GetCFFromTxn(txn, cf, key)
 		return err
@@ -20,20 +23,24 @@ func GetCF(db *badger.DB, cf string, key []byte) (val []byte, err error) {
 }
 
 func GetCFFromTxn(txn *badger.Txn, cf string, key []byte) (val []byte, err error) {
+	// look up key
 	item, err := txn.Get(KeyWithCF(cf, key))
 	if err != nil {
 		return nil, err
 	}
+	// get value
 	val, err = item.ValueCopy(val)
 	return
 }
 
+// PutCF for normal value
 func PutCF(engine *badger.DB, cf string, key []byte, val []byte) error {
 	return engine.Update(func(txn *badger.Txn) error {
 		return txn.Set(KeyWithCF(cf, key), val)
 	})
 }
 
+// GetMeta directly from the database
 func GetMeta(engine *badger.DB, key []byte, msg proto.Message) error {
 	var val []byte
 	err := engine.View(func(txn *badger.Txn) error {
@@ -50,6 +57,7 @@ func GetMeta(engine *badger.DB, key []byte, msg proto.Message) error {
 	return proto.Unmarshal(val, msg)
 }
 
+// GetMetaFromTxn get value from the txn
 func GetMetaFromTxn(txn *badger.Txn, key []byte, msg proto.Message) error {
 	item, err := txn.Get(key)
 	if err != nil {
@@ -62,6 +70,7 @@ func GetMetaFromTxn(txn *badger.Txn, key []byte, msg proto.Message) error {
 	return proto.Unmarshal(val, msg)
 }
 
+// PutMeta meta value need marshal
 func PutMeta(engine *badger.DB, key []byte, msg proto.Message) error {
 	val, err := proto.Marshal(msg)
 	if err != nil {
@@ -83,9 +92,11 @@ func DeleteRange(db *badger.DB, startKey, endKey []byte) error {
 	txn := db.NewTransaction(false)
 	defer txn.Discard()
 	for _, cf := range CFs {
+		// endKey over
 		deleteRangeCF(txn, batch, cf, startKey, endKey)
 	}
 
+	// flush
 	return batch.WriteToDB(db)
 }
 
