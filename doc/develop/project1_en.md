@@ -20,4 +20,4 @@ The main task is to implement raw key/value service handlers. The code is placed
 - RawGet: Using `Reader.GetCF` to get value
 - RawPut: First, use `Storage.Modify` to wrap `kvrpcpb.RawPutRequest` and then call `StandAloneStorage.Write` to write data to the database
 - RawDelet: First, use `Storage.Modify` to wrap `kvrpcpb.RawPutRequest` and then call `StandAloneStorage.Write` to delete data from database
-- RawScan: Use `Reader.IterCF` to get the iterator, then find the corresponding data and returng
+- RawScan: Use `Reader.IterCF` to get the iterator, then find the corresponding data and return
