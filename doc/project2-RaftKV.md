@@ -61,6 +61,7 @@ You can run `make project2ac` to test the implementation and run `make project2a
 > - Add any state you need to `raft.Raft`, `raft.RaftLog`, `raft.RawNode` and message on `eraftpb.proto`
 > - The tests assume that the first time start raft should have term 0
 > - The tests assume that the newly elected leader should append a noop entry on its term
+> - The tests assume that once the leader advances its commit index, it will broadcast the commit index by `MessageType_MsgAppend` messages.
 > - The tests doesn’t set term for the local messages, `MessageType_MsgHup`, `MessageType_MsgBeat` and `MessageType_MsgPropose`.
 > - The log entries append are quite different between leader and non-leader, there are different sources, checking and handling, be careful with that.
 > - Don’t forget the election timeout should be different between peers.
