@@ -60,8 +60,25 @@ type RaftLog struct {
 // to the state that it just commits and applies the latest snapshot.
 func newLog(storage Storage) *RaftLog {
 	// Your Code Here (2A).
+	firstIdx, err := storage.FirstIndex()
+	if err != nil {
+		panic(err)
+	}
+	lastIdx, err := storage.LastIndex()
+	if err != nil {
+		panic(err)
+	}
+	//log.unstable.offset = lastIndex + 1
+	//log.unstable.logger = logger
+	//// Initialize our committed and applied pointers to the time of the last compaction.
+	//log.committed = firstIndex - 1
+	//log.applied = firstIndex - 1
+
 	return &RaftLog{
 		storage: storage,
+		applied: firstIdx -1,
+		committed: firstIdx- 1,
+		stabled: lastIdx,
 		entries: make([]pb.Entry, 0),
 	}
 }

@@ -225,7 +225,16 @@ func (r *Raft) sendAppend(to uint64) bool {
 // sendHeartbeat sends a heartbeat RPC to the given peer.
 func (r *Raft) sendHeartbeat(to uint64) {
 	// Your Code Here (2A).
-	r.msgs = append(r.msgs, pb.Message{From: r.id, Term: r.Term, To: to, MsgType: pb.MessageType_MsgHeartbeat})
+	commit := min(r.Prs[to].Match, r.RaftLog.committed)
+	r.msgs = append(
+		r.msgs,
+		pb.Message{
+			From: r.id,
+			Term: r.Term,
+			To: to,
+			Commit: commit,
+			MsgType: pb.MessageType_MsgHeartbeat,
+		})
 }
 
 // tick advances the internal logical clock by a single tick.
@@ -293,8 +302,17 @@ func (r *Raft) Step(m pb.Message) error {
 	// 这种状态应该是 follower，leader, candidates 都共同需要处理的
 	case pb.MessageType_MsgRequestVote:
 		// TODO: There will be more restrction here
+		// 需要处理情况
+
 		canVote := r.Vote == m.From ||
-			(r.Vote == None && r.Lead == None)
+			(r.Vote == None && r.Lead == None) ||
+			(m.MsgType == pb.MessageType_MsgRequestVote && m.Term > r.Term)
+
+		if canVote {
+			// TODO: 应该不是在这里判断的才对？
+			r.becomeFollower(m.Term, None)
+		}
+		r.Vote = m.From
 		r.send(pb.Message{
 			From: r.id,
 			To: m.From,
@@ -333,6 +351,8 @@ func (r *Raft) Step(m pb.Message) error {
 		case pb.MessageType_MsgRequestVoteResponse:
 			r.recordVote(m)
 			r.campaignForLeader()
+		case pb.MessageType_MsgBeat:
+			// 忽略
 		default:
 			r.Term = m.Term
 			r.becomeFollower(m.Term, m.From)
@@ -344,7 +364,7 @@ func (r *Raft) Step(m pb.Message) error {
 			r.becomeFollower(m.Term, m.From)
 		}
 		switch m.MsgType {
-		case pb.MessageType_MsgHeartbeat:
+		case pb.MessageType_MsgBeat:
 			for peerId, _ := range r.Prs {
 				if peerId == r.id {
 					continue
