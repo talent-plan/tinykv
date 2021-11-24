@@ -93,6 +93,14 @@ func (l *RaftLog) maybeCompact() {
 	// Your Code Here (2C).
 }
 
+func (l *RaftLog) append(entries ...pb.Entry) {
+	l.entries = append(l.entries, entries...)
+}
+
+func (l *RaftLog) GetItemByIndex(index uint64) *pb.Entry {
+	return &l.entries[index-l.offset]
+}
+
 // unstableEntries return all the unstable entries
 func (l *RaftLog) unstableEntries() []pb.Entry {
 	// Your Code Here (2A).
