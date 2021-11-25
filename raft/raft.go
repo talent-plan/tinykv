@@ -383,8 +383,8 @@ func (r *Raft) becomeLeader() {
 		Next:  lastLogIndex + 1 + 1,
 		Match: lastLogIndex + 1,
 	}
-	// r.bcastAppend()
-	// log.Infof("[raft]: %d became leader at term %d", r.id, r.Term)
+	r.bcastAppend()
+	log.Infof("[raft]: %d became leader at term %d", r.id, r.Term)
 
 }
 
@@ -547,8 +547,13 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 	if r.State == StateCandidate && m.Term >= r.Term {
 		r.becomeFollower(r.Term, m.From)
 	}
+	// TODO 逻辑实现
 
 	r.sendAppendResponse(m.From)
+}
+
+func (r *Raft) handleAppendEntriesResponse(m pb.Message) {
+	// TODO
 }
 
 // handleHeartbeat handle Heartbeat RPC request
