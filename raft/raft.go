@@ -139,6 +139,8 @@ type Raft struct {
 	heartbeatTimeout int
 	// baseline of election interval
 	electionTimeout int
+
+	randomElectionTimeout int
 	// number of ticks since it reached last heartbeatTimeout.
 	// only leader keeps heartbeatElapsed.
 	heartbeatElapsed int
@@ -169,19 +171,20 @@ func newRaft(c *Config) *Raft {
 		panic(err.Error())
 	}
 	raft := &Raft{
-		id:               c.ID,
-		State:            StateFollower,
-		Lead:             None,
-		Peers:            c.peers,
-		Prs:              make(map[uint64]*Progress),
-		RaftLog:          newLog(c.Storage),
-		heartbeatTimeout: c.HeartbeatTick,
-		electionTimeout:  c.ElectionTick,
+		id:                    c.ID,
+		State:                 StateFollower,
+		Lead:                  None,
+		Peers:                 c.peers,
+		Prs:                   make(map[uint64]*Progress),
+		RaftLog:               newLog(c.Storage),
+		heartbeatTimeout:      c.HeartbeatTick,
+		electionTimeout:       c.ElectionTick,
+		randomElectionTimeout: c.ElectionTick + rand.Intn(c.ElectionTick),
 	}
 	return raft
 }
 
-func (r *Raft) randomElectionTimeout() int {
+func (r *Raft) newRandomElectionTimeout() int {
 	return r.electionTimeout + rand.Intn(r.electionTimeout)
 }
 
@@ -304,7 +307,7 @@ func (r *Raft) tick() {
 func (r *Raft) tickElection() {
 	r.electionElapsed++
 
-	if r.electionElapsed >= r.electionTimeout {
+	if r.electionElapsed >= r.randomElectionTimeout {
 		r.electionElapsed = 0
 		if err := r.Step(pb.Message{MsgType: pb.MessageType_MsgHup}); err != nil {
 			log.Infof("[election][err]: %v", err)
@@ -342,7 +345,7 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	r.reset(term)
 	r.State = StateFollower
 	r.Lead = lead
-	log.Infof("[raft]: %d became follower at term %d", r.id, r.Term)
+	// log.Infof("[raft]: %d became follower at term %d", r.id, r.Term)
 }
 
 // becomeCandidate transform this peer's state to candidate
@@ -356,7 +359,7 @@ func (r *Raft) becomeCandidate() {
 	r.votes = make(map[uint64]bool)
 	r.votes[r.id] = true
 	r.Vote = r.id
-	log.Infof("[raft]: %d became candidate at term %d", r.id, r.Term)
+	// log.Infof("[raft]: %d became candidate at term %d", r.id, r.Term)
 }
 
 // becomeLeader transform this peer's state to leader
@@ -381,7 +384,7 @@ func (r *Raft) becomeLeader() {
 		Match: lastLogIndex + 1,
 	}
 	// r.bcastAppend()
-	log.Infof("[raft]: %d became leader at term %d", r.id, r.Term)
+	// log.Infof("[raft]: %d became leader at term %d", r.id, r.Term)
 
 }
 
@@ -473,7 +476,7 @@ func (r *Raft) startElection() {
 	r.becomeCandidate()
 	r.electionElapsed = 0
 	// 选举时间为（config传入的选举时间 , 2*config传入的选举时间）
-	r.electionTimeout = r.randomElectionTimeout()
+	r.randomElectionTimeout = r.newRandomElectionTimeout()
 
 	if len(r.Peers) == 1 {
 		r.becomeLeader()
@@ -514,7 +517,7 @@ func (r *Raft) handleRequestVote(m pb.Message) {
 	}
 	r.Vote = m.From
 	r.electionElapsed = 0
-	r.electionTimeout = r.randomElectionTimeout()
+	r.randomElectionTimeout = r.newRandomElectionTimeout()
 	r.sendRequestVoteResponse(m.From, false)
 }
 
@@ -555,7 +558,7 @@ func (r *Raft) handleHeartbeat(m pb.Message) {
 		r.sendHeartbeatResponse(m.From, true)
 	}
 	r.electionElapsed = 0
-	r.electionTimeout = r.randomElectionTimeout()
+	r.randomElectionTimeout = r.newRandomElectionTimeout()
 	r.Lead = m.From
 	r.sendHeartbeatResponse(m.From, false)
 }
