@@ -169,3 +169,13 @@ func (l *RaftLog) Term(i uint64) (uint64, error) {
 	}
 	return term, nil
 }
+
+func (l *RaftLog) getNewCommitIndex(a uint64 ,b uint64) uint64{
+	min := uint64(0)
+	if a>b{
+		min = b
+	}else{
+		min = a
+	}
+	return min
+}
