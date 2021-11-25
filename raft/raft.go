@@ -17,7 +17,7 @@ package raft
 import (
 	"errors"
 	"math/rand"
-
+	"sort"
 	"github.com/pingcap-incubator/tinykv/log"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
@@ -240,8 +240,17 @@ func (r *Raft) sendAppend(to uint64) bool {
 	return true
 }
 
-func (r *Raft) sendAppendResponse(to uint64) {
+func (r *Raft) sendAppendResponse(to uint64,reject bool) {
 
+	msg := &pb.Message{
+		MsgType: pb.MessageType_MsgAppendResponse,
+		From:    r.id,
+		To:      to,
+		Term:    r.Term,
+		Index:   r.getLastLogIndex(), //记录收到的log entry，最新的index。只有reject == false即添加entry成功，这个变量才会被使用
+		Reject:  reject,
+	}
+	r.msgs = append(r.msgs, *msg)
 }
 
 // sendHeartbeat sends a heartbeat RPC to the given peer.
@@ -415,6 +424,8 @@ func (r *Raft) stepFollower(m pb.Message) error {
 	case pb.MessageType_MsgRequestVote:
 		r.handleRequestVote(m)
 	case pb.MessageType_MsgRequestVoteResponse:
+	case pb.MessageType_MsgPropose:
+		r.followerHandlePropose(m)
 	case pb.MessageType_MsgAppend:
 		r.handleAppendEntries(m)
 	case pb.MessageType_MsgBeat:
@@ -449,7 +460,10 @@ func (r *Raft) stepLeader(m pb.Message) error {
 	case pb.MessageType_MsgRequestVote:
 		r.handleRequestVote(m)
 	case pb.MessageType_MsgRequestVoteResponse:
+	case pb.MessageType_MsgPropose:
+		r.leaderHandlePropose(m)
 	case pb.MessageType_MsgAppend:
+		r.leaderHandleAppendEntries(m)
 	case pb.MessageType_MsgBeat:
 		r.startHeartBeat()
 	case pb.MessageType_MsgHeartbeat:
@@ -541,6 +555,20 @@ func (r *Raft) handleRequestVoteResponse(m pb.Message) {
 	}
 }
 
+
+
+func (r *Raft) leaderHandlePropose(m pb.Message) {
+	//to do,leader 处理msgPropose
+}
+
+func (r *Raft) followerHandlePropose(m pb.Message) {
+	//to do,follower 处理msgPropose
+}
+
+func (r *Raft) leaderHandleAppendEntries(m pb.Message) {
+	//to do,leader处理msgAppend
+}
+
 // handleAppendEntries handle AppendEntries RPC request
 func (r *Raft) handleAppendEntries(m pb.Message) {
 	// Your Code Here (2A).
@@ -548,12 +576,60 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 		r.becomeFollower(r.Term, m.From)
 	}
 	// TODO 逻辑实现
+	
+	reject := true
+	term,err := r.RaftLog.Term(m.Index)
+	if r.getLastLogIndex() >= m.Index && term != m.Term{
+		r.sendAppendResponse(m.From,reject)
+		return
+	}
 
-	r.sendAppendResponse(m.From)
+	//到这里的话，就是preindex preTerm的都相同的日志，就不必在挨个判断，后续的日志是否有不同的，直接暴力替换
+	//也就是说，如果m.index和m.Term都符合，那么follower的entry(index,laested]
+	//直接被替换为msg中的entry
+	r.RaftLog.entries =  r.RaftLog.entries[:m.Index+1] 
+	for _,entry := range(m.Entries){
+		r.RaftLog.entries = append(r.RaftLog.entries ,*entry)
+	}
+
+	if(m.Commit > r.RaftLog.committed){
+		r.RaftLog.committed = r.RaftLog.getNewCommitIndex(m.Commit,r.getLastLogIndex())
+	}
+	reject = false
+	r.sendAppendResponse(m.From,reject)
 }
 
 func (r *Raft) handleAppendEntriesResponse(m pb.Message) {
 	// TODO
+	if(m.Reject){
+		r.Prs[m.From].Next -= 1
+		r.Prs[m.From].Match = 0
+		/*retry?*/
+		r.sendAppend(m.From)
+		return
+
+	}else{
+		r.Prs[m.From].Next = m.Index + 1
+		r.Prs[m.From].Match = m.Index
+	}
+
+	/*更新leadercommit，要找到N >commit，且大多数matchindex>=N, 且log[N].term == currentTerm*/
+	//这样一个N，本质上为，所有matchindex的中位数，找到后在进行其他判断
+	allMatchIndex := []int{}
+	for _,prs := range r.Prs{
+		allMatchIndex = append(allMatchIndex,int(prs.Match))
+	}
+	sort.Ints(allMatchIndex)
+
+	majorityMatchLogIndex := uint64(allMatchIndex[len(r.Peers) / 2]) //已经被复制的日志下标
+	term,err := r.RaftLog.Term(majorityMatchLogIndex)
+	if err != nil {
+		panic(err)
+	}
+
+	if(majorityMatchLogIndex > r.RaftLog.committed && term == r.Term){
+			r.RaftLog.committed = majorityMatchLogIndex
+	}
 }
 
 // handleHeartbeat handle Heartbeat RPC request
@@ -582,3 +658,4 @@ func (r *Raft) addNode(id uint64) {
 func (r *Raft) removeNode(id uint64) {
 	// Your Code Here (3A).
 }
+
