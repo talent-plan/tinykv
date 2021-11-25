@@ -1,4 +1,4 @@
-# Project 1
+# Project1
 
 ## Target
 1. Implement a standalone storage engine.
