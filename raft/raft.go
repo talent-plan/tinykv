@@ -184,6 +184,7 @@ func newRaft(c *Config) *Raft {
 	return raft
 }
 
+// 选举时间为（config传入的选举时间 , 2*config传入的选举时间）
 func (r *Raft) newRandomElectionTimeout() int {
 	return r.electionTimeout + rand.Intn(r.electionTimeout)
 }
@@ -475,7 +476,7 @@ func (r *Raft) getLastLogTerm() uint64 {
 func (r *Raft) startElection() {
 	r.becomeCandidate()
 	r.electionElapsed = 0
-	// 选举时间为（config传入的选举时间 , 2*config传入的选举时间）
+
 	r.randomElectionTimeout = r.newRandomElectionTimeout()
 
 	if len(r.Peers) == 1 {
