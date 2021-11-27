@@ -16,7 +16,8 @@ package raft
 
 import (
 	"errors"
-
+	"math/rand"
+	"github.com/pingcap-incubator/tinykv/log"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
@@ -42,6 +43,21 @@ func (st StateType) String() string {
 	return stmap[uint64(st)]
 }
 
+func getMin(a uint64, b uint64) uint64{
+	min := a
+	if(a > b){
+		min = b
+	}
+	return min
+}
+
+func getMax(a uint64, b uint64) uint64{
+	max := a
+	if(a < b){
+		max = b
+	}
+	return max
+}
 // ErrProposalDropped is returned when the proposal is ignored by some cases,
 // so that the proposer can be notified and fail fast.
 var ErrProposalDropped = errors.New("raft proposal dropped")
@@ -116,6 +132,8 @@ type Raft struct {
 	// the log
 	RaftLog *RaftLog
 
+	Peers []uint64
+
 	// log replication progress of each peers
 	Prs map[uint64]*Progress
 
@@ -135,6 +153,8 @@ type Raft struct {
 	heartbeatTimeout int
 	// baseline of election interval
 	electionTimeout int
+
+	randomElectionTimeout int
 	// number of ticks since it reached last heartbeatTimeout.
 	// only leader keeps heartbeatElapsed.
 	heartbeatElapsed int
@@ -164,63 +184,514 @@ func newRaft(c *Config) *Raft {
 	if err := c.validate(); err != nil {
 		panic(err.Error())
 	}
-	// Your Code Here (2A).
-	return nil
+	raft := &Raft{
+		id:                    c.ID,
+		State:                 StateFollower,
+		Lead:                  None,
+		Peers:                 c.peers,
+		Prs:                   make(map[uint64]*Progress),
+		RaftLog:               newLog(c.Storage),
+		heartbeatTimeout:      c.HeartbeatTick,
+		electionTimeout:       c.ElectionTick,
+		randomElectionTimeout: c.ElectionTick + rand.Intn(c.ElectionTick),
+	}
+	if(c.Storage != nil){
+		hardState,_,_ := c.Storage.InitialState()
+		raft.Term = hardState.Term
+		raft.Vote = hardState.Vote
+		raft.RaftLog.committed = hardState.Commit
+
+		// raft.RaftLog.entries =
+	}
+
+	return raft
+}
+
+func (r *Raft) newRandomElectionTimeout() int {
+	return r.electionTimeout + rand.Intn(r.electionTimeout)
+}
+
+func (r *Raft) bcastAppend() {
+	if r.State != StateLeader {
+		return
+	}
+	
+	lastLogIndex := r.getLastLogIndex()
+	r.Prs[r.id].Next= lastLogIndex + 1 
+	r.Prs[r.id].Match= lastLogIndex
+	r.leaderUpdateCommitIndex()
+	if len(r.Peers) == 1{
+		r.RaftLog.committed = lastLogIndex
+		return
+	}
+	
+	for _, peer := range r.Peers {
+		if peer != r.id {
+			r.sendAppend(peer)
+		}
+
+	}
+}
+
+func (r *Raft) appendEntry(entries ...pb.Entry) {
+	for i, _ := range entries {
+		entries[i].Term = r.Term
+		entries[i].Index = r.getLastLogIndex() + 1 + uint64(i)
+	}
+
+	r.RaftLog.append(entries...)
 }
 
 // sendAppend sends an append RPC with new entries (if any) and the
 // current commit index to the given peer. Returns true if a message was sent.
 func (r *Raft) sendAppend(to uint64) bool {
 	// Your Code Here (2A).
-	return false
+	// index of log entry immediately preceding new ones
+	prevLogIndex := r.Prs[to].Next - 1
+	prevLogTerm, err := r.RaftLog.Term(prevLogIndex)
+	if err != nil {
+		panic(err)
+	}
+
+	entries := make([]*pb.Entry, 0)
+	for i := prevLogIndex + 1; i <= r.RaftLog.LastIndex(); i++ {
+		entries = append(entries, r.RaftLog.GetItemByIndex(i))
+	}
+
+	msg := &pb.Message{
+		MsgType: pb.MessageType_MsgAppend,
+		From:    r.id,
+		To:      to,
+		Term:    r.Term,
+		LogTerm: prevLogTerm,
+		Index:   prevLogIndex,
+		Commit:  r.RaftLog.committed,
+		Entries: entries,
+	}
+
+	r.msgs = append(r.msgs, *msg)
+	return true
+}
+
+func (r *Raft) sendAppendResponse(to uint64,reject bool) {
+
+	msg := &pb.Message{
+		MsgType: pb.MessageType_MsgAppendResponse,
+		From:    r.id,
+		To:      to,
+		Term:    r.Term,
+		Index:   r.getLastLogIndex(), //记录收到的log entry，最新的index。只有reject == false即添加entry成功，这个变量才会被使用
+		Commit:  r.RaftLog.committed,
+		Reject:  reject,
+	}
+	r.msgs = append(r.msgs, *msg)
 }
 
 // sendHeartbeat sends a heartbeat RPC to the given peer.
 func (r *Raft) sendHeartbeat(to uint64) {
 	// Your Code Here (2A).
+	msg := &pb.Message{
+		MsgType: pb.MessageType_MsgHeartbeat,
+		From:    r.id,
+		To:      to,
+		Term:    r.Term,
+		Commit:  r.RaftLog.committed,
+	}
+	r.msgs = append(r.msgs, *msg)
+}
+
+func (r *Raft) sendHeartbeatResponse(to uint64, reject bool) {
+	msg := &pb.Message{
+		MsgType: pb.MessageType_MsgAppendResponse,
+		From:    r.id,
+		To:      to,
+		Term:    r.Term,
+		Reject:  reject,
+	}
+	r.msgs = append(r.msgs, *msg)
+}
+
+func (r *Raft) sendRequestVote(to uint64, lastLogIndex, LastLogTerm uint64) {
+	msg := &pb.Message{
+		MsgType: pb.MessageType_MsgRequestVote,
+		To:      to,
+		From:    r.id,
+		Term:    r.Term,
+		LogTerm: LastLogTerm,
+		Index:   lastLogIndex,
+	}
+
+	r.msgs = append(r.msgs, *msg)
+}
+
+func (r *Raft) sendRequestVoteResponse(to uint64, reject bool) {
+	msg := &pb.Message{
+		MsgType: pb.MessageType_MsgRequestVoteResponse,
+		To:      to,
+		From:    r.id,
+		Term:    r.Term,
+		Reject:  reject,
+	}
+
+	r.msgs = append(r.msgs, *msg)
 }
 
 // tick advances the internal logical clock by a single tick.
 func (r *Raft) tick() {
-	// Your Code Here (2A).
+	switch r.State {
+	case StateFollower:
+		r.tickElection()
+	case StateCandidate:
+		r.tickElection()
+	case StateLeader:
+		r.tickHeartbeat()
+	}
+}
+
+func (r *Raft) tickElection() {
+	r.electionElapsed++
+
+	if r.electionElapsed >= r.randomElectionTimeout {
+		r.electionElapsed = 0
+		if err := r.Step(pb.Message{MsgType: pb.MessageType_MsgHup}); err != nil {
+			log.Infof("[election][err]: %v", err)
+		}
+	}
+}
+
+func (r *Raft) tickHeartbeat() {
+	r.heartbeatElapsed++
+
+	if r.heartbeatElapsed >= r.heartbeatTimeout {
+		r.heartbeatElapsed = 0
+		if err := r.Step(pb.Message{MsgType: pb.MessageType_MsgBeat}); err != nil {
+			log.Infof("[heartbeat][err]: %v", err)
+		}
+	}
+
+}
+
+func (r *Raft) reset(term uint64) {
+	if r.Term != term {
+		r.Term = term
+		r.Vote = None
+	}
+	r.Lead = None
+
+	r.heartbeatElapsed = 0
+	r.electionElapsed = 0
+
 }
 
 // becomeFollower transform this peer's state to Follower
 func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	// Your Code Here (2A).
+	r.reset(term)
+	r.State = StateFollower
+	r.Lead = lead
+
 }
 
 // becomeCandidate transform this peer's state to candidate
 func (r *Raft) becomeCandidate() {
 	// Your Code Here (2A).
+	if r.State == StateLeader {
+		log.Panicf("[raft][error]: %d from leader convert to candidate", r.id)
+	}
+	r.reset(r.Term + 1)
+	r.State = StateCandidate
+	r.votes = make(map[uint64]bool)
+	r.votes[r.id] = true
+	r.Vote = r.id
+
 }
 
 // becomeLeader transform this peer's state to leader
 func (r *Raft) becomeLeader() {
 	// Your Code Here (2A).
 	// NOTE: Leader should propose a noop entry on its term
+	r.reset(r.Term)
+	r.State = StateLeader
+	r.Lead = r.id
+	lastLogIndex := r.getLastLogIndex()
+
+	for _, peer := range r.Peers {
+		r.Prs[peer] = &Progress{
+			Next: lastLogIndex + 1,
+		}
+	}
+	emptyEntry := pb.Entry{Data: nil}
+	r.appendEntry(emptyEntry)
+	// 新加一个空emptyEntry，对于leader增加其Next和Match
+	r.Prs[r.id] = &Progress{
+		Next:  lastLogIndex + 1 + 1,
+		Match: lastLogIndex + 1,
+	}
+	r.bcastAppend()
+
 }
 
 // Step the entrance of handle message, see `MessageType`
 // on `eraftpb.proto` for what msgs should be handled
 func (r *Raft) Step(m pb.Message) error {
 	// Your Code Here (2A).
+	// 通过这步能将Term统一
+
+	if m.Term > r.Term {
+		r.becomeFollower(m.Term, None)
+	}
 	switch r.State {
 	case StateFollower:
+		return r.stepFollower(m)
 	case StateCandidate:
+		return r.stepCandidate(m)
 	case StateLeader:
+		return r.stepLeader(m)
 	}
 	return nil
+}
+
+func (r *Raft) stepFollower(m pb.Message) error {
+	switch m.MsgType {
+	case pb.MessageType_MsgHup:
+		r.startElection()
+	case pb.MessageType_MsgRequestVote:
+		r.handleRequestVote(m)
+	case pb.MessageType_MsgRequestVoteResponse:
+	case pb.MessageType_MsgPropose:
+		r.followerHandlePropose(m)
+	case pb.MessageType_MsgAppend:
+		r.handleAppendEntries(m)
+	case pb.MessageType_MsgBeat:
+	case pb.MessageType_MsgHeartbeat:
+		r.handleHeartbeat(m)
+	case pb.MessageType_MsgHeartbeatResponse:
+	}
+	return nil
+}
+
+func (r *Raft) stepCandidate(m pb.Message) error {
+	switch m.MsgType {
+	case pb.MessageType_MsgHup:
+		r.startElection()
+	case pb.MessageType_MsgRequestVote:
+		r.handleRequestVote(m)
+	case pb.MessageType_MsgRequestVoteResponse:
+		r.handleRequestVoteResponse(m)
+	case pb.MessageType_MsgAppend:
+		r.handleAppendEntries(m)
+	case pb.MessageType_MsgBeat:
+	case pb.MessageType_MsgHeartbeat:
+		r.handleHeartbeat(m)
+	case pb.MessageType_MsgHeartbeatResponse:
+	}
+	return nil
+}
+
+func (r *Raft) stepLeader(m pb.Message) error {
+	switch m.MsgType {
+	case pb.MessageType_MsgHup:
+	case pb.MessageType_MsgRequestVote:
+		r.handleRequestVote(m)
+	case pb.MessageType_MsgRequestVoteResponse:
+	case pb.MessageType_MsgPropose:
+		r.leaderHandlePropose(m)
+	case pb.MessageType_MsgAppend:
+		r.leaderHandleAppendEntries(m)
+	case pb.MessageType_MsgAppendResponse:
+		r.handleAppendEntriesResponse(m)
+	case pb.MessageType_MsgBeat:
+		r.startHeartBeat()
+	case pb.MessageType_MsgHeartbeat:
+	case pb.MessageType_MsgHeartbeatResponse:
+
+	}
+	return nil
+}
+
+func (r *Raft) getLastLogIndex() uint64 {
+	return r.RaftLog.LastIndex()
+}
+
+func (r *Raft) getLastLogTerm() uint64 {
+	lastIndex := r.RaftLog.LastIndex()
+	lastTerm, err := r.RaftLog.Term(lastIndex)
+	if err != nil {
+		panic(err)
+	}
+	return lastTerm
+}
+
+func (r *Raft) startElection() {
+	r.becomeCandidate()
+	r.electionElapsed = 0
+	// 选举时间为（config传入的选举时间 , 2*config传入的选举时间）
+	r.randomElectionTimeout = r.newRandomElectionTimeout()
+
+	if len(r.Peers) == 1 {
+		r.becomeLeader()
+		return
+	}
+
+	lastLogIndex := r.getLastLogIndex()
+	lastLogTerm := r.getLastLogTerm()
+	for _, peer := range r.Peers {
+		if peer != r.id {
+			r.sendRequestVote(peer, lastLogIndex, lastLogTerm)
+		}
+	}
+}
+
+func (r *Raft) startHeartBeat() {
+	r.heartbeatElapsed = 0
+	for _, peer := range r.Peers {
+		if peer != r.id {
+			r.sendHeartbeat(peer)
+		}
+	}
+}
+
+func (r *Raft) handleRequestVote(m pb.Message) {
+	if m.Term < r.Term || r.State == StateLeader || r.State == StateCandidate {
+		r.sendRequestVoteResponse(m.From, true)
+		return
+	}
+	if r.Vote != None && r.Vote != m.From {
+		r.sendRequestVoteResponse(m.From, true)
+		return
+	}
+	lastLogIndex := r.getLastLogIndex()
+	lastLogTerm := r.getLastLogTerm()
+	if lastLogTerm > m.LogTerm || lastLogTerm == m.LogTerm && lastLogIndex > m.Index {
+		r.sendRequestVoteResponse(m.From, true)
+		return
+	}
+	r.Vote = m.From
+	r.electionElapsed = 0
+	r.randomElectionTimeout = r.newRandomElectionTimeout()
+	r.sendRequestVoteResponse(m.From, false)
+}
+
+func (r *Raft) handleRequestVoteResponse(m pb.Message) {
+	if m.Term < r.Term {
+		return
+	}
+	r.votes[m.From] = !m.Reject
+	total_votes := len(r.votes)
+	majority := len(r.Peers) / 2
+	cnt := 0
+	for _, vote := range r.votes {
+		if vote {
+			cnt++
+		}
+	}
+	if cnt > majority {
+		r.becomeLeader()
+	} else if total_votes-cnt > majority {
+		r.becomeFollower(r.Term, None)
+	}
+}
+
+
+
+func (r *Raft) leaderHandlePropose(m pb.Message) {
+	//to do,leader 处理msgPropose
+	entries := m.Entries
+	for _,entry := range(entries){
+		r.appendEntry(*entry)
+	}
+	r.bcastAppend()
+}
+
+func (r *Raft) followerHandlePropose(m pb.Message) {
+	//to do,follower 处理msgPropose
+}
+
+func (r *Raft) leaderHandleAppendEntries(m pb.Message) {
+	//to do,leader处理msgAppend
 }
 
 // handleAppendEntries handle AppendEntries RPC request
 func (r *Raft) handleAppendEntries(m pb.Message) {
 	// Your Code Here (2A).
+	if r.State == StateCandidate && m.Term >= r.Term {
+		r.becomeFollower(r.Term, m.From)
+	}
+	// TODO 逻辑实现
+
+
+	reject := true
+
+	if(r.getLastLogIndex() < m.Index){
+		r.sendAppendResponse(m.From,reject)
+		return
+	}
+
+	term,_ := r.RaftLog.Term(m.Index)
+	if (r.getLastLogIndex() >= m.Index && term != m.LogTerm){
+		r.sendAppendResponse(m.From,reject)
+		return
+	}
+
+	//开始附加entry，如果有不符合的，直接删除
+	offset := 0
+
+	for i := m.Index + 1; i <= r.RaftLog.LastIndex() && offset < len(m.Entries); i++ {
+		if( (*r.RaftLog.GetItemByIndex(i)).Index != m.Entries[offset].Index  || 
+				(*r.RaftLog.GetItemByIndex(i)).Term !=  m.Entries[offset].Term ){
+			r.RaftLog.DeletItemByIndex(i-1)
+			r.RaftLog.stabled = getMin( uint64(i - 1),r.RaftLog.stabled )
+			break
+		}
+		offset += 1
+	}
+
+	for i,entry := range(m.Entries){
+		if(i < offset){
+			continue
+		}
+		r.RaftLog.entries = append(r.RaftLog.entries ,*entry)
+	}
+
+
+	if(m.Commit > r.RaftLog.committed){
+		r.RaftLog.committed = r.RaftLog.getNewCommitIndex(m.Commit,r.getLastLogIndex())
+	}
+	reject = false
+	r.sendAppendResponse(m.From,reject)
+}
+
+func (r *Raft) handleAppendEntriesResponse(m pb.Message) {
+	// TODO
+	if(m.Reject){
+		r.Prs[m.From].Next -= 1
+		r.Prs[m.From].Match = 0
+		/*retry?*/
+		r.sendAppend(m.From)
+		return
+
+	}else{
+		r.Prs[m.From].Next = m.Index + 1
+		r.Prs[m.From].Match = m.Index
+	}
+	r.leaderUpdateCommitIndex()
+
+	if(r.RaftLog.committed > m.Commit){
+		r.sendAppend(m.From)
+	}
 }
 
 // handleHeartbeat handle Heartbeat RPC request
 func (r *Raft) handleHeartbeat(m pb.Message) {
 	// Your Code Here (2A).
+	if m.Term < r.Term {
+		r.sendHeartbeatResponse(m.From, true)
+	}
+	r.electionElapsed = 0
+	r.randomElectionTimeout = r.newRandomElectionTimeout()
+	r.Lead = m.From
+	r.RaftLog.committed = r.RaftLog.getNewCommitIndex(m.Commit,r.getLastLogIndex())
+	r.sendHeartbeatResponse(m.From, false)
 }
 
 // handleSnapshot handle Snapshot RPC request
@@ -237,3 +708,26 @@ func (r *Raft) addNode(id uint64) {
 func (r *Raft) removeNode(id uint64) {
 	// Your Code Here (3A).
 }
+
+func (r *Raft) leaderUpdateCommitIndex(){
+	majority := len(r.Peers) / 2 + 1
+	for _,prs := range r.Prs{
+
+		if prs.Match <= r.RaftLog.committed{
+			continue
+		}
+
+		num := 0
+		for _,other := range r.Prs{
+			if other.Match >= prs.Match {
+				num += 1
+			}
+		}
+
+		term,_ := r.RaftLog.Term(prs.Match) 
+		if num >= majority &&  term == r.Term{
+			r.RaftLog.committed = prs.Match
+		}
+	}
+}
+
