@@ -258,7 +258,7 @@ func (r *Raft) tick() {
 	if r.State == StateLeader {
 		// if r.heartbeatElapsed >= r.heartbeatTimeout {}
 		r.heartbeatElapsed = 0
-		err := r.Step(pb.Message{From: r.id, MsgType: pb.MessageType_MsgHeartbeat})
+		err := r.Step(pb.Message{From: r.id, MsgType: pb.MessageType_MsgBeat})
 		if err != nil {
 			log.WithError(err).Errorf("[tick] Step err with id:%d", r.id)
 		}
@@ -273,6 +273,8 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	r.State = StateFollower
 	r.Term = term
 	r.Lead = lead
+
+	// fmt.Printf("r %d become follow term:%d lead:%d \n", r.id, r.Term, lead)
 }
 
 // becomeCandidate transform this peer's state to candidate
@@ -283,7 +285,10 @@ func (r *Raft) becomeCandidate() {
 	// step3: vote for itself
 	r.resetVotes()
 	r.voteFor(r.id, true)
+	r.Vote = r.id
+	r.Lead = None
 	r.State = StateCandidate
+	// fmt.Printf("r %d become candidate term:%d \n", r.id, r.Term)
 }
 
 // becomeLeader transform this peer's state to leader
@@ -303,16 +308,17 @@ func (r *Raft) Step(m pb.Message) error {
 	case pb.MessageType_MsgRequestVote:
 		// TODO: There will be more restrction here
 		// 需要处理情况
-
 		canVote := r.Vote == m.From ||
 			(r.Vote == None && r.Lead == None) ||
 			(m.MsgType == pb.MessageType_MsgRequestVote && m.Term > r.Term)
 
 		if canVote {
 			// TODO: 应该不是在这里判断的才对？
+			//fmt.Printf("r:%d become follower msg:%+v term:%d r.vote:%d r.lead:%d \n ",
+			//	r.id, m, r.Term, r.Vote, r.Lead)
 			r.becomeFollower(m.Term, None)
+			r.Vote = m.From
 		}
-		r.Vote = m.From
 		r.send(pb.Message{
 			From: r.id,
 			To: m.From,
@@ -321,13 +327,19 @@ func (r *Raft) Step(m pb.Message) error {
 			Reject: !canVote,
 		})
 	case pb.MessageType_MsgAppend:
-		if m.Term > r.Term {
+		if m.Term >= r.Term {
 			if r.State != StateFollower {
 				r.becomeFollower(m.Term, m.From)
 			}
 			r.Term = m.Term
 			r.Lead = m.From
 		}
+	case pb.MessageType_MsgHeartbeat:
+		if r.State != StateFollower {
+			r.becomeFollower(m.Term, m.From)
+		}
+		// 为什么不需要回传？
+		// r.handleHeartbeat(m)
 	}
 
 	// Mimic etcd/raft.go Step function
@@ -339,7 +351,7 @@ func (r *Raft) Step(m pb.Message) error {
 			r.becomeCandidate()
 			r.campaignForLeader()
 			r.requestVotesFromPeers()
-			// log.Infof("ignoring MsgHup because already campaigning current state:%+v", r.State)
+			// fmt.Printf("r%d: msg hup , state:%d \n", r.id, r.State)
 		}
 	case StateCandidate:
 		switch m.MsgType {
@@ -354,9 +366,10 @@ func (r *Raft) Step(m pb.Message) error {
 		case pb.MessageType_MsgBeat:
 			// 忽略
 		default:
-			r.Term = m.Term
-			r.becomeFollower(m.Term, m.From)
-			r.msgs = append(r.msgs, m)
+		// fmt.Printf("r.id:%d default message handle %+v \n", r.id, m)
+		//	r.Term = m.Term
+		//	r.becomeFollower(m.Term, m.From)
+		//	r.msgs = append(r.msgs, m)
 		}
 	case StateLeader:
 		// TODO: 这个判断太简单了，需要重构优化一下
@@ -400,7 +413,9 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 
 // handleHeartbeat handle Heartbeat RPC request
 func (r *Raft) handleHeartbeat(m pb.Message) {
-	// Your Code Here (2A).
+	// first, commitTo to raft log
+	// send heartbeat resp
+	r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgHeartbeatResponse})
 }
 
 // handleSnapshot handle Snapshot RPC request
@@ -577,3 +592,5 @@ func (r *Raft) broadcastAppend() {
 		r.sendAppend(peerId)
 	}
 }
+
+
