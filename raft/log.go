@@ -115,7 +115,7 @@ func (l *RaftLog) unstableEntries() []pb.Entry {
 		// offset......stable...........end
 		//                   | unstable|
 		//(stable, end]
-		return l.entries[l.stabled-l.offset:]
+		return l.entries[l.stabled-l.offset + 1:]
 	}
 
 	return nil
