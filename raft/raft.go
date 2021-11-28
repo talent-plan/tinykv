@@ -291,9 +291,9 @@ func (r *Raft) sendHeartbeat(to uint64) {
 		From:    r.id,
 		To:      to,
 		Term:    r.Term,
-		Index:   r.getLastLogIndex(),
-		LogTerm: r.getLastLogTerm(),
-		Commit:  r.RaftLog.committed,
+		// Index:   r.getLastLogIndex(),
+		// LogTerm: r.getLastLogTerm(),
+		Commit: r.RaftLog.committed,
 	}
 	r.msgs = append(r.msgs, *msg)
 }
@@ -539,23 +539,6 @@ func (r *Raft) startHeartBeat() {
 	}
 }
 
-func (r *Raft) handleHeartbeatResponse(m pb.Message) {
-	//判断收到的response，日志是否和leader一致，否则append
-	sendMsg := false
-	if m.Index != r.getLastLogIndex() {
-		sendMsg = true
-	} else {
-		term, _ := r.RaftLog.Term(m.Index)
-		if term != m.LogTerm {
-			sendMsg = true
-		}
-	}
-
-	if sendMsg {
-		r.sendAppend(m.From)
-	}
-}
-
 func (r *Raft) handleRequestVote(m pb.Message) {
 	if m.Term < r.Term || r.State == StateLeader || r.State == StateCandidate {
 		r.sendRequestVoteResponse(m.From, true)
@@ -713,10 +696,27 @@ func (r *Raft) handleHeartbeat(m pb.Message) {
 	r.State = StateFollower
 	//更新commit
 
-	if m.Commit > r.RaftLog.committed && r.getLastLogIndex() == m.Index && r.getLastLogTerm() == m.LogTerm {
-		r.RaftLog.committed = min(m.Commit, r.getLastLogIndex())
-	}
+	// if m.Commit > r.RaftLog.committed && r.getLastLogIndex() == m.Index && r.getLastLogTerm() == m.LogTerm {
+	// 	r.RaftLog.committed = min(m.Commit, r.getLastLogIndex())
+	// }
 	r.sendHeartbeatResponse(m.From, false)
+}
+
+func (r *Raft) handleHeartbeatResponse(m pb.Message) {
+	//判断收到的response，日志是否和leader一致，否则append
+	sendMsg := false
+	if m.Index != r.getLastLogIndex() {
+		sendMsg = true
+	} else {
+		term, _ := r.RaftLog.Term(m.Index)
+		if term != m.LogTerm {
+			sendMsg = true
+		}
+	}
+
+	if sendMsg {
+		r.sendAppend(m.From)
+	}
 }
 
 // handleSnapshot handle Snapshot RPC request
