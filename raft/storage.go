@@ -34,6 +34,8 @@ var ErrSnapOutOfDate = errors.New("requested index is older than the existing sn
 // are unavailable.
 var ErrUnavailable = errors.New("requested entry at index is unavailable")
 
+var ErrInvalidIndex = errors.New("this index is invalid")
+
 // ErrSnapshotTemporarilyUnavailable is returned by the Storage interface when the required
 // snapshot is temporarily unavailable.
 var ErrSnapshotTemporarilyUnavailable = errors.New("snapshot is temporarily unavailable")
