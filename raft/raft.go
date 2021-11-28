@@ -18,6 +18,7 @@ import (
 	"errors"
 	"math/rand"
 	"github.com/pingcap-incubator/tinykv/log"
+	"github.com/gogo/protobuf/sortkeys"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
@@ -122,7 +123,7 @@ func (c *Config) validate() error {
 type Progress struct {
 	Match, Next uint64
 }
-
+ 
 type Raft struct {
 	id uint64
 
@@ -219,7 +220,7 @@ func (r *Raft) bcastAppend() {
 	lastLogIndex := r.getLastLogIndex()
 	r.Prs[r.id].Next= lastLogIndex + 1 
 	r.Prs[r.id].Match= lastLogIndex
-	r.leaderUpdateCommitIndex()
+
 	if len(r.Peers) == 1{
 		r.RaftLog.committed = lastLogIndex
 		return
@@ -295,17 +296,21 @@ func (r *Raft) sendHeartbeat(to uint64) {
 		From:    r.id,
 		To:      to,
 		Term:    r.Term,
+		Index:   r.getLastLogIndex(),
+		LogTerm: r.getLastLogTerm(),
 		Commit:  r.RaftLog.committed,
 	}
 	r.msgs = append(r.msgs, *msg)
 }
-
 func (r *Raft) sendHeartbeatResponse(to uint64, reject bool) {
 	msg := &pb.Message{
-		MsgType: pb.MessageType_MsgAppendResponse,
+		MsgType: pb.MessageType_MsgHeartbeatResponse,
 		From:    r.id,
 		To:      to,
 		Term:    r.Term,
+		Index:   r.getLastLogIndex(),
+		LogTerm: r.getLastLogTerm(),
+		Commit:  r.RaftLog.committed,
 		Reject:  reject,
 	}
 	r.msgs = append(r.msgs, *msg)
@@ -436,7 +441,8 @@ func (r *Raft) becomeLeader() {
 func (r *Raft) Step(m pb.Message) error {
 	// Your Code Here (2A).
 	// 通过这步能将Term统一
-
+	// log.Infof("msg: %v", m)
+	
 	if m.Term > r.Term {
 		r.becomeFollower(m.Term, None)
 	}
@@ -459,7 +465,6 @@ func (r *Raft) stepFollower(m pb.Message) error {
 		r.handleRequestVote(m)
 	case pb.MessageType_MsgRequestVoteResponse:
 	case pb.MessageType_MsgPropose:
-		r.followerHandlePropose(m)
 	case pb.MessageType_MsgAppend:
 		r.handleAppendEntries(m)
 	case pb.MessageType_MsgBeat:
@@ -495,15 +500,17 @@ func (r *Raft) stepLeader(m pb.Message) error {
 		r.handleRequestVote(m)
 	case pb.MessageType_MsgRequestVoteResponse:
 	case pb.MessageType_MsgPropose:
-		r.leaderHandlePropose(m)
+		r.handlePropose(m)
 	case pb.MessageType_MsgAppend:
-		r.leaderHandleAppendEntries(m)
+	
 	case pb.MessageType_MsgAppendResponse:
 		r.handleAppendEntriesResponse(m)
 	case pb.MessageType_MsgBeat:
 		r.startHeartBeat()
-	case pb.MessageType_MsgHeartbeat:
+	case pb.MessageType_MsgHeartbeat: //leader也有可能收到心跳
+		r.handleHeartbeat(m)
 	case pb.MessageType_MsgHeartbeatResponse:
+		r.handleHeartbeatResponse(m)
 
 	}
 	return nil
@@ -551,6 +558,24 @@ func (r *Raft) startHeartBeat() {
 	}
 }
 
+func (r *Raft)handleHeartbeatResponse(m pb.Message){
+	//判断收到的response，日志是否和leader一致，否则append
+	sendMsg := false
+	if m.Index != r.getLastLogIndex() {
+		sendMsg = true
+	}else{
+		term,_:= r.RaftLog.Term(m.Index)
+		if term != m.LogTerm{
+			sendMsg = true
+		}
+	}
+
+	if(sendMsg){
+		r.sendAppend(m.From)
+	}
+}
+
+
 func (r *Raft) handleRequestVote(m pb.Message) {
 	if m.Term < r.Term || r.State == StateLeader || r.State == StateCandidate {
 		r.sendRequestVoteResponse(m.From, true)
@@ -594,21 +619,13 @@ func (r *Raft) handleRequestVoteResponse(m pb.Message) {
 
 
 
-func (r *Raft) leaderHandlePropose(m pb.Message) {
+func (r *Raft) handlePropose(m pb.Message) {
 	//to do,leader 处理msgPropose
 	entries := m.Entries
 	for _,entry := range(entries){
 		r.appendEntry(*entry)
 	}
 	r.bcastAppend()
-}
-
-func (r *Raft) followerHandlePropose(m pb.Message) {
-	//to do,follower 处理msgPropose
-}
-
-func (r *Raft) leaderHandleAppendEntries(m pb.Message) {
-	//to do,leader处理msgAppend
 }
 
 // handleAppendEntries handle AppendEntries RPC request
@@ -618,7 +635,7 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 		r.becomeFollower(r.Term, m.From)
 	}
 	// TODO 逻辑实现
-
+	r.Lead = m.From
 
 	reject := true
 
@@ -655,14 +672,16 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 
 
 	if(m.Commit > r.RaftLog.committed){
-		r.RaftLog.committed = r.RaftLog.getNewCommitIndex(m.Commit,r.getLastLogIndex())
+		r.RaftLog.committed = r.RaftLog.getNewCommitIndex(m.Commit,m.Index+uint64(len(m.Entries)))
 	}
 	reject = false
 	r.sendAppendResponse(m.From,reject)
+
 }
 
 func (r *Raft) handleAppendEntriesResponse(m pb.Message) {
 	// TODO
+
 	if(m.Reject){
 		r.Prs[m.From].Next -= 1
 		r.Prs[m.From].Match = 0
@@ -674,10 +693,13 @@ func (r *Raft) handleAppendEntriesResponse(m pb.Message) {
 		r.Prs[m.From].Next = m.Index + 1
 		r.Prs[m.From].Match = m.Index
 	}
-	r.leaderUpdateCommitIndex()
-
-	if(r.RaftLog.committed > m.Commit){
-		r.sendAppend(m.From)
+	// r.leaderUpdateCommitIndex()
+	if r.updateCommit() {
+		for k := range r.Prs {
+			if k != r.id {
+				r.sendAppend(k)
+			}
+		}
 	}
 }
 
@@ -686,11 +708,17 @@ func (r *Raft) handleHeartbeat(m pb.Message) {
 	// Your Code Here (2A).
 	if m.Term < r.Term {
 		r.sendHeartbeatResponse(m.From, true)
+		return
 	}
 	r.electionElapsed = 0
 	r.randomElectionTimeout = r.newRandomElectionTimeout()
 	r.Lead = m.From
-	r.RaftLog.committed = r.RaftLog.getNewCommitIndex(m.Commit,r.getLastLogIndex())
+	r.State = StateFollower
+	//更新commit
+
+	if(m.Commit > r.RaftLog.committed && r.getLastLogIndex() == m.Index && r.getLastLogTerm() == m.LogTerm){
+		r.RaftLog.committed = r.RaftLog.getNewCommitIndex(m.Commit,r.getLastLogIndex())
+	}
 	r.sendHeartbeatResponse(m.From, false)
 }
 
@@ -709,25 +737,25 @@ func (r *Raft) removeNode(id uint64) {
 	// Your Code Here (3A).
 }
 
-func (r *Raft) leaderUpdateCommitIndex(){
-	majority := len(r.Peers) / 2 + 1
-	for _,prs := range r.Prs{
-
-		if prs.Match <= r.RaftLog.committed{
-			continue
-		}
-
-		num := 0
-		for _,other := range r.Prs{
-			if other.Match >= prs.Match {
-				num += 1
-			}
-		}
-
-		term,_ := r.RaftLog.Term(prs.Match) 
-		if num >= majority &&  term == r.Term{
-			r.RaftLog.committed = prs.Match
-		}
+func (r *Raft) updateCommit() bool {
+	if(r.State != StateLeader){
+		return false
 	}
-}
 
+	var list []uint64
+	for i, v := range r.Prs {
+		if i == r.id {
+			v.Match = r.RaftLog.LastIndex()
+		}
+		list = append(list, v.Match)
+	}
+
+	sortkeys.Uint64s(list)
+	midMatch := list[(len(list)-1)/2]
+	midTerm, _ := r.RaftLog.Term(midMatch)
+	if midMatch > r.RaftLog.committed && midTerm == r.Term {
+		r.RaftLog.committed = midMatch
+		return true
+	}
+	return false
+}
