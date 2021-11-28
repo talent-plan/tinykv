@@ -127,3 +127,10 @@ func IsResponseMsg(msgt pb.MessageType) bool {
 func isHardStateEqual(a, b pb.HardState) bool {
 	return a.Term == b.Term && a.Vote == b.Vote && a.Commit == b.Commit
 }
+
+// only for test usage
+// to print more information for debug
+var enableLog bool
+func enableExtraLog() bool {
+	return enableLog
+}

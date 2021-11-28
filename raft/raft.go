@@ -16,6 +16,7 @@ package raft
 
 import (
 	"errors"
+	"fmt"
 	"math/rand"
 
 	log "github.com/sirupsen/logrus"
@@ -273,8 +274,9 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	r.State = StateFollower
 	r.Term = term
 	r.Lead = lead
-
-	// fmt.Printf("r %d become follow term:%d lead:%d \n", r.id, r.Term, lead)
+	if enableExtraLog() {
+		fmt.Printf("r %d become follow term:%d lead:%d \n", r.id, r.Term, lead)
+	}
 }
 
 // becomeCandidate transform this peer's state to candidate
@@ -288,7 +290,9 @@ func (r *Raft) becomeCandidate() {
 	r.Vote = r.id
 	r.Lead = None
 	r.State = StateCandidate
-	// fmt.Printf("r %d become candidate term:%d \n", r.id, r.Term)
+	if enableExtraLog() {
+		fmt.Printf("r %d become candidate term:%d \n", r.id, r.Term)
+	}
 }
 
 // becomeLeader transform this peer's state to leader
@@ -298,6 +302,9 @@ func (r *Raft) becomeLeader() {
 	// NOTE: Leader should propose a noop entry on its term
 	r.State = StateLeader
 	r.Lead = r.id
+	if enableExtraLog() {
+		fmt.Printf("r %d become leader term:%d \n", r.id, r.Term)
+	}
 }
 
 // Step the entrance of handle message, see `MessageType`
@@ -366,7 +373,9 @@ func (r *Raft) Step(m pb.Message) error {
 		case pb.MessageType_MsgBeat:
 			// 忽略
 		default:
-		// fmt.Printf("r.id:%d default message handle %+v \n", r.id, m)
+			if enableExtraLog() {
+				 fmt.Printf("r.id:%d default message handle %+v \n", r.id, m)
+			}
 		//	r.Term = m.Term
 		//	r.becomeFollower(m.Term, m.From)
 		//	r.msgs = append(r.msgs, m)
