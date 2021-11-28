@@ -195,11 +195,15 @@ func (r *Raft) sendAppend(to uint64) bool {
 	for _, entry := range r.RaftLog.unstableEntries() {
 		entries = append(entries, &entry)
 	}
+	lastIndex := r.RaftLog.LastIndex()
+
 	r.msgs = append(r.msgs, pb.Message{
 		MsgType: pb.MessageType_MsgAppend,
 		To:      to,
 		From:    r.id,
 		Term:    r.Term,
+		LogTerm: r.Term,
+		Index:   lastIndex + 1,
 		Commit:  r.RaftLog.committed,
 		Entries: entries,
 	})
@@ -233,7 +237,7 @@ func (r *Raft) tick() {
 	case StateFollower, StateCandidate:
 		if r.electionElapsed >= r.electionTimeout {
 			rand.Seed(time.Now().UnixMicro())
-			r.electionTimeout = rand.Intn(10) + 10
+			r.electionTimeout = rand.Intn(10*r.heartbeatTimeout) + 10*r.heartbeatTimeout
 			// r.msgs = append(r.msgs,pb.Message{From: r.id, To: r.id, MsgType: pb.MessageType_MsgHup})
 			r.Step(pb.Message{From: r.id, To: r.id, MsgType: pb.MessageType_MsgHup})
 		}
