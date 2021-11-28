@@ -203,15 +203,6 @@ func (r *Raft) bcastAppend() {
 		return
 	}
 
-	lastLogIndex := r.getLastLogIndex()
-	r.Prs[r.id].Next = lastLogIndex + 1
-	r.Prs[r.id].Match = lastLogIndex
-
-	if len(r.Peers) == 1 {
-		r.RaftLog.committed = lastLogIndex
-		return
-	}
-
 	for _, peer := range r.Peers {
 		if peer != r.id {
 			r.sendAppend(peer)
@@ -221,12 +212,20 @@ func (r *Raft) bcastAppend() {
 }
 
 func (r *Raft) appendEntry(entries ...pb.Entry) {
-	for i, _ := range entries {
+	for i := range entries {
 		entries[i].Term = r.Term
 		entries[i].Index = r.getLastLogIndex() + 1 + uint64(i)
 	}
-
 	r.RaftLog.append(entries...)
+
+	lastLogIndex := r.getLastLogIndex()
+	r.Prs[r.id].Next = lastLogIndex + 1
+	r.Prs[r.id].Match = lastLogIndex
+
+	if len(r.Peers) == 1 {
+		r.RaftLog.committed = lastLogIndex
+		return
+	}
 }
 
 // sendAppend sends an append RPC with new entries (if any) and the
@@ -414,10 +413,7 @@ func (r *Raft) becomeLeader() {
 	emptyEntry := pb.Entry{Data: nil}
 	r.appendEntry(emptyEntry)
 	// 新加一个空emptyEntry，对于leader增加其Next和Match
-	r.Prs[r.id] = &Progress{
-		Next:  lastLogIndex + 1 + 1,
-		Match: lastLogIndex + 1,
-	}
+
 	r.bcastAppend()
 
 }
