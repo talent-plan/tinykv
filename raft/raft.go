@@ -352,6 +352,7 @@ func (r *Raft) Step(m pb.Message) error {
 	// Mimic etcd/raft.go Step function
 	switch r.State {
 	case StateFollower:
+		stepFollower(r, m)
 		// follower's responsibility
 		switch m.MsgType {
 		case pb.MessageType_MsgHup:
@@ -361,6 +362,7 @@ func (r *Raft) Step(m pb.Message) error {
 			// fmt.Printf("r%d: msg hup , state:%d \n", r.id, r.State)
 		}
 	case StateCandidate:
+		stepCandidate(r, m)
 		switch m.MsgType {
 		case pb.MessageType_MsgHup:
 			// 和 follow 重复了，需要抽一个方法出来吗？
@@ -381,6 +383,7 @@ func (r *Raft) Step(m pb.Message) error {
 		//	r.msgs = append(r.msgs, m)
 		}
 	case StateLeader:
+		stepLeader(r, m)
 		// TODO: 这个判断太简单了，需要重构优化一下
 		if r.Term < m.Term {
 			r.becomeFollower(m.Term, m.From)
