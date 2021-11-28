@@ -213,7 +213,6 @@ func (r *Raft) bcastAppend() {
 	if r.State != StateLeader {
 		return
 	}
-
 	for _, peer := range r.Peers {
 		if peer != r.id {
 			r.sendAppend(peer)
