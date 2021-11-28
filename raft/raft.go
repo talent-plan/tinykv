@@ -17,8 +17,9 @@ package raft
 import (
 	"errors"
 	"math/rand"
-	"github.com/pingcap-incubator/tinykv/log"
+
 	"github.com/gogo/protobuf/sortkeys"
+	"github.com/pingcap-incubator/tinykv/log"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
@@ -44,21 +45,6 @@ func (st StateType) String() string {
 	return stmap[uint64(st)]
 }
 
-func getMin(a uint64, b uint64) uint64{
-	min := a
-	if(a > b){
-		min = b
-	}
-	return min
-}
-
-func getMax(a uint64, b uint64) uint64{
-	max := a
-	if(a < b){
-		max = b
-	}
-	return max
-}
 // ErrProposalDropped is returned when the proposal is ignored by some cases,
 // so that the proposer can be notified and fail fast.
 var ErrProposalDropped = errors.New("raft proposal dropped")
@@ -123,7 +109,7 @@ func (c *Config) validate() error {
 type Progress struct {
 	Match, Next uint64
 }
- 
+
 type Raft struct {
 	id uint64
 
@@ -196,8 +182,8 @@ func newRaft(c *Config) *Raft {
 		electionTimeout:       c.ElectionTick,
 		randomElectionTimeout: c.ElectionTick + rand.Intn(c.ElectionTick),
 	}
-	if(c.Storage != nil){
-		hardState,_,_ := c.Storage.InitialState()
+	if c.Storage != nil {
+		hardState, _, _ := c.Storage.InitialState()
 		raft.Term = hardState.Term
 		raft.Vote = hardState.Vote
 		raft.RaftLog.committed = hardState.Commit
@@ -216,16 +202,16 @@ func (r *Raft) bcastAppend() {
 	if r.State != StateLeader {
 		return
 	}
-	
-	lastLogIndex := r.getLastLogIndex()
-	r.Prs[r.id].Next= lastLogIndex + 1 
-	r.Prs[r.id].Match= lastLogIndex
 
-	if len(r.Peers) == 1{
+	lastLogIndex := r.getLastLogIndex()
+	r.Prs[r.id].Next = lastLogIndex + 1
+	r.Prs[r.id].Match = lastLogIndex
+
+	if len(r.Peers) == 1 {
 		r.RaftLog.committed = lastLogIndex
 		return
 	}
-	
+
 	for _, peer := range r.Peers {
 		if peer != r.id {
 			r.sendAppend(peer)
@@ -274,7 +260,7 @@ func (r *Raft) sendAppend(to uint64) bool {
 	return true
 }
 
-func (r *Raft) sendAppendResponse(to uint64,reject bool) {
+func (r *Raft) sendAppendResponse(to uint64, reject bool) {
 
 	msg := &pb.Message{
 		MsgType: pb.MessageType_MsgAppendResponse,
@@ -442,7 +428,7 @@ func (r *Raft) Step(m pb.Message) error {
 	// Your Code Here (2A).
 	// 通过这步能将Term统一
 	// log.Infof("msg: %v", m)
-	
+
 	if m.Term > r.Term {
 		r.becomeFollower(m.Term, None)
 	}
@@ -502,7 +488,7 @@ func (r *Raft) stepLeader(m pb.Message) error {
 	case pb.MessageType_MsgPropose:
 		r.handlePropose(m)
 	case pb.MessageType_MsgAppend:
-	
+
 	case pb.MessageType_MsgAppendResponse:
 		r.handleAppendEntriesResponse(m)
 	case pb.MessageType_MsgBeat:
@@ -558,23 +544,22 @@ func (r *Raft) startHeartBeat() {
 	}
 }
 
-func (r *Raft)handleHeartbeatResponse(m pb.Message){
+func (r *Raft) handleHeartbeatResponse(m pb.Message) {
 	//判断收到的response，日志是否和leader一致，否则append
 	sendMsg := false
 	if m.Index != r.getLastLogIndex() {
 		sendMsg = true
-	}else{
-		term,_:= r.RaftLog.Term(m.Index)
-		if term != m.LogTerm{
+	} else {
+		term, _ := r.RaftLog.Term(m.Index)
+		if term != m.LogTerm {
 			sendMsg = true
 		}
 	}
 
-	if(sendMsg){
+	if sendMsg {
 		r.sendAppend(m.From)
 	}
 }
-
 
 func (r *Raft) handleRequestVote(m pb.Message) {
 	if m.Term < r.Term || r.State == StateLeader || r.State == StateCandidate {
@@ -617,12 +602,10 @@ func (r *Raft) handleRequestVoteResponse(m pb.Message) {
 	}
 }
 
-
-
 func (r *Raft) handlePropose(m pb.Message) {
 	//to do,leader 处理msgPropose
 	entries := m.Entries
-	for _,entry := range(entries){
+	for _, entry := range entries {
 		r.appendEntry(*entry)
 	}
 	r.bcastAppend()
@@ -639,14 +622,14 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 
 	reject := true
 
-	if(r.getLastLogIndex() < m.Index){
-		r.sendAppendResponse(m.From,reject)
+	if r.getLastLogIndex() < m.Index {
+		r.sendAppendResponse(m.From, reject)
 		return
 	}
 
-	term,_ := r.RaftLog.Term(m.Index)
-	if (r.getLastLogIndex() >= m.Index && term != m.LogTerm){
-		r.sendAppendResponse(m.From,reject)
+	term, _ := r.RaftLog.Term(m.Index)
+	if r.getLastLogIndex() >= m.Index && term != m.LogTerm {
+		r.sendAppendResponse(m.From, reject)
 		return
 	}
 
@@ -654,42 +637,41 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 	offset := 0
 
 	for i := m.Index + 1; i <= r.RaftLog.LastIndex() && offset < len(m.Entries); i++ {
-		if( (*r.RaftLog.GetItemByIndex(i)).Index != m.Entries[offset].Index  || 
-				(*r.RaftLog.GetItemByIndex(i)).Term !=  m.Entries[offset].Term ){
-			r.RaftLog.DeletItemByIndex(i-1)
-			r.RaftLog.stabled = getMin( uint64(i - 1),r.RaftLog.stabled )
+		if (*r.RaftLog.GetItemByIndex(i)).Index != m.Entries[offset].Index ||
+			(*r.RaftLog.GetItemByIndex(i)).Term != m.Entries[offset].Term {
+			r.RaftLog.DeletItemByIndex(i - 1)
+			r.RaftLog.stabled = min(uint64(i-1), r.RaftLog.stabled)
 			break
 		}
 		offset += 1
 	}
 
-	for i,entry := range(m.Entries){
-		if(i < offset){
+	for i, entry := range m.Entries {
+		if i < offset {
 			continue
 		}
-		r.RaftLog.entries = append(r.RaftLog.entries ,*entry)
+		r.RaftLog.entries = append(r.RaftLog.entries, *entry)
 	}
 
-
-	if(m.Commit > r.RaftLog.committed){
-		r.RaftLog.committed = r.RaftLog.getNewCommitIndex(m.Commit,m.Index+uint64(len(m.Entries)))
+	if m.Commit > r.RaftLog.committed {
+		r.RaftLog.committed = r.RaftLog.getNewCommitIndex(m.Commit, m.Index+uint64(len(m.Entries)))
 	}
 	reject = false
-	r.sendAppendResponse(m.From,reject)
+	r.sendAppendResponse(m.From, reject)
 
 }
 
 func (r *Raft) handleAppendEntriesResponse(m pb.Message) {
 	// TODO
 
-	if(m.Reject){
+	if m.Reject {
 		r.Prs[m.From].Next -= 1
 		r.Prs[m.From].Match = 0
 		/*retry?*/
 		r.sendAppend(m.From)
 		return
 
-	}else{
+	} else {
 		r.Prs[m.From].Next = m.Index + 1
 		r.Prs[m.From].Match = m.Index
 	}
@@ -716,8 +698,8 @@ func (r *Raft) handleHeartbeat(m pb.Message) {
 	r.State = StateFollower
 	//更新commit
 
-	if(m.Commit > r.RaftLog.committed && r.getLastLogIndex() == m.Index && r.getLastLogTerm() == m.LogTerm){
-		r.RaftLog.committed = r.RaftLog.getNewCommitIndex(m.Commit,r.getLastLogIndex())
+	if m.Commit > r.RaftLog.committed && r.getLastLogIndex() == m.Index && r.getLastLogTerm() == m.LogTerm {
+		r.RaftLog.committed = r.RaftLog.getNewCommitIndex(m.Commit, r.getLastLogIndex())
 	}
 	r.sendHeartbeatResponse(m.From, false)
 }
@@ -738,7 +720,7 @@ func (r *Raft) removeNode(id uint64) {
 }
 
 func (r *Raft) updateCommit() bool {
-	if(r.State != StateLeader){
+	if r.State != StateLeader {
 		return false
 	}
 
