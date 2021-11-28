@@ -97,13 +97,13 @@ func (l *RaftLog) append(entries ...pb.Entry) {
 	l.entries = append(l.entries, entries...)
 }
 
-func (l *RaftLog) GetItemByIndex(index uint64) *pb.Entry {
+func (l *RaftLog) getItemByIndex(index uint64) *pb.Entry {
 	return &l.entries[index-l.offset]
 }
 
-func (l *RaftLog) DeletItemByIndex(index uint64)  {
+func (l *RaftLog) truncateAllAfterIndex(index uint64) {
 	//删掉index后的日志
-	if index < l.LastIndex(){
+	if index < l.LastIndex() {
 		l.entries = l.entries[:index-l.offset+1]
 	}
 }
@@ -115,7 +115,7 @@ func (l *RaftLog) unstableEntries() []pb.Entry {
 		// offset......stable...........end
 		//                   | unstable|
 		//(stable, end]
-		return l.entries[l.stabled-l.offset + 1:]
+		return l.entries[l.stabled-l.offset+1:]
 	}
 
 	return nil
@@ -175,14 +175,4 @@ func (l *RaftLog) Term(i uint64) (uint64, error) {
 		return 0, err
 	}
 	return term, nil
-}
-
-func (l *RaftLog) getNewCommitIndex(a uint64 ,b uint64) uint64{
-	min := uint64(0)
-	if a>b{
-		min = b
-	}else{
-		min = a
-	}
-	return min
 }
