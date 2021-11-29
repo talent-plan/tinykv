@@ -63,7 +63,6 @@ func (s *MemStorage) Write(ctx *kvrpcpb.Context, batch []Modify) error {
 			}
 		}
 	}
-
 	return nil
 }
 
