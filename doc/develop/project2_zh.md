@@ -76,7 +76,84 @@ PASS
 ok      github.com/pingcap-incubator/tinykv/raft        0.010s
 ```
 
+## Project2ac
 
+### 实验目的
+
+1. 实现日志复制
+2. 通过测试project2ab
+
+### 实验思路
+
+1. 当接收到`MessageType_MsgPropose`这个local msg，leader首先调用`appendEntry`添加日志，然后调用`bcastAppend`方法，向其余节点发送`MessageType_MsgAppend`消息。
+
+2. 当其余节点收到leader的`MessageType_MsgAppend`消息，状态转为follower，具体处理细节参照raft论文。需要值得注意的是，follower处理此消息时，需要依据leader的commitIndex，本地commitIndex和最新日志索引的状态来更新本地commitIndex。但在判断时，最新日志索引不能调用`follower.getLastLogIndex()`来获取，而是需要通过`MessageType_MsgAppend`中`Index`和`Entries`的长度计算得出。当节点处理结束后，向leader节点发送
+`MessageType_MsgAppendResponse`消息。
+
+3. 当leader接收到`MessageType_MsgAppendResponse`消息，按照消息更新`raft.Prs`和`raft.RaftLog.committed`,具体细节参照Raft论文。当leader处理结束，发现`Msg.From`节点的commitIndex与leader不一致，则继续发送`MessageType_MsgAppend`消息，直至达成一致状态。同样的，如果leader在处理`MessageType_MsgAppendResponse`消息时，commitIndex发生更新，那么leader会给其余所有节点发送`MessageType_MsgAppend`。
+
+4. 当leader发送心跳并收到其余节点的`MessageType_MsgHeartbeatResponse`消息，leader会判断此follower的commitIndex是否与leader的commitIndex一致，若不一致，那么leader会给该节点发送`MessageType_MsgAppend`。
+
+### 实验结果
+
+```
+make project2ab
+GO111MODULE=on go test -v --count=1 --parallel=1 -p=1 ./raft -run 2AB
+=== RUN   TestLeaderStartReplication2AB
+--- PASS: TestLeaderStartReplication2AB (0.00s)
+=== RUN   TestLeaderCommitEntry2AB
+--- PASS: TestLeaderCommitEntry2AB (0.00s)
+=== RUN   TestLeaderAcknowledgeCommit2AB
+--- PASS: TestLeaderAcknowledgeCommit2AB (0.00s)
+=== RUN   TestLeaderCommitPrecedingEntries2AB
+--- PASS: TestLeaderCommitPrecedingEntries2AB (0.00s)
+=== RUN   TestFollowerCommitEntry2AB
+--- PASS: TestFollowerCommitEntry2AB (0.00s)
+=== RUN   TestFollowerCheckMessageType_MsgAppend2AB
+--- PASS: TestFollowerCheckMessageType_MsgAppend2AB (0.00s)
+=== RUN   TestFollowerAppendEntries2AB
+--- PASS: TestFollowerAppendEntries2AB (0.00s)
+=== RUN   TestLeaderSyncFollowerLog2AB
+--- PASS: TestLeaderSyncFollowerLog2AB (0.00s)
+=== RUN   TestVoteRequest2AB
+--- PASS: TestVoteRequest2AB (0.00s)
+=== RUN   TestVoter2AB
+--- PASS: TestVoter2AB (0.00s)
+=== RUN   TestLeaderOnlyCommitsLogFromCurrentTerm2AB
+--- PASS: TestLeaderOnlyCommitsLogFromCurrentTerm2AB (0.00s)
+=== RUN   TestProgressLeader2AB
+--- PASS: TestProgressLeader2AB (0.00s)
+=== RUN   TestLeaderElectionOverwriteNewerLogs2AB
+--- PASS: TestLeaderElectionOverwriteNewerLogs2AB (0.00s)
+=== RUN   TestLogReplication2AB
+--- PASS: TestLogReplication2AB (0.00s)
+=== RUN   TestSingleNodeCommit2AB
+--- PASS: TestSingleNodeCommit2AB (0.00s)
+=== RUN   TestCommitWithoutNewTermEntry2AB
+--- PASS: TestCommitWithoutNewTermEntry2AB (0.00s)
+=== RUN   TestCommitWithHeartbeat2AB
+--- PASS: TestCommitWithHeartbeat2AB (0.00s)
+=== RUN   TestDuelingCandidates2AB
+--- PASS: TestDuelingCandidates2AB (0.00s)
+=== RUN   TestCandidateConcede2AB
+--- PASS: TestCandidateConcede2AB (0.00s)
+=== RUN   TestOldMessages2AB
+--- PASS: TestOldMessages2AB (0.00s)
+=== RUN   TestProposal2AB
+--- PASS: TestProposal2AB (0.00s)
+=== RUN   TestHandleMessageType_MsgAppend2AB
+--- PASS: TestHandleMessageType_MsgAppend2AB (0.00s)
+=== RUN   TestRecvMessageType_MsgRequestVote2AB
+--- PASS: TestRecvMessageType_MsgRequestVote2AB (0.00s)
+=== RUN   TestAllServerStepdown2AB
+--- PASS: TestAllServerStepdown2AB (0.00s)
+=== RUN   TestHeartbeatUpdateCommit2AB
+--- PASS: TestHeartbeatUpdateCommit2AB (0.00s)
+=== RUN   TestLeaderIncreaseNext2AB
+--- PASS: TestLeaderIncreaseNext2AB (0.00s)
+PASS
+ok      github.com/pingcap-incubator/tinykv/raft        0.005s
+```
 
 
 ## Project2ac
