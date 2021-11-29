@@ -96,6 +96,7 @@ ok      github.com/pingcap-incubator/tinykv/raft        0.010s
 
 ### Result
 
+```
 make project2ab
 GO111MODULE=on go test -v --count=1 --parallel=1 -p=1 ./raft -run 2AB
 === RUN   TestLeaderStartReplication2AB
@@ -152,6 +153,7 @@ GO111MODULE=on go test -v --count=1 --parallel=1 -p=1 ./raft -run 2AB
 --- PASS: TestLeaderIncreaseNext2AB (0.00s)
 PASS
 ok      github.com/pingcap-incubator/tinykv/raft        0.005s
+```
 
 ## Project2ac
 
