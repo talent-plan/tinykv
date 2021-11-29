@@ -77,6 +77,81 @@ GO111MODULE=on go test -v --count=1 --parallel=1 -p=1 ./raft -run 2AA
 PASS
 ok      github.com/pingcap-incubator/tinykv/raft        0.010s
 ```
+## Project2ab
+
+### Target
+1. Log replication
+2. Pass the test project2ab
+
+### Detail 
+
+1. When receiving `MessageType_ MsgPropose`, leader will call `appendEntry` to append entry and then call `bcastAppend` to send `MessageType_MsgAppend` to the remaining nodes.
+
+2. When a node receives `MessageType_MsgAppend`, its status changes to follower. Refer to the raft paper for specific processing details. It should be noted that when processing this message, the follower needs to update the local commitIndex according to the leader's commitIndex, local commitIndex and the latest log index. However, the latest log index cannot be obtained by calling `follower.Getlastlogindex()`, but needs to be calculated by `MessageType_MsgAppend.Index` and the length of `MessageType_MsgAppend.Entry`. When the node processing is finished, send `MessageType_MsgAppendResponse` to the leader.
+
+3. When the leader receives `MessageType_MsgAppendResponse`,it would update `raft.PRS` and `raft.Raftlog.Committed` according to the message. Refer to raft paper for details. When the leader finishes processing and finds that the commitindex of the `Msg.From` is inconsistent with the leader, continue to send the `MessageType_MsgAppend` until consistent. Similarly, when the leader's commitIndex is updated, the leader will send `MessageType_MsgAppend` to all other nodes.
+
+4. When the leader sends heartbeat and receives`MessageType_MsgHeartbeatResponse` from other nodes. The leader will judge whether the commitIndex of this follower is consistent with the leader's commitIndex. If not, the leader will send `MessageType_MsgAppend` to the node.
+
+
+### Result
+
+make project2ab
+GO111MODULE=on go test -v --count=1 --parallel=1 -p=1 ./raft -run 2AB
+=== RUN   TestLeaderStartReplication2AB
+--- PASS: TestLeaderStartReplication2AB (0.00s)
+=== RUN   TestLeaderCommitEntry2AB
+--- PASS: TestLeaderCommitEntry2AB (0.00s)
+=== RUN   TestLeaderAcknowledgeCommit2AB
+--- PASS: TestLeaderAcknowledgeCommit2AB (0.00s)
+=== RUN   TestLeaderCommitPrecedingEntries2AB
+--- PASS: TestLeaderCommitPrecedingEntries2AB (0.00s)
+=== RUN   TestFollowerCommitEntry2AB
+--- PASS: TestFollowerCommitEntry2AB (0.00s)
+=== RUN   TestFollowerCheckMessageType_MsgAppend2AB
+--- PASS: TestFollowerCheckMessageType_MsgAppend2AB (0.00s)
+=== RUN   TestFollowerAppendEntries2AB
+--- PASS: TestFollowerAppendEntries2AB (0.00s)
+=== RUN   TestLeaderSyncFollowerLog2AB
+--- PASS: TestLeaderSyncFollowerLog2AB (0.00s)
+=== RUN   TestVoteRequest2AB
+--- PASS: TestVoteRequest2AB (0.00s)
+=== RUN   TestVoter2AB
+--- PASS: TestVoter2AB (0.00s)
+=== RUN   TestLeaderOnlyCommitsLogFromCurrentTerm2AB
+--- PASS: TestLeaderOnlyCommitsLogFromCurrentTerm2AB (0.00s)
+=== RUN   TestProgressLeader2AB
+--- PASS: TestProgressLeader2AB (0.00s)
+=== RUN   TestLeaderElectionOverwriteNewerLogs2AB
+--- PASS: TestLeaderElectionOverwriteNewerLogs2AB (0.00s)
+=== RUN   TestLogReplication2AB
+--- PASS: TestLogReplication2AB (0.00s)
+=== RUN   TestSingleNodeCommit2AB
+--- PASS: TestSingleNodeCommit2AB (0.00s)
+=== RUN   TestCommitWithoutNewTermEntry2AB
+--- PASS: TestCommitWithoutNewTermEntry2AB (0.00s)
+=== RUN   TestCommitWithHeartbeat2AB
+--- PASS: TestCommitWithHeartbeat2AB (0.00s)
+=== RUN   TestDuelingCandidates2AB
+--- PASS: TestDuelingCandidates2AB (0.00s)
+=== RUN   TestCandidateConcede2AB
+--- PASS: TestCandidateConcede2AB (0.00s)
+=== RUN   TestOldMessages2AB
+--- PASS: TestOldMessages2AB (0.00s)
+=== RUN   TestProposal2AB
+--- PASS: TestProposal2AB (0.00s)
+=== RUN   TestHandleMessageType_MsgAppend2AB
+--- PASS: TestHandleMessageType_MsgAppend2AB (0.00s)
+=== RUN   TestRecvMessageType_MsgRequestVote2AB
+--- PASS: TestRecvMessageType_MsgRequestVote2AB (0.00s)
+=== RUN   TestAllServerStepdown2AB
+--- PASS: TestAllServerStepdown2AB (0.00s)
+=== RUN   TestHeartbeatUpdateCommit2AB
+--- PASS: TestHeartbeatUpdateCommit2AB (0.00s)
+=== RUN   TestLeaderIncreaseNext2AB
+--- PASS: TestLeaderIncreaseNext2AB (0.00s)
+PASS
+ok      github.com/pingcap-incubator/tinykv/raft        0.005s
 
 ## Project2ac
 
