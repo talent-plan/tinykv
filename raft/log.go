@@ -124,6 +124,7 @@ func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 			return nil
 		}
 		if applyLength >= 0 && commitLength <= l.Length() {
+			// TODO::
 			return l.entries[applyLength:commitLength]
 		}
 	}

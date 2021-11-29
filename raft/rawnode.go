@@ -28,6 +28,7 @@ var ErrStepLocalMsg = errors.New("raft: cannot step raft local message")
 var ErrStepPeerNotFound = errors.New("raft: cannot step as peer not found")
 
 // SoftState provides state that is volatile and does not need to be persisted to the WAL.
+// 提供非易失性状态，不需要保存到WAL中去
 type SoftState struct {
 	Lead      uint64
 	RaftState StateType
