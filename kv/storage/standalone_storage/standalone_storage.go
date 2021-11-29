@@ -1,10 +1,7 @@
 package standalone_storage
 
 import (
-	"bytes"
 	"github.com/Connor1996/badger"
-	"github.com/Connor1996/badger/y"
-	"github.com/petar/GoLLRB/llrb"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
@@ -26,17 +23,17 @@ func NewStandAloneStorage(conf *config.Config) *StandAloneStorage {
 
 func (s *StandAloneStorage) Start() error {
 	// Your Code Here (1).
-	return s.Storage.Start()
+	return nil
 }
 
 func (s *StandAloneStorage) Stop() error {
 	// Your Code Here (1).
-	return s.Storage.Stop()
+	return nil
 }
 
 func (s *StandAloneStorage) Reader(ctx *kvrpcpb.Context) (storage.StorageReader, error) {
 	// Your Code Here (1).
-	return badgerReader{s, 0}, nil
+	return &badgerReader{s}, nil
 }
 
 func (s *StandAloneStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) error {
@@ -55,9 +52,9 @@ func (s *StandAloneStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) 
 	for _, m := range batch {
 		switch data := m.Data.(type) {
 		case storage.Put:
-			tx.Set(data.Key, data.Value)
+			tx.Set(makeKey(data.Cf, data.Key), data.Value)
 		case storage.Delete:
-			tx.Delete(data.Key)
+			tx.Delete(makeKey(data.Cf, data.Key))
 		}
 	}
 	tx.Commit()
@@ -65,8 +62,20 @@ func (s *StandAloneStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) 
 }
 
 type badgerReader struct {
-	inner     *StandAloneStorage
-	iterCount int
+	inner *StandAloneStorage
+	//iterCount int
+}
+
+func makeKey(cf string, key []byte) []byte {
+	r := make([]byte, 0, len(cf)+len(key)+1)
+	for i := 0; i < len(cf); i++ {
+		r = append(r, cf[i])
+	}
+	r = append(r, '_')
+	for i := 0; i < len(key); i++ {
+		r = append(r, key[i])
+	}
+	return r
 }
 
 func (mr *badgerReader) GetCF(cf string, key []byte) ([]byte, error) {
@@ -80,7 +89,7 @@ func (mr *badgerReader) GetCF(cf string, key []byte) ([]byte, error) {
 	defer db.Close()
 	tx := db.NewTransaction(false)
 	defer tx.Discard()
-	value, err := tx.Get(key)
+	value, err := tx.Get(makeKey(cf, key))
 	if err != nil {
 		return nil, err
 	}
@@ -104,13 +113,13 @@ func (mr *badgerReader) IterCF(cf string) engine_util.DBIterator {
 	defer tx.Discard()
 	opt := badger.DefaultIteratorOptions
 	it := tx.NewIterator(opt)
-	return badgerIter{&it}
+	return &badgerIter{it}
 }
 
-func (r *badgerReader) Close() {
-	if r.iterCount > 0 {
+func (mr *badgerReader) Close() {
+	/*if mr.iterCount > 0 {
 		panic("Unclosed iterator")
-	}
+	}*/
 }
 
 type badgerIter struct {
@@ -132,26 +141,4 @@ func (it *badgerIter) Seek(key []byte) {
 
 func (it *badgerIter) Close() {
 	it.iterator.Close()
-}
-
-type badgerItem struct {
-	key   []byte
-	value []byte
-	fresh bool
-}
-
-func (it badgerItem) Key() []byte {
-	return it.key
-}
-func (it badgerItem) KeyCopy(dst []byte) []byte {
-	return y.SafeCopy(dst, it.key)
-}
-func (it badgerItem) Value() ([]byte, error) {
-	return it.value, nil
-}
-func (it badgerItem) ValueSize() int {
-	return len(it.value)
-}
-func (it badgerItem) ValueCopy(dst []byte) ([]byte, error) {
-	return y.SafeCopy(dst, it.value), nil
 }
