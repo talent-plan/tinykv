@@ -197,6 +197,21 @@ func (r *Raft) newRandomElectionTimeout() int {
 	return r.electionTimeout + rand.Intn(r.electionTimeout)
 }
 
+func (r *Raft) getSoftState() *SoftState {
+	return &SoftState{
+		Lead:      r.Lead,
+		RaftState: r.State,
+	}
+}
+
+func (r *Raft) getHardState() pb.HardState {
+	return pb.HardState{
+		Term:   r.Term,
+		Vote:   r.Vote,
+		Commit: r.RaftLog.committed,
+	}
+}
+
 func (r *Raft) getLastLogIndex() uint64 {
 	return r.RaftLog.LastIndex()
 }
@@ -235,6 +250,15 @@ func (r *Raft) appendEntry(entries ...pb.Entry) {
 	if len(r.Peers) == 1 {
 		r.RaftLog.committed = lastLogIndex
 		return
+	}
+}
+
+func (r *Raft) advance(rd Ready) {
+	if len(rd.Entries) > 0 {
+		r.RaftLog.stabled = rd.Entries[len(rd.Entries)-1].Index
+	}
+	if len(rd.CommittedEntries) > 0 {
+		r.RaftLog.applied = rd.CommittedEntries[len(rd.CommittedEntries)-1].Index
 	}
 }
 
