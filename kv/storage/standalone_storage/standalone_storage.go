@@ -12,13 +12,13 @@ import (
 // communicate with other nodes and all data is stored locally.
 type StandAloneStorage struct {
 	// Your Data Here (1).
-	Conf config.Config
+	db *badger.DB
 }
 
 func NewStandAloneStorage(conf *config.Config) *StandAloneStorage {
 	// Your Code Here (1).
-
-	return &StandAloneStorage{*conf}
+	db := engine_util.CreateDB(conf.DBPath, false)
+	return &StandAloneStorage{db: db}
 }
 
 func (s *StandAloneStorage) Start() error {
@@ -28,94 +28,49 @@ func (s *StandAloneStorage) Start() error {
 
 func (s *StandAloneStorage) Stop() error {
 	// Your Code Here (1).
-	return nil
+	return s.db.Close()
 }
 
 func (s *StandAloneStorage) Reader(ctx *kvrpcpb.Context) (storage.StorageReader, error) {
 	// Your Code Here (1).
-	return &badgerReader{s}, nil
+	return &BadgerReader{s}, nil
 }
 
 func (s *StandAloneStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) error {
-	opts := badger.DefaultOptions
-	opts.Dir = s.Conf.DBPath
-	opts.ValueDir = s.Conf.DBPath
-	db, err := badger.Open(opts)
-	if err != nil {
-		return err
-	}
-	tx := db.NewTransaction(true)
-	defer func() {
-		tx.Discard()
-		db.Close()
-	}()
+	//tx := s.db.NewTransaction(true)
+	//defer tx.Discard()
+	writeBatch := new(engine_util.WriteBatch)
 	for _, m := range batch {
 		switch data := m.Data.(type) {
 		case storage.Put:
-			tx.Set(makeKey(data.Cf, data.Key), data.Value)
+			writeBatch.SetCF(data.Cf, data.Key, data.Value)
 		case storage.Delete:
-			tx.Delete(makeKey(data.Cf, data.Key))
+			writeBatch.DeleteCF(data.Cf, data.Key)
 		}
 	}
-	tx.Commit()
+	writeBatch.WriteToDB(s.db)
+	//tx.Commit()
 	return nil
 }
 
-type badgerReader struct {
+type BadgerReader struct {
 	inner *StandAloneStorage
 }
 
-func makeKey(cf string, key []byte) []byte {
-	r := make([]byte, 0, len(cf)+len(key)+1)
-	for i := 0; i < len(cf); i++ {
-		r = append(r, cf[i])
-	}
-	r = append(r, '_')
-	for i := 0; i < len(key); i++ {
-		r = append(r, key[i])
-	}
-	return r
-}
-
-func (mr *badgerReader) GetCF(cf string, key []byte) ([]byte, error) {
-	opts := badger.DefaultOptions
-	opts.Dir = mr.inner.Conf.DBPath
-	opts.ValueDir = mr.inner.Conf.DBPath
-	db, err := badger.Open(opts)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-	tx := db.NewTransaction(false)
-	defer tx.Discard()
-	value, err := tx.Get(makeKey(cf, key))
-	if err != nil {
-		if err.Error() == "Key not found" {
-			return nil, nil
-		} else {
-			return nil, err
-		}
-	}
-	if valueCopy, err := value.ValueCopy(nil); err == nil {
-		return valueCopy, nil
+func (mr *BadgerReader) GetCF(cf string, key []byte) ([]byte, error) {
+	value, err := engine_util.GetCF(mr.inner.db, cf, key)
+	if err != nil && err.Error() == "Key not found" {
+		return nil, nil
 	} else {
-		return nil, err
+		return value, err
 	}
 }
 
-func (mr *badgerReader) IterCF(cf string) engine_util.DBIterator {
-	opts := badger.DefaultOptions
-	opts.Dir = mr.inner.Conf.DBPath
-	opts.ValueDir = mr.inner.Conf.DBPath
-	db, err := badger.Open(opts)
-	if err != nil {
-		return nil
-	}
-	defer db.Close()
-	tx := db.NewTransaction(false)
+func (mr *BadgerReader) IterCF(cf string) engine_util.DBIterator {
+	tx := mr.inner.db.NewTransaction(false)
 	//defer tx.Discard()
 	return engine_util.NewCFIterator(cf, tx)
 }
 
-func (mr *badgerReader) Close() {
+func (mr *BadgerReader) Close() {
 }
