@@ -63,7 +63,6 @@ func (s *StandAloneStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) 
 
 type badgerReader struct {
 	inner *StandAloneStorage
-	//iterCount int
 }
 
 func makeKey(cf string, key []byte) []byte {
@@ -91,7 +90,11 @@ func (mr *badgerReader) GetCF(cf string, key []byte) ([]byte, error) {
 	defer tx.Discard()
 	value, err := tx.Get(makeKey(cf, key))
 	if err != nil {
-		return nil, err
+		if err.Error() == "Key not found" {
+			return nil, nil
+		} else {
+			return nil, err
+		}
 	}
 	if valueCopy, err := value.ValueCopy(nil); err == nil {
 		return valueCopy, nil
@@ -110,35 +113,9 @@ func (mr *badgerReader) IterCF(cf string) engine_util.DBIterator {
 	}
 	defer db.Close()
 	tx := db.NewTransaction(false)
-	defer tx.Discard()
-	opt := badger.DefaultIteratorOptions
-	it := tx.NewIterator(opt)
-	return &badgerIter{it}
+	//defer tx.Discard()
+	return engine_util.NewCFIterator(cf, tx)
 }
 
 func (mr *badgerReader) Close() {
-	/*if mr.iterCount > 0 {
-		panic("Unclosed iterator")
-	}*/
-}
-
-type badgerIter struct {
-	iterator *badger.Iterator
-}
-
-func (it *badgerIter) Item() engine_util.DBItem {
-	return it.iterator.Item()
-}
-func (it *badgerIter) Valid() bool {
-	return it.Item().Key() != nil
-}
-func (it *badgerIter) Next() {
-	it.Next()
-}
-func (it *badgerIter) Seek(key []byte) {
-	it.iterator.Seek(key)
-}
-
-func (it *badgerIter) Close() {
-	it.iterator.Close()
 }

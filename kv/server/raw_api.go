@@ -18,18 +18,15 @@ func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kv
 	}
 	value, err := reader.GetCF(req.Cf, req.Key)
 	if err != nil {
-		if err.Error() == "Key not found" {
-			resp := kvrpcpb.RawGetResponse{}
-			resp.Value = value
-			resp.NotFound = true
-			return &resp, nil
-		} else {
-			return nil, err
-		}
+		return nil, err
 	}
 	resp := kvrpcpb.RawGetResponse{}
 	resp.Value = value
-	resp.NotFound = false
+	if value == nil {
+		resp.NotFound = true
+	} else {
+		resp.NotFound = false
+	}
 	return &resp, nil
 }
 
