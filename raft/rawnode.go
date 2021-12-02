@@ -28,6 +28,7 @@ var ErrStepLocalMsg = errors.New("raft: cannot step raft local message")
 var ErrStepPeerNotFound = errors.New("raft: cannot step as peer not found")
 
 // SoftState provides state that is volatile and does not need to be persisted to the WAL.
+// 提供非易失性状态，不需要保存到WAL中去
 type SoftState struct {
 	Lead      uint64
 	RaftState StateType
@@ -57,6 +58,7 @@ type Ready struct {
 	// CommittedEntries specifies entries to be committed to a
 	// store/state-machine. These have previously been committed to stable
 	// store.
+	// 提交但是并未apply
 	CommittedEntries []pb.Entry
 
 	// Messages specifies outbound messages to be sent AFTER Entries are
@@ -70,12 +72,30 @@ type Ready struct {
 type RawNode struct {
 	Raft *Raft
 	// Your Data Here (2A).
+	// TODO: need to read etcd interface
+	preReady *Ready
 }
 
 // NewRawNode returns a new RawNode given configuration and a list of raft peers.
 func NewRawNode(config *Config) (*RawNode, error) {
 	// Your Code Here (2A).
-	return nil, nil
+	return &RawNode{
+		Raft: newRaft(config),
+		preReady: &Ready{
+			SoftState: &SoftState{
+				Lead:      0,
+				RaftState: 0,
+			},
+			HardState: pb.HardState{
+				Term:                 0,
+				Vote:                 0,
+				Commit:               0,
+				XXX_NoUnkeyedLiteral: struct{}{},
+				XXX_unrecognized:     nil,
+				XXX_sizecache:        0,
+			},
+		},
+	}, nil
 }
 
 // Tick advances the internal logical clock by a single tick.
@@ -143,19 +163,54 @@ func (rn *RawNode) Step(m pb.Message) error {
 // Ready returns the current point-in-time state of this RawNode.
 func (rn *RawNode) Ready() Ready {
 	// Your Code Here (2A).
-	return Ready{}
+	softState := rn.Raft.softState()
+	hardState := rn.Raft.hardState()
+	return Ready{
+		softState,
+		hardState,
+		rn.Raft.RaftLog.unstableEntries(),
+		*rn.Raft.RaftLog.pendingSnapshot,
+		rn.Raft.RaftLog.nextEnts(),
+		rn.Raft.msgs,
+	}
 }
 
 // HasReady called when RawNode user need to check if any Ready pending.
 func (rn *RawNode) HasReady() bool {
 	// Your Code Here (2A).
+	// TODO:need to read etcd Ready
+	hardState := rn.Raft.hardState()
+	preHardState := rn.preReady.HardState
+
+	if !IsEmptyHardState(hardState) && !isHardStateEqual(hardState, preHardState) {
+		return true
+	}
+
+	if len(rn.Raft.RaftLog.unstableEntries()) > 0 || len(rn.Raft.msgs) > 0 {
+		return true
+	}
 	return false
+
 }
 
 // Advance notifies the RawNode that the application has applied and saved progress in the
 // last Ready results.
+// 通知应用程序已经应用并保存了最后一个Ready结果中的进度
 func (rn *RawNode) Advance(rd Ready) {
 	// Your Code Here (2A).
+	if !IsEmptyHardState(rd.HardState) {
+		rn.preReady.HardState = rd.HardState
+	}
+
+	if len(rd.Entries) > 0 {
+		rn.Raft.RaftLog.stabled = rd.Entries[len(rd.Entries)-1].Index
+	}
+
+	if len(rd.CommittedEntries) > 0 {
+		rn.Raft.RaftLog.applied = rd.CommittedEntries[len(rd.CommittedEntries)-1].Index
+	}
+
+	rn.Raft.RaftLog.maybeCompact()
 }
 
 // GetProgress return the Progress of this node and its peers, if this
