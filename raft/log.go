@@ -145,8 +145,9 @@ func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 		if commitDst < 0 || commitDst > count || applyDst < 0 || applyDst > count || commitDst < applyDst {
 			return nil
 		}
-		// update commitDst ==> commitDst+1
-		return l.entries[applyDst : commitDst+1]
+		// update commitDst ==> commitDst
+		// TODO：
+		return l.entries[applyDst:commitDst]
 	}
 
 	return nil
@@ -174,7 +175,7 @@ func (l *RaftLog) Term(i uint64) (uint64, error) {
 	dummyIdx := l.firstIndex - 1
 	if i < dummyIdx {
 		return 0, nil
-	} else if i > l.lastIndex {
+	} else if i > l.LastIndex() {
 		return 0, ErrInvalidIndex
 	}
 
@@ -216,4 +217,14 @@ func (l *RaftLog) FirstIndex() uint64 {
 		return idx
 	}
 	return l.entries[0].Index
+}
+
+func (l *RaftLog) appliedTo(i uint64) {
+	if i == 0 {
+		return
+	}
+	if l.committed < i || i < l.applied {
+		log.Printf("applied(%d) is out of range [prevApplied(%d), committed(%d)]", i, l.applied, l.committed)
+	}
+	l.applied = i
 }
