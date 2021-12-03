@@ -5,3 +5,5 @@ unikv/unikv
 bin/*
 _tools
 /vendor
+
+test.log

@@ -55,36 +55,71 @@ func (d *peerMsgHandler) HandleRaftReady() {
 	if len(rd.CommittedEntries) > 0 {
 		for _, commited_entry := range rd.CommittedEntries {
 			msg := &raft_cmdpb.RaftCmdRequest{}
-			resp := &raft_cmdpb.RaftCmdResponse{}
+			resp := &raft_cmdpb.RaftCmdResponse{Header: &raft_cmdpb.RaftResponseHeader{}}
 			msg.Unmarshal(commited_entry.Data)
+			hasSnap := false
 			for _, request := range msg.Requests {
 				rep := &raft_cmdpb.Response{}
 				switch request.CmdType {
 				case raft_cmdpb.CmdType_Get:
+					// request
 					wBatch.WriteToDB(d.peerStorage.Engines.Kv)
 					cf, key := request.Get.Cf, request.Get.Key
 					value, err := engine_util.GetCF(d.peerStorage.Engines.Kv, cf, key)
 					if err != nil {
 						value = nil
 					}
+					// response
 					rep.CmdType = raft_cmdpb.CmdType_Get
 					rep.Get = &raft_cmdpb.GetResponse{Value: value}
 					wBatch = new(engine_util.WriteBatch)
 				case raft_cmdpb.CmdType_Put:
+					// request
 					wBatch.SetCF(request.Put.Cf, request.Put.Key, request.Put.Value)
-					rep.CmdType = raft_cmdpb.CmdType_Get
+					// response
+					rep.CmdType = raft_cmdpb.CmdType_Put
+					rep.Put = &raft_cmdpb.PutResponse{}
 				case raft_cmdpb.CmdType_Delete:
+					// request
 					wBatch.DeleteCF(request.Delete.Cf, request.Delete.Key)
+					// response
 					rep.CmdType = raft_cmdpb.CmdType_Delete
+					rep.Delete = &raft_cmdpb.DeleteResponse{}
 				case raft_cmdpb.CmdType_Snap:
+					// request
+
+					// response
 					rep.CmdType = raft_cmdpb.CmdType_Snap
+					rep.Snap = &raft_cmdpb.SnapResponse{Region: d.Region()}
+
+					hasSnap = true
 				}
 				resp.Responses = append(resp.Responses, rep)
 			}
+			// callback
+			if len(d.proposals) != 0 {
+				// 过滤掉proposal index与commited_enry不匹配的
+				cut_index := 0
+				for ; cut_index < len(d.proposals) && d.proposals[cut_index].index < commited_entry.Index; cut_index++ {
+					NotifyStaleReq(commited_entry.Term, d.proposals[cut_index].cb)
+				}
+				d.proposals = d.proposals[cut_index:]
+				if len(d.proposals) == 0 {
+					return
+				}
+				prop := d.proposals[0]
+				if prop.term != commited_entry.Term {
+					NotifyStaleReq(commited_entry.Term, prop.cb)
+				} else {
+					// snap 类型需要提供txn，不然会报错
+					if hasSnap {
+						prop.cb.Txn = d.ctx.engine.Kv.NewTransaction(false)
+					}
+					prop.cb.Done(resp)
+				}
+				d.proposals = d.proposals[1:]
+			}
 
-			prop := d.proposals[0]
-			d.proposals = d.proposals[1:]
-			prop.cb.Done(resp)
 		}
 		d.peerStorage.applyState.AppliedIndex = rd.CommittedEntries[len(rd.CommittedEntries)-1].Index
 		wBatch.SetMeta(meta.ApplyStateKey(d.regionId), d.peerStorage.applyState)
@@ -92,7 +127,10 @@ func (d *peerMsgHandler) HandleRaftReady() {
 
 	wBatch.WriteToDB(d.peerStorage.Engines.Kv)
 
-	d.Send(d.ctx.trans, rd.Messages)
+	if len(rd.Messages) != 0 {
+		d.Send(d.ctx.trans, rd.Messages)
+	}
+
 	d.RaftGroup.Advance(rd)
 }
 

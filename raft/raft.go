@@ -183,12 +183,20 @@ func newRaft(c *Config) *Raft {
 		randomElectionTimeout: c.ElectionTick + rand.Intn(c.ElectionTick),
 	}
 	if c.Storage != nil {
-		hardState, _, _ := c.Storage.InitialState()
+		hardState, confState, _ := c.Storage.InitialState()
+		raft.Peers = confState.Nodes
 		raft.Term = hardState.Term
 		raft.Vote = hardState.Vote
 		raft.RaftLog.committed = hardState.Commit
-		// raft.RaftLog.entries =
 	}
+	lastLogIndex := raft.RaftLog.LastIndex()
+	for _, peer := range raft.Peers {
+		raft.Prs[peer] = &Progress{
+			Next:  lastLogIndex + 1,
+			Match: 0,
+		}
+	}
+
 	return raft
 }
 
@@ -555,6 +563,7 @@ func (r *Raft) startElection() {
 			r.sendRequestVote(peer, lastLogIndex, lastLogTerm)
 		}
 	}
+	// log.Info("start election")
 }
 
 func (r *Raft) startHeartBeat() {

@@ -313,22 +313,30 @@ func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.Write
 		return nil
 	}
 
-	regionID := ps.region.GetId()
-
 	lastEntry := entries[len(entries)-1]
 	lastIndex, lastTerm := lastEntry.Index, lastEntry.Term
 
 	prevLastIndex := ps.raftState.LastIndex
+	firstIndex, _ := ps.FirstIndex()
+
+	// 判断日志是否陈旧
+	if firstIndex > lastIndex {
+		return nil
+	}
+
+	// 仅截取最新的日志
+	if firstIndex > entries[0].Index {
+		entries = entries[firstIndex-entries[0].Index:]
+	}
+
 	// Append the given entries to the raft log
+	regionID := ps.region.GetId()
 	for _, entry := range entries {
 		key := meta.RaftLogKey(regionID, entry.Index)
 		if err := raftWB.SetMeta(key, &entry); err != nil {
 			return err
 		}
 	}
-	// update ps.raftState
-	ps.raftState.LastIndex = lastIndex
-	ps.raftState.LastTerm = lastTerm
 
 	// delete log entries that will never be committed
 	if lastIndex < prevLastIndex {
@@ -337,6 +345,10 @@ func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.Write
 			raftWB.DeleteMeta(key)
 		}
 	}
+
+	// update ps.raftState
+	ps.raftState.LastIndex = lastIndex
+	ps.raftState.LastTerm = lastTerm
 
 	return nil
 }
