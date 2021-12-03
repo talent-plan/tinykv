@@ -50,6 +50,7 @@ type Ready struct {
 
 	// Entries specifies entries to be saved to stable storage BEFORE
 	// Messages are sent.
+	// unstable
 	Entries []pb.Entry
 
 	// Snapshot specifies the snapshot to be saved to stable storage.
@@ -73,29 +74,20 @@ type RawNode struct {
 	Raft *Raft
 	// Your Data Here (2A).
 	// TODO: need to read etcd interface
-	preReady *Ready
+	SS *SoftState
+	HS pb.HardState
 }
 
 // NewRawNode returns a new RawNode given configuration and a list of raft peers.
 func NewRawNode(config *Config) (*RawNode, error) {
 	// Your Code Here (2A).
-	return &RawNode{
-		Raft: newRaft(config),
-		preReady: &Ready{
-			SoftState: &SoftState{
-				Lead:      0,
-				RaftState: 0,
-			},
-			HardState: pb.HardState{
-				Term:                 0,
-				Vote:                 0,
-				Commit:               0,
-				XXX_NoUnkeyedLiteral: struct{}{},
-				XXX_unrecognized:     nil,
-				XXX_sizecache:        0,
-			},
-		},
-	}, nil
+	r := newRaft(config)
+	rn := &RawNode{
+		Raft: r,
+		SS:   r.softState(),
+		HS:   r.hardState(),
+	}
+	return rn, nil
 }
 
 // Tick advances the internal logical clock by a single tick.
@@ -163,30 +155,48 @@ func (rn *RawNode) Step(m pb.Message) error {
 // Ready returns the current point-in-time state of this RawNode.
 func (rn *RawNode) Ready() Ready {
 	// Your Code Here (2A).
-	softState := rn.Raft.softState()
-	hardState := rn.Raft.hardState()
-	return Ready{
-		softState,
-		hardState,
-		rn.Raft.RaftLog.unstableEntries(),
-		*rn.Raft.RaftLog.pendingSnapshot,
-		rn.Raft.RaftLog.nextEnts(),
-		rn.Raft.msgs,
+	ready := Ready{
+		SoftState:        nil,
+		HardState:        pb.HardState{},
+		Entries:          rn.Raft.RaftLog.unstableEntries(),
+		Snapshot:         pb.Snapshot{},
+		CommittedEntries: rn.Raft.RaftLog.nextEnts(),
+		Messages:         rn.Raft.msgs,
 	}
+
+	curSoftState := rn.Raft.softState()
+	if !(curSoftState.Lead == rn.SS.Lead &&
+		curSoftState.RaftState == rn.SS.RaftState) {
+		ready.SoftState = curSoftState
+		rn.SS = curSoftState
+	}
+
+	curHardState := rn.Raft.hardState()
+	if !isHardStateEqual(curHardState, rn.HS) {
+		ready.HardState = curHardState
+	}
+
+	rn.Raft.msgs = nil
+	return ready
 }
 
 // HasReady called when RawNode user need to check if any Ready pending.
 func (rn *RawNode) HasReady() bool {
 	// Your Code Here (2A).
 	// TODO:need to read etcd Ready
-	hardState := rn.Raft.hardState()
-	preHardState := rn.preReady.HardState
-
-	if !IsEmptyHardState(hardState) && !isHardStateEqual(hardState, preHardState) {
+	curSoftState := rn.Raft.softState()
+	if !(curSoftState.Lead == rn.SS.Lead &&
+		curSoftState.RaftState == rn.SS.RaftState) {
 		return true
 	}
 
-	if len(rn.Raft.RaftLog.unstableEntries()) > 0 || len(rn.Raft.msgs) > 0 {
+	curhardState := rn.Raft.hardState()
+	if !IsEmptyHardState(curhardState) && !isHardStateEqual(curhardState, rn.HS) {
+		return true
+	}
+
+	if len(rn.Raft.RaftLog.unstableEntries()) > 0 || len(rn.Raft.msgs) > 0 ||
+		len(rn.Raft.RaftLog.nextEnts()) > 0 {
 		return true
 	}
 	return false
@@ -199,7 +209,7 @@ func (rn *RawNode) HasReady() bool {
 func (rn *RawNode) Advance(rd Ready) {
 	// Your Code Here (2A).
 	if !IsEmptyHardState(rd.HardState) {
-		rn.preReady.HardState = rd.HardState
+		rn.HS = rd.HardState
 	}
 
 	if len(rd.Entries) > 0 {
