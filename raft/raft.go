@@ -203,10 +203,10 @@ func newRaft(c *Config) *Raft {
 	}
 
 	raft := &Raft{
-		id:      c.ID,
-		RaftLog: raftLog,
-		Prs:     make(map[uint64]*Progress), // only in leader
-		//State:            StateFollower,              // init must be follower
+		id:               c.ID,
+		RaftLog:          raftLog,
+		State:            StateFollower,
+		Prs:              make(map[uint64]*Progress), // only in leader
 		votes:            make(map[uint64]bool),
 		heartbeatTimeout: c.HeartbeatTick,
 		electionTimeout:  c.ElectionTick,
@@ -221,7 +221,8 @@ func newRaft(c *Config) *Raft {
 		raft.RaftLog.appliedTo(c.Applied)
 	}
 
-	raft.becomeFollower(raft.Term, None)
+	// TODO::something wrong is here
+	// raft.becomeFollower(raft.Term, None)
 
 	// peers contains the IDs of all nodes (including self) in the raft cluster. It
 	// should only be set when starting a new raft cluster.
@@ -284,7 +285,7 @@ func (r *Raft) maybeSendAppend(to uint64) bool {
 
 	// get last log index
 	prevIdx := r.Prs[to].Next - 1
-	// get last log term
+	// get local last log term
 	prevLogTerm, err := r.RaftLog.Term(prevIdx)
 
 	// NO USE
@@ -298,6 +299,7 @@ func (r *Raft) maybeSendAppend(to uint64) bool {
 	}
 
 	msg.MsgType = pb.MessageType_MsgAppend
+	// 与你匹配的index和term
 	msg.Index = prevIdx
 	msg.LogTerm = prevLogTerm
 	msg.Commit = r.RaftLog.committed
@@ -391,6 +393,7 @@ func (r *Raft) becomeCandidate() {
 	r.votes[r.id] = true
 	// 刚同步心跳差
 	r.heartbeatElapsed = 0
+	r.electionElapsed = 0
 	// 距离上次同步选举的时间差
 	r.electionElapsed = 0 - globalRand.Intn(r.electionTimeout)
 }
@@ -417,20 +420,23 @@ func (r *Raft) becomeLeader() {
 		r.Prs[peer].Match = 0
 	}
 
-	// 更新自己的prs
-	r.Prs[r.id].Next++
-	r.Prs[r.id].Match = r.Prs[r.id].Next
-
 	// 追加日志
 	r.RaftLog.entries = append(r.RaftLog.entries, pb.Entry{
 		Term:  r.Term,
 		Index: r.RaftLog.LastIndex() + 1,
 	})
+	// TODO::Tag 空日志？？？,是空日志
+	r.Prs[r.id].Match = r.Prs[r.id].Next
+	r.Prs[r.id].Next++
 
 	for peer := range r.Prs {
 		if peer != r.id {
 			r.sendAppend(peer)
 		}
+	}
+
+	if len(r.Prs) == 1 {
+		r.RaftLog.committed = r.Prs[r.id].Match
 	}
 
 }
@@ -457,13 +463,14 @@ func (r *Raft) Step(m pb.Message) (err error) {
 func (r *Raft) handlePropose(m pb.Message) {
 	lastIdx := r.RaftLog.LastIndex()
 
+	// m.entries 是发来的日志数据
 	for i, entry := range m.Entries {
 		entry.Term = r.Term
 		entry.Index = lastIdx + uint64(i) + 1
 		// 直接拼接，不是在原有的基础上修改
 		r.RaftLog.entries = append(r.RaftLog.entries, *entry)
 	}
-
+	// update local Prs
 	r.Prs[r.id].Match = r.RaftLog.LastIndex()
 	r.Prs[r.id].Next = r.RaftLog.LastIndex() + 1
 
@@ -498,10 +505,12 @@ func (r *Raft) handleRequestVote(m pb.Message) {
 		r.becomeFollower(m.Term, None)
 	}
 
+	if r.Term < m.Term {
+		r.Vote = None
+		r.Term = m.Term
+	}
+
 	if r.Vote == None || r.Vote == m.From {
-		if r.Term < m.Term {
-			r.Term = m.Term
-		}
 
 		lastIdx := r.RaftLog.LastIndex()
 		lastTerm, _ := r.RaftLog.Term(lastIdx)
@@ -526,11 +535,24 @@ func (r *Raft) handleRequestVote(m pb.Message) {
 	return
 }
 
+func (r *Raft) sendAppendResponse(to uint64, reject bool, index uint64) {
+	msg := pb.Message{
+		MsgType: pb.MessageType_MsgAppendResponse,
+		From:    r.id,
+		To:      to,
+		Term:    r.Term,
+		Reject:  reject,
+		Index:   index,
+	}
+	r.send(msg)
+	return
+}
+
 func (r *Raft) handleAppendResponse(m pb.Message) {
 	if m.Reject == true {
 		// TODO:question,这里在handleAppendEntries并未实现index的写入？默认是零？
 		// 已解决：m返回的时候会带有匹配的本地最小index
-		r.Prs[m.From].Next = m.Index
+		r.Prs[m.From].Next--
 		r.sendAppend(m.From)
 		return
 	}
@@ -548,11 +570,16 @@ func (r *Raft) handleAppendResponse(m pb.Message) {
 		i++
 	}
 	sort.Sort(match)
-	Match := match[(len(r.Prs)-1)/2]
+	Match := match[(len(r.Prs)-1)/2] // ???
 	if Match > r.RaftLog.committed {
 		logTerm, _ := r.RaftLog.Term(Match)
 		if logTerm == r.Term {
 			r.RaftLog.committed = Match
+			for peer := range r.Prs {
+				if peer != r.id { // 空日志，仅更新commit使用
+					r.sendAppend(peer)
+				}
+			}
 		}
 	}
 	return
@@ -561,17 +588,8 @@ func (r *Raft) handleAppendResponse(m pb.Message) {
 // handleAppendEntries handle AppendEntries RPC request
 func (r *Raft) handleAppendEntries(m pb.Message) {
 	// Your Code Here (2A).
-	msg := pb.Message{
-		MsgType: pb.MessageType_MsgAppendResponse,
-		From:    r.id,
-		To:      m.From,
-		Term:    r.Term,
-	}
-
 	if m.Term < r.Term {
-		msg.Reject = true
-		msg.Index = 0
-		r.send(msg)
+		r.sendAppendResponse(m.From, true, 0)
 		return
 	}
 	if m.Term > r.Term {
@@ -584,31 +602,35 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 
 	// 更新选举过期时间
 	r.electionElapsed -= globalRand.Intn(r.electionTimeout)
-	// 获取本地最新index
 	lastIdx := r.RaftLog.LastIndex()
 	if m.Index <= lastIdx {
 		// 校验term
 		LogTerm, _ := r.RaftLog.Term(m.Index)
-		if LogTerm == m.LogTerm {
-			// 两者之间是自己本地的无效信息
-			if m.Index < lastIdx {
-				// delete log
-				firstIdx := r.RaftLog.FirstIndex()
-				r.RaftLog.entries = r.RaftLog.entries[:m.Index-firstIdx+1]
-			}
-			// 追加新日志
-			for i, entry := range m.Entries {
-				entry.Term = r.Term
-				entry.Index = m.Index + uint64(i) + 1
-				r.RaftLog.entries = append(r.RaftLog.entries, *entry)
-			}
 
+		if LogTerm == m.LogTerm {
+			for i, entry := range m.Entries {
+				var Term uint64
+				entry.Index = m.Index + uint64(i) + 1
+				tag := false
+				if entry.Index <= lastIdx { // 存在冲突的日志，需要将本地的entry剔除后再更新,maybe need update stableIdx
+					Term, _ = r.RaftLog.Term(entry.Index)
+					if Term != entry.Term {
+						firstIdx := r.RaftLog.FirstIndex()
+						if !tag { // update stableIdx
+							r.RaftLog.stabled = m.Index - firstIdx + 1
+							tag = true
+						}
+						r.RaftLog.entries = r.RaftLog.entries[0 : m.Index-firstIdx+1]
+						lastIdx = r.RaftLog.LastIndex()
+						r.RaftLog.entries = append(r.RaftLog.entries, *entry)
+					}
+				} else {
+					r.RaftLog.entries = append(r.RaftLog.entries, *entry)
+				}
+			}
 			// 返回追加日志的回应消息
 			r.Vote = None
-			msg.Reject = false
-			msg.Term = r.Term
-			msg.Index = m.Index + uint64(len(m.Entries))
-			r.send(msg)
+			r.sendAppendResponse(m.From, false, r.RaftLog.LastIndex())
 
 			// committed
 			if m.Commit > r.RaftLog.committed {
@@ -618,12 +640,19 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 		}
 	}
 
+	//stableIdx := r.RaftLog.LastIndex()
+	//
+	//for i, ent := range ents {
+	//	if ent.Term == r.RaftLog.entries[i].Term && ent.Index == r.RaftLog.entries[i].Index {
+	//		stableIdx = ent.Index
+	//	}
+	//}
+	//r.RaftLog.stabled = max(stableIdx,
+
 	// leader的index比本地的index大，证明中间有日志缺失
 	// TODO:交给上层逻辑？？
 	// 已解决同H531
-	msg.Reject = true
-	msg.Index = 0
-	r.send(msg)
+	r.sendAppendResponse(m.From, true, 0)
 	return
 }
 
@@ -650,7 +679,7 @@ func (r *Raft) handleHeartbeat(m pb.Message) {
 	if m.From != r.Lead {
 		r.Lead = m.From
 	}
-
+	r.RaftLog.committed = m.Commit
 	r.electionElapsed -= globalRand.Intn(r.electionTimeout)
 	msg.Reject = true
 	msg.Term = r.Term
@@ -758,6 +787,8 @@ func (r *Raft) LeaderStep(m pb.Message) error {
 	// leader only
 	case pb.MessageType_MsgRequestVote:
 		r.handleRequestVote(m)
+	case pb.MessageType_MsgRequestVoteResponse:
+	//	为了避免多余的选票，什么都不需要做
 	default:
 		return errors.New("unsupported MsgType for Leader")
 	}
@@ -801,7 +832,7 @@ func (r *Raft) send(m pb.Message) bool {
 		m.From = r.id
 	}
 
-	if m.MsgType == pb.MessageType_MsgRequestVote || m.MsgType == pb.MessageType_MsgRequestVoteResponse {
+	if m.MsgType == pb.MessageType_MsgRequestVote {
 		if m.Term == 0 {
 			panic(fmt.Sprintf("term should be set when sending %s", m.MsgType))
 			return false

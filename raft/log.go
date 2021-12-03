@@ -63,7 +63,7 @@ type RaftLog struct {
 	//unstable *unstable
 	// 陈旧的数组会被清除掉，firstIndex是未被清理的最小日志index，初始化时即applied == firstIndex -1
 	firstIndex uint64
-	lastIndex  uint64
+	//lastIndex  uint64
 	// offset
 	//offset     uint64
 	//term   uint64
@@ -123,11 +123,8 @@ func (l *RaftLog) maybeCompact() {
 // unstableEntries return all the unstable entries
 func (l *RaftLog) unstableEntries() []pb.Entry {
 	// Your Code Here (2A).
-	if len(l.entries) > 0 {
+	if len(l.entries) > 0 {	// TODO::error
 		dis := l.stabled - l.FirstIndex() + 1
-		if dis < 0 || dis > uint64(len(l.entries)) {
-			return nil
-		}
 		return l.entries[dis:]
 	}
 	return nil
@@ -142,11 +139,7 @@ func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 	if count > 0 {
 		commitDst := l.committed - l.FirstIndex() + 1
 		applyDst := l.applied - l.FirstIndex() + 1
-		if commitDst < 0 || commitDst > count || applyDst < 0 || applyDst > count || commitDst < applyDst {
-			return nil
-		}
 		// update commitDst ==> commitDst
-		// TODO：
 		return l.entries[applyDst:commitDst]
 	}
 
@@ -193,16 +186,12 @@ func (l *RaftLog) Term(i uint64) (uint64, error) {
 		// i < firstIdx maybe i == dummyIdx need find on storage
 	}
 
-	// TODO:question i < firstIdx maybe i == dummyIdx need find on storage
+	// TODO:question i < firstIdx maybe i == dummyIdx need find on storage?
 	term, err := l.storage.Term(i)
-	if err == nil {
-		return term, nil
+	if err != nil {
+		return 0, err
 	}
-
-	if err == ErrCompacted || err == ErrUnavailable {
-		return 0, nil
-	}
-	panic(err)
+	return term, err
 }
 
 // log 中的entry并不包含快照

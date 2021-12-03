@@ -365,6 +365,7 @@ func TestLeaderStartReplication2AB(t *testing.T) {
 	r := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, s)
 	r.becomeCandidate()
 	r.becomeLeader()
+	// 提交空条目
 	commitNoopEntry(r, s)
 	li := r.RaftLog.LastIndex()
 
