@@ -409,6 +409,7 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	r.reset(term)
 	r.State = StateFollower
 	r.Lead = lead
+	log.Infof("[raft]: %d became follower at term %d", r.id, r.Term)
 }
 
 // becomeCandidate transform this peer's state to candidate
@@ -422,6 +423,7 @@ func (r *Raft) becomeCandidate() {
 	r.votes = make(map[uint64]bool)
 	r.votes[r.id] = true
 	r.Vote = r.id
+	log.Infof("[raft]: %d became candidate at term %d", r.id, r.Term)
 }
 
 // becomeLeader transform this peer's state to leader
@@ -442,6 +444,7 @@ func (r *Raft) becomeLeader() {
 	// 新加一个空emptyEntry，对于leader增加其Next和Match
 	r.appendEntry(emptyEntry)
 	r.bcastAppend()
+	log.Infof("[raft]: %d became leader at term %d", r.id, r.Term)
 }
 
 // Step the entrance of handle message, see `MessageType`
