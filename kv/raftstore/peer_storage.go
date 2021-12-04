@@ -313,20 +313,20 @@ func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.Write
 		return nil
 	}
 
-	lastEntry := entries[len(entries)-1]
-	lastIndex, lastTerm := lastEntry.Index, lastEntry.Term
+	entryFirstIndex := entries[0].Index
+	entryLastIndex, entryLastTerm := entries[len(entries)-1].Index, entries[len(entries)-1].Term
 
-	prevLastIndex := ps.raftState.LastIndex
-	firstIndex, _ := ps.FirstIndex()
+	psFirstIndex, _ := ps.FirstIndex()
+	psLastIndex, _ := ps.LastIndex()
 
 	// 判断日志是否陈旧
-	if firstIndex > lastIndex {
+	if psLastIndex > entryLastIndex {
 		return nil
 	}
 
 	// 仅截取最新的日志
-	if firstIndex > entries[0].Index {
-		entries = entries[firstIndex-entries[0].Index:]
+	if psFirstIndex > entryFirstIndex {
+		entries = entries[psLastIndex-entryFirstIndex:]
 	}
 
 	// Append the given entries to the raft log
@@ -339,16 +339,16 @@ func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.Write
 	}
 
 	// delete log entries that will never be committed
-	if lastIndex < prevLastIndex {
-		for i := lastIndex + 1; lastIndex < prevLastIndex; i++ {
+	if entryLastIndex < psLastIndex {
+		for i := entryLastIndex + 1; i <= psLastIndex; i++ {
 			key := meta.RaftLogKey(regionID, i)
 			raftWB.DeleteMeta(key)
 		}
 	}
 
 	// update ps.raftState
-	ps.raftState.LastIndex = lastIndex
-	ps.raftState.LastTerm = lastTerm
+	ps.raftState.LastIndex = entryLastIndex
+	ps.raftState.LastTerm = entryLastTerm
 
 	return nil
 }
@@ -373,21 +373,24 @@ func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB *engine_ut
 func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (*ApplySnapResult, error) {
 	// Hint: you may call `Append()` and `ApplySnapshot()` in this function
 	// Your Code Here (2B/2C).
-	regionID := ps.region.GetId()
+	var err error = nil
 	wBatch := new(engine_util.WriteBatch)
 	if len(ready.Entries) != 0 {
-		ps.Append(ready.Entries, wBatch)
+		err = ps.Append(ready.Entries, wBatch)
 	}
 
 	if !raft.IsEmptyHardState(ready.HardState) {
 		ps.raftState.HardState = &ready.HardState
 	}
+	regionID := ps.region.GetId()
 	key := meta.RaftStateKey(regionID)
-	wBatch.SetMeta(key, ps.raftState)
-
-	wBatch.WriteToDB(ps.Engines.Raft)
-
-	return nil, nil
+	if err == nil {
+		err = wBatch.SetMeta(key, ps.raftState)
+	}
+	if err == nil {
+		err = wBatch.WriteToDB(ps.Engines.Raft)
+	}
+	return nil, err
 }
 
 func (ps *PeerStorage) ClearData() {

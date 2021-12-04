@@ -12,6 +12,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/log"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
@@ -40,6 +41,76 @@ func newPeerMsgHandler(peer *peer, ctx *GlobalContext) *peerMsgHandler {
 	}
 }
 
+func (d *peerMsgHandler) processLogEntry(entry *eraftpb.Entry, wBatch *engine_util.WriteBatch) {
+	msg := &raft_cmdpb.RaftCmdRequest{}
+	msg.Unmarshal(entry.Data)
+
+	if len(msg.Requests) > 0 {
+		for _, req := range msg.Requests {
+			switch req.CmdType {
+			case raft_cmdpb.CmdType_Get:
+			case raft_cmdpb.CmdType_Put:
+				wBatch.SetCF(req.Put.Cf, req.Put.Key, req.Put.Value)
+			case raft_cmdpb.CmdType_Delete:
+				wBatch.DeleteCF(req.Delete.Cf, req.Delete.Key)
+			case raft_cmdpb.CmdType_Snap:
+			}
+		}
+		// wBatch.WriteToDB(d.peerStorage.Engines.Kv)
+		// wBatch.Reset()
+		// 过滤掉proposal index与commited_enry不匹配的
+		if len(d.proposals) != 0 {
+			cut_index := 0
+			for ; cut_index < len(d.proposals) && d.proposals[cut_index].index < entry.Index; cut_index++ {
+				NotifyStaleReq(entry.Term, d.proposals[cut_index].cb)
+			}
+
+			d.proposals = d.proposals[cut_index:]
+			if len(d.proposals) == 0 {
+				return
+			}
+			prop := d.proposals[0]
+			if prop.index == entry.Index {
+				if prop.term != entry.Term {
+					NotifyStaleReq(entry.Term, prop.cb)
+				} else {
+					resp := newCmdResp()
+					for _, req := range msg.Requests {
+						sub_res := &raft_cmdpb.Response{}
+						switch req.CmdType {
+						case raft_cmdpb.CmdType_Get:
+							val, err := engine_util.GetCF(d.peerStorage.Engines.Kv, req.Get.Cf, req.Get.Key)
+							sub_res.CmdType = raft_cmdpb.CmdType_Get
+							response := &raft_cmdpb.GetResponse{Value: val}
+							if err != nil {
+								response.Value = nil
+							}
+							sub_res.Get = response
+						case raft_cmdpb.CmdType_Put:
+							sub_res.CmdType = raft_cmdpb.CmdType_Put
+							response := &raft_cmdpb.PutResponse{}
+							sub_res.Put = response
+						case raft_cmdpb.CmdType_Delete:
+							sub_res.CmdType = raft_cmdpb.CmdType_Delete
+							response := &raft_cmdpb.DeleteResponse{}
+							sub_res.Delete = response
+						case raft_cmdpb.CmdType_Snap:
+							sub_res.CmdType = raft_cmdpb.CmdType_Snap
+							response := &raft_cmdpb.SnapResponse{Region: d.Region()}
+							sub_res.Snap = response
+							prop.cb.Txn = d.peerStorage.Engines.Kv.NewTransaction(false)
+						}
+						resp.Responses = append(resp.Responses, sub_res)
+					}
+					prop.cb.Done(resp)
+				}
+				d.proposals = d.proposals[1:]
+			}
+
+		}
+	}
+}
+
 func (d *peerMsgHandler) HandleRaftReady() {
 	if d.stopped {
 		return
@@ -49,88 +120,27 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		return
 	}
 	rd := d.RaftGroup.Ready()
-	d.peerStorage.SaveReadyState(&rd)
-
-	wBatch := new(engine_util.WriteBatch)
-	if len(rd.CommittedEntries) > 0 {
-		for _, commited_entry := range rd.CommittedEntries {
-			msg := &raft_cmdpb.RaftCmdRequest{}
-			resp := &raft_cmdpb.RaftCmdResponse{Header: &raft_cmdpb.RaftResponseHeader{}}
-			msg.Unmarshal(commited_entry.Data)
-			hasSnap := false
-			for _, request := range msg.Requests {
-				rep := &raft_cmdpb.Response{}
-				switch request.CmdType {
-				case raft_cmdpb.CmdType_Get:
-					// request
-					wBatch.WriteToDB(d.peerStorage.Engines.Kv)
-					cf, key := request.Get.Cf, request.Get.Key
-					value, err := engine_util.GetCF(d.peerStorage.Engines.Kv, cf, key)
-					if err != nil {
-						value = nil
-					}
-					// response
-					rep.CmdType = raft_cmdpb.CmdType_Get
-					rep.Get = &raft_cmdpb.GetResponse{Value: value}
-					wBatch = new(engine_util.WriteBatch)
-				case raft_cmdpb.CmdType_Put:
-					// request
-					wBatch.SetCF(request.Put.Cf, request.Put.Key, request.Put.Value)
-					// response
-					rep.CmdType = raft_cmdpb.CmdType_Put
-					rep.Put = &raft_cmdpb.PutResponse{}
-				case raft_cmdpb.CmdType_Delete:
-					// request
-					wBatch.DeleteCF(request.Delete.Cf, request.Delete.Key)
-					// response
-					rep.CmdType = raft_cmdpb.CmdType_Delete
-					rep.Delete = &raft_cmdpb.DeleteResponse{}
-				case raft_cmdpb.CmdType_Snap:
-					// request
-
-					// response
-					rep.CmdType = raft_cmdpb.CmdType_Snap
-					rep.Snap = &raft_cmdpb.SnapResponse{Region: d.Region()}
-
-					hasSnap = true
-				}
-				resp.Responses = append(resp.Responses, rep)
-			}
-			// callback
-			if len(d.proposals) != 0 {
-				// 过滤掉proposal index与commited_enry不匹配的
-				cut_index := 0
-				for ; cut_index < len(d.proposals) && d.proposals[cut_index].index < commited_entry.Index; cut_index++ {
-					NotifyStaleReq(commited_entry.Term, d.proposals[cut_index].cb)
-				}
-				d.proposals = d.proposals[cut_index:]
-				if len(d.proposals) == 0 {
-					return
-				}
-				prop := d.proposals[0]
-				if prop.term != commited_entry.Term {
-					NotifyStaleReq(commited_entry.Term, prop.cb)
-				} else {
-					// snap 类型需要提供txn，不然会报错
-					if hasSnap {
-						prop.cb.Txn = d.ctx.engine.Kv.NewTransaction(false)
-					}
-					prop.cb.Done(resp)
-				}
-				d.proposals = d.proposals[1:]
-			}
-
-		}
-		d.peerStorage.applyState.AppliedIndex = rd.CommittedEntries[len(rd.CommittedEntries)-1].Index
-		wBatch.SetMeta(meta.ApplyStateKey(d.regionId), d.peerStorage.applyState)
+	_, err := d.peerStorage.SaveReadyState(&rd)
+	if err != nil {
+		panic(err)
 	}
-
-	wBatch.WriteToDB(d.peerStorage.Engines.Kv)
 
 	if len(rd.Messages) != 0 {
 		d.Send(d.ctx.trans, rd.Messages)
 	}
 
+	if len(rd.CommittedEntries) > 0 {
+		wBatch := new(engine_util.WriteBatch)
+		for _, commited_entry := range rd.CommittedEntries {
+			if d.stopped {
+				return
+			}
+			d.processLogEntry(&commited_entry, wBatch)
+			d.peerStorage.applyState.AppliedIndex = commited_entry.Index
+		}
+		wBatch.SetMeta(meta.ApplyStateKey(d.regionId), d.peerStorage.applyState)
+		wBatch.WriteToDB(d.peerStorage.Engines.Kv)
+	}
 	d.RaftGroup.Advance(rd)
 }
 
@@ -196,6 +206,20 @@ func (d *peerMsgHandler) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) e
 	return err
 }
 
+func getRequestKey(req *raft_cmdpb.Request) []byte {
+	var key []byte
+	switch req.CmdType {
+	case raft_cmdpb.CmdType_Get:
+		key = req.Get.Key
+	case raft_cmdpb.CmdType_Delete:
+		key = req.Delete.Key
+	case raft_cmdpb.CmdType_Put:
+		key = req.Put.Key
+	case raft_cmdpb.CmdType_Snap:
+	}
+	return key
+}
+
 func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *message.Callback) {
 	err := d.preProposeRaftCommand(msg)
 	if err != nil {
@@ -203,20 +227,31 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 		return
 	}
 	// Your Code Here (2B).
-	prop := &proposal{
-		index: d.nextProposalIndex(),
-		term:  d.Term(),
-		cb:    cb,
+	// 查看当前的key是否有效
+	if len(msg.Requests) != 0 {
+		for _, req := range msg.Requests {
+			key := getRequestKey(req)
+			err := util.CheckKeyInRegion(key, d.Region())
+			if err != nil {
+				cb.Done(ErrResp(err))
+				return
+			}
+		}
+		data, err := msg.Marshal()
+		if err != nil {
+			panic(err)
+		}
+
+		prop := &proposal{
+			index: d.nextProposalIndex(),
+			term:  d.Term(),
+			cb:    cb,
+		}
+
+		d.proposals = append(d.proposals, prop)
+		d.RaftGroup.Propose(data)
 	}
 
-	d.proposals = append(d.proposals, prop)
-
-	data, err := msg.Marshal()
-	if err != nil {
-		panic(err)
-	}
-
-	d.RaftGroup.Propose(data)
 }
 
 func (d *peerMsgHandler) onTick() {

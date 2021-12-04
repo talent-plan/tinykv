@@ -182,7 +182,7 @@ func (rn *RawNode) HasReady() bool {
 	if st := rt.getSoftState(); !st.equal(rn.prevSoftState) {
 		return true
 	}
-	if ht := rt.getHardState(); !isHardStateEqual(ht, rn.prevHardState) {
+	if ht := rt.getHardState(); !IsEmptyHardState(ht) && !isHardStateEqual(ht, rn.prevHardState) {
 		return true
 	}
 	if len(rt.msgs) != 0 || len(rt.RaftLog.nextEnts()) != 0 || len(rt.RaftLog.unstableEntries()) != 0 {
