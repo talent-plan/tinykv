@@ -184,11 +184,14 @@ func newRaft(c *Config) *Raft {
 	}
 	if c.Storage != nil {
 		hardState, confState, _ := c.Storage.InitialState()
-		raft.Peers = confState.Nodes
+		if raft.Peers == nil {
+			raft.Peers = confState.Nodes
+		}
 		raft.Term = hardState.Term
 		raft.Vote = hardState.Vote
 		raft.RaftLog.committed = hardState.Commit
 	}
+
 	lastLogIndex := raft.RaftLog.LastIndex()
 	for _, peer := range raft.Peers {
 		raft.Prs[peer] = &Progress{
