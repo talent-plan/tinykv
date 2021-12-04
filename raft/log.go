@@ -16,6 +16,7 @@ package raft
 
 import (
 	"errors"
+	"fmt"
 
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
@@ -54,6 +55,7 @@ type RaftLog struct {
 	pendingSnapshot *pb.Snapshot
 
 	// Your Data Here (2A).
+	// add unstable entry ?
 }
 
 // newLog returns log using the given storage. It recovers the log
@@ -111,8 +113,24 @@ func (l *RaftLog) LastIndex() uint64 {
 // Term return the term of the entry in the given index
 func (l *RaftLog) Term(i uint64) (uint64, error) {
 	// Your Code Here (2A).
+	firstIdx, err := l.firstIndex()
+	if err != nil {
+		return 0, err
+	}
+	if i < firstIdx || i > l.LastIndex() {
+		return 0, errors.New(fmt.Sprintf("index:%d out of range", i))
+	}
+
 	if int(i) > len(l.entries) - 1 {
 		return 0, errors.New("index exceeds entries")
 	}
+
 	return l.entries[i].Term, nil
+}
+
+func (l *RaftLog) firstIndex() (uint64, error) {
+	if len(l.entries) == 0 {
+		return 0, nil
+	}
+	return l.entries[0].Index, nil
 }

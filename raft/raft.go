@@ -195,31 +195,31 @@ func newRaft(c *Config) *Raft {
 // current commit index to the given peer. Returns true if a message was sent.
 func (r *Raft) sendAppend(to uint64) bool {
 	// Your Code Here (2A).
-	msgReceiverPrs, ok  := r.Prs[to]
+	msgReceiverPrs, ok := r.Prs[to]
 	if !ok {
 		return false
 	}
 
-	m := pb.Message{}
 	// next - 1 or next ?
-	term, err := r.RaftLog.Term(msgReceiverPrs.Next )
-	entryToSend := r.RaftLog.fetchEntries(msgReceiverPrs.Next, 50)
 	msgToSend := pb.Message{
-		To:	to,
+		To: to,
 	}
-
+	term, err := r.RaftLog.Term(msgReceiverPrs.Next - 1)
 	if err != nil {
 		// TODO: snapshot
 		// should send snapshot, if we fail to match index
-	} else {
-		msgToSend.MsgType = pb.MessageType_MsgAppend
-		msgToSend.Index = msgReceiverPrs.Next - 1
-		m.LogTerm = term
-		m.Entries = copyEntry(entryToSend)
-		m.Commit = r.RaftLog.committed
+		log.Errorf("sendAppend err:%+v to:%d next idx:%d", err, to, msgReceiverPrs.Next)
+		return false
 	}
 
-	r.msgs = append(r.msgs, m)
+
+	entryToSend := r.RaftLog.fetchEntries(msgReceiverPrs.Next, 50)
+	msgToSend.MsgType = pb.MessageType_MsgAppend
+	msgToSend.Index = msgReceiverPrs.Next - 1
+	msgToSend.LogTerm = term
+	msgToSend.Entries = copyEntry(entryToSend)
+	msgToSend.Commit = r.RaftLog.committed
+	r.msgs = append(r.msgs, msgToSend)
 	return true
 }
 
@@ -230,10 +230,10 @@ func (r *Raft) sendHeartbeat(to uint64) {
 	r.msgs = append(
 		r.msgs,
 		pb.Message{
-			From: r.id,
-			Term: r.Term,
-			To: to,
-			Commit: commit,
+			From:    r.id,
+			Term:    r.Term,
+			To:      to,
+			Commit:  commit,
 			MsgType: pb.MessageType_MsgHeartbeat,
 		})
 }
@@ -272,8 +272,9 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	// TODO: no validate yet.
 
 	r.State = StateFollower
-	r.Term = term
 	r.Lead = lead
+	r.Term = term
+	r.reset(term)
 	if enableExtraLog() {
 		fmt.Printf("r %d become follow term:%d lead:%d \n", r.id, r.Term, lead)
 	}
@@ -281,15 +282,15 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 
 // becomeCandidate transform this peer's state to candidate
 func (r *Raft) becomeCandidate() {
-	// Your Code Here (2A).
-	// step1: increase term
-	r.Term += 1
-	// step3: vote for itself
-	r.resetVotes()
+	r.reset(r.Term + 1)
 	r.voteFor(r.id, true)
 	r.Vote = r.id
 	r.Lead = None
 	r.State = StateCandidate
+	// step3: vote for itself
+	// Your Code Here (2A).
+	// step1: increase term
+
 	if enableExtraLog() {
 		fmt.Printf("r %d become candidate term:%d \n", r.id, r.Term)
 	}
@@ -327,11 +328,11 @@ func (r *Raft) Step(m pb.Message) error {
 			r.Vote = m.From
 		}
 		r.send(pb.Message{
-			From: r.id,
-			To: m.From,
-			Term: r.Term,
+			From:    r.id,
+			To:      m.From,
+			Term:    r.Term,
 			MsgType: pb.MessageType_MsgRequestVoteResponse,
-			Reject: !canVote,
+			Reject:  !canVote,
 		})
 	case pb.MessageType_MsgAppend:
 		if m.Term >= r.Term {
@@ -378,11 +379,11 @@ func (r *Raft) Step(m pb.Message) error {
 			// 忽略
 		default:
 			if enableExtraLog() {
-				 log.Printf("r.id:%d default message handle %+v \n", r.id, m)
+				log.Printf("r.id:%d default message handle %+v \n", r.id, m)
 			}
-		//	r.Term = m.Term
-		//	r.becomeFollower(m.Term, m.From)
-		//	r.msgs = append(r.msgs, m)
+			//	r.Term = m.Term
+			//	r.becomeFollower(m.Term, m.From)
+			//	r.msgs = append(r.msgs, m)
 		}
 	case StateLeader:
 		stepLeader(r, m)
@@ -536,7 +537,7 @@ func (r *Raft) TallyVotes() (granted int, rejected int, res VoteResult) {
 
 	// NOTE: majority = len(r.Prs)/2 + 1 , instead of len(r.Prs) / 2
 	// Reason
-	majorityNum := len(r.Prs) / 2 + 1
+	majorityNum := len(r.Prs)/2 + 1
 	switch {
 	// won the campaign, if the granted num exceeds the majority num.
 	case granted >= majorityNum:
@@ -561,7 +562,6 @@ func (r *Raft) send(m pb.Message) {
 	r.msgs = append(r.msgs, m)
 }
 
-
 func (r *Raft) reset(term uint64) {
 	if r.Term != term {
 		r.Term = term
@@ -571,6 +571,18 @@ func (r *Raft) reset(term uint64) {
 
 	r.electionElapsed = 0
 	r.heartbeatElapsed = 0
+	r.resetVotes()
+	for peerId, _ := range r.Prs {
+		pros := &Progress{
+			Match: 0,
+			Next: r.RaftLog.LastIndex() +1,
+		}
+		if peerId == r.id {
+			pros.Match = r.RaftLog.LastIndex()
+		}
+		r.Prs[peerId] = pros
+	}
+
 }
 
 func (r *Raft) getRandomizedElectionTimeout() int {
@@ -591,7 +603,7 @@ func (r *Raft) appendEntry(es ...*pb.Entry) (accepted bool) {
 		log.Panicf("after(%d) is out of range [committed(%d)]", after, r.RaftLog.committed)
 	}
 
-	currentLastIndex:= r.RaftLog.LastIndex()
+	currentLastIndex := r.RaftLog.LastIndex()
 	// tracking the progress of itself
 	// see etcd MaybeUpdate
 	pr, ok := r.Prs[r.id]
@@ -599,7 +611,7 @@ func (r *Raft) appendEntry(es ...*pb.Entry) (accepted bool) {
 		if pr.Match < currentLastIndex {
 			pr.Match = currentLastIndex
 		}
-		if pr.Next < currentLastIndex + 1 {
+		if pr.Next < currentLastIndex+1 {
 			pr.Next = currentLastIndex + 1
 		}
 	}
@@ -615,5 +627,3 @@ func (r *Raft) broadcastAppend() {
 		r.sendAppend(peerId)
 	}
 }
-
-
