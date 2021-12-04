@@ -359,7 +359,9 @@ func (r *Raft) Step(m pb.Message) error {
 			r.becomeCandidate()
 			r.campaignForLeader()
 			r.requestVotesFromPeers()
-			// fmt.Printf("r%d: msg hup , state:%d \n", r.id, r.State)
+			if enableExtraLog() {
+				log.Printf("r%d: msg hup , state:%d \n", r.id, r.State)
+			}
 		}
 	case StateCandidate:
 		stepCandidate(r, m)
@@ -376,7 +378,7 @@ func (r *Raft) Step(m pb.Message) error {
 			// 忽略
 		default:
 			if enableExtraLog() {
-				 fmt.Printf("r.id:%d default message handle %+v \n", r.id, m)
+				 log.Printf("r.id:%d default message handle %+v \n", r.id, m)
 			}
 		//	r.Term = m.Term
 		//	r.becomeFollower(m.Term, m.From)
@@ -474,9 +476,9 @@ func (r *Raft) campaignForLeader() {
 		// r.becomeFollower()
 	default:
 	}
-	_ = granted
-	_ = rejected
-	// log.Infof("node:%d campaignForLeader granted:%d rejected:%d res:%+v", r.id, granted, rejected, res)
+	if enableExtraLog() {
+		log.Infof("node:%d campaignForLeader granted:%d rejected:%d res:%+v", r.id, granted, rejected, res)
+	}
 }
 
 func (r *Raft) voteFor(id uint64, accepted bool) {
@@ -487,12 +489,17 @@ func (r *Raft) voteFor(id uint64, accepted bool) {
 	} else {
 		// log.Infof("node %d duplicate vote for id:%d", r.id, id)
 	}
+	if enableExtraLog() {
+		log.Infof("id:%d voteFor %d accepted:%+v ok:%+v", id, r.id, accepted, ok)
+	}
 }
 
 func (r *Raft) resetVotes() {
 	r.votes = make(map[uint64]bool, len(r.Prs))
 	r.Vote = 0
-	// log.Infof("id:%d reset vote at term:%d current state:%d", r.id, r.Term, r.State)
+	if enableExtraLog() {
+		log.Infof("id:%d reset vote at term:%d current state:%d", r.id, r.Term, r.State)
+	}
 	return
 }
 
@@ -544,7 +551,9 @@ func (r *Raft) TallyVotes() (granted int, rejected int, res VoteResult) {
 
 func (r *Raft) recordVote(m pb.Message) {
 	r.voteFor(m.From, !m.Reject)
-	// log.Infof("node:%d recordVote %+v", r.id, m)
+	if enableExtraLog() {
+		log.Infof("node:%d recordVote %+v", r.id, m)
+	}
 }
 
 // inspired by etcd send
@@ -564,8 +573,10 @@ func (r *Raft) reset(term uint64) {
 	r.heartbeatElapsed = 0
 }
 
-// 为什么需要加 1 ？
 func (r *Raft) getRandomizedElectionTimeout() int {
+	// 为什么需要加 1 ？
+	// 不加 1 的话，某个测试会挂。
+	// 应该是一些边界条件的处理
 	return r.electionTimeout + rand.Intn(r.electionTimeout) + 1
 }
 
