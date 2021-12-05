@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
@@ -18,12 +17,12 @@ func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kv
 		return nil, err
 	}
 	value, err := reader.GetCF(req.Cf, req.Key)
-	if err == badger.ErrKeyNotFound {
-		return &kvrpcpb.RawGetResponse{NotFound: true}, nil
-	} else if err != nil {
+	if err != nil {
 		return nil, err
 	}
-	return &kvrpcpb.RawGetResponse{Value: value, NotFound: false}, nil
+	notFound := false
+	if value == nil {notFound = true}
+	return &kvrpcpb.RawGetResponse{Value: value, NotFound: notFound}, nil
 }
 
 // RawPut puts the target data into storage and returns the corresponding response
