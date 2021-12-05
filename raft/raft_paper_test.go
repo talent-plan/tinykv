@@ -209,8 +209,8 @@ func TestLeaderElectionInOneRoundRPC2AA(t *testing.T) {
 // Reference: section 5.2
 func TestFollowerVote2AA(t *testing.T) {
 	tests := []struct {
-		vote    uint64
-		nvote   uint64
+		vote    uint64 //vote for
+		nvote   uint64 //candidate's id
 		wreject bool
 	}{
 		{None, 1, false},

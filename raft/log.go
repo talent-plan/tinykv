@@ -14,7 +14,10 @@
 
 package raft
 
-import pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+import (
+	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	"github.com/pingcap/log"
+)
 
 // RaftLog manage the log entries, its struct look like:
 //
@@ -56,7 +59,26 @@ type RaftLog struct {
 // to the state that it just commits and applies the latest snapshot.
 func newLog(storage Storage) *RaftLog {
 	// Your Code Here (2A).
-	return nil
+	if storage == nil {
+		log.Panic("storage must be not nil")
+	}
+
+	firstIndex, err := storage.FirstIndex()
+	if err != nil {
+		panic(err)
+	}
+	lastIndex, err := storage.LastIndex()
+	if err != nil {
+		panic(err)
+	}
+
+	raftLog := &RaftLog{
+		storage:         storage,
+		committed:       firstIndex - 1,
+		applied:         firstIndex - 1,
+		stabled:         lastIndex,
+	}
+	return raftLog
 }
 
 // We need to compact the log entries in some point of time like
@@ -81,11 +103,44 @@ func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 // LastIndex return the last index of the log entries
 func (l *RaftLog) LastIndex() uint64 {
 	// Your Code Here (2A).
-	return 0
+	i, err := l.storage.LastIndex()
+	if err != nil {
+		panic(err)
+	}
+	return i
 }
 
 // Term return the term of the entry in the given index
 func (l *RaftLog) Term(i uint64) (uint64, error) {
 	// Your Code Here (2A).
-	return 0, nil
+	// the valid term range is [index of dummy entry, last index]
+	dummyIndex := l.firstIndex() - 1
+	if i < dummyIndex || i > l.LastIndex() {
+		panic("Invalid Index")
+	}
+
+	term, err := l.storage.Term(i)
+	if err != nil {
+		return 0, err
+	}
+	return term, nil
+}
+
+func (l *RaftLog) firstIndex() uint64 {
+	index, err := l.storage.FirstIndex()
+	if err != nil {
+		panic(err)
+	}
+	return index
+}
+
+func (l *RaftLog) commitTo(tocommit uint64) {
+	// never decrease commit
+	if l.committed < tocommit {
+		if l.LastIndex() < tocommit {
+			panic("tocommit is out of range [lastIndex]. Was the raft log corrupted, truncated, or lost?")
+
+		}
+		l.committed = tocommit
+	}
 }
