@@ -26,32 +26,3 @@
 ## 测试方法
 
 `make project1`
-
-## 测试结果
-
-```
-➜ make project1                     
-GO111MODULE=on go test -v --count=1 --parallel=1 -p=1 ./kv/server -run 1
-=== RUN   TestRawGet1
---- PASS: TestRawGet1 (0.95s)
-=== RUN   TestRawGetNotFound1
---- PASS: TestRawGetNotFound1 (0.89s)
-=== RUN   TestRawPut1
---- PASS: TestRawPut1 (0.48s)
-=== RUN   TestRawGetAfterRawPut1
---- PASS: TestRawGetAfterRawPut1 (0.55s)
-=== RUN   TestRawGetAfterRawDelete1
---- PASS: TestRawGetAfterRawDelete1 (0.85s)
-=== RUN   TestRawDelete1
---- PASS: TestRawDelete1 (0.60s)
-=== RUN   TestRawScan1
---- PASS: TestRawScan1 (1.07s)
-=== RUN   TestRawScanAfterRawPut1
---- PASS: TestRawScanAfterRawPut1 (0.87s)
-=== RUN   TestRawScanAfterRawDelete1
---- PASS: TestRawScanAfterRawDelete1 (0.99s)
-=== RUN   TestIterWithRawDelete1
---- PASS: TestIterWithRawDelete1 (0.89s)
-PASS
-ok      github.com/pingcap-incubator/tinykv/kv/server   8.147s
-```
