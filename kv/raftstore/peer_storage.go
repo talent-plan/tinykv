@@ -320,13 +320,13 @@ func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.Write
 	psLastIndex, _ := ps.LastIndex()
 
 	// 判断日志是否陈旧
-	if psLastIndex > entryLastIndex {
+	if psFirstIndex > entryLastIndex {
 		return nil
 	}
 
 	// 仅截取最新的日志
 	if psFirstIndex > entryFirstIndex {
-		entries = entries[psLastIndex-entryFirstIndex:]
+		entries = entries[psFirstIndex-entryFirstIndex:]
 	}
 
 	// Append the given entries to the raft log
