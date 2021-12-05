@@ -46,6 +46,7 @@ func (d *peerMsgHandler) processLogEntry(entry *eraftpb.Entry, wBatch *engine_ut
 	msg.Unmarshal(entry.Data)
 
 	if len(msg.Requests) > 0 {
+		// apply request
 		for _, req := range msg.Requests {
 			switch req.CmdType {
 			case raft_cmdpb.CmdType_Get:
@@ -58,22 +59,25 @@ func (d *peerMsgHandler) processLogEntry(entry *eraftpb.Entry, wBatch *engine_ut
 		}
 		// wBatch.WriteToDB(d.peerStorage.Engines.Kv)
 		// wBatch.Reset()
-		// 过滤掉proposal index与commited_enry不匹配的
+		// 寻找与当前的log的index和term相匹配的proposal
 		if len(d.proposals) != 0 {
+			// 先过滤掉index不匹配，这部分proposal肯定是stale
 			cut_index := 0
 			for ; cut_index < len(d.proposals) && d.proposals[cut_index].index < entry.Index; cut_index++ {
 				NotifyStaleReq(entry.Term, d.proposals[cut_index].cb)
 			}
-
 			d.proposals = d.proposals[cut_index:]
 			if len(d.proposals) == 0 {
 				return
 			}
 			prop := d.proposals[0]
+			// 这时的Proposal有可能是 大于 当前entry.Index的
 			if prop.index == entry.Index {
+				// 当前的proposal的Term与当前的entry的Term不相符
 				if prop.term != entry.Term {
 					NotifyStaleReq(entry.Term, prop.cb)
 				} else {
+					// response request
 					resp := newCmdResp()
 					for _, req := range msg.Requests {
 						sub_res := &raft_cmdpb.Response{}
@@ -102,8 +106,10 @@ func (d *peerMsgHandler) processLogEntry(entry *eraftpb.Entry, wBatch *engine_ut
 						}
 						resp.Responses = append(resp.Responses, sub_res)
 					}
+					// 有合适的proposal时需要调用其callback
 					prop.cb.Done(resp)
 				}
+				// 删除该callback
 				d.proposals = d.proposals[1:]
 			}
 
@@ -124,11 +130,11 @@ func (d *peerMsgHandler) HandleRaftReady() {
 	if err != nil {
 		panic(err)
 	}
-
+	// send raft all msgs
 	if len(rd.Messages) != 0 {
 		d.Send(d.ctx.trans, rd.Messages)
 	}
-
+	// need to be applied
 	if len(rd.CommittedEntries) > 0 {
 		wBatch := new(engine_util.WriteBatch)
 		for _, commited_entry := range rd.CommittedEntries {
