@@ -58,19 +58,47 @@ tick 触发事件 -> 发送请求至step（不经过Msgs）-> step采取对应�
 `Advance(rd Ready)`：这个函数接受一个`Ready`，主要用来处理`Ready`，在本实验中只需要处理`CommittedEntries`，并更新raft中的`stable`就可以了，还有`Entries`更新`applied`即可。但是本身需要处理更多内容，这是后面实验的内容了。
 
 
-### 测试方法
-
-```
-make project2a
-```
-
 ## Project2b
 
 ### 实验目的
 
-1. 实现`PeerStorage.SaveReadyState`方法
+1. 实现`PeerStorage.SaveReadyState`和`PeerStorage.Append`方法
 2. 实现`proposeRaftCommand`和`HandleRaftReady`方法
 3. 通过测试project2b
 
 ### 实验细节
 
+在tinkv的设计中，一个`Store`可以拥有多个Raft节点，即`Peer`，而这些`Peer`又隶属于不同的`Region`。对于单个`Peer`而言，若节点的状态发生改变，即`HasReady()`返回true，节点需要将State、日志和快照持久化，然后节点处理并回复上层传递的Msg。
+
+持久化State、日志和快照时，会利用底层的`badger`创建的两个数据库，raftDB和kvDB，具体存储细节如表所示：
+
+| Key            | KeyFormat                      | Value          | DB |
+|:----           |:----                           |:----           |:---|
+|raft_log_key    |0x01 0x02 region_id 0x01 log_idx|Entry           |raft|
+|raft_state_key  |0x01 0x02 region_id 0x02        |RaftLocalState  |raft|
+|apply_state_key |0x01 0x02 region_id 0x03        |RaftApplyState  |kv  |
+|region_state_key|0x01 0x03 region_id 0x01        |RegionLocalState|kv  |
+
+本实验，日志的持久化在`PeerStorage.Append`方法中完成，在存储时，需要注意一下几个要点：
+1. 仅存储未存储的最新的log
+2. 若raftDB存储的未被commit的log，存在将来永远不会被commit的情况，需要从raftDB中删除
+3. log存储完成后，需要更新`PeerStorage.raftState`，因为此时`raftState`的log索引和term均已发生改变
+
+`PeerStorage.SaveReadyState`是对持久化State、日志和快照的一个封装。日志的持久化调用`PeerStorage.Append`方法。持久化State前，需要依据`raft.Ready`更新`PeerStorage.raftState`，然后将`PeerStorage.raftState`写入raftDB中。快照的持久化在后续实验完成。
+
+来自客户端的请求，主要由`peerMsgHandler`处理，主要有两个功能：一个是`HandleMsgs`，另一个是`HandleRaftReady`。
+
+`HandleMsgs`处理从 raftCh 接收到的所有消息，本实验我们只需要关注`message.MsgTypeRaftCmd`，将此类消息由`proposeRaftCommand`方法处理后，再发送到raft集群内。
+
+实现`proposeRaftCommand`时，需要注意以下要点：
+1. 判断消息合法性，如果key不属于当前raftRegion，`message.Callback`返回`ErrResp`
+2. 对消息所包含的数据序列化
+3. 将此消息的ProposalIndex和Term，以及`message.Callback`以`proposal`结构体的形式记录下来
+4. 把序列化后的数据，由`propose`函数封装为日志
+
+消息处理完后，Raft节点会有一些状态更新，`HandleRaftReady`
+从Raft模块准备好并执行相应的操作，主要包括：
+1. 若raft节点状态发生改变，调用`PeerStorage.SaveReadyState`进行持久化
+2. 将消息转发给raft，然后对raft中已经commit的log，处理并按照log类型，在数据库中执行相应操作
+3. 每一条log都对应一条`proposal`，处理log时，需要删除这条log之前的所有propoal，因为这些propoal对应的log永远不会commit
+4. 对log在数据库中执行结束后，按照操作类型，callback相应的resp
