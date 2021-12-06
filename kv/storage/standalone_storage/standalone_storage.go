@@ -47,11 +47,15 @@ func (s *StandAloneStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) 
 		case storage.Put:
 			data := batch[i].Data.(storage.Put)
 			err := engine_util.PutCF(s.engine.Kv, data.Cf, data.Key, data.Value)
-			if err != nil {return err}
+			if err != nil {
+				return err
+			}
 		case storage.Delete:
 			data := batch[i].Data.(storage.Delete)
 			err := engine_util.DeleteCF(s.engine.Kv, data.Cf, data.Key)
-			if err != nil {return err}
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
