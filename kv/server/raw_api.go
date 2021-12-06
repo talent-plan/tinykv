@@ -22,6 +22,7 @@ func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kv
 	}
 	notFound := false
 	if value == nil {notFound = true}
+	reader.Close()
 	return &kvrpcpb.RawGetResponse{Value: value, NotFound: notFound}, nil
 }
 
@@ -58,5 +59,7 @@ func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*
 		pairs = append(pairs, &kvrpcpb.KvPair{Key: item.Key(), Value: value})
 		iter.Next()
 	}
+	iter.Close()
+	reader.Close()
 	return &kvrpcpb.RawScanResponse{Kvs: pairs}, nil
 }
