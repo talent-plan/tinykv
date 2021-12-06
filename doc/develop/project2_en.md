@@ -41,7 +41,6 @@ roadmap from `raft/doc.go`
 
 ### Project2ac
 
-
 #### Target
 
 1. impl `rawnode`. etc. `Ready()`,`HasReady()`,`Advance()`
@@ -56,3 +55,45 @@ read `Ready` struct:
 `Advance(rd Ready)`: it accept a Ready struct, and deal with it. In this test, there are only two sub-tests. The two need to consider are `r.raft.stable` and `r.raft.applied`, they should be update in this method, if `CommittedEntries` or `Entries` are not emptyv
 
 ## Project2b
+
+#### Target
+
+1. impl`PeerStorage.SaveReadyState` and `PeerStorage.Append`
+2. impl`proposeRaftCommand` and `HandleRaftReady`
+3. pass project2b
+
+#### Detail
+
+In the design of tinkv, a `Store` can have multiple Raft nodes, namely `Peer`, and these `Peer` belong to different `Region`. For a single `Peer`, if the state of the node changes, that is, if `HasReady()` returns true, the node needs to persist the State, log, and snapshot, and then the node processes and responds to the Msg passed by the upper layer.
+
+When persisting State, logs, and snapshots, raftDB and kvDB are created by the underlying `badger`. The specific storage details are shown in the table:
+
+| Key            | KeyFormat                      | Value          | DB |
+|:----           |:----                           |:----           |:---|
+|raft_log_key    |0x01 0x02 region_id 0x01 log_idx|Entry           |raft|
+|raft_state_key  |0x01 0x02 region_id 0x02        |RaftLocalState  |raft|
+|apply_state_key |0x01 0x02 region_id 0x03        |RaftApplyState  |kv  |
+|region_state_key|0x01 0x03 region_id 0x01        |RegionLocalState|kv  |
+
+In this experiment, the log persistence is completed in the `PeerStorage.Append` method. When storing, we need to pay attention to the following points:
+1. Store only the latest log that has not been stored
+2. If the uncommitted log stored in raftDB will never be committed in the future, it needs to be deleted from raftDB
+3. After log storage is completed, `PeerStorage.raftState` needs to be updated, because at this time the log index and term of `raftState` have changed
+
+`PeerStorage.SaveReadyState` is a package for persistent State, logs and snapshots. The log persistence calls the `PeerStorage.Append` method. Before persisting the State, we need to update `PeerStorage.raftState` according to `raft.Ready`, and then write `PeerStorage.raftState` into raftDB. The persistence of the snapshot will be completed in subsequent experiments.
+
+The request from the client is mainly handled by `peerMsgHandler`, which has two main functions: one is `HandleMsgs` and the other is `HandleRaftReady`.
+
+`HandleMsgs` processes all messages received from raftCh. In this experiment, we only need to pay attention to `message.MsgTypeRaftCmd`, and send such messages to the raft cluster after being processed by the `proposeRaftCommand` method.
+
+When implementing `proposeRaftCommand`, we need to pay attention to the following points:
+1. Judge the validity of the message, if the key does not belong to the current raftRegion, `message.Callback` returns `ErrResp`
+2. Serialize the data contained in the message
+3. Record the ProposalIndex and Term of this message, as well as `message.Callback` in the form of `proposal` structure
+4. Encapsulate the serialized data into a log by the `propose` function
+
+After the message is processed, the Raft node will have some status updates, `HandleRaftReady` Prepare and perform corresponding operations from the Raft module, including:
+1. If the state of the raft node changes, call `PeerStorage.SaveReadyState` for persistence
+2. Forward the message to raft, and then process the committed log in raft and perform corresponding operations in the database according to the log type
+3. Each log corresponds to a `proposal`. When processing the log, we need to delete all proposals before this log, because the log corresponding to these proposals will never commit
+4. After the log is executed in the database, according to the operation type, callback the corresponding resp
