@@ -60,8 +60,31 @@ type RaftLog struct {
 // to the state that it just commits and applies the latest snapshot.
 func newLog(storage Storage) *RaftLog {
 	// Your Code Here (2A).
+	lastIndex, err := storage.LastIndex()
+	if err != nil {
+		panic(err)
+	}
+	firstIndex, err := storage.FirstIndex()
+	if err != nil {
+		panic(err)
+	}
+	hardState, _, _ := storage.InitialState()
+
+	entries, _ := storage.Entries(firstIndex, lastIndex+1)
+	committed := hardState.Commit
+	applied := firstIndex - 1
+
+	// if committed < applied {
+	// 	committed = applied
+	// }
+	stabled := lastIndex
+
 	return &RaftLog{
-		storage: storage,
+		storage:   storage,
+		applied:   applied,
+		committed: committed,
+		entries:   entries,
+		stabled:   stabled,
 	}
 }
 
@@ -75,10 +98,10 @@ func (l *RaftLog) maybeCompact() {
 // unstableEntries return all the unstable entries
 func (l *RaftLog) unstableEntries() []pb.Entry {
 	// Your Code Here (2A).
-	if l.stabled < l.LastIndex() {
+	if l.stabled <= l.LastIndex() {
 		return l.entries[l.stabled:]
 	} else {
-		return make([]pb.Entry, 1)
+		return make([]pb.Entry, 0)
 	}
 }
 
@@ -88,7 +111,7 @@ func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 	if l.applied < l.committed {
 		return l.entries[l.applied:l.committed]
 	} else {
-		return make([]pb.Entry, 1)
+		return make([]pb.Entry, 0)
 	}
 
 }
@@ -102,8 +125,8 @@ func (l *RaftLog) LastIndex() uint64 {
 // Term return the term of the entry in the given index
 func (l *RaftLog) Term(i uint64) (uint64, error) {
 	// Your Code Here (2A).
-	if i == 0 {
-		return 0, errors.New("length 0")
+	if i == 0 || i > uint64(len(l.entries)) {
+		return None, errors.New("out of range")
 	}
 	return l.entries[i-1].Term, nil
 }
