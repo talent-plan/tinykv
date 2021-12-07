@@ -24,7 +24,7 @@ while(( $i < $count))
 do
     echo "round `expr $i + 1`"
     if [ $test_test ]; then
-        make $tinytetest_testst_test > $test_test-$i.log
+        make $test_test > $test_test-$i.log
         deleteTmp
     else
         break
