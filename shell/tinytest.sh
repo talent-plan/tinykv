@@ -1,6 +1,6 @@
 #! /bin/bash
 # This is shell script could repeat the tests,
-# generat log file and delete raft tmp file
+# generate log file and delete raft tmp file
 # usage:
 # modify following args
 #   count: repeat times
