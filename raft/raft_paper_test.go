@@ -743,7 +743,7 @@ func TestLeaderSyncFollowerLog2AB(t *testing.T) {
 		n := newNetwork(lead, follower, nopStepper)
 		n.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 		// The election occurs in the term after the one we loaded with
-		// lead's term and commited index setted up above.
+		// lead's term and committed index setted up above.
 		n.send(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgRequestVoteResponse, Term: term + 1})
 
 		n.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{}}})
