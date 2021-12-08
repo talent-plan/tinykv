@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Connor1996/badger"
@@ -38,6 +39,7 @@ type Cluster struct {
 	dirs            []string
 	simulator       Simulator
 	cfg             *config.Config
+	baseDir         string
 }
 
 func NewCluster(count int, schedulerClient *MockSchedulerClient, simulator Simulator, cfg *config.Config) *Cluster {
@@ -48,6 +50,7 @@ func NewCluster(count int, schedulerClient *MockSchedulerClient, simulator Simul
 		snapPaths:       make(map[uint64]string),
 		simulator:       simulator,
 		cfg:             cfg,
+		baseDir:         "test-raftstore",
 	}
 }
 
@@ -55,8 +58,9 @@ func (c *Cluster) Start() {
 	ctx := context.TODO()
 	clusterID := c.schedulerClient.GetClusterID(ctx)
 
+	c.CleanAbnomalCash()
 	for storeID := uint64(1); storeID <= uint64(c.count); storeID++ {
-		dbPath, err := ioutil.TempDir("", "test-raftstore")
+		dbPath, err := ioutil.TempDir("", c.baseDir)
 		if err != nil {
 			panic(err)
 		}
@@ -65,7 +69,7 @@ func (c *Cluster) Start() {
 		raftPath := filepath.Join(dbPath, "raft")
 		snapPath := filepath.Join(dbPath, "snap")
 		c.snapPaths[storeID] = snapPath
-		c.dirs = append(c.dirs, []string{kvPath, raftPath, snapPath}...)
+		c.dirs = append(c.dirs, dbPath)
 
 		err = os.MkdirAll(kvPath, os.ModePerm)
 		if err != nil {
@@ -148,6 +152,23 @@ func (c *Cluster) Shutdown() {
 	}
 	for _, dir := range c.dirs {
 		os.RemoveAll(dir)
+	}
+}
+
+func (c *Cluster) CleanAbnomalCash() {
+	basePath := os.TempDir()
+	if _, err := os.Stat(basePath); err != nil {
+		panic(err)
+	}
+	rd, err := ioutil.ReadDir(basePath)
+	if err != nil {
+		panic(err)
+	}
+	for _, d := range rd {
+		dname := d.Name()
+		if strings.HasPrefix(dname, c.baseDir) {
+			os.RemoveAll(filepath.Join(basePath, dname))
+		}
 	}
 }
 

@@ -1,6 +1,6 @@
 #! /bin/bash
 # This is shell script could repeat the tests,
-# generate log file and delete raft tmp file
+# generate log file
 # usage:
 # modify following args
 #   count: repeat times
@@ -12,20 +12,12 @@
 count=1
 test_test=project2a
 
-
-deleteTmp() {
-    # echo "deleting tinykv rubish"
-    find /tmp/ -name "*raft*" | xargs rm -rf -v
-    # echo "deleting finished"
-}
-
 i=0
 while(( $i < $count))
 do
     echo "round `expr $i + 1`"
     if [ $test_test ]; then
         make $test_test > $test_test-$i.log
-        deleteTmp
     else
         break
     fi
