@@ -58,7 +58,7 @@ func (c *Cluster) Start() {
 	ctx := context.TODO()
 	clusterID := c.schedulerClient.GetClusterID(ctx)
 
-	c.CleanAbnomalCash()
+	c.CleanAbnormalTempFile()
 	for storeID := uint64(1); storeID <= uint64(c.count); storeID++ {
 		dbPath, err := ioutil.TempDir("", c.baseDir)
 		if err != nil {
@@ -155,7 +155,8 @@ func (c *Cluster) Shutdown() {
 	}
 }
 
-func (c *Cluster) CleanAbnomalCash() {
+// in case of abnormal exit, cannot call shutdown
+func (c *Cluster) CleanAbnormalTempFile() {
 	basePath := os.TempDir()
 	if _, err := os.Stat(basePath); err != nil {
 		panic(err)
