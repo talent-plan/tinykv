@@ -135,6 +135,7 @@ To save the hard state is also very easy, just update peer storage’s `RaftLoca
 >
 > - Use `WriteBatch` to save these states at once.
 > - See other functions at `peer_storage.go` for how to read and write these states.
+> - Set the environment variable LOG_LEVEL=debug which may help you in debugging, see also the all available [log levels](../log/log.go).
 
 ### Implement Raft ready process
 
