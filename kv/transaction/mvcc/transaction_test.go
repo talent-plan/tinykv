@@ -106,6 +106,22 @@ func TestGetLock4A(t *testing.T) {
 	assert.Equal(t, lock, *gotLock)
 }
 
+func TestGetEmptyLock4A(t *testing.T) {
+	lock := Lock{
+		Primary: []byte{16},
+		Ts:      100,
+		Ttl:     100000,
+		Kind:    WriteKindRollback,
+	}
+	txn := testTxn(42, func(m *storage.MemStorage) {
+		m.Set(engine_util.CfLock, []byte{1}, lock.ToBytes())
+	})
+
+	gotLock, err := txn.GetLock([]byte{2})
+	assert.Nil(t, err)
+	assert.Nil(t, gotLock)
+}
+
 func TestDeleteLock4A(t *testing.T) {
 	txn := testTxn(42, nil)
 	txn.DeleteLock([]byte{1})
