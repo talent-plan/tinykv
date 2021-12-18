@@ -146,9 +146,6 @@ func (rs *RaftStorage) Reader(ctx *kvrpcpb.Context) (storage.StorageReader, erro
 	if cb.Txn == nil {
 		panic("can not found region snap")
 	}
-	if len(resp.Responses) != 1 {
-		panic("wrong response count for snap cmd")
-	}
 	return NewRegionReader(cb.Txn, *resp.Responses[0].GetSnap().Region), nil
 }
 
