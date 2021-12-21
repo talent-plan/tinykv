@@ -68,7 +68,7 @@ project2ab:
 project2ac:
 	$(GOTEST) ./raft -run 2AC
 
-project2b:
+project2b: cleantest
 	$(GOTEST) ./kv/test_raftstore -run ^TestBasic2B$ || true
 	$(GOTEST) ./kv/test_raftstore -run ^TestConcurrent2B$ || true
 	$(GOTEST) ./kv/test_raftstore -run ^TestUnreliable2B$ || true
@@ -82,7 +82,7 @@ project2b:
 	$(GOTEST) ./kv/test_raftstore -run ^TestPersistPartitionUnreliable2B$ || true
 	$(TEST_CLEAN)
 
-project2c:
+project2c: cleantest
 	$(GOTEST) ./raft ./kv/test_raftstore -run 2C || $(TEST_CLEAN)
 
 project3: project3a project3b project3c
@@ -90,7 +90,7 @@ project3: project3a project3b project3c
 project3a:
 	$(GOTEST) ./raft -run 3A
 
-project3b:
+project3b: cleantest
 	$(GOTEST) ./kv/test_raftstore -run ^TestTransferLeader3B$ || true
 	$(GOTEST) ./kv/test_raftstore -run ^TestBasicConfChange3B$ || true
 	$(GOTEST) ./kv/test_raftstore -run ^TestConfChangeRecover3B$ || true
