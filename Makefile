@@ -10,6 +10,7 @@ endif
 GO                  := GO111MODULE=on go
 GOBUILD             := $(GO) build $(BUILD_FLAG) -tags codes
 GOTEST              := $(GO) test -v --count=1 --parallel=1 -p=1
+TEST_CLEAN			:= rm -rf /tmp/*raft*
 
 TEST_LDFLAGS        := ""
 
@@ -79,9 +80,10 @@ project2b:
 	$(GOTEST) ./kv/test_raftstore -run ^TestPersistConcurrentUnreliable2B$ || true
 	$(GOTEST) ./kv/test_raftstore -run ^TestPersistPartition2B$ || true
 	$(GOTEST) ./kv/test_raftstore -run ^TestPersistPartitionUnreliable2B$ || true
+	$(TEST_CLEAN)
 
 project2c:
-	$(GOTEST) ./raft ./kv/test_raftstore -run 2C
+	$(GOTEST) ./raft ./kv/test_raftstore -run 2C || $(TEST_CLEAN)
 
 project3: project3a project3b project3c
 
@@ -104,6 +106,7 @@ project3b:
 	$(GOTEST) ./kv/test_raftstore -run ^TestSplitUnreliableRecover3B$ || true
 	$(GOTEST) ./kv/test_raftstore -run ^TestSplitConfChangeSnapshotUnreliableRecover3B$ || true
 	$(GOTEST) ./kv/test_raftstore -run ^TestSplitConfChangeSnapshotUnreliableRecoverConcurrentPartition3B$ || true
+	$(TEST_CLEAN)
 
 project3c:
 	$(GOTEST) ./scheduler/server ./scheduler/server/schedulers -check.f="3C"
@@ -118,6 +121,9 @@ project4b:
 
 project4c:
 	$(GOTEST) ./kv/transaction/... -run 4C
+
+cleantest:
+	$(TEST_CLEAN)
 
 cleanlog:
 	rm -rf *.log

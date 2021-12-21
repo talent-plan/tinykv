@@ -9,7 +9,6 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/Connor1996/badger"
@@ -58,7 +57,6 @@ func (c *Cluster) Start() {
 	ctx := context.TODO()
 	clusterID := c.schedulerClient.GetClusterID(ctx)
 
-	c.CleanAbnormalTempFile()
 	for storeID := uint64(1); storeID <= uint64(c.count); storeID++ {
 		dbPath, err := ioutil.TempDir("", c.baseDir)
 		if err != nil {
@@ -155,24 +153,6 @@ func (c *Cluster) Shutdown() {
 	}
 }
 
-// in case of abnormal exit, cannot call shutdown
-func (c *Cluster) CleanAbnormalTempFile() {
-	basePath := os.TempDir()
-	if _, err := os.Stat(basePath); err != nil {
-		panic(err)
-	}
-	rd, err := ioutil.ReadDir(basePath)
-	if err != nil {
-		panic(err)
-	}
-	for _, d := range rd {
-		dname := d.Name()
-		if strings.HasPrefix(dname, c.baseDir) {
-			os.RemoveAll(filepath.Join(basePath, dname))
-		}
-	}
-}
-
 func (c *Cluster) AddFilter(filter Filter) {
 	c.simulator.AddFilter(filter)
 }
@@ -203,7 +183,7 @@ func (c *Cluster) AllocPeer(storeID uint64) *metapb.Peer {
 
 func (c *Cluster) Request(key []byte, reqs []*raft_cmdpb.Request, timeout time.Duration) (*raft_cmdpb.RaftCmdResponse, *badger.Txn) {
 	startTime := time.Now()
-	for i := 0; i < 10 || time.Now().Sub(startTime) < timeout; i++ {
+	for i := 0; i < 10 || time.Since(startTime) < timeout; i++ {
 		region := c.GetRegion(key)
 		regionID := region.GetId()
 		req := NewRequest(regionID, region.RegionEpoch, reqs)
@@ -232,7 +212,7 @@ func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeou
 	regionID := request.Header.RegionId
 	leader := c.LeaderOfRegion(regionID)
 	for {
-		if time.Now().Sub(startTime) > timeout {
+		if time.Since(startTime) > timeout {
 			return nil, nil
 		}
 		if leader == nil {
@@ -435,7 +415,7 @@ func (c *Cluster) MustTransferLeader(regionID uint64, leader *metapb.Peer) {
 			currentLeader.StoreId == leader.StoreId {
 			return
 		}
-		if time.Now().Sub(timer) > 5*time.Second {
+		if time.Since(timer) > 5*time.Second {
 			panic(fmt.Sprintf("failed to transfer leader to [%d] %s", regionID, leader.String()))
 		}
 		c.TransferLeader(regionID, leader)
