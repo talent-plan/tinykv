@@ -68,7 +68,8 @@ project2ab:
 project2ac:
 	$(GOTEST) ./raft -run 2AC
 
-project2b: cleantest
+project2b:
+	$(TEST_CLEAN)
 	$(GOTEST) ./kv/test_raftstore -run ^TestBasic2B$ || true
 	$(GOTEST) ./kv/test_raftstore -run ^TestConcurrent2B$ || true
 	$(GOTEST) ./kv/test_raftstore -run ^TestUnreliable2B$ || true
@@ -82,15 +83,18 @@ project2b: cleantest
 	$(GOTEST) ./kv/test_raftstore -run ^TestPersistPartitionUnreliable2B$ || true
 	$(TEST_CLEAN)
 
-project2c: cleantest
-	$(GOTEST) ./raft ./kv/test_raftstore -run 2C || $(TEST_CLEAN)
+project2c:
+	$(TEST_CLEAN)
+	$(GOTEST) ./raft ./kv/test_raftstore -run 2C || true
+	$(TEST_CLEAN)
 
 project3: project3a project3b project3c
 
 project3a:
 	$(GOTEST) ./raft -run 3A
 
-project3b: cleantest
+project3b:
+	$(TEST_CLEAN)
 	$(GOTEST) ./kv/test_raftstore -run ^TestTransferLeader3B$ || true
 	$(GOTEST) ./kv/test_raftstore -run ^TestBasicConfChange3B$ || true
 	$(GOTEST) ./kv/test_raftstore -run ^TestConfChangeRecover3B$ || true
@@ -121,9 +125,3 @@ project4b:
 
 project4c:
 	$(GOTEST) ./kv/transaction/... -run 4C
-
-cleantest:
-	$(TEST_CLEAN)
-
-cleanlog:
-	rm -rf *.log

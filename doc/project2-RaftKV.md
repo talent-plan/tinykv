@@ -200,7 +200,7 @@ In this stage, you may consider these errors, and others will be processed in pr
 > - You can apply the committed Raft log entries in an asynchronous way just like TiKV does. It’s not necessary, though a big challenge to improve performance.
 > - Record the callback of the command when proposing, and return the callback after applying.
 > - For the snap command response, should set badger Txn to callback explicitly.
-> - After 2A, some tests you may need to repeat to find bugs
+> - After 2A, some tests you may need to run them multiple times to find bugs
 
 ## Part C
 
