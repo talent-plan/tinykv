@@ -109,7 +109,7 @@ func CheckRegionEpoch(req *raft_cmdpb.RaftCmdRequest, region *metapb.Region, inc
 	// We must check epochs strictly to avoid key not in region error.
 	//
 	// A 3 nodes TiKV cluster with merge enabled, after commit merge, TiKV A
-	// tells TiDB with a epoch not match error contains the latest target Region
+	// tells TiDB with an epoch not match error contains the latest target Region
 	// info, TiDB updates its region cache and sends requests to TiKV B,
 	// and TiKV B has not applied commit merge yet, since the region epoch in
 	// request is higher than TiKV B, the request must be denied due to epoch

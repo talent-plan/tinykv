@@ -444,7 +444,7 @@ func TestPersistPartition2B(t *testing.T) {
 }
 
 func TestPersistPartitionUnreliable2B(t *testing.T) {
-	// Test: unreliable net, restarts, partitions, many clients (3A) ...
+	// Test: unreliable net, restarts, partitions, many clients (2B) ...
 	GenericTest(t, "2B", 5, true, true, true, -1, false, false)
 }
 
