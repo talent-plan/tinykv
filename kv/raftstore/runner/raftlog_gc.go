@@ -76,7 +76,7 @@ func (r *raftLogGCTaskHandler) reportCollected(collected uint64) {
 func (r *raftLogGCTaskHandler) Handle(t worker.Task) {
 	logGcTask, ok := t.(*RaftLogGCTask)
 	if !ok {
-		log.Error("unsupported worker.Task: %+v", t)
+		log.Errorf("unsupported worker.Task: %+v", t)
 		return
 	}
 	log.Debugf("execute gc log. [regionId: %d, endIndex: %d]", logGcTask.RegionID, logGcTask.EndIdx)
