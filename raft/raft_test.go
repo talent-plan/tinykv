@@ -533,7 +533,7 @@ func TestProposal2AB(t *testing.T) {
 		{newNetwork(nil, nopStepper, nopStepper, nil, nil), true},
 	}
 
-	for j, tt := range tests {
+	for i, tt := range tests {
 		data := []byte("somedata")
 
 		// promote 1 to become leader
@@ -546,17 +546,17 @@ func TestProposal2AB(t *testing.T) {
 			wantLog.committed = 2
 		}
 		base := ltoa(wantLog)
-		for i, p := range tt.peers {
+		for j, p := range tt.peers {
 			if sm, ok := p.(*Raft); ok {
 				l := ltoa(sm.RaftLog)
 				if g := diffu(base, l); g != "" {
-					t.Errorf("#%d: diff:\n%s", i, g)
+					t.Errorf("#%d.%d: diff:\n%s", i, j, g)
 				}
 			}
 		}
 		sm := tt.network.peers[1].(*Raft)
 		if g := sm.Term; g != 1 {
-			t.Errorf("#%d: term = %d, want %d", j, g, 1)
+			t.Errorf("#%d: term = %d, want %d", i, g, 1)
 		}
 	}
 }
