@@ -76,8 +76,10 @@ func (wb *WriteBatch) WriteToDB(db *badger.DB) error {
 		err := db.Update(func(txn *badger.Txn) error {
 			for _, entry := range wb.entries {
 				var err1 error
+				// 设置了Key而没有设置Value时认定为Delete操作
 				if len(entry.Value) == 0 {
 					err1 = txn.Delete(entry.Key)
+				// 否则认为是Set操作
 				} else {
 					err1 = txn.SetEntry(entry)
 				}

@@ -2,7 +2,9 @@ package engine_util
 
 import (
 	"bytes"
+	"fmt"
 	"io/ioutil"
+	"strconv"
 	"testing"
 
 	"github.com/Connor1996/badger"
@@ -90,4 +92,12 @@ func TestEngineUtil(t *testing.T) {
 	lockIter.Seek([]byte("d"))
 	require.False(t, lockIter.Valid())
 	lockIter.Close()
+}
+
+func TestA(t *testing.T) {
+	var a int64 = 22079458
+	s := "22079458"
+	s = string(a)
+	re := (s == strconv.FormatInt(a,10))
+	fmt.Printf("%v",re)
 }

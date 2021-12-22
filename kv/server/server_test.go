@@ -24,6 +24,7 @@ func Set(s *standalone_storage.StandAloneStorage, cf string, key []byte, value [
 	})
 }
 
+
 func Get(s *standalone_storage.StandAloneStorage, cf string, key []byte) ([]byte, error) {
 	reader, err := s.Reader(nil)
 	if err != nil {
@@ -66,6 +67,7 @@ func TestRawGet1(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, []byte{42}, resp.Value)
 }
+
 
 func TestRawGetNotFound1(t *testing.T) {
 	conf := config.NewTestConfig()

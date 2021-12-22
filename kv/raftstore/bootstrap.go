@@ -44,7 +44,7 @@ func BootstrapStore(engines *engine_util.Engines, clusterID, storeID uint64) err
 		return err
 	}
 	if !empty {
-		return errors.New("kv store is not empty and has already had data.")
+		return errors.New("kv store is not empty and ahs alread had data.")
 	}
 	empty, err = isRangeEmpty(engines.Raft, meta.MinKey, meta.MaxKey)
 	if err != nil {
