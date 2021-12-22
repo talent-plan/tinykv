@@ -533,7 +533,7 @@ func TestProposal2AB(t *testing.T) {
 		{newNetwork(nil, nopStepper, nopStepper, nil, nil), true},
 	}
 
-	for j, tt := range tests {
+	for i, tt := range tests {
 		data := []byte("somedata")
 
 		// promote 1 to become leader
@@ -546,17 +546,17 @@ func TestProposal2AB(t *testing.T) {
 			wantLog.committed = 2
 		}
 		base := ltoa(wantLog)
-		for i, p := range tt.peers {
+		for j, p := range tt.peers {
 			if sm, ok := p.(*Raft); ok {
 				l := ltoa(sm.RaftLog)
 				if g := diffu(base, l); g != "" {
-					t.Errorf("#%d: diff:\n%s", i, g)
+					t.Errorf("#%d.%d: diff:\n%s", i, j, g)
 				}
 			}
 		}
 		sm := tt.network.peers[1].(*Raft)
 		if g := sm.Term; g != 1 {
-			t.Errorf("#%d: term = %d, want %d", j, g, 1)
+			t.Errorf("#%d: term = %d, want %d", i, g, 1)
 		}
 	}
 }
@@ -574,8 +574,8 @@ func TestHandleMessageType_MsgAppend2AB(t *testing.T) {
 		wReject bool
 	}{
 		// Ensure 1
-		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, LogTerm: 3, Index: 2, Commit: 3}, 2, 0, true}, // previous log mismatch
-		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, LogTerm: 3, Index: 3, Commit: 3}, 2, 0, true}, // previous log non-exist
+		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 3, LogTerm: 3, Index: 2, Commit: 3}, 2, 0, true}, // previous log mismatch
+		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 3, LogTerm: 3, Index: 3, Commit: 3}, 2, 0, true}, // previous log non-exist
 
 		// Ensure 2
 		{pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2, LogTerm: 1, Index: 1, Commit: 1}, 2, 1, false},
