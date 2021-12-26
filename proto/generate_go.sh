@@ -25,12 +25,10 @@ if [ -z $(go env GOPATH) ]; then
 fi
 GOPATH=$(go env GOPATH)
 GO_PREFIX_PATH=github.com/pingcap-incubator/tinykv/proto/pkg
-export PATH=$(pwd)/_tools/bin:$GOPATH/bin:$PATH
+export PATH=$(pwd)/tools/bin:$GOPATH/bin:$PATH
 
 echo "install tools..."
-GO111MODULE=off go get github.com/twitchtv/retool
-# Ensure we're using the right versions of our tools (see tools.json).
-GO111MODULE=off retool -base-dir=$(pwd) sync || exit 1
+cd tools && make && cd ..
 
 function collect() {
     file=$(basename $1)
