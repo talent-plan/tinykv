@@ -52,7 +52,7 @@ type Storage interface {
 	// Entries returns at least one entry if any.
 	Entries(lo, hi uint64) ([]pb.Entry, error)
 	// Term returns the term of entry i, which must be in the range
-	// [FirstIndex()-1, LastIndex()]. The term of the entry before
+	// [ FirstIndex() -1 , LastIndex()]. The term of the entry before
 	// FirstIndex is retained for matching purposes even though the
 	// rest of that entry may not be available.
 	Term(i uint64) (uint64, error)
@@ -89,7 +89,11 @@ func NewMemoryStorage() *MemoryStorage {
 	return &MemoryStorage{
 		// When starting from scratch populate the list with a dummy entry at term zero.
 		ents:     make([]pb.Entry, 1),
-		snapshot: pb.Snapshot{Metadata: &pb.SnapshotMetadata{ConfState: &pb.ConfState{}}},
+		snapshot: pb.Snapshot{
+			Metadata: &pb.SnapshotMetadata{
+				ConfState: &pb.ConfState{},
+			},
+		},
 	}
 }
 
@@ -236,8 +240,7 @@ func (ms *MemoryStorage) Compact(compactIndex uint64) error {
 }
 
 // Append the new entries to storage.
-// TODO (xiangli): ensure the entries are continuous and
-// entries[0].Index > ms.entries[0].Index
+// TODO : ensure the entries are continuous and entries[0].Index > ms.entries[0].Index
 func (ms *MemoryStorage) Append(entries []pb.Entry) error {
 	if len(entries) == 0 {
 		return nil

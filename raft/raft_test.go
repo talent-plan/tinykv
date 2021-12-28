@@ -1547,7 +1547,9 @@ func votedWithConfig(configFunc func(*Config), vote, term uint64) *Raft {
 type network struct {
 	peers   map[uint64]stateMachine
 	storage map[uint64]*MemoryStorage
+	// map[connem{from:from,to:to}] represent the percent msg(from ---> to) drop in the network
 	dropm   map[connem]float64
+	// if map[MsgType] = true ,then ignore this MsgType
 	ignorem map[pb.MessageType]bool
 
 	// msgHook is called for each message sent. It may inspect the
@@ -1612,12 +1614,11 @@ func (nw *network) send(msgs ...pb.Message) {
 func (nw *network) drop(from, to uint64, perc float64) {
 	nw.dropm[connem{from, to}] = perc
 }
-
+// cut link between a,b
 func (nw *network) cut(one, other uint64) {
 	nw.drop(one, other, 2.0) // always drop
 	nw.drop(other, one, 2.0) // always drop
 }
-
 func (nw *network) isolate(id uint64) {
 	for i := 0; i < len(nw.peers); i++ {
 		nid := uint64(i) + 1
@@ -1632,6 +1633,7 @@ func (nw *network) ignore(t pb.MessageType) {
 	nw.ignorem[t] = true
 }
 
+// recover the network
 func (nw *network) recover() {
 	nw.dropm = make(map[connem]float64)
 	nw.ignorem = make(map[pb.MessageType]bool)
@@ -1640,6 +1642,7 @@ func (nw *network) recover() {
 func (nw *network) filter(msgs []pb.Message) []pb.Message {
 	mm := []pb.Message{}
 	for _, m := range msgs {
+		// ignore this msg type
 		if nw.ignorem[m.MsgType] {
 			continue
 		}
@@ -1649,11 +1652,13 @@ func (nw *network) filter(msgs []pb.Message) []pb.Message {
 			panic("unexpected MessageType_MsgHup")
 		default:
 			perc := nw.dropm[connem{m.From, m.To}]
+			// drop
 			if n := rand.Float64(); n < perc {
 				continue
 			}
 		}
 		if nw.msgHook != nil {
+			// could not send
 			if !nw.msgHook(m) {
 				continue
 			}

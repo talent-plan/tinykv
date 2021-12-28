@@ -16,14 +16,15 @@ package raft
 
 import (
 	"fmt"
+	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"os/exec"
 	"sort"
 	"strings"
-
-	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	"sync"
 )
 
 func min(a, b uint64) uint64 {
@@ -126,4 +127,17 @@ func IsResponseMsg(msgt pb.MessageType) bool {
 
 func isHardStateEqual(a, b pb.HardState) bool {
 	return a.Term == b.Term && a.Vote == b.Vote && a.Commit == b.Commit
+}
+
+
+var (
+ fixSeed = int64(2018211396)
+ once sync.Once
+)
+
+func GlobalRandInt(i int) int{
+	once.Do(func(){
+		rand.Seed(fixSeed)
+	})
+	return rand.Intn(i)
 }

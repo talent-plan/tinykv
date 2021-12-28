@@ -33,18 +33,21 @@ type SoftState struct {
 	RaftState StateType
 }
 
-// Ready encapsulates the entries and messages that are ready to read,
+// Ready encapsulates（封装） the entries and messages that are ready to read,
 // be saved to stable storage, committed or sent to other peers.
 // All fields in Ready are read-only.
+// 当前raft节点在内存中存储的信息，部分信息需要写回进行持久化存储，否则可能会导致不一致和丢失
 type Ready struct {
 	// The current volatile state of a Node.
 	// SoftState will be nil if there is no update.
 	// It is not required to consume or store SoftState.
+	// 无需写回进行持久化存储的信息
 	*SoftState
 
 	// The current state of a Node to be saved to stable storage BEFORE
 	// Messages are sent.
 	// HardState will be equal to empty state if there is no update.
+	// 需要持久化存储的信息
 	pb.HardState
 
 	// Entries specifies entries to be saved to stable storage BEFORE
@@ -105,7 +108,10 @@ func (rn *RawNode) ProposeConfChange(cc pb.ConfChange) error {
 	if err != nil {
 		return err
 	}
-	ent := pb.Entry{EntryType: pb.EntryType_EntryConfChange, Data: data}
+	ent := pb.Entry{
+		EntryType: pb.EntryType_EntryConfChange,
+		Data: data,
+	}
 	return rn.Raft.Step(pb.Message{
 		MsgType: pb.MessageType_MsgPropose,
 		Entries: []*pb.Entry{&ent},
@@ -134,6 +140,7 @@ func (rn *RawNode) Step(m pb.Message) error {
 	if IsLocalMsg(m.MsgType) {
 		return ErrStepLocalMsg
 	}
+	// find the peer or get an unknown node's request
 	if pr := rn.Raft.Prs[m.From]; pr != nil || !IsResponseMsg(m.MsgType) {
 		return rn.Raft.Step(m)
 	}
