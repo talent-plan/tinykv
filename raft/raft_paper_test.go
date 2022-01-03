@@ -294,9 +294,6 @@ func testNonleaderElectionTimeoutRandomized(t *testing.T, state StateType) {
 		}
 		timeouts[time] = true
 	}
-	//for time := range timeouts{
-	//	t.Logf("time %d expired", time)
-	//}
 	for d := et + 1; d < 2*et; d++ {
 		if !timeouts[d] {
 			t.Errorf("timeout in %d ticks should happen", d)
@@ -394,7 +391,6 @@ func TestLeaderStartReplication2AB(t *testing.T) {
 		t.Errorf("ents = %+v, want %+v", g, wents)
 	}
 }
-
 // TestLeaderCommitEntry tests that when the entry has been safely replicated,
 // the leader gives out the applied entries, which can be applied to its state
 // machine.
@@ -897,7 +893,6 @@ func commitNoopEntry(r *Raft, s *MemoryStorage) {
 		if id == r.id {
 			continue
 		}
-
 		r.sendAppend(id)
 	}
 	// simulate the response of MessageType_MsgAppend
