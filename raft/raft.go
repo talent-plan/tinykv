@@ -115,8 +115,7 @@ type Raft struct {
 	Term uint64
 	// the node this term vote for
 	Vote uint64
-	// current vote count get from other nodes
-	VoteNum uint64
+
 	// the log
 	RaftLog *RaftLog
 
@@ -219,7 +218,6 @@ func (r *Raft) becomeCandidate() {
 	r.votes = make(map[uint64]bool)
 	r.votes[r.id] = true
 	r.Vote = r.id
-	r.VoteNum = 1
 	// Reset election timer
 	r.electionElapsed = 0
 	if  uint64(len(r.Prs)) == 1 {
@@ -337,6 +335,7 @@ func (r *Raft) stepCandidate(m pb.Message){
 	case pb.MessageType_MsgTimeoutNow:
 	}
 }
+
 
 // broadcastAppend broadcast current log info to it's followers
 func (r *Raft) broadcastAppend(){
@@ -701,7 +700,6 @@ func (r *Raft) appendEntries(m pb.Message){
 		r.RaftLog.committed = r.RaftLog.LastIndex()
 	}
 }
-
 func (r *Raft) leaderTryCommit(){
 	match := make(uint64Slice,len(r.Prs))
 	i :=0
@@ -728,8 +726,16 @@ func (r *Raft) leaderTryCommit(){
 		}
 	}
 }
-
 func (r *Raft) appendNoopEntry(){
 	r.RaftLog.simpleAppendEntry(r.Term,nil)
-
+}
+func (r *Raft) softState() *SoftState{
+	return &SoftState{Lead: r.Lead,RaftState: r.State}
+}
+func (r *Raft) hardState() pb.HardState{
+	return pb.HardState{
+		Term: r.Term,
+		Vote: r.Vote,
+		Commit: r.RaftLog.committed,
+	}
 }
