@@ -10,6 +10,7 @@ endif
 GO                  := GO111MODULE=on go
 GOBUILD             := $(GO) build $(BUILD_FLAG) -tags codes
 GOTEST              := $(GO) test -v --count=1 --parallel=1 -p=1
+TEST_CLEAN          := rm -rf /tmp/*test-raftstore*
 
 TEST_LDFLAGS        := ""
 
@@ -68,6 +69,7 @@ project2ac:
 	$(GOTEST) ./raft -run 2AC
 
 project2b:
+	$(TEST_CLEAN)
 	$(GOTEST) ./kv/test_raftstore -run ^TestBasic2B$ || true
 	$(GOTEST) ./kv/test_raftstore -run ^TestConcurrent2B$ || true
 	$(GOTEST) ./kv/test_raftstore -run ^TestUnreliable2B$ || true
@@ -79,9 +81,12 @@ project2b:
 	$(GOTEST) ./kv/test_raftstore -run ^TestPersistConcurrentUnreliable2B$ || true
 	$(GOTEST) ./kv/test_raftstore -run ^TestPersistPartition2B$ || true
 	$(GOTEST) ./kv/test_raftstore -run ^TestPersistPartitionUnreliable2B$ || true
+	$(TEST_CLEAN)
 
 project2c:
-	$(GOTEST) ./raft ./kv/test_raftstore -run 2C
+	$(TEST_CLEAN)
+	$(GOTEST) ./raft ./kv/test_raftstore -run 2C || true
+	$(TEST_CLEAN)
 
 project3: project3a project3b project3c
 
@@ -89,6 +94,7 @@ project3a:
 	$(GOTEST) ./raft -run 3A
 
 project3b:
+	$(TEST_CLEAN)
 	$(GOTEST) ./kv/test_raftstore -run ^TestTransferLeader3B$ || true
 	$(GOTEST) ./kv/test_raftstore -run ^TestBasicConfChange3B$ || true
 	$(GOTEST) ./kv/test_raftstore -run ^TestConfChangeRecover3B$ || true
@@ -104,6 +110,7 @@ project3b:
 	$(GOTEST) ./kv/test_raftstore -run ^TestSplitUnreliableRecover3B$ || true
 	$(GOTEST) ./kv/test_raftstore -run ^TestSplitConfChangeSnapshotUnreliableRecover3B$ || true
 	$(GOTEST) ./kv/test_raftstore -run ^TestSplitConfChangeSnapshotUnreliableRecoverConcurrentPartition3B$ || true
+	$(TEST_CLEAN)
 
 project3c:
 	$(GOTEST) ./scheduler/server ./scheduler/server/schedulers -check.f="3C"
