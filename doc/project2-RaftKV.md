@@ -114,12 +114,12 @@ These states are stored in two badger instances: raftdb and kvdb:
 
 The format is as below and some helper functions are provided in `kv/raftstore/meta`, and set them to badger with `writebatch.SetMeta()`.
 
-| Key            | KeyFormat                      | Value          | DB |
-|:----           |:----                           |:----           |:---|
-|raft_log_key    |0x01 0x02 region_id 0x01 log_idx|Entry           |raft|
-|raft_state_key  |0x01 0x02 region_id 0x02        |RaftLocalState  |raft|
-|apply_state_key |0x01 0x02 region_id 0x03        |RaftApplyState  |kv  |
-|region_state_key|0x01 0x03 region_id 0x01        |RegionLocalState|kv  |
+| Key              | KeyFormat                        | Value            | DB   |
+| :--------------- | :------------------------------- | :--------------- | :--- |
+| raft_log_key     | 0x01 0x02 region_id 0x01 log_idx | Entry            | raft |
+| raft_state_key   | 0x01 0x02 region_id 0x02         | RaftLocalState   | raft |
+| apply_state_key  | 0x01 0x02 region_id 0x03         | RaftApplyState   | kv   |
+| region_state_key | 0x01 0x03 region_id 0x01         | RegionLocalState | kv   |
 
 > You may wonder why TinyKV needs two badger instances. Actually, it can use only one badger to store both raft log and state machine data. Separating into two instances is just to be consistent with TiKV design.
 
@@ -135,6 +135,7 @@ To save the hard state is also very easy, just update peer storage’s `RaftLoca
 >
 > - Use `WriteBatch` to save these states at once.
 > - See other functions at `peer_storage.go` for how to read and write these states.
+> - Set the environment variable LOG_LEVEL=debug which may help you in debugging, see also the all available [log levels](../log/log.go).
 
 ### Implement Raft ready process
 
@@ -200,6 +201,7 @@ In this stage, you may consider these errors, and others will be processed in pr
 > - You can apply the committed Raft log entries in an asynchronous way just like TiKV does. It’s not necessary, though a big challenge to improve performance.
 > - Record the callback of the command when proposing, and return the callback after applying.
 > - For the snap command response, should set badger Txn to callback explicitly.
+> - After 2A, some tests you may need to run them multiple times to find bugs
 
 ## Part C
 
