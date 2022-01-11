@@ -566,22 +566,22 @@ func (r *RegionsInfo) GetStoreRegions(storeID uint64) []*RegionInfo {
 	return regions
 }
 
-// GetStoreLeaderRegionSize get total size of store's leader regions
+// GetStoreLeaderRegionSize gets total size of store's leader regions
 func (r *RegionsInfo) GetStoreLeaderRegionSize(storeID uint64) int64 {
 	return r.leaders[storeID].TotalSize()
 }
 
-// GetStoreFollowerRegionSize get total size of store's follower regions
+// GetStoreFollowerRegionSize gets total size of store's follower regions
 func (r *RegionsInfo) GetStoreFollowerRegionSize(storeID uint64) int64 {
 	return r.followers[storeID].TotalSize()
 }
 
-// GetStoreLearnerRegionSize get total size of store's learner regions
+// GetStoreLearnerRegionSize gets total size of store's learner regions
 func (r *RegionsInfo) GetStoreLearnerRegionSize(storeID uint64) int64 {
 	return r.learners[storeID].TotalSize()
 }
 
-// GetStoreRegionSize get total size of store's regions
+// GetStoreRegionSize gets total size of store's regions
 func (r *RegionsInfo) GetStoreRegionSize(storeID uint64) int64 {
 	return r.GetStoreLeaderRegionSize(storeID) + r.GetStoreFollowerRegionSize(storeID) + r.GetStoreLearnerRegionSize(storeID)
 }
@@ -610,22 +610,22 @@ func (r *RegionsInfo) GetStorePendingPeerCount(storeID uint64) int {
 	return r.pendingPeers[storeID].length()
 }
 
-// GetStoreLeaderCount get the total count of a store's leader RegionInfo
+// GetStoreLeaderCount gets the total count of a store's leader RegionInfo
 func (r *RegionsInfo) GetStoreLeaderCount(storeID uint64) int {
 	return r.leaders[storeID].length()
 }
 
-// GetStoreFollowerCount get the total count of a store's follower RegionInfo
+// GetStoreFollowerCount gets the total count of a store's follower RegionInfo
 func (r *RegionsInfo) GetStoreFollowerCount(storeID uint64) int {
 	return r.followers[storeID].length()
 }
 
-// GetStoreLearnerCount get the total count of a store's learner RegionInfo
+// GetStoreLearnerCount gets the total count of a store's learner RegionInfo
 func (r *RegionsInfo) GetStoreLearnerCount(storeID uint64) int {
 	return r.learners[storeID].length()
 }
 
-// RandRegion get a region by random
+// RandRegion gets a region by random
 func (r *RegionsInfo) RandRegion(opts ...RegionOption) *RegionInfo {
 	return randRegion(r.tree, opts...)
 }
@@ -645,27 +645,27 @@ func (r *RegionsInfo) RandFollowerRegion(storeID uint64, opts ...RegionOption) *
 	return randRegion(r.followers[storeID], opts...)
 }
 
-// GetPendingRegionsWithLock return pending regions subtree by storeID
+// GetPendingRegionsWithLock returns pending regions subtree by storeID
 func (r *RegionsInfo) GetPendingRegionsWithLock(storeID uint64, callback func(RegionsContainer)) {
 	callback(r.pendingPeers[storeID])
 }
 
-// GetLeadersWithLock return leaders subtree by storeID
+// GetLeadersWithLock returns leaders subtree by storeID
 func (r *RegionsInfo) GetLeadersWithLock(storeID uint64, callback func(RegionsContainer)) {
 	callback(r.leaders[storeID])
 }
 
-// GetFollowersWithLock return leaders subtree by storeID
+// GetFollowersWithLock returns followers subtree by storeID
 func (r *RegionsInfo) GetFollowersWithLock(storeID uint64, callback func(RegionsContainer)) {
 	callback(r.followers[storeID])
 }
 
-// GetLeader return leader RegionInfo by storeID and regionID(now only used in test)
+// GetLeader returns leader RegionInfo by storeID and regionID(now only used in test)
 func (r *RegionsInfo) GetLeader(storeID uint64, region *RegionInfo) *RegionInfo {
 	return r.leaders[storeID].find(region).region
 }
 
-// GetFollower return follower RegionInfo by storeID and regionID(now only used in test)
+// GetFollower returns follower RegionInfo by storeID and regionID(now only used in test)
 func (r *RegionsInfo) GetFollower(storeID uint64, region *RegionInfo) *RegionInfo {
 	return r.followers[storeID].find(region).region
 }
@@ -722,7 +722,7 @@ func randRegion(regions RegionsContainer, opts ...RegionOption) *RegionInfo {
 	return nil
 }
 
-// DiffRegionPeersInfo return the difference of peers info  between two RegionInfo
+// DiffRegionPeersInfo returns the difference of peers info between two RegionInfo
 func DiffRegionPeersInfo(origin *RegionInfo, other *RegionInfo) string {
 	var ret []string
 	for _, a := range origin.meta.Peers {
@@ -752,7 +752,7 @@ func DiffRegionPeersInfo(origin *RegionInfo, other *RegionInfo) string {
 	return strings.Join(ret, ",")
 }
 
-// DiffRegionKeyInfo return the difference of key info between two RegionInfo
+// DiffRegionKeyInfo returns the difference of key info between two RegionInfo
 func DiffRegionKeyInfo(origin *RegionInfo, other *RegionInfo) string {
 	var ret []string
 	if !bytes.Equal(origin.meta.StartKey, other.meta.StartKey) {
