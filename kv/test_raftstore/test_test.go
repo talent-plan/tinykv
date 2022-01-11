@@ -78,22 +78,7 @@ func checkClntAppends(t *testing.T, clnt int, v string, count int) {
 func checkConcurrentAppends(t *testing.T, v string, counts []int) {
 	nclients := len(counts)
 	for i := 0; i < nclients; i++ {
-		lastoff := -1
-		for j := 0; j < counts[i]; j++ {
-			wanted := "x " + strconv.Itoa(i) + " " + strconv.Itoa(j) + " y"
-			off := strings.Index(v, wanted)
-			if off < 0 {
-				t.Fatalf("%v missing element %v in Append result %v", i, wanted, v)
-			}
-			off1 := strings.LastIndex(v, wanted)
-			if off1 != off {
-				t.Fatalf("duplicate element %v in Append result", wanted)
-			}
-			if off <= lastoff {
-				t.Fatalf("wrong order for element %v in Append result", wanted)
-			}
-			lastoff = off
-		}
+		checkClntAppends(t, i, v, counts[i])
 	}
 }
 
@@ -155,7 +140,7 @@ func confchanger(t *testing.T, cluster *Cluster, ch chan bool, done *int32) {
 // - If crash is set, the servers restart after the period is over.
 // - If partitions is set, the test repartitions the network concurrently between the servers.
 // - If maxraftlog is a positive number, the count of the persistent log for Raft shouldn't exceed 2*maxraftlog.
-// - If confchangee is set, the cluster will schedule random conf change concurrently.
+// - If confchange is set, the cluster will schedule random conf change concurrently.
 // - If split is set, split region when size exceed 1024 bytes.
 func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash bool, partitions bool, maxraftlog int, confchange bool, split bool) {
 	title := "Test: "
