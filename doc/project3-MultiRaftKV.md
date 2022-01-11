@@ -48,7 +48,7 @@ As the Raft module supported membership change and leadership change now, in thi
 
 ### The Code
 
-All the changes are based on the implementation of the project2, so the code you need to modify is all about `kv/raftstore/peer_msg_handler.go` and `kv/raftstore/peer_storage.go`.
+All the changes are based on the implementation of the project2, so the code you need to modify is all about `kv/raftstore/peer_msg_handler.go` and `kv/raftstore/peer.go`.
 
 ### Propose transfer leader
 
