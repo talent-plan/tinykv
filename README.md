@@ -44,8 +44,8 @@ We provide a [reading list](doc/reading_list.md) for the knowledge of distribute
 
 Also, you're encouraged to read the overview of TiKV's and PD's design to get a general impression on what you will build:
 
-* TiKV, the design of data storage ([English](https://pingcap.com/blog/2017-07-11-tidbinternal1), [Chinese](https://pingcap.com/blog-cn/tidb-internal-1)).
-* PD, the design of scheduling ([English](https://pingcap.com/blog/2017-07-20-tidbinternal3), [Chinese](https://pingcap.com/blog-cn/tidb-internal-3)).
+* TiKV, the design of data storage ([English](https://en.pingcap.com/blog/tidb-internal-data-storage), [Chinese](https://pingcap.com/zh/blog/tidb-internal-1)).
+* PD, the design of scheduling ([English](https://en.pingcap.com/blog/tidb-internal-scheduling), [Chinese](https://pingcap.com/zh/blog/tidb-internal-3)).
 
 ## Build TinyKV from Source
 
