@@ -603,6 +603,9 @@ func (r *Raft) appendEntry(es ...*pb.Entry) (accepted bool) {
 		log.Panicf("after(%d) is out of range [committed(%d)]", after, r.RaftLog.committed)
 	}
 
+	// 存储 entry
+	// 更新 raft log 的相关 index
+	r.RaftLog.append(es)
 	currentLastIndex := r.RaftLog.LastIndex()
 	// tracking the progress of itself
 	// see etcd MaybeUpdate

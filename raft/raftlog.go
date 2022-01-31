@@ -30,3 +30,9 @@ func copyEntry(ents []pb.Entry) []*pb.Entry {
 	}
 	return ret
 }
+
+func (r *RaftLog) append(es []*pb.Entry) {
+	for _, e := range es {
+		r.entries = append(r.entries, *e)
+	}
+}
