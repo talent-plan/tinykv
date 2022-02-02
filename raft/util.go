@@ -130,7 +130,7 @@ func isHardStateEqual(a, b pb.HardState) bool {
 
 // only for test usage
 // to print more information for debug
-var enableLog bool
+var enableLog = false
 func enableExtraLog() bool {
 	return enableLog
 }

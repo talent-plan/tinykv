@@ -15,9 +15,9 @@
 package raft
 
 import (
-	"errors"
 	"fmt"
 
+	"github.com/pingcap-incubator/tinykv/log"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
@@ -113,19 +113,38 @@ func (l *RaftLog) LastIndex() uint64 {
 // Term return the term of the entry in the given index
 func (l *RaftLog) Term(i uint64) (uint64, error) {
 	// Your Code Here (2A).
-	firstIdx, err := l.firstIndex()
+	//firstIdx, err := l.firstIndex()
+	//if err != nil {
+	//	return 0, err
+	//}
+	// should validate i , not before firstIndex
+
+	// 1. 先从 unstable 中，拿 term
+	if t, ok := l.termFromUnstable(i); ok {
+		return t, nil
+	}
+
+	// 2. unstable 拿不到时，去 storage 中拿
+	t, err 	:= l.storage.Term(i)
 	if err != nil {
 		return 0, err
 	}
-	if i < firstIdx || i > l.LastIndex() {
-		return 0, errors.New(fmt.Sprintf("index:%d out of range", i))
+	return t, nil
+}
+
+func (l *RaftLog) termFromUnstable(i uint64) (uint64, bool) {
+	// 这个判断依据是什么
+	// i < firstIdx || i > l.LastIndex
+	if  i > l.LastIndex() {
+		log.Errorf(fmt.Sprintf("[Term]: index:%d out of range. log entry :%d", i, len(l.entries)))
+		return 0, false
 	}
 
 	if int(i) > len(l.entries) - 1 {
-		return 0, errors.New("index exceeds entries")
+		return 0, false
 	}
 
-	return l.entries[i].Term, nil
+	return l.entries[i].Term, true
 }
 
 func (l *RaftLog) firstIndex() (uint64, error) {

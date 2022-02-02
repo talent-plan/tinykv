@@ -204,14 +204,15 @@ func (r *Raft) sendAppend(to uint64) bool {
 	msgToSend := pb.Message{
 		To: to,
 	}
-	term, err := r.RaftLog.Term(msgReceiverPrs.Next - 1)
+
+	// msgReceiverPrs.Next - 1
+	term, err := r.RaftLog.Term(msgReceiverPrs.Next)
 	if err != nil {
 		// TODO: snapshot
 		// should send snapshot, if we fail to match index
-		log.Errorf("sendAppend err:%+v to:%d next idx:%d", err, to, msgReceiverPrs.Next)
+		log.Errorf("to:%d sendAppend err:%+v  next idx:%d", to, err, msgReceiverPrs.Next)
 		return false
 	}
-
 
 	entryToSend := r.RaftLog.fetchEntries(msgReceiverPrs.Next, 50)
 	msgToSend.MsgType = pb.MessageType_MsgAppend
@@ -413,7 +414,15 @@ func (r *Raft) Step(m pb.Message) error {
 				return ErrProposalDropped
 			}
 
-			r.broadcastAppend()
+			if enableExtraLog() {
+				log.Printf("[MsgPropose]: broadcastAppend log entries:%d \n",  len(r.RaftLog.entries))
+			}
+
+			// r.broadcastAppend()
+
+			if enableExtraLog() {
+				log.Printf("finished broadcast append")
+			}
 		default:
 		}
 	}
