@@ -55,7 +55,6 @@ type RaftLog struct {
 	pendingSnapshot *pb.Snapshot
 
 	// Your Data Here (2A).
-	// add unstable entry ?
 }
 
 // newLog returns log using the given storage. It recovers the log
@@ -95,7 +94,10 @@ func (l *RaftLog) maybeCompact() {
 // unstableEntries return all the unstable entries
 func (l *RaftLog) unstableEntries() []pb.Entry {
 	// Your Code Here (2A).
-	return nil
+	if l.stabled + 1 > uint64(len(l.entries)) {
+		return nil
+	}
+	return l.entries[l.stabled +1 :]
 }
 
 // nextEnts returns all the committed but not applied entries
@@ -107,7 +109,14 @@ func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 // LastIndex return the last index of the log entries
 func (l *RaftLog) LastIndex() uint64 {
 	// Your Code Here (2A).
-	return uint64(len(l.entries))
+	if len(l.entries) == 0 {
+		lastIdx, err := l.storage.LastIndex()
+		if err != nil {
+			panic("[LastIndex]: storage get LastIndex err")
+		}
+		return lastIdx
+	}
+	return uint64(len(l.entries)) - 1
 }
 
 // Term return the term of the entry in the given index

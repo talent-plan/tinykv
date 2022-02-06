@@ -206,7 +206,10 @@ func (r *Raft) sendAppend(to uint64) bool {
 	}
 
 	// msgReceiverPrs.Next - 1
-	term, err := r.RaftLog.Term(msgReceiverPrs.Next)
+	// 为什么需要减去 1
+	// 为什么拿的是，上一条 entry 的 term, 作为当前 term？
+	// 为什么不直接赋值 term ?
+	term, err := r.RaftLog.Term(msgReceiverPrs.Next - 1)
 	if err != nil {
 		// TODO: snapshot
 		// should send snapshot, if we fail to match index
@@ -214,10 +217,15 @@ func (r *Raft) sendAppend(to uint64) bool {
 		return false
 	}
 
-	entryToSend := r.RaftLog.fetchEntries(msgReceiverPrs.Next, 50)
+	// 这里为什么是 msgReceiverPrs.Next
+	// 而不需要减去 1 ?
+	entryToSend := r.RaftLog.fetchEntries(msgReceiverPrs.Next,  50)
+	log.Infof("length of raft log entries :%d length of entryToSend:%d", len(r.RaftLog.entries), len(entryToSend))
 	msgToSend.MsgType = pb.MessageType_MsgAppend
 	msgToSend.Index = msgReceiverPrs.Next - 1
 	msgToSend.LogTerm = term
+	msgToSend.From = r.id
+	msgToSend.Term = r.Term
 	msgToSend.Entries = copyEntry(entryToSend)
 	msgToSend.Commit = r.RaftLog.committed
 	r.msgs = append(r.msgs, msgToSend)
@@ -304,6 +312,11 @@ func (r *Raft) becomeLeader() {
 	// NOTE: Leader should propose a noop entry on its term
 	r.State = StateLeader
 	r.Lead = r.id
+
+	// append empty entry
+	emptyEnt := &pb.Entry{Term:r.Term, Data: nil}
+	r.appendEntry(emptyEnt)
+
 	if enableExtraLog() {
 		fmt.Printf("r %d become leader term:%d \n", r.id, r.Term)
 	}
@@ -418,8 +431,7 @@ func (r *Raft) Step(m pb.Message) error {
 				log.Printf("[MsgPropose]: broadcastAppend log entries:%d \n",  len(r.RaftLog.entries))
 			}
 
-			// r.broadcastAppend()
-
+			r.broadcastAppend()
 			if enableExtraLog() {
 				log.Printf("finished broadcast append")
 			}
@@ -615,6 +627,7 @@ func (r *Raft) appendEntry(es ...*pb.Entry) (accepted bool) {
 	// 存储 entry
 	// 更新 raft log 的相关 index
 	r.RaftLog.append(es)
+	log.Infof("appendEntry : lenght of raft log:%d", len(r.RaftLog.entries))
 	currentLastIndex := r.RaftLog.LastIndex()
 	// tracking the progress of itself
 	// see etcd MaybeUpdate
