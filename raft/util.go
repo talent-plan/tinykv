@@ -23,6 +23,8 @@ import (
 	"sort"
 	"strings"
 
+	log "github.com/sirupsen/logrus"
+
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
@@ -133,4 +135,91 @@ func isHardStateEqual(a, b pb.HardState) bool {
 var enableLog = false
 func enableExtraLog() bool {
 	return enableLog
+}
+
+// From etcd MaybeUpdate
+func (prs *Progress) TryUpdate(i uint64) bool {
+	if prs.Match < i {
+		prs.Match = i
+	}
+
+	if prs.Next < i + 1 {
+		prs.Next = i + 1
+	}
+	return true
+}
+
+func (r *Raft) maybeCommit() bool {
+	maxIdx := r.maxCommittedIdx()
+	return r.RaftLog.tryUpdateCommitted(maxIdx, r.Term)
+}
+
+func (r *Raft) maxCommittedIdx() uint64 {
+	// majorityconfig is a set of ids that uses majority quorums to make decisions.
+	// 从 follower 的 progress 中，得到当前可以被 committed 的 最大 index 值。
+
+	// 利用简单的投票法则
+	indexCounter := map[uint64]int{}
+	for _, pr := range r.Prs {
+		prMatch := pr.Match
+
+		// 如果不存在，则先加入投票池
+		if _, ok := indexCounter[prMatch]; !ok {
+			indexCounter[prMatch] = 0
+		}
+
+		for idx, _ := range indexCounter {
+			// 进行投票
+			if idx >= prMatch {
+				indexCounter[idx] += 1
+			}
+		}
+	}
+
+	maxIdx := uint64(0)
+	maxCount := 0
+	// find the majority
+	for idx, count := range indexCounter {
+		if count > maxCount {
+			maxIdx = idx
+			maxCount = count
+		}
+	}
+
+	return maxIdx
+}
+
+func (rl *RaftLog) tryUpdateCommitted(maxCommittedIdx uint64, term uint64) bool {
+	if maxCommittedIdx > rl.committed  {
+		maxTerm, err := rl.Term(maxCommittedIdx)
+		if err != nil {
+			log.WithError(err).Errorf("tryUpdateCommitted with term:%d maxCommittedIdx:%d", term, maxCommittedIdx)
+			return false
+		}
+
+		if maxTerm != term {
+			log.Errorf("tryUpdateCommitted err maxTerm:%d is not equal to term:%d", maxTerm, term)
+			return false
+		}
+
+		// 这里还有一个判断， term 是否已经过过期的条件没有写完，
+		// 暂时还不需要，所以先不写吧 。
+		// zeroTermOnErrCompacted(l.term(maxIndx)) == term
+
+		// never decrease commit
+		rl.tryCommitToIdx(maxCommittedIdx)
+		return true
+	}
+
+	return false
+}
+
+func (rl *RaftLog) tryCommitToIdx(toCommitIdx uint64) {
+	if rl.committed < toCommitIdx {
+		if rl.LastIndex() < toCommitIdx {
+			log.Panicf("tocommit(%d) is out of range [lastIndex(%d)]. " +
+				"Was the raft log corrupted, truncated, or lost? ", toCommitIdx, rl.LastIndex())
+		}
+		rl.committed = toCommitIdx
+	}
 }

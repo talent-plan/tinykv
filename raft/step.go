@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"fmt"
 	"log"
 
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
@@ -77,6 +78,22 @@ func stepLeader(r *Raft, m pb.Message) error {
 		r.broadcastAppend()
 		if enableExtraLog() {
 			log.Printf("finished broadcast append")
+		}
+	case pb.MessageType_MsgAppendResponse:
+		prTracker, ok := r.Prs[m.From]
+		if !ok {
+			return fmt.Errorf("Can't find peer:%d in Prs ", m.From)
+		}
+		if m.Reject {
+
+		} else {
+			prTracker.TryUpdate(m.Index)
+			if r.maybeCommit() {
+				r.broadcastAppend()  // 暂时没有搞懂，为什么要 broadcastAppend ?
+			}
+
+			// 缺了一个流程
+			// r.maybeSendAppend
 		}
 	}
 	return nil
