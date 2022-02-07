@@ -201,9 +201,6 @@ func (r *Raft) sendAppend(to uint64) bool {
 	}
 
 	// next - 1 or next ?
-	msgToSend := pb.Message{
-		To: to,
-	}
 
 	// msgReceiverPrs.Next - 1
 	// 为什么需要减去 1
@@ -219,15 +216,19 @@ func (r *Raft) sendAppend(to uint64) bool {
 
 	// 这里为什么是 msgReceiverPrs.Next
 	// 而不需要减去 1 ?
-	entryToSend := r.RaftLog.fetchEntries(msgReceiverPrs.Next,  50)
-	log.Infof("length of raft log entries :%d length of entryToSend:%d", len(r.RaftLog.entries), len(entryToSend))
-	msgToSend.MsgType = pb.MessageType_MsgAppend
-	msgToSend.Index = msgReceiverPrs.Next - 1
-	msgToSend.LogTerm = term
-	msgToSend.From = r.id
-	msgToSend.Term = r.Term
-	msgToSend.Entries = copyEntry(entryToSend)
-	msgToSend.Commit = r.RaftLog.committed
+	entryToSend := r.RaftLog.fetchEntries(msgReceiverPrs.Next, 50)
+
+	//	log.Infof("length of raft log entries :%d length of entryToSend:%d", len(r.RaftLog.entries), len(entryToSend))
+	msgToSend := pb.Message{
+		To:      to,
+		From:    r.id,
+		MsgType: pb.MessageType_MsgAppend,
+		Index:   msgReceiverPrs.Next - 1,
+		LogTerm: term,
+		Term:    r.Term,
+		Entries: copyEntry(entryToSend),
+		Commit:  r.RaftLog.committed,
+	}
 	r.msgs = append(r.msgs, msgToSend)
 	return true
 }
@@ -314,7 +315,7 @@ func (r *Raft) becomeLeader() {
 	r.Lead = r.id
 
 	// append empty entry
-	emptyEnt := &pb.Entry{Term:r.Term, Data: nil}
+	emptyEnt := &pb.Entry{Term: r.Term, Data: nil}
 	r.appendEntry(emptyEnt)
 
 	if enableExtraLog() {
@@ -367,76 +368,21 @@ func (r *Raft) Step(m pb.Message) error {
 	// Mimic etcd/raft.go Step function
 	switch r.State {
 	case StateFollower:
-		stepFollower(r, m)
-		// follower's responsibility
-		switch m.MsgType {
-		case pb.MessageType_MsgHup:
-			r.becomeCandidate()
-			r.campaignForLeader()
-			r.requestVotesFromPeers()
-			if enableExtraLog() {
-				log.Printf("r%d: msg hup , state:%d \n", r.id, r.State)
-			}
+		err := stepFollower(r, m)
+		if err != nil {
+			return err
 		}
 	case StateCandidate:
-		stepCandidate(r, m)
-		switch m.MsgType {
-		case pb.MessageType_MsgHup:
-			// 和 follow 重复了，需要抽一个方法出来吗？
-			r.becomeCandidate()
-			r.campaignForLeader()
-			r.requestVotesFromPeers()
-		case pb.MessageType_MsgRequestVoteResponse:
-			r.recordVote(m)
-			r.campaignForLeader()
-		case pb.MessageType_MsgBeat:
-			// 忽略
-		default:
-			if enableExtraLog() {
-				log.Printf("r.id:%d default message handle %+v \n", r.id, m)
-			}
-			//	r.Term = m.Term
-			//	r.becomeFollower(m.Term, m.From)
-			//	r.msgs = append(r.msgs, m)
+		err := stepCandidate(r, m)
+		if err != nil {
+			return err
 		}
 	case StateLeader:
-		stepLeader(r, m)
-		// TODO: 这个判断太简单了，需要重构优化一下
-		if r.Term < m.Term {
-			r.becomeFollower(m.Term, m.From)
+		err := stepLeader(r, m)
+		if err != nil {
+			return err
 		}
-		switch m.MsgType {
-		case pb.MessageType_MsgBeat:
-			for peerId, _ := range r.Prs {
-				if peerId == r.id {
-					continue
-				}
-				r.sendHeartbeat(peerId)
-			}
-		case pb.MessageType_MsgPropose:
-			// 1. appendEntry()
-			// 2. broadcastAppend()
-			if len(m.Entries) == 0 {
-				// TODO: should return a understandable error
-				return nil
-			}
-			if _, ok := r.Prs[r.id]; !ok {
-				return ErrStepPeerNotFound
-			}
-			if !r.appendEntry(m.Entries...) {
-				return ErrProposalDropped
-			}
-
-			if enableExtraLog() {
-				log.Printf("[MsgPropose]: broadcastAppend log entries:%d \n",  len(r.RaftLog.entries))
-			}
-
-			r.broadcastAppend()
-			if enableExtraLog() {
-				log.Printf("finished broadcast append")
-			}
-		default:
-		}
+	default:
 	}
 
 	return nil
@@ -596,7 +542,7 @@ func (r *Raft) reset(term uint64) {
 	for peerId, _ := range r.Prs {
 		pros := &Progress{
 			Match: 0,
-			Next: r.RaftLog.LastIndex() +1,
+			Next:  r.RaftLog.LastIndex() + 1,
 		}
 		if peerId == r.id {
 			pros.Match = r.RaftLog.LastIndex()
@@ -627,7 +573,7 @@ func (r *Raft) appendEntry(es ...*pb.Entry) (accepted bool) {
 	// 存储 entry
 	// 更新 raft log 的相关 index
 	r.RaftLog.append(es)
-	log.Infof("appendEntry : lenght of raft log:%d", len(r.RaftLog.entries))
+	// log.Infof("appendEntry : lenght of raft log:%d", len(r.RaftLog.entries))
 	currentLastIndex := r.RaftLog.LastIndex()
 	// tracking the progress of itself
 	// see etcd MaybeUpdate

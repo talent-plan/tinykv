@@ -1,7 +1,6 @@
 package raft
 
 import (
-	"github.com/pingcap-incubator/tinykv/log"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
@@ -15,7 +14,6 @@ func (r *RaftLog) fetchEntries(fromIndex, maxsize uint64) []pb.Entry {
 		}
 		return es
 	} else {
-		log.Infof("fetchEntries from entries")
 		// TODO: 总决定这里的条件判断有问题。fromIndex = 0 时？
 		// if the r.entries is zero ?
 		//if len(r.entries) == 0 ||
