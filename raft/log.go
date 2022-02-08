@@ -54,7 +54,7 @@ type RaftLog struct {
 	// (Used in 2C)
 	pendingSnapshot *pb.Snapshot
 
-	// Your Data Here (2A).
+	// your data here (2a).
 }
 
 // newLog returns log using the given storage. It recovers the log
@@ -69,17 +69,12 @@ func newLog(storage Storage) *RaftLog {
 	if err != nil {
 		panic(err)
 	}
-	//log.unstable.offset = lastIndex + 1
-	//log.unstable.logger = logger
-	//// Initialize our committed and applied pointers to the time of the last compaction.
-	//log.committed = firstIndex - 1
-	//log.applied = firstIndex - 1
 
 	return &RaftLog{
 		storage: storage,
-		applied: firstIdx -1,
-		committed: firstIdx- 1,
-		stabled: lastIdx,
+		applied: firstIdx - 1,
+		committed: firstIdx - 1,
+		stabled: lastIdx + 1,
 		entries: make([]pb.Entry, 0),
 	}
 }
@@ -94,10 +89,10 @@ func (l *RaftLog) maybeCompact() {
 // unstableEntries return all the unstable entries
 func (l *RaftLog) unstableEntries() []pb.Entry {
 	// Your Code Here (2A).
-	if l.stabled + 1 > uint64(len(l.entries)) {
+	if l.stabled > uint64(len(l.entries)) {
 		return nil
 	}
-	return l.entries[l.stabled +1 :]
+	return l.entries[l.stabled :]
 }
 
 // nextEnts returns all the committed but not applied entries
@@ -116,7 +111,7 @@ func (l *RaftLog) LastIndex() uint64 {
 		}
 		return lastIdx
 	}
-	return uint64(len(l.entries)) - 1
+	return l.stabled + uint64(len(l.entries)) - 1
 }
 
 // Term return the term of the entry in the given index

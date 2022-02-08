@@ -87,13 +87,12 @@ func stepLeader(r *Raft, m pb.Message) error {
 		if m.Reject {
 
 		} else {
+			// log.Printf("pr try update index:%d", m.Index)
+			// log.Printf("recv message: %+v", m)
 			prTracker.TryUpdate(m.Index)
 			if r.maybeCommit() {
-				r.broadcastAppend()  // 暂时没有搞懂，为什么要 broadcastAppend ?
+				 r.broadcastAppend()  // 暂时没有搞懂，为什么要 broadcastAppend ?
 			}
-
-			// 缺了一个流程
-			// r.maybeSendAppend
 		}
 	}
 	return nil

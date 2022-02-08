@@ -201,7 +201,6 @@ func (r *Raft) sendAppend(to uint64) bool {
 	}
 
 	// next - 1 or next ?
-
 	// msgReceiverPrs.Next - 1
 	// 为什么需要减去 1
 	// 为什么拿的是，上一条 entry 的 term, 作为当前 term？
@@ -218,7 +217,13 @@ func (r *Raft) sendAppend(to uint64) bool {
 	// 而不需要减去 1 ?
 	entryToSend := r.RaftLog.fetchEntries(msgReceiverPrs.Next, 50)
 
-	//	log.Infof("length of raft log entries :%d length of entryToSend:%d", len(r.RaftLog.entries), len(entryToSend))
+	log.Infof("[sendAppend] length of raft log entries :%d length of entryToSend:%d prs:%d next:%d",
+		len(r.RaftLog.entries),
+		len(entryToSend),
+		to,
+		msgReceiverPrs.Next,
+		)
+
 	msgToSend := pb.Message{
 		To:      to,
 		From:    r.id,
@@ -577,16 +582,13 @@ func (r *Raft) appendEntry(es ...*pb.Entry) (accepted bool) {
 	currentLastIndex := r.RaftLog.LastIndex()
 	// tracking the progress of itself
 	// see etcd MaybeUpdate
+
+	_ = currentLastIndex
 	pr, ok := r.Prs[r.id]
 	if ok {
-		if pr.Match < currentLastIndex {
-			pr.Match = currentLastIndex
-		}
-		if pr.Next < currentLastIndex+1 {
-			pr.Next = currentLastIndex + 1
-		}
+		pr.TryUpdate(currentLastIndex)
 	}
-
+	r.maybeCommit()
 	return true
 }
 

@@ -389,12 +389,21 @@ func TestLeaderStartReplication2AB(t *testing.T) {
 	ents := []*pb.Entry{{Data: []byte("some data")}}
 	r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: ents})
 
+	//t.Logf("last Index:%d storage lastIdx:%d stable:%d entry:%d last index:%d",
+	//	li,
+	//	s.lastIndex(),
+	//	r.RaftLog.stabled,
+	//	len(r.RaftLog.entries),
+	//	r.RaftLog.LastIndex(),
+	//	)
+
 	if g := r.RaftLog.LastIndex(); g != li+1 {
 		t.Errorf("lastIndex = %d, want %d", g, li+1)
 	}
 	if g := r.RaftLog.committed; g != li {
 		t.Errorf("committed = %d, want %d", g, li)
 	}
+
 	msgs := r.readMessages()
 	sort.Sort(messageSlice(msgs))
 	ent := pb.Entry{Index: li + 1, Term: 1, Data: []byte("some data")}
@@ -404,10 +413,10 @@ func TestLeaderStartReplication2AB(t *testing.T) {
 		{From: 1, To: 3, Term: 1, MsgType: pb.MessageType_MsgAppend, Index: li, LogTerm: 1, Entries: []*pb.Entry{&ent}, Commit: li},
 	}
 	if !reflect.DeepEqual(msgs, wmsgs) {
-		t.Errorf("msgs = %+v, want %+v", msgs, wmsgs)
+		t.Errorf("msgs = %+v, \n want %+v", msgs, wmsgs)
 	}
 	if g := r.RaftLog.unstableEntries(); !reflect.DeepEqual(g, wents) {
-		t.Errorf("ents = %+v, want %+v", g, wents)
+		t.Errorf("ents = %+v, \n want %+v", g, wents)
 	}
 }
 

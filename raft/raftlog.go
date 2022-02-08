@@ -21,11 +21,14 @@ func (r *RaftLog) fetchEntries(fromIndex, maxsize uint64) []pb.Entry {
 		//	int(fromIndex) > len(r.entries) - 1 {
 		//	return nil
 		//}
-		if fromIndex >= uint64(len(r.entries)) {
-			return r.entries
-		}
+
+		// 这里有问题，返回了全部的
+		//if fromIndex >= uint64(len(r.entries)) {
+		//	return r.entries
+		//}
+
 		// TODO: 这里的算法需要改进
-		return r.entries[fromIndex: min(uint64(len(r.entries)), fromIndex + maxsize )]
+		return r.entries[fromIndex - r.stabled : min(uint64(len(r.entries)), fromIndex + maxsize )]
 	}
 }
 

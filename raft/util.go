@@ -151,6 +151,7 @@ func (prs *Progress) TryUpdate(i uint64) bool {
 
 func (r *Raft) maybeCommit() bool {
 	maxIdx := r.maxCommittedIdx()
+	log.Infof("maybeCommit maxIdx:%d r.term:%d", maxIdx, r.Term)
 	return r.RaftLog.tryUpdateCommitted(maxIdx, r.Term)
 }
 
@@ -170,7 +171,7 @@ func (r *Raft) maxCommittedIdx() uint64 {
 
 		for idx, _ := range indexCounter {
 			// 进行投票
-			if idx >= prMatch {
+			if prMatch >= idx {
 				indexCounter[idx] += 1
 			}
 		}
