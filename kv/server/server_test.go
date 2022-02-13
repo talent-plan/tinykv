@@ -195,9 +195,10 @@ func TestRawDelete1(t *testing.T) {
 	_, err := server.RawDelete(nil, req)
 	assert.Nil(t, err)
 
-	val, err := Get(s, cf, []byte{99})
+	// val, err := Get(s, cf, []byte{99})
+	got, err := server.RawGet(nil, &kvrpcpb.RawGetRequest{Cf: cf, Key: []byte{99}})
 	assert.Equal(t, nil, err)
-	assert.Equal(t, []byte(nil), val)
+	assert.Equal(t, []byte(nil), got.Value)
 }
 
 func TestRawScan1(t *testing.T) {
