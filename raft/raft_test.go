@@ -780,6 +780,14 @@ func testCandidateResetTerm(t *testing.T, mt pb.MessageType) {
 	nt.isolate(3)
 
 	nt.send(pb.Message{From: 2, To: 2, MsgType: pb.MessageType_MsgHup})
+
+	if b.State != StateLeader {
+		t.Errorf("state = %s, want %s", a.State, StateLeader)
+	}
+	if a.State != StateFollower {
+		t.Errorf("state = %s, want %s", b.State, StateFollower)
+	}
+
 	nt.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 
 	if a.State != StateLeader {
