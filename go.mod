@@ -2,7 +2,7 @@ module github.com/pingcap-incubator/tinykv
 
 require (
 	github.com/BurntSushi/toml v0.3.1
-	github.com/Connor1996/badger v1.5.1-0.20210202034640-5ff470f827f8
+	github.com/Connor1996/badger v1.5.1-0.20220222053432-2d2cbf472c77
 	github.com/coreos/pkg v0.0.0-20180928190104-399ea9e2e55f
 	github.com/docker/go-units v0.4.0
 	github.com/gogo/protobuf v1.3.1
@@ -22,7 +22,7 @@ require (
 	github.com/pingcap/tipb v0.0.0-20200212061130-c4d518eb1d60
 	github.com/pkg/errors v0.8.1
 	github.com/remyoudompheng/bigfft v0.0.0-20200410134404-eec4a21b6bb0 // indirect
-	github.com/shirou/gopsutil v2.19.10+incompatible
+	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/sirupsen/logrus v1.2.0
 	github.com/stretchr/testify v1.4.0
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20191023171146-3cf2f69b5738
