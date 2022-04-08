@@ -60,7 +60,7 @@ func (en *Engines) Destroy() error {
 	return nil
 }
 
-// CreateDB creates a new Badger DB on disk at subPath.
+// CreateDB creates a new Badger DB on disk at path.
 func CreateDB(path string, raft bool) *badger.DB {
 	opts := badger.DefaultOptions
 	if raft {
