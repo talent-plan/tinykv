@@ -193,7 +193,7 @@ In this stage, you may consider these errors, and others will be processed in pr
 
 > Hints:
 >
-> - `PeerStorage` implements the `Storage` interface of the Raft module, you should use the provided method  `SaveRaftReady()` to persist the Raft related states.
+> - `PeerStorage` implements the `Storage` interface of the Raft module, you should use the provided method  `SaveReadyState()` to persist the Raft related states.
 > - Use `WriteBatch` in `engine_util` to make multiple writes atomically, for example, you need to make sure to apply the committed entries and update the applied index in one write batch.
 > - Use `Transport` to send raft messages to other peers, it’s in the `GlobalContext`,
 > - The server should not complete a get RPC if it is not part of a majority and does not has up-to-date data. You can just put the get operation into the raft log, or implement the optimization for read-only operations that is described in Section 8 in the Raft paper.
