@@ -224,6 +224,11 @@ func (m *MockSchedulerClient) AskSplit(ctx context.Context, region *metapb.Regio
 	if err != nil {
 		return resp, err
 	}
+
+	if curRegion == nil || curRegion.GetId() != region.GetId() {
+		return resp, errors.New("region not found")
+	}
+
 	if util.IsEpochStale(region.RegionEpoch, curRegion.RegionEpoch) {
 		return resp, errors.New("epoch is stale")
 	}
