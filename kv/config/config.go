@@ -82,7 +82,7 @@ func NewDefaultConfig() *Config {
 		// Assume the average size of entries is 1k.
 		RaftLogGcCountLimit:                 128000,
 		SplitRegionCheckTickInterval:        10 * time.Second,
-		SchedulerHeartbeatTickInterval:      100 * time.Millisecond,
+		SchedulerHeartbeatTickInterval:      10 * time.Second,
 		SchedulerStoreHeartbeatTickInterval: 10 * time.Second,
 		RegionMaxSize:                       144 * MB,
 		RegionSplitSize:                     96 * MB,
