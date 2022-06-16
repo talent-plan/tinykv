@@ -155,8 +155,8 @@ func TestLeaderElectionOverwriteNewerLogs2AB(t *testing.T) {
 	// term is pushed ahead to 2.
 	n.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
 	sm1 := n.peers[1].(*Raft)
-	if sm1.State != StateFollower {
-		t.Errorf("state = %s, want StateFollower", sm1.State)
+	if sm1.State != StateCandidate {
+		t.Errorf("state = %s, want StateCandidate", sm1.State)
 	}
 	if sm1.Term != 2 {
 		t.Errorf("term = %d, want 2", sm1.Term)
