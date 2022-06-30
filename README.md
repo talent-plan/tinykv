@@ -64,7 +64,7 @@ git clone https://github.com/tidb-incubator/tinykv.git
 
 ### Build
 
-Build TiDB from the source code.
+Build TinyKV from the source code.
 
 ```bash
 cd tinykv
