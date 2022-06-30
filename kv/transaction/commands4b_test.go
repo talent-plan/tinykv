@@ -541,7 +541,7 @@ func TestCommitConflictRace4B(t *testing.T) {
 	})
 	resp := builder.runOneRequest(cmd).(*kvrpcpb.CommitResponse)
 
-	assert.NotNil(t, resp.Error.Retryable)
+	assert.NotEmpty(t, resp.Error.Retryable)
 	assert.Nil(t, resp.RegionError)
 	builder.assertLens(1, 1, 0)
 	builder.assert([]kv{
