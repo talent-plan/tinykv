@@ -597,6 +597,47 @@ func TestBasicConfChange3B(t *testing.T) {
 	MustGetNone(cluster.engines[3], []byte("k4"))
 }
 
+func TestConfChangeRemoveLeader3B(t *testing.T) {
+	cfg := config.NewTestConfig()
+	cluster := NewTestCluster(5, cfg)
+	cluster.Start()
+	defer cluster.Shutdown()
+
+	cluster.MustTransferLeader(1, NewPeer(1, 1))
+	// remove (1,1) and put (k0,v0),  store 1 can not see it
+	cluster.MustRemovePeer(1, NewPeer(1, 1))
+	cluster.MustPut([]byte("k0"), []byte("v0"))
+	MustGetNone(cluster.engines[1], []byte("k0"))
+
+	// rejoin and become leader, now store 1 can see it
+	cluster.MustAddPeer(1, NewPeer(1, 1))
+	cluster.MustTransferLeader(1, NewPeer(1, 1))
+	cluster.MustPut([]byte("k1"), []byte("v1"))
+	// wait for apply
+	time.Sleep(500 * time.Millisecond)
+	MustGetEqual(cluster.engines[1], []byte("k0"), []byte("v0"))
+	MustGetEqual(cluster.engines[1], []byte("k1"), []byte("v1"))
+
+	cluster.MustRemovePeer(1, NewPeer(2, 2))
+	cluster.MustRemovePeer(1, NewPeer(3, 3))
+	cluster.MustRemovePeer(1, NewPeer(4, 4))
+
+	// now only have (1,1) and (5,5), try to remove (1,1)
+	cluster.MustRemovePeer(1, NewPeer(1, 1))
+
+	// now region 1 only has peer: (5, 5)
+	cluster.MustPut([]byte("k2"), []byte("v2"))
+	MustGetNone(cluster.engines[1], []byte("k2"))
+	// now have (1,1) and (5,5)
+	cluster.MustAddPeer(1, NewPeer(1, 1))
+	cluster.MustPut([]byte("k3"), []byte("v3"))
+	// 3 can not see it
+	MustGetNone(cluster.engines[3], []byte("k3"))
+	// wait for apply
+	time.Sleep(500 * time.Millisecond)
+	MustGetEqual(cluster.engines[1], []byte("k3"), []byte("v3"))
+}
+
 func TestConfChangeRecover3B(t *testing.T) {
 	// Test: restarts, snapshots, conf change, one client (3B) ...
 	GenericTest(t, "3B", 1, false, true, false, -1, true, false)
