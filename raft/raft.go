@@ -16,8 +16,8 @@ package raft
 
 import (
 	"errors"
-
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	"math/rand"
 )
 
 // None is a placeholder node ID used when there is no leader.
@@ -157,6 +157,8 @@ type Raft struct {
 	// value.
 	// (Used in 3A conf change)
 	PendingConfIndex uint64
+
+	randomedElectionTimeout int
 }
 
 // newRaft return a raft peer with the given config
@@ -165,13 +167,56 @@ func newRaft(c *Config) *Raft {
 		panic(err.Error())
 	}
 	// Your Code Here (2A).
-	return nil
+	hardstate, confstate, err := c.Storage.InitialState()
+	if err != nil {
+		panic(err.Error())
+	}
+	//peer information is already included in the storage
+	if c.peers == nil {
+		c.peers = confstate.Nodes
+	}
+	raftlog := newLog(c.Storage)
+
+	if c.Applied > 0 {
+		raftlog.applied = c.Applied
+	}
+
+	prs := make(map[uint64]*Progress)
+
+	for _, peer := range c.peers {
+		prs[peer] = &Progress{
+			Match: 0,
+			Next:  raftlog.LastIndex() + 1,
+		}
+	}
+
+	raft := &Raft{
+		id:               c.ID,
+		Term:             hardstate.Term,
+		Vote:             hardstate.Vote,
+		RaftLog:          raftlog,
+		Prs:              prs,
+		State:            StateFollower,
+		votes:            make(map[uint64]bool),
+		msgs:             nil,
+		Lead:             None,
+		heartbeatTimeout: c.HeartbeatTick,
+		electionTimeout:  c.ElectionTick,
+		heartbeatElapsed: 0,
+		electionElapsed:  0,
+		//will be used in 2c
+		leadTransferee:   0,
+		PendingConfIndex: 0,
+	}
+
+	return raft
 }
 
 // sendAppend sends an append RPC with new entries (if any) and the
 // current commit index to the given peer. Returns true if a message was sent.
 func (r *Raft) sendAppend(to uint64) bool {
 	// Your Code Here (2A).
+
 	return false
 }
 
@@ -183,22 +228,102 @@ func (r *Raft) sendHeartbeat(to uint64) {
 // tick advances the internal logical clock by a single tick.
 func (r *Raft) tick() {
 	// Your Code Here (2A).
+	switch r.State {
+	case StateFollower:
+		if err := r.stateFollowerTick(); err != nil {
+			panic(err)
+		}
+	case StateCandidate:
+		if err := r.stateCandidateTick(); err != nil {
+			panic(err)
+		}
+	case StateLeader:
+		if err := r.stateLeaderTick(); err != nil {
+			panic(err)
+		}
+	}
+}
+func (r *Raft) stateFollowerTick() error {
+	r.electionElapsed++
+	if r.electionElapsed >= r.randomedElectionTimeout {
+		if err := r.Step(pb.Message{
+			From:    r.id,
+			MsgType: pb.MessageType_MsgHup,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *Raft) stateCandidateTick() error {
+	r.electionElapsed++
+	if r.electionElapsed >= r.randomedElectionTimeout {
+		r.randomedElectionTimeout = r.electionTimeout + rand.Intn(r.electionTimeout)
+		if err := r.Step(pb.Message{
+			From:    r.id,
+			MsgType: pb.MessageType_MsgHup,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func (r *Raft) stateLeaderTick() error {
+	r.electionElapsed++
+	r.heartbeatElapsed++
+
+	return nil
 }
 
 // becomeFollower transform this peer's state to Follower
 func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	// Your Code Here (2A).
+	r.State = StateFollower
+	r.reset(term)
+	r.Lead = lead
 }
 
 // becomeCandidate transform this peer's state to candidate
 func (r *Raft) becomeCandidate() {
 	// Your Code Here (2A).
+	if _, ok := r.Prs[r.id]; !ok {
+		return
+	}
+	r.State = StateCandidate
+	r.reset(r.Term + 1)
+	r.Vote = r.id
+	r.votes[r.id] = true
 }
 
 // becomeLeader transform this peer's state to leader
 func (r *Raft) becomeLeader() {
 	// Your Code Here (2A).
 	// NOTE: Leader should propose a noop entry on its term
+	if _, ok := r.Prs[r.id]; !ok {
+		return
+	}
+	r.State = StateLeader
+	r.heartbeatElapsed = 0
+	r.electionElapsed = 0
+	r.randomedElectionTimeout = r.electionTimeout + rand.Intn(r.electionTimeout)
+	r.leadTransferee = None
+	r.Lead = r.id
+	lastIndex := r.RaftLog.LastIndex()
+	for peer := range r.Prs {
+		if peer == r.id {
+			r.Prs[peer].Match = r.Prs[peer].Next
+			r.Prs[peer].Next += 1
+		} else {
+			r.Prs[peer].Next = lastIndex + 1
+			r.Prs[peer].Match = 0
+			//r.sendAppend(peer)
+		}
+	}
+	r.RaftLog.entries = append(r.RaftLog.entries, pb.Entry{
+		Term:  r.Term,
+		Index: lastIndex + 1,
+	})
 }
 
 // Step the entrance of handle message, see `MessageType`
@@ -207,8 +332,126 @@ func (r *Raft) Step(m pb.Message) error {
 	// Your Code Here (2A).
 	switch r.State {
 	case StateFollower:
+		return r.FollowerStep(m)
 	case StateCandidate:
+		return r.CandidateStep(m)
 	case StateLeader:
+		return r.LeaderStep(m)
+	}
+	return nil
+}
+
+func (r *Raft) FollowerStep(m pb.Message) error {
+	switch m.MsgType {
+	// 'MessageType_MsgHup' is a local message used for election. If an election timeout happened,
+	// the node should pass 'MessageType_MsgHup' to its Step method and start a new election.
+	case pb.MessageType_MsgHup:
+		// 'MessageType_MsgBeat' is a local message that signals the leader to send a heartbeat
+		// of the 'MessageType_MsgHeartbeat' type to its followers.
+	case pb.MessageType_MsgBeat:
+		// 'MessageType_MsgPropose' is a local message that proposes to append data to the leader's log entries.
+	case pb.MessageType_MsgPropose:
+		// 'MessageType_MsgAppend' contains log entries to replicate.
+	case pb.MessageType_MsgAppend:
+		r.handleAppendEntries(m)
+		// 'MessageType_MsgAppendResponse' is response to log replication request('MessageType_MsgAppend').
+	case pb.MessageType_MsgAppendResponse:
+		// 'MessageType_MsgRequestVote' requests votes for election.
+	case pb.MessageType_MsgRequestVote:
+		// 'MessageType_MsgRequestVoteResponse' contains responses from voting request.
+	case pb.MessageType_MsgRequestVoteResponse:
+		// 'MessageType_MsgSnapshot' requests to install a snapshot message.
+	case pb.MessageType_MsgSnapshot:
+		// 'MessageType_MsgHeartbeat' sends heartbeat from leader to its followers.
+	case pb.MessageType_MsgHeartbeat:
+		// 'MessageType_MsgHeartbeatResponse' is a response to 'MessageType_MsgHeartbeat'.
+	case pb.MessageType_MsgHeartbeatResponse:
+		// 'MessageType_MsgTransferLeader' requests the leader to transfer its leadership.
+	case pb.MessageType_MsgTransferLeader:
+		// 'MessageType_MsgTimeoutNow' send from the leader to the leadership transfer target, to let
+		// the transfer target timeout immediately and start a new election.
+	case pb.MessageType_MsgTimeoutNow:
+	}
+	return nil
+}
+
+func (r *Raft) CandidateStep(m pb.Message) error {
+	switch m.MsgType {
+	// 'MessageType_MsgHup' is a local message used for election. If an election timeout happened,
+	// the node should pass 'MessageType_MsgHup' to its Step method and start a new election.
+	case pb.MessageType_MsgHup:
+		// 'MessageType_MsgBeat' is a local message that signals the leader to send a heartbeat
+		// of the 'MessageType_MsgHeartbeat' type to its followers.
+	case pb.MessageType_MsgBeat:
+		// 'MessageType_MsgPropose' is a local message that proposes to append data to the leader's log entries.
+	case pb.MessageType_MsgPropose:
+		if r.leadTransferee == None {
+			//r.handleMsgPropose(m)
+		}
+		// 'MessageType_MsgAppend' contains log entries to replicate.
+	case pb.MessageType_MsgAppend:
+		//收到更新Term的添加日志，转为follower
+		if r.Term < m.Term {
+			r.becomeFollower(m.Term, m.From)
+		}
+		r.handleAppendEntries(m)
+		// 'MessageType_MsgAppendResponse' is response to log replication request('MessageType_MsgAppend').
+	case pb.MessageType_MsgAppendResponse:
+		// 'MessageType_MsgRequestVote' requests votes for election.
+	case pb.MessageType_MsgRequestVote:
+		// 'MessageType_MsgRequestVoteResponse' contains responses from voting request.
+	case pb.MessageType_MsgRequestVoteResponse:
+		// 'MessageType_MsgSnapshot' requests to install a snapshot message.
+	case pb.MessageType_MsgSnapshot:
+		// 'MessageType_MsgHeartbeat' sends heartbeat from leader to its followers.
+	case pb.MessageType_MsgHeartbeat:
+		// 'MessageType_MsgHeartbeatResponse' is a response to 'MessageType_MsgHeartbeat'.
+	case pb.MessageType_MsgHeartbeatResponse:
+		// 'MessageType_MsgTransferLeader' requests the leader to transfer its leadership.
+	case pb.MessageType_MsgTransferLeader:
+		// 'MessageType_MsgTimeoutNow' send from the leader to the leadership transfer target, to let
+		// the transfer target timeout immediately and start a new election.
+	case pb.MessageType_MsgTimeoutNow:
+	}
+	return nil
+}
+
+func (r *Raft) LeaderStep(m pb.Message) error {
+	switch m.MsgType {
+	// 'MessageType_MsgHup' is a local message used for election. If an election timeout happened,
+	// the node should pass 'MessageType_MsgHup' to its Step method and start a new election.
+	case pb.MessageType_MsgHup:
+		// 'MessageType_MsgBeat' is a local message that signals the leader to send a heartbeat
+		// of the 'MessageType_MsgHeartbeat' type to its followers.
+	case pb.MessageType_MsgBeat:
+		// 'MessageType_MsgPropose' is a local message that proposes to append data to the leader's log entries.
+	case pb.MessageType_MsgPropose:
+		if r.leadTransferee == None {
+			r.handlePropose(m)
+		}
+		// 'MessageType_MsgAppend' contains log entries to replicate.
+	case pb.MessageType_MsgAppend:
+		if r.Term < m.Term {
+			r.becomeFollower(m.Term, m.From)
+		}
+		r.handleAppendEntries(m)
+		// 'MessageType_MsgAppendResponse' is response to log replication request('MessageType_MsgAppend').
+	case pb.MessageType_MsgAppendResponse:
+		// 'MessageType_MsgRequestVote' requests votes for election.
+	case pb.MessageType_MsgRequestVote:
+		// 'MessageType_MsgRequestVoteResponse' contains responses from voting request.
+	case pb.MessageType_MsgRequestVoteResponse:
+		// 'MessageType_MsgSnapshot' requests to install a snapshot message.
+	case pb.MessageType_MsgSnapshot:
+		// 'MessageType_MsgHeartbeat' sends heartbeat from leader to its followers.
+	case pb.MessageType_MsgHeartbeat:
+		// 'MessageType_MsgHeartbeatResponse' is a response to 'MessageType_MsgHeartbeat'.
+	case pb.MessageType_MsgHeartbeatResponse:
+		// 'MessageType_MsgTransferLeader' requests the leader to transfer its leadership.
+	case pb.MessageType_MsgTransferLeader:
+		// 'MessageType_MsgTimeoutNow' send from the leader to the leadership transfer target, to let
+		// the transfer target timeout immediately and start a new election.
+	case pb.MessageType_MsgTimeoutNow:
 	}
 	return nil
 }
@@ -216,11 +459,21 @@ func (r *Raft) Step(m pb.Message) error {
 // handleAppendEntries handle AppendEntries RPC request
 func (r *Raft) handleAppendEntries(m pb.Message) {
 	// Your Code Here (2A).
+	if m.Term > r.Term {
+		r.Term = m.Term
+	}
+	if m.From != r.Lead {
+		r.Lead = m.From
+	}
 }
 
 // handleHeartbeat handle Heartbeat RPC request
 func (r *Raft) handleHeartbeat(m pb.Message) {
 	// Your Code Here (2A).
+}
+
+func (r *Raft) handlePropose(m pb.Message) {
+	//r.RaftLog
 }
 
 // handleSnapshot handle Snapshot RPC request
@@ -236,4 +489,26 @@ func (r *Raft) addNode(id uint64) {
 // removeNode remove a node from raft group
 func (r *Raft) removeNode(id uint64) {
 	// Your Code Here (3A).
+}
+
+func (r *Raft) reset(term uint64) {
+	if r.Term != term {
+		r.Term = term
+		r.Vote = None
+	}
+	r.randomedElectionTimeout = r.electionTimeout + rand.Intn(r.electionTimeout)
+	r.electionElapsed = 0
+	r.heartbeatElapsed = 0
+	r.Vote = None
+	r.votes = make(map[uint64]bool)
+	for peer := range r.Prs {
+		progress := &Progress{
+			Match: 0,
+			Next:  0,
+		}
+		if peer == r.id {
+			progress.Match = r.RaftLog.LastIndex()
+		}
+		r.Prs[peer] = progress
+	}
 }
