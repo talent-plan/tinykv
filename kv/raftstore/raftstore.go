@@ -37,7 +37,7 @@ func (r *regionItem) Less(other btree.Item) bool {
 
 type storeMeta struct {
 	sync.RWMutex
-	/// region end key -> region ID
+	/// region start key -> region ID
 	regionRanges *btree.BTree
 	/// region_id -> region
 	regions map[uint64]*metapb.Region
