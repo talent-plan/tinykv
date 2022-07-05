@@ -524,6 +524,11 @@ func (s *Snap) Build(dbSnap *badger.Txn, region *metapb.Region, snapData *rspb.R
 	if s.Exists() {
 		err := s.validate()
 		if err == nil {
+			// make sure that snapshot meta is not nil
+			err = s.loadSnapMeta()
+			if err != nil {
+				return err
+			}
 			// set snapshot meta data
 			snapData.FileSize = s.TotalSize()
 			snapData.Meta = s.MetaFile.Meta
