@@ -135,6 +135,7 @@ func testNonleaderStartElection(t *testing.T, state StateType) {
 		r.becomeFollower(1, 2)
 	case StateCandidate:
 		r.becomeCandidate()
+		//t.Errorf("term=%d", r.Term)
 	}
 
 	for i := 1; i < 2*et; i++ {
