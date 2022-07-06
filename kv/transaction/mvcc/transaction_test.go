@@ -104,6 +104,10 @@ func TestGetLock4A(t *testing.T) {
 	gotLock, err := txn.GetLock([]byte{1})
 	assert.Nil(t, err)
 	assert.Equal(t, lock, *gotLock)
+
+	emptyLock, err := txn.GetLock([]byte{2})
+	assert.Nil(t, err)
+	assert.Nil(t, emptyLock)
 }
 
 func TestDeleteLock4A(t *testing.T) {

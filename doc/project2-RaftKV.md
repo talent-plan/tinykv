@@ -61,6 +61,7 @@ You can run `make project2ac` to test the implementation and run `make project2a
 > - Add any state you need to `raft.Raft`, `raft.RaftLog`, `raft.RawNode` and message on `eraftpb.proto`
 > - The tests assume that the first time start raft should have term 0
 > - The tests assume that the newly elected leader should append a noop entry on its term
+> - The tests assume that once the leader advances its commit index, it will broadcast the commit index by `MessageType_MsgAppend` messages.
 > - The tests doesn’t set term for the local messages, `MessageType_MsgHup`, `MessageType_MsgBeat` and `MessageType_MsgPropose`.
 > - The log entries append are quite different between leader and non-leader, there are different sources, checking and handling, be careful with that.
 > - Don’t forget the election timeout should be different between peers.
@@ -113,12 +114,12 @@ These states are stored in two badger instances: raftdb and kvdb:
 
 The format is as below and some helper functions are provided in `kv/raftstore/meta`, and set them to badger with `writebatch.SetMeta()`.
 
-| Key            | KeyFormat                      | Value          | DB |
-|:----           |:----                           |:----           |:---|
-|raft_log_key    |0x01 0x02 region_id 0x01 log_idx|Entry           |raft|
-|raft_state_key  |0x01 0x02 region_id 0x02        |RaftLocalState  |raft|
-|apply_state_key |0x01 0x02 region_id 0x03        |RaftApplyState  |kv  |
-|region_state_key|0x01 0x03 region_id 0x01        |RegionLocalState|kv  |
+| Key              | KeyFormat                        | Value            | DB   |
+| :--------------- | :------------------------------- | :--------------- | :--- |
+| raft_log_key     | 0x01 0x02 region_id 0x01 log_idx | Entry            | raft |
+| raft_state_key   | 0x01 0x02 region_id 0x02         | RaftLocalState   | raft |
+| apply_state_key  | 0x01 0x02 region_id 0x03         | RaftApplyState   | kv   |
+| region_state_key | 0x01 0x03 region_id 0x01         | RegionLocalState | kv   |
 
 > You may wonder why TinyKV needs two badger instances. Actually, it can use only one badger to store both raft log and state machine data. Separating into two instances is just to be consistent with TiKV design.
 
@@ -134,14 +135,15 @@ To save the hard state is also very easy, just update peer storage’s `RaftLoca
 >
 > - Use `WriteBatch` to save these states at once.
 > - See other functions at `peer_storage.go` for how to read and write these states.
+> - Set the environment variable LOG_LEVEL=debug which may help you in debugging, see also the all available [log levels](../log/log.go).
 
 ### Implement Raft ready process
 
 In project2 part A, you have built a tick-based Raft module. Now you need to write the outer process to drive it. Most of the code is already implemented under `kv/raftstore/peer_msg_handler.go` and `kv/raftstore/peer.go`.  So you need to learn the code and finish the logic of `proposeRaftCommand` and `HandleRaftReady`. Here are some interpretations of the framework.
 
-The Raft `RawNode` is already created with `PeerStorage` and stored in `peer`. In the raft worker, you can see that it takes the `peer` and wraps it by `peerMsgHandler`.  The `peerMsgHandler` mainly has two functions: one is `HandleMsgs` and the other is `HandleRaftReady`.
+The Raft `RawNode` is already created with `PeerStorage` and stored in `peer`. In the raft worker, you can see that it takes the `peer` and wraps it by `peerMsgHandler`.  The `peerMsgHandler` mainly has two functions: one is `HandleMsg` and the other is `HandleRaftReady`.
 
-`HandleMsgs` processes all the messages received from raftCh, including `MsgTypeTick` which calls `RawNode.Tick()`  to drive the Raft, `MsgTypeRaftCmd` which wraps the request from clients and `MsgTypeRaftMessage` which is the message transported between Raft peers. All the message types are defined in `kv/raftstore/message/msg.go`. You can check it for detail and some of them will be used in the following parts.
+`HandleMsg` processes all the messages received from raftCh, including `MsgTypeTick` which calls `RawNode.Tick()`  to drive the Raft, `MsgTypeRaftCmd` which wraps the request from clients and `MsgTypeRaftMessage` which is the message transported between Raft peers. All the message types are defined in `kv/raftstore/message/msg.go`. You can check it for detail and some of them will be used in the following parts.
 
 After the message is processed, the Raft node should have some state updates. So `HandleRaftReady` should get the ready from Raft module and do corresponding actions like persisting log entries, applying committed entries
 and sending raft messages to other peers through the network.
@@ -191,7 +193,7 @@ In this stage, you may consider these errors, and others will be processed in pr
 
 > Hints:
 >
-> - `PeerStorage` implements the `Storage` interface of the Raft module, you should use the provided method  `SaveRaftReady()` to persist the Raft related states.
+> - `PeerStorage` implements the `Storage` interface of the Raft module, you should use the provided method  `SaveReadyState()` to persist the Raft related states.
 > - Use `WriteBatch` in `engine_util` to make multiple writes atomically, for example, you need to make sure to apply the committed entries and update the applied index in one write batch.
 > - Use `Transport` to send raft messages to other peers, it’s in the `GlobalContext`,
 > - The server should not complete a get RPC if it is not part of a majority and does not has up-to-date data. You can just put the get operation into the raft log, or implement the optimization for read-only operations that is described in Section 8 in the Raft paper.
@@ -199,6 +201,7 @@ In this stage, you may consider these errors, and others will be processed in pr
 > - You can apply the committed Raft log entries in an asynchronous way just like TiKV does. It’s not necessary, though a big challenge to improve performance.
 > - Record the callback of the command when proposing, and return the callback after applying.
 > - For the snap command response, should set badger Txn to callback explicitly.
+> - After 2A, some tests you may need to run them multiple times to find bugs
 
 ## Part C
 
@@ -212,8 +215,8 @@ All you need to change is based on the code written in part A and part B.
 
 ### Implement in Raft
 
-Although we need some different handling for Snapshot messages, in the perspective of raft algorithm there should be no difference. See the definition of `eraftpb.Snapshot` in the proto file, the `data` field on `eraftpb.Snapshot` does not represent the actual state machine data but some metadata is used for the upper application you can ignore it for now. When the leader needs to send a Snapshot message to a follower, it can call `Storage.Snapshot()` to get a `eraftpb.Snapshot`, then send the snapshot message like other raft messages. How the state machine data is actually built and sent are implemented by the raftstore, it will be introduced in the next step. You can assume that once `Storage.Snapshot()` returns successfully, it’s safe for Raft leader to the snapshot message to the follower, and follower should call `handleSnapshot` to handle it, which namely just restore the raft internal state like the term, commit index and membership information, etc, from the
-`eraftpb.SnapshotMetadata` in the message, after that, the procedure of snapshot handling is finish.
+Although we need some different handling for Snapshot messages, in the perspective of raft algorithm there should be no difference. See the definition of `eraftpb.Snapshot` in the proto file, the `data` field on `eraftpb.Snapshot` does not represent the actual state machine data, but some metadata is used by the upper application which you can ignore for now. When the leader needs to send a Snapshot message to a follower, it can call `Storage.Snapshot()` to get a `eraftpb.Snapshot`, then send the snapshot message like other raft messages. How the state machine data is actually built and sent are implemented by the raftstore, it will be introduced in the next step. You can assume that once `Storage.Snapshot()` returns successfully, it’s safe for Raft leader to send the snapshot message to the follower, and follower should call `handleSnapshot` to handle it, which namely just restore the raft internal state like the term, commit index and membership information, etc, from the
+`eraftpb.SnapshotMetadata` in the message, after that, the procedure of snapshot handling is finished.
 
 ### Implement in raftstore
 
@@ -224,6 +227,6 @@ Raftstore checks whether it needs to gc log from time to time based on the confi
 Then due to the log compaction, Raft module maybe needs to send a snapshot. `PeerStorage` implements `Storage.Snapshot()`. TinyKV generates snapshots and applies snapshots in the region worker. When calling `Snapshot()`, it actually sends a task `RegionTaskGen` to the region worker. The message handler of the region worker is located in `kv/raftstore/runner/region_task.go`. It scans the underlying engines to generate a snapshot, and sends snapshot metadata by channel. At the next time Raft calling `Snapshot`, it checks whether the snapshot generating is finished. If yes, Raft should send the snapshot message to other peers, and the snapshot sending and receiving work is handled by `kv/storage/raft_storage/snap_runner.go`. You don’t need to dive into the details, only should know the snapshot message will be handled by `onRaftMsg` after the snapshot is received.
 
 Then the snapshot will reflect in the next Raft ready, so the task you should do is to modify the raft ready process to handle the case of a snapshot. When you are sure to apply the snapshot, you can update the peer storage’s memory state like `RaftLocalState`, `RaftApplyState`, and `RegionLocalState`. Also, don’t forget to persist these states to kvdb and raftdb and remove stale state from kvdb and raftdb. Besides, you also need to update
-`PeerStorage.snapState` to `snap.SnapState_Applying` and send `runner.RegionTaskApply` task to region worker through `PeerStorage.regionSched` and wait until region worker finish.
+`PeerStorage.snapState` to `snap.SnapState_Applying` and send `runner.RegionTaskApply` task to region worker through `PeerStorage.regionSched` and wait until region worker finishes.
 
 You should run `make project2c` to pass all the tests.

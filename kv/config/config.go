@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/pingcap-incubator/tinykv/log"
@@ -60,11 +61,19 @@ const (
 	MB uint64 = 1024 * 1024
 )
 
+func getLogLevel() (logLevel string) {
+	logLevel = "info"
+	if l := os.Getenv("LOG_LEVEL"); len(l) != 0 {
+		logLevel = l
+	}
+	return
+}
+
 func NewDefaultConfig() *Config {
 	return &Config{
 		SchedulerAddr:            "127.0.0.1:2379",
 		StoreAddr:                "127.0.0.1:20160",
-		LogLevel:                 "info",
+		LogLevel:                 getLogLevel(),
 		Raft:                     true,
 		RaftBaseTickInterval:     1 * time.Second,
 		RaftHeartbeatTicks:       2,
@@ -73,7 +82,7 @@ func NewDefaultConfig() *Config {
 		// Assume the average size of entries is 1k.
 		RaftLogGcCountLimit:                 128000,
 		SplitRegionCheckTickInterval:        10 * time.Second,
-		SchedulerHeartbeatTickInterval:      100 * time.Millisecond,
+		SchedulerHeartbeatTickInterval:      10 * time.Second,
 		SchedulerStoreHeartbeatTickInterval: 10 * time.Second,
 		RegionMaxSize:                       144 * MB,
 		RegionSplitSize:                     96 * MB,
@@ -83,7 +92,7 @@ func NewDefaultConfig() *Config {
 
 func NewTestConfig() *Config {
 	return &Config{
-		LogLevel:                 "info",
+		LogLevel:                 getLogLevel(),
 		Raft:                     true,
 		RaftBaseTickInterval:     50 * time.Millisecond,
 		RaftHeartbeatTicks:       2,
