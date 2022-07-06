@@ -34,7 +34,7 @@ type Cluster struct {
 	schedulerClient *MockSchedulerClient
 	count           int
 	engines         map[uint64]*engine_util.Engines
-	snapPaths       map[uint64]string
+	dbPaths         map[uint64]string
 	dirs            []string
 	simulator       Simulator
 	cfg             *config.Config
@@ -46,7 +46,7 @@ func NewCluster(count int, schedulerClient *MockSchedulerClient, simulator Simul
 		count:           count,
 		schedulerClient: schedulerClient,
 		engines:         make(map[uint64]*engine_util.Engines),
-		snapPaths:       make(map[uint64]string),
+		dbPaths:         make(map[uint64]string),
 		simulator:       simulator,
 		cfg:             cfg,
 		baseDir:         "test-raftstore",
@@ -62,11 +62,10 @@ func (c *Cluster) Start() {
 		if err != nil {
 			panic(err)
 		}
-		c.cfg.DBPath = dbPath
+		c.dbPaths[storeID] = dbPath
 		kvPath := filepath.Join(dbPath, "kv")
 		raftPath := filepath.Join(dbPath, "raft")
 		snapPath := filepath.Join(dbPath, "snap")
-		c.snapPaths[storeID] = snapPath
 		c.dirs = append(c.dirs, dbPath)
 
 		err = os.MkdirAll(kvPath, os.ModePerm)
@@ -167,7 +166,10 @@ func (c *Cluster) StopServer(storeID uint64) {
 
 func (c *Cluster) StartServer(storeID uint64) {
 	engine := c.engines[storeID]
-	err := c.simulator.RunStore(c.cfg, engine, context.TODO())
+	//do not share config because of different DBPath
+	storeCfg := *c.cfg
+	storeCfg.DBPath = c.dbPaths[storeID]
+	err := c.simulator.RunStore(&storeCfg, engine, context.TODO())
 	if err != nil {
 		panic(err)
 	}
