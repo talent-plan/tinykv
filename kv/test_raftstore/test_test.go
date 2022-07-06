@@ -613,8 +613,6 @@ func TestConfChangeRemoveLeader3B(t *testing.T) {
 	cluster.MustAddPeer(1, NewPeer(1, 1))
 	cluster.MustTransferLeader(1, NewPeer(1, 1))
 	cluster.MustPut([]byte("k1"), []byte("v1"))
-	// wait for apply
-	time.Sleep(500 * time.Millisecond)
 	MustGetEqual(cluster.engines[1], []byte("k0"), []byte("v0"))
 	MustGetEqual(cluster.engines[1], []byte("k1"), []byte("v1"))
 
@@ -633,8 +631,6 @@ func TestConfChangeRemoveLeader3B(t *testing.T) {
 	cluster.MustPut([]byte("k3"), []byte("v3"))
 	// 3 can not see it
 	MustGetNone(cluster.engines[3], []byte("k3"))
-	// wait for apply
-	time.Sleep(500 * time.Millisecond)
 	MustGetEqual(cluster.engines[1], []byte("k3"), []byte("v3"))
 }
 
