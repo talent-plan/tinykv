@@ -216,8 +216,8 @@ func TestFollowerVote2AA(t *testing.T) {
 	}{
 		{None, 1, false},
 		{None, 2, false},
-		{1, 1, false},
-		{2, 2, false},
+		{1, 1, false}, //reject wrong
+		{2, 2, false}, //reject wrong
 		{1, 2, true},
 		{2, 1, true},
 	}
@@ -251,6 +251,7 @@ func TestCandidateFallback2AA(t *testing.T) {
 	for i, tt := range tests {
 		r := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
 		r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
+
 		if r.State != StateCandidate {
 			t.Fatalf("unexpected state = %s, want %s", r.State, StateCandidate)
 		}
