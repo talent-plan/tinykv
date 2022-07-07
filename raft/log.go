@@ -101,10 +101,10 @@ func (l *RaftLog) unstableEntries() []pb.Entry {
 	if len(l.entries) <= 0 {
 		return nil
 	}
-	if l.stabled < l.first+1 {
+	if l.stabled < l.FirstEntryIndex()+1 {
 		return nil
 	}
-	return l.entries[l.stabled-l.first+1:]
+	return l.entries[l.stabled-l.FirstEntryIndex()+1:]
 }
 
 // nextEnts returns all the committed but not applied entries
@@ -113,22 +113,19 @@ func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 	if len(l.entries) == 0 {
 		return nil
 	}
-	if l.applied-l.FirstIndex()+1 >= 0 && l.committed-l.FirstIndex()+1 <= uint64(len(l.entries)) {
-		return l.entries[l.applied-l.FirstIndex()+1 : l.committed-l.FirstIndex()+1]
+	if l.applied-l.FirstEntryIndex()+1 >= 0 && l.committed-l.FirstEntryIndex()+1 <= uint64(len(l.entries)) {
+		return l.entries[l.applied-l.FirstEntryIndex()+1 : l.committed-l.FirstEntryIndex()+1]
 	}
 	return nil
 }
 
-func (l *RaftLog) FirstIndex() uint64 {
+func (l *RaftLog) FirstEntryIndex() uint64 {
 	// Your Code Here (2A).
 	if len(l.entries) == 0 {
-		firstIndex, err := l.storage.FirstIndex()
-		if err != nil {
-			return firstIndex - 1
-		}
+		firstIndex, _ := l.storage.FirstIndex()
+		return firstIndex - 1
 	}
-	firstIndex := l.entries[0].Index
-	return firstIndex
+	return l.entries[0].Index
 }
 
 // LastIndex return the last index of the log entries
@@ -144,21 +141,21 @@ func (l *RaftLog) LastIndex() uint64 {
 func (l *RaftLog) Term(i uint64) (uint64, error) {
 	// Your Code Here (2A).
 	if len(l.entries) > 0 {
-		offset := l.FirstIndex()
+		offset := l.FirstEntryIndex()
 		if i >= offset {
-			index := i - l.FirstIndex()
+			index := i - offset
 			if index >= uint64(len(l.entries)) {
 				return 0, ErrUnavailable
 			}
 			return l.entries[index].Term, nil
 		}
 	}
-	// please find in the storage
+	//find in the storage
 	term, err := l.storage.Term(i)
-	if err == ErrUnavailable && !IsEmptySnap(l.pendingSnapshot) {
-		if i < l.pendingSnapshot.Metadata.Index {
-			err = ErrCompacted
-		}
-	}
+	//if err == ErrUnavailable && !IsEmptySnap(l.pendingSnapshot) {
+	//	if i < l.pendingSnapshot.Metadata.Index {
+	//		err = ErrCompacted
+	//	}
+	//}
 	return term, err
 }

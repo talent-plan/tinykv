@@ -186,11 +186,11 @@ func newRaft(c *Config) *Raft {
 	}
 
 	prs := make(map[uint64]*Progress)
-
+	lastIndex := raftlog.LastIndex()
 	for _, peer := range c.peers {
 		prs[peer] = &Progress{
 			Match: 0,
-			Next:  raftlog.LastIndex() + 1,
+			Next:  lastIndex + 1,
 		}
 	}
 
@@ -220,21 +220,34 @@ func newRaft(c *Config) *Raft {
 // current commit index to the given peer. Returns true if a message was sent.
 func (r *Raft) sendAppend(to uint64) bool {
 	// Your Code Here (2A).
-
 	if _, ok := r.Prs[to]; !ok {
 		return false
 	}
+	prevIndex := r.Prs[to].Next - 1
+	println(prevIndex)
+	prevTerm, _ := r.RaftLog.Term(prevIndex)
+	firstEntryIndex := r.RaftLog.FirstEntryIndex()
 	lastIndex := r.RaftLog.LastIndex()
-	lastLogTerm, _ := r.RaftLog.Term(lastIndex)
+	//lastLogTerm, _ := r.RaftLog.Term(lastIndex)
+	entries := []*pb.Entry{}
+	for i := prevIndex + 1; i <= lastIndex; i++ {
+		entries = append(entries, &r.RaftLog.entries[i-firstEntryIndex])
+	}
+	//r.t.Errorf("%d,%d", lastIndex, lastLogTerm)
 	msg := pb.Message{
 		MsgType: pb.MessageType_MsgAppend,
 		From:    r.id,
 		To:      to,
 		Term:    r.Term,
-		Index:   lastIndex + 1,
-		LogTerm: lastLogTerm,
+		Commit:  r.RaftLog.committed,
+		Index:   prevIndex,
+		LogTerm: prevTerm,
+		Entries: entries,
 	}
 	r.msgs = append(r.msgs, msg)
+	for _, m := range r.msgs {
+		r.t.Errorf("%v", m)
+	}
 	return true
 }
 
@@ -401,8 +414,8 @@ func (r *Raft) becomeLeader() {
 	r.Lead = r.id
 	r.actives = make(map[uint64]bool)
 	r.actives[r.id] = true
-	r.RaftLog.entries = append(r.RaftLog.entries, pb.Entry{Term: r.Term, Index: r.RaftLog.LastIndex() + 1})
 	lastIndex := r.RaftLog.LastIndex()
+	r.RaftLog.entries = append(r.RaftLog.entries, pb.Entry{Term: r.Term, Index: r.RaftLog.LastIndex() + 1})
 	for peer := range r.Prs {
 		if peer == r.id {
 			r.Prs[peer].Match = r.Prs[peer].Next
@@ -413,12 +426,6 @@ func (r *Raft) becomeLeader() {
 			r.sendAppend(peer)
 		}
 	}
-	//noop entry
-
-	r.RaftLog.entries = append(r.RaftLog.entries, pb.Entry{
-		Term:  r.Term,
-		Index: lastIndex + 1,
-	})
 }
 
 // Step the entrance of handle message, see `MessageType`
@@ -530,7 +537,7 @@ func (r *Raft) LeaderStep(m pb.Message) error {
 	case pb.MessageType_MsgHup:
 		// 'MessageType_MsgBeat' is a local message that signals the leader to send a heartbeat
 		// of the 'MessageType_MsgHeartbeat' type to its followers.
-		
+
 	case pb.MessageType_MsgBeat:
 		// 'MessageType_MsgPropose' is a local message that proposes to append data to the leader's log entries.
 		for peer := range r.Prs {
@@ -580,6 +587,7 @@ func (r *Raft) LeaderStep(m pb.Message) error {
 
 // handleAppendEntries handle AppendEntries RPC request
 func (r *Raft) handleAppendEntries(m pb.Message) {
+	r.t.Errorf("111")
 	// Your Code Here (2A).
 	if m.Term < r.Term {
 		r.sendAppendResponse(m.From, true)
@@ -587,7 +595,42 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 	}
 	if m.Term > r.Term {
 		r.Term = m.Term
+	}
+	if m.Term != r.Term {
 		r.Lead = m.From
+	}
+	lastIndex := r.RaftLog.LastIndex()
+	if m.Index >= lastIndex {
+		r.sendAppendResponse(m.From, true)
+		return
+	}
+	prevLogTerm, err := r.RaftLog.Term(m.Index)
+	if err != nil {
+		panic("wrong when get preTermLog")
+	}
+	//match
+	if m.LogTerm == prevLogTerm {
+		for index, entry := range m.Entries {
+			entry.Index = m.Index + 1 + uint64(index)
+			if entry.Index <= lastIndex {
+				term, _ := r.RaftLog.Term(entry.Index)
+				if term != entry.Term {
+					r.RaftLog.entries = r.RaftLog.entries[r.RaftLog.FirstEntryIndex():entry.Index]
+					r.RaftLog.entries = append(r.RaftLog.entries, *entry)
+					lastIndex = r.RaftLog.LastIndex()
+				}
+			} else {
+				r.RaftLog.entries = append(r.RaftLog.entries, *entry)
+			}
+		}
+		if m.Commit > r.RaftLog.committed {
+			r.RaftLog.committed = min(m.Commit, m.Index+uint64(len(m.Entries)))
+		}
+		r.Vote = None
+		r.t.Errorf("%v", r.RaftLog.entries)
+	} else {
+		r.sendAppendResponse(m.From, true)
+		return
 	}
 	r.Vote = None
 	r.sendAppendResponse(m.From, false)
