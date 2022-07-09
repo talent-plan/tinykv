@@ -902,8 +902,8 @@ func commitNoopEntry(r *Raft, s *MemoryStorage) {
 	}
 	// simulate the response of MessageType_MsgAppend
 	msgs := r.readMessages()
-	for i, m := range msgs {
-		r.t.Errorf("%d, %v,%d", i, m, len(m.Entries))
+	for _, m := range msgs {
+		//r.t.Errorf("%d, %v,%d,%d", i, m, len(m.Entries), m.Index)
 		if m.MsgType != pb.MessageType_MsgAppend || len(m.Entries) != 1 || m.Entries[0].Data != nil {
 			panic("not a message to append noop entry")
 		}

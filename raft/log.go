@@ -101,7 +101,7 @@ func (l *RaftLog) unstableEntries() []pb.Entry {
 	if len(l.entries) <= 0 {
 		return nil
 	}
-	if l.stabled < l.FirstEntryIndex()+1 {
+	if l.stabled+1 < l.FirstEntryIndex() || l.stabled-l.FirstEntryIndex()+1 > uint64(len(l.entries)) {
 		return nil
 	}
 	return l.entries[l.stabled-l.FirstEntryIndex()+1:]

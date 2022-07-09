@@ -107,7 +107,7 @@ func TestLeaderCycle2AA(t *testing.T) {
 	n := newNetworkWithConfig(cfg, nil, nil, nil)
 	for campaignerID := uint64(1); campaignerID <= 3; campaignerID++ {
 		n.send(pb.Message{From: campaignerID, To: campaignerID, MsgType: pb.MessageType_MsgHup})
-		t.Errorf("%d", campaignerID)
+		//t.Errorf("%d", campaignerID)
 		for _, peer := range n.peers {
 			sm := peer.(*Raft)
 			if sm.id == campaignerID && sm.State != StateLeader {
