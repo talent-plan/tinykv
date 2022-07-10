@@ -223,6 +223,7 @@ func newRaft(c *Config) *Raft {
 // current commit index to the given peer. Returns true if a message was sent.
 func (r *Raft) sendAppend(to uint64) bool {
 	// Your Code Here (2A).
+	//println("sendappend")
 	if _, ok := r.Prs[to]; !ok {
 		return false
 	}
@@ -408,7 +409,7 @@ func (r *Raft) becomeCandidate() {
 func (r *Raft) becomeLeader() {
 	// Your Code Here (2A).
 	// NOTE: Leader should propose a noop entry on its term
-	if _, ok := r.Prs[r.id]; !ok {
+	if _, ok := r.Prs[r.id]; !ok || r.State != StateCandidate {
 		return
 	}
 	r.State = StateLeader
@@ -428,6 +429,7 @@ func (r *Raft) becomeLeader() {
 		} else {
 			r.Prs[peer].Next = lastIndex + 1
 			r.Prs[peer].Match = 0
+			//println("noop send")
 			r.sendAppend(peer)
 		}
 	}
@@ -440,7 +442,7 @@ func (r *Raft) becomeLeader() {
 // on `eraftpb.proto` for what msgs should be handled
 func (r *Raft) Step(m pb.Message) error {
 	// Your Code Here (2A).
-	//fmt.Printf("-step r.id: %d handle message type %s from %d to %d\n", r.id, m.MsgType, m.From, m.To)
+	fmt.Printf("-step r.id: %d handle message type %s from %d to %d\n", r.id, m.MsgType, m.From, m.To)
 	if _, ok := r.Prs[r.id]; !ok {
 		fmt.Printf("%d not exist in r.Prs\n", r.id)
 	}
@@ -568,6 +570,7 @@ func (r *Raft) LeaderStep(m pb.Message) error {
 		// 'MessageType_MsgAppendResponse' is response to log replication request('MessageType_MsgAppend').
 	case pb.MessageType_MsgAppendResponse:
 		if r.Term < m.Term {
+			println("check")
 			r.becomeFollower(m.Term, m.From)
 		}
 		r.handleAppendResponse(m)
@@ -603,7 +606,7 @@ func (r *Raft) LeaderStep(m pb.Message) error {
 // handleAppendEntries handle AppendEntries RPC request
 func (r *Raft) handleAppendEntries(m pb.Message) {
 	// Your Code Here (2A).
-	//fmt.Printf("ae:m.index:%d,%v\n", m.Index, m)
+	fmt.Printf("ae:r.id:%d,r.term:%d,%v\n", r.id, r.Term, m)
 	if m.Term < r.Term {
 		r.sendAppendResponse(m.From, true)
 		return
@@ -611,9 +614,7 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 	if m.Term > r.Term {
 		r.Term = m.Term
 	}
-	if m.Term != r.Term {
-		r.Lead = m.From
-	}
+	r.Lead = m.From
 	lastIndex := r.RaftLog.LastIndex()
 	//r.t.Errorf("m:%d last:%d", m.Index, lastIndex)
 	if m.Index > lastIndex {
@@ -625,15 +626,18 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 		panic("wrong when get preTermLog")
 	}
 	//match
+	//r.t.Errorf("m:%d prevLogTerm:%d", m.LogTerm, prevLogTerm)
 	if m.LogTerm == prevLogTerm {
+
 		for index, entry := range m.Entries {
 			entry.Index = m.Index + 1 + uint64(index)
 			if entry.Index <= lastIndex {
 				term, _ := r.RaftLog.Term(entry.Index)
 				if term != entry.Term {
-					r.RaftLog.entries = r.RaftLog.entries[r.RaftLog.FirstEntryIndex():entry.Index]
+					r.RaftLog.entries = r.RaftLog.entries[:m.Index-r.RaftLog.FirstEntryIndex()+1]
 					r.RaftLog.entries = append(r.RaftLog.entries, *entry)
 					lastIndex = r.RaftLog.LastIndex()
+					r.RaftLog.stabled = min(r.RaftLog.stabled, m.Index)
 				}
 			} else {
 				r.RaftLog.entries = append(r.RaftLog.entries, *entry)
@@ -645,7 +649,6 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 		r.Vote = None
 		//r.t.Errorf("%v", r.RaftLog.entries)
 	} else {
-		r.t.Errorf("check3")
 		r.sendAppendResponse(m.From, true)
 		return
 	}
@@ -698,6 +701,7 @@ func (r *Raft) handlePropose(m pb.Message) {
 }
 
 func (r *Raft) handleRequestVote(m pb.Message) {
+	fmt.Printf("r.term:%d, %v\n", r.Term, m)
 	msg := pb.Message{
 		MsgType: pb.MessageType_MsgRequestVoteResponse,
 		From:    r.id,
@@ -712,9 +716,12 @@ func (r *Raft) handleRequestVote(m pb.Message) {
 	if r.State != StateFollower && m.Term > r.Term {
 		r.becomeFollower(m.Term, None)
 	}
+	fmt.Printf("r.term:%d  m.Term:%d\n", r.Term, m.Term)
 	if r.Term < m.Term {
 		r.Vote = None
 		r.Term = m.Term
+		msg.Term = r.Term
+		fmt.Printf("check r.term:%d\n", r.Term)
 	}
 	if m.Term >= r.Term {
 		if r.Vote == None || r.Vote == m.From {
@@ -726,6 +733,7 @@ func (r *Raft) handleRequestVote(m pb.Message) {
 				r.Vote = m.From
 				if r.Term < m.Term {
 					r.Term = m.Term
+					msg.Term = r.Term
 				}
 				msg.Reject = false
 			}
@@ -736,6 +744,7 @@ func (r *Raft) handleRequestVote(m pb.Message) {
 }
 
 func (r *Raft) handleVoteResponse(m pb.Message) {
+	fmt.Printf("r.term:%d, %v\n", r.Term, m)
 	voteFor, voteAgainst := 0, 0
 	r.votes[m.From] = !m.Reject
 	for _, v := range r.votes {
@@ -750,6 +759,7 @@ func (r *Raft) handleVoteResponse(m pb.Message) {
 		//println("leader")
 		r.becomeLeader()
 	} else if voteAgainst > len(r.Prs)/2 {
+		//println("follower")
 		r.becomeFollower(m.Term, m.From)
 	}
 	//r.t.Errorf("check4")
@@ -759,7 +769,7 @@ func (r *Raft) handleAppendResponse(m pb.Message) {
 	//r.t.Errorf("%v", m)
 	fmt.Printf("m.index:%d,%v\n", m.Index, m)
 	if m.Reject {
-		r.Prs[m.From].Next = min(r.Prs[m.From].Next-1, m.Index)
+		r.Prs[m.From].Next = max(min(r.Prs[m.From].Next-1, m.Index), 1)
 		r.sendAppend(m.From)
 		return
 	}

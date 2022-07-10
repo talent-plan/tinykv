@@ -654,8 +654,9 @@ func TestFollowerAppendEntries2AB(t *testing.T) {
 		storage.Append([]pb.Entry{{Term: 1, Index: 1}, {Term: 2, Index: 2}})
 		r := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, storage)
 		r.becomeFollower(2, 2)
-
-		r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgAppend, Term: tt.lterm, LogTerm: tt.term, Index: tt.index, Entries: tt.ents})
+		r.t.Errorf("%d", i)
+		r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgAppend,
+			Term: tt.lterm, LogTerm: tt.term, Index: tt.index, Entries: tt.ents})
 
 		wents := make([]pb.Entry, 0, len(tt.wents))
 		for _, ent := range tt.wents {

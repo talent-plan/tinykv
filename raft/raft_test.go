@@ -171,7 +171,7 @@ func TestLeaderElectionOverwriteNewerLogs2AB(t *testing.T) {
 	if sm1.Term != 3 {
 		t.Errorf("term = %d, want 3", sm1.Term)
 	}
-
+	println("check2")
 	// Now all nodes agree on a log entry with term 1 at index 1 (and
 	// term 3 at index 2).
 	for i := range n.peers {
@@ -742,7 +742,7 @@ func TestAllServerStepdown2AB(t *testing.T) {
 				wlead = None
 			}
 			if sm.Lead != wlead {
-				t.Errorf("#%d, sm.Lead = %d, want %d", i, sm.Lead, wlead)
+				t.Errorf("#%d, message type:%s sm.Lead = %d, want %d", i, msgType, sm.Lead, wlead)
 			}
 		}
 	}
