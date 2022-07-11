@@ -53,7 +53,6 @@ type RaftLog struct {
 	pendingSnapshot *pb.Snapshot
 
 	// Your Data Here (2A).
-	first uint64
 }
 
 // newLog returns log using the given storage. It recovers the log
@@ -83,7 +82,6 @@ func newLog(storage Storage) *RaftLog {
 		stabled:         lastIndex, //在etcd lastIndex+1 是第一个unstable
 		entries:         entries,
 		pendingSnapshot: nil, //finish later in 2c
-		first:           firstIndex,
 	}
 
 	return raftlog

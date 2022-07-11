@@ -395,9 +395,6 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 // becomeCandidate transform this peer's state to candidate
 func (r *Raft) becomeCandidate() {
 	// Your Code Here (2A).
-	if _, ok := r.Prs[r.id]; !ok {
-		return
-	}
 	r.State = StateCandidate
 	r.reset(r.Term + 1)
 	r.Vote = r.id
@@ -409,15 +406,11 @@ func (r *Raft) becomeCandidate() {
 func (r *Raft) becomeLeader() {
 	// Your Code Here (2A).
 	// NOTE: Leader should propose a noop entry on its term
-	if _, ok := r.Prs[r.id]; !ok || r.State != StateCandidate {
+	if r.State != StateCandidate {
 		return
 	}
 	r.State = StateLeader
-	r.heartbeatElapsed = 0
-	r.electionElapsed = 0
-	r.randomedElectionTimeout = r.electionTimeout + rand.Intn(r.electionTimeout)
-	r.leadTransferee = None
-	r.Lead = r.id
+	r.reset(r.Term)
 	r.actives = make(map[uint64]bool)
 	r.actives[r.id] = true
 	lastIndex := r.RaftLog.LastIndex()
@@ -646,13 +639,13 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 		if m.Commit > r.RaftLog.committed {
 			r.RaftLog.committed = min(m.Commit, m.Index+uint64(len(m.Entries)))
 		}
-		r.Vote = None
+		//r.Vote = None
 		//r.t.Errorf("%v", r.RaftLog.entries)
 	} else {
 		r.sendAppendResponse(m.From, true)
 		return
 	}
-	r.Vote = None
+	//r.Vote = None
 	r.sendAppendResponse(m.From, false)
 }
 
@@ -695,9 +688,11 @@ func (r *Raft) handlePropose(m pb.Message) {
 		}
 		r.sendAppend(peer)
 	}
+
 	if len(r.Prs) == 1 {
 		r.RaftLog.committed = r.Prs[r.id].Match
 	}
+
 }
 
 func (r *Raft) handleRequestVote(m pb.Message) {
@@ -715,6 +710,7 @@ func (r *Raft) handleRequestVote(m pb.Message) {
 	}
 	if r.State != StateFollower && m.Term > r.Term {
 		r.becomeFollower(m.Term, None)
+		msg.Term = r.Term
 	}
 	fmt.Printf("r.term:%d  m.Term:%d\n", r.Term, m.Term)
 	if r.Term < m.Term {
@@ -760,7 +756,7 @@ func (r *Raft) handleVoteResponse(m pb.Message) {
 		r.becomeLeader()
 	} else if voteAgainst > len(r.Prs)/2 {
 		//println("follower")
-		r.becomeFollower(m.Term, m.From)
+		r.becomeFollower(m.Term, None)
 	}
 	//r.t.Errorf("check4")
 }
@@ -856,4 +852,19 @@ func (r *Raft) raiseCampaign() {
 		//r.t.Errorf("send vote request")
 	}
 	//r.t.Errorf("campaign end")
+}
+
+func (r *Raft) GetSoftState() *SoftState {
+	return &SoftState{
+		Lead:      r.Lead,
+		RaftState: r.State,
+	}
+}
+
+func (r *Raft) GetHardState() *pb.HardState {
+	return &pb.HardState{
+		Term:   r.Term,
+		Vote:   r.Vote,
+		Commit: r.RaftLog.committed,
+	}
 }
