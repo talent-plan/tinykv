@@ -156,7 +156,7 @@ func (rn *RawNode) Ready() Ready {
 		Entries:          rn.Raft.RaftLog.unstableEntries(),
 		Snapshot:         pb.Snapshot{},
 		CommittedEntries: rn.Raft.RaftLog.nextEnts(),
-		Messages:         nil,
+		Messages:         rn.Raft.msgs,
 	}
 	nowSoftState := rn.Raft.GetSoftState()
 	nowHardState := *rn.Raft.GetHardState()
@@ -172,7 +172,7 @@ func (rn *RawNode) Ready() Ready {
 		ready.Snapshot = *rn.Raft.RaftLog.pendingSnapshot
 		rn.Raft.RaftLog.pendingSnapshot = nil
 	}
-
+	rn.Raft.msgs = nil
 	return ready
 }
 
@@ -180,7 +180,9 @@ func (rn *RawNode) Ready() Ready {
 func (rn *RawNode) HasReady() bool {
 	// Your Code Here (2A).
 	if len(rn.Raft.RaftLog.unstableEntries()) == 0 && len(rn.Raft.RaftLog.nextEnts()) == 0 &&
-		len(rn.Raft.msgs) == 0 && IsEmptySnap(rn.Raft.RaftLog.pendingSnapshot) {
+		len(rn.Raft.msgs) == 0 && IsEmptySnap(rn.Raft.RaftLog.pendingSnapshot) &&
+		(isEmptySoftState(rn.Raft.GetSoftState()) || isSoftStateEqual(rn.Raft.GetSoftState(), rn.prevSoftState)) &&
+		(IsEmptyHardState(*rn.Raft.GetHardState()) || isHardStateEqual(*rn.Raft.GetHardState(), rn.prevHardState)) {
 		return false
 	}
 	return true

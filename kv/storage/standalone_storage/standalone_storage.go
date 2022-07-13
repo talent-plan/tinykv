@@ -70,8 +70,8 @@ func (s *StandAloneStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) 
 			}
 		}
 	}
-	_ = txn.Commit()
-	return nil
+	err := txn.Commit()
+	return err
 }
 
 func NewStandAloneStorageReader(txn *badger.Txn) *StandAloneStorageReader {
@@ -82,6 +82,8 @@ func (sr *StandAloneStorageReader) GetCF(cf string, key []byte) ([]byte, error) 
 	val, err := engine_util.GetCFFromTxn(sr.badgerTxn, cf, key)
 	if err == badger.ErrKeyNotFound {
 		return nil, nil
+	} else if err != nil {
+		panic("wrong when getting data")
 	}
 	return val, err
 }
