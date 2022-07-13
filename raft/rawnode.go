@@ -71,7 +71,7 @@ type RawNode struct {
 	Raft *Raft
 	// Your Data Here (2A).
 	prevSoftState *SoftState
-	prevHardState *pb.HardState
+	prevHardState pb.HardState
 }
 
 // NewRawNode returns a new RawNode given configuration and a list of raft peers.
@@ -81,7 +81,7 @@ func NewRawNode(config *Config) (*RawNode, error) {
 	return &RawNode{
 		Raft:          r,
 		prevSoftState: r.GetSoftState(),
-		prevHardState: r.GetHardState(),
+		prevHardState: *r.GetHardState(),
 	}, nil
 }
 
@@ -164,9 +164,13 @@ func (rn *RawNode) Ready() Ready {
 		ready.SoftState = nowSoftState
 		rn.prevSoftState = nowSoftState
 	}
-	if !isHardStateEqual(nowHardState, *rn.prevHardState) {
+	if !isHardStateEqual(nowHardState, rn.prevHardState) {
 		ready.HardState = nowHardState
-		rn.prevHardState = &nowHardState
+		rn.prevHardState = nowHardState
+	}
+	if !IsEmptySnap(rn.Raft.RaftLog.pendingSnapshot) {
+		ready.Snapshot = *rn.Raft.RaftLog.pendingSnapshot
+		rn.Raft.RaftLog.pendingSnapshot = nil
 	}
 
 	return ready
@@ -175,7 +179,8 @@ func (rn *RawNode) Ready() Ready {
 // HasReady called when RawNode user need to check if any Ready pending.
 func (rn *RawNode) HasReady() bool {
 	// Your Code Here (2A).
-	if len(rn.Raft.RaftLog.unstableEntries()) == 0 && len(rn.Raft.RaftLog.nextEnts()) == 0 && len(rn.Raft.msgs) == 0 {
+	if len(rn.Raft.RaftLog.unstableEntries()) == 0 && len(rn.Raft.RaftLog.nextEnts()) == 0 &&
+		len(rn.Raft.msgs) == 0 && IsEmptySnap(rn.Raft.RaftLog.pendingSnapshot) {
 		return false
 	}
 	return true
@@ -191,6 +196,7 @@ func (rn *RawNode) Advance(rd Ready) {
 	if len(rd.CommittedEntries) > 0 {
 		rn.Raft.RaftLog.applied = rd.CommittedEntries[len(rd.CommittedEntries)-1].Index
 	}
+	rn.Raft.RaftLog.maybeCompact()
 }
 
 // GetProgress return the Progress of this node and its peers, if this

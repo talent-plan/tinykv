@@ -43,6 +43,7 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		return
 	}
 	// Your Code Here (2B).
+
 }
 
 func (d *peerMsgHandler) HandleMsg(msg message.Msg) {

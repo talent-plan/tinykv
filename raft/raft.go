@@ -228,8 +228,12 @@ func (r *Raft) sendAppend(to uint64) bool {
 		return false
 	}
 	prevIndex := r.Prs[to].Next - 1
-	prevTerm, _ := r.RaftLog.Term(prevIndex)
+	prevTerm, err := r.RaftLog.Term(prevIndex)
 	firstEntryIndex := r.RaftLog.FirstEntryIndex()
+	if err == ErrCompacted && prevIndex < firstEntryIndex-1 {
+		r.sendSnapshot(to)
+		return true
+	}
 	lastIndex := r.RaftLog.LastIndex()
 	//lastLogTerm, _ := r.RaftLog.Term(lastIndex)
 	entries := []*pb.Entry{}
@@ -305,6 +309,22 @@ func (r *Raft) sendRequestVote(to uint64) {
 	}
 	r.msgs = append(r.msgs, msg)
 	//r.t.Errorf("ok")
+}
+
+func (r *Raft) sendSnapshot(to uint64) {
+	snapshot := r.RaftLog.pendingSnapshot
+	if IsEmptySnap(snapshot) {
+		*snapshot, _ = r.RaftLog.storage.Snapshot()
+	}
+	msg := pb.Message{
+		MsgType:  pb.MessageType_MsgSnapshot,
+		To:       to,
+		From:     r.id,
+		Term:     r.Term,
+		Snapshot: snapshot,
+	}
+	r.msgs = append(r.msgs, msg)
+	r.Prs[to].Next = snapshot.Metadata.Index + 1
 }
 
 // tick advances the internal logical clock by a single tick.
@@ -473,6 +493,7 @@ func (r *Raft) FollowerStep(m pb.Message) error {
 	case pb.MessageType_MsgRequestVoteResponse:
 		// 'MessageType_MsgSnapshot' requests to install a snapshot message.
 	case pb.MessageType_MsgSnapshot:
+		r.handleSnapshot(m)
 		// 'MessageType_MsgHeartbeat' sends heartbeat from leader to its followers.
 	case pb.MessageType_MsgHeartbeat:
 		r.handleHeartbeat(m)
@@ -517,7 +538,7 @@ func (r *Raft) CandidateStep(m pb.Message) error {
 		r.handleVoteResponse(m)
 		// 'MessageType_MsgSnapshot' requests to install a snapshot message.
 	case pb.MessageType_MsgSnapshot:
-
+		r.handleSnapshot(m)
 		// 'MessageType_MsgHeartbeat' sends heartbeat from leader to its followers.
 	case pb.MessageType_MsgHeartbeat:
 		if r.Term <= m.Term {
@@ -574,6 +595,7 @@ func (r *Raft) LeaderStep(m pb.Message) error {
 	case pb.MessageType_MsgRequestVoteResponse:
 		// 'MessageType_MsgSnapshot' requests to install a snapshot message.
 	case pb.MessageType_MsgSnapshot:
+		r.handleSnapshot(m)
 		// 'MessageType_MsgHeartbeat' sends heartbeat from leader to its followers.
 	case pb.MessageType_MsgHeartbeat:
 		if m.Term > r.Term {
@@ -604,9 +626,7 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 		r.sendAppendResponse(m.From, true)
 		return
 	}
-	if m.Term > r.Term {
-		r.Term = m.Term
-	}
+	r.Term = m.Term
 	r.Lead = m.From
 	lastIndex := r.RaftLog.LastIndex()
 	//r.t.Errorf("m:%d last:%d", m.Index, lastIndex)
@@ -621,7 +641,6 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 	//match
 	//r.t.Errorf("m:%d prevLogTerm:%d", m.LogTerm, prevLogTerm)
 	if m.LogTerm == prevLogTerm {
-
 		for index, entry := range m.Entries {
 			entry.Index = m.Index + 1 + uint64(index)
 			if entry.Index <= lastIndex {
@@ -800,6 +819,39 @@ func (r *Raft) handleAppendResponse(m pb.Message) {
 // handleSnapshot handle Snapshot RPC request
 func (r *Raft) handleSnapshot(m pb.Message) {
 	// Your Code Here (2C).
+	md := m.Snapshot.Metadata
+	if m.Term < r.Term || md.Index < r.RaftLog.committed {
+		return
+	}
+	r.RaftLog.pendingSnapshot = m.Snapshot
+	r.Term = m.Term
+	r.Lead = m.From
+	r.RaftLog.applied = md.Index
+	r.RaftLog.committed = md.Index
+	r.RaftLog.stabled = max(r.RaftLog.stabled, md.Index)
+
+	if len(r.RaftLog.entries) == 0 {
+		r.RaftLog.entries = append(r.RaftLog.entries, pb.Entry{
+			EntryType: pb.EntryType_EntryNormal,
+			Term:      md.Term,
+			Index:     md.Index,
+		})
+	} else {
+		if md.Index > r.RaftLog.LastIndex() {
+			r.RaftLog.entries = []pb.Entry{}
+		} else if md.Index > r.RaftLog.FirstEntryIndex() {
+			r.RaftLog.entries = r.RaftLog.entries[md.Index-r.RaftLog.FirstEntryIndex():]
+		}
+	}
+
+	r.Prs = make(map[uint64]*Progress)
+	for _, peer := range md.ConfState.Nodes {
+		r.Prs[peer] = &Progress{
+			Match: 0,
+			Next:  md.Index + 1,
+		}
+	}
+
 }
 
 // addNode add a new node to raft group
