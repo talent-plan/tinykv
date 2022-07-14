@@ -38,11 +38,14 @@ func (en *Engines) WriteRaft(wb *WriteBatch) error {
 }
 
 func (en *Engines) Close() error {
-	if err := en.Kv.Close(); err != nil {
-		return err
-	}
-	if err := en.Raft.Close(); err != nil {
-		return err
+	dbs := []*badger.DB{en.Kv, en.Raft}
+	for _, db := range dbs {
+		if db == nil {
+			continue
+		}
+		if err := db.Close(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
