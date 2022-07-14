@@ -78,7 +78,7 @@ func (l *Latches) ReleaseLatches(keysToUnlatch [][]byte) {
 	}
 }
 
-// WaitForLatches attempts to lock all keys in keysToLatch using AcquireLatches. If a latch ia already locked, then =
+// WaitForLatches attempts to lock all keys in keysToLatch using AcquireLatches. If a latch is already locked, then
 // WaitForLatches will wait for it to become unlocked then try again. Therefore WaitForLatches may block for an unbounded
 // length of time.
 func (l *Latches) WaitForLatches(keysToLatch [][]byte) {

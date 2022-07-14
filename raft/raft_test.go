@@ -264,7 +264,7 @@ func TestLogReplication2AB(t *testing.T) {
 			newNetwork(nil, nil, nil),
 			[]pb.Message{
 				{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: []byte("somedata")}}},
-				{From: 1, To: 2, MsgType: pb.MessageType_MsgHup},
+				{From: 2, To: 2, MsgType: pb.MessageType_MsgHup},
 				{From: 1, To: 2, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: []byte("somedata")}}},
 			},
 			4,
@@ -1091,6 +1091,35 @@ func TestRestoreFromSnapMsg2C(t *testing.T) {
 
 	if sm.Lead != uint64(1) {
 		t.Errorf("sm.Lead = %d, want 1", sm.Lead)
+	}
+}
+
+func TestRestoreFromSnapWithOverlapingPeersMsg2C(t *testing.T) {
+	s := pb.Snapshot{
+		Metadata: &pb.SnapshotMetadata{
+			Index:     11, // magic number
+			Term:      11, // magic number
+			ConfState: &pb.ConfState{Nodes: []uint64{2, 3, 4}},
+		},
+	}
+	m := pb.Message{MsgType: pb.MessageType_MsgSnapshot, From: 1, Term: 2, Snapshot: &s}
+
+	sm := newTestRaft(2, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
+	sm.Step(m)
+
+	if sm.Lead != uint64(1) {
+		t.Errorf("sm.Lead = %d, want 1", sm.Lead)
+	}
+
+	nodes := s.Metadata.ConfState.Nodes
+	if len(nodes) != len(sm.Prs) {
+		t.Errorf("len(sm.Prs) = %d, want %d", len(sm.Prs), len(nodes))
+	}
+
+	for _, p := range nodes {
+		if _, ok := sm.Prs[p]; !ok {
+			t.Errorf("missing peer %d", p)
+		}
 	}
 }
 
