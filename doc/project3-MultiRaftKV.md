@@ -101,8 +101,8 @@ So your task is to implement the process of handling split admin command, just l
 > - The corresponding Peer of this newly-created Region should be created by
 `createPeer()` and registered to the router.regions. And the region’s info should be inserted into `regionRanges` in ctx.StoreMeta.
 > - For the case region split with network isolation, the snapshot to be applied may have overlap with the existing region’s range. The check logic is in `checkSnapshot()` in `kv/raftstore/peer_msg_handler.go`. Please keep it in mind when implementing and take care of that case.
-> - Use `engine_util.ExceedEndKey()` to compare with region’s end key. Because when the end key equals “”, any key will equal or greater than “”. > - There are more errors need to be considered: `ErrRegionNotFound`,
-`ErrKeyNotInRegion`, `ErrEpochNotMatch`.
+> - Use `engine_util.ExceedEndKey()` to compare with region’s end key. Because when the end key equals “”, any key will equal or greater than “”. 
+> - There are more errors need to be considered: `ErrRegionNotFound`, `ErrKeyNotInRegion`, `ErrEpochNotMatch`.
 
 ## Part C
 
