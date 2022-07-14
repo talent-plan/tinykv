@@ -166,7 +166,7 @@ func (c *Cluster) StopServer(storeID uint64) {
 
 func (c *Cluster) StartServer(storeID uint64) {
 	engine := c.engines[storeID]
-	//do not share config because of different DBPath
+	// do not share config because of different DBPath
 	storeCfg := *c.cfg
 	storeCfg.DBPath = c.dbPaths[storeID]
 	err := c.simulator.RunStore(&storeCfg, engine, context.TODO())
