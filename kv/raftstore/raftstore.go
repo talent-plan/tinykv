@@ -253,7 +253,6 @@ func (bs *Raftstore) start(
 	if err != nil {
 		return err
 	}
-
 	for _, peer := range regionPeers {
 		bs.router.register(peer)
 	}

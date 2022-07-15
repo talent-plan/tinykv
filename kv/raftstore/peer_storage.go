@@ -191,6 +191,7 @@ func (ps *PeerStorage) Snapshot() (eraftpb.Snapshot, error) {
 		RegionId: ps.region.GetId(),
 		Notifier: ch,
 	}
+
 	return snapshot, raft.ErrSnapshotTemporarilyUnavailable
 }
 
@@ -356,13 +357,6 @@ func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (*ApplySnapResult, erro
 
 	raftWB.SetMeta(meta.RaftStateKey(ps.region.GetId()), ps.raftState)
 	raftWB.MustWriteToDB(ps.Engines.Raft)
-	/*
-		ps.Append(ready.Entries, raftWB)
-		ps.raftState.HardState = &ready.HardState
-		raftWB.SetMeta(meta.RaftStateKey(ps.region.GetId()), ps.raftState)
-		raftWB.WriteToDB(ps.Engines.Raft)
-
-	*/
 
 	return nil, nil
 }

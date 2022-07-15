@@ -396,6 +396,7 @@ func TestOnePartition2B(t *testing.T) {
 	cluster.MustPut([]byte("k2"), []byte("v2"))
 	MustGetEqual(cluster.engines[s1[0]], []byte("k2"), []byte("v2"))
 	MustGetEqual(cluster.engines[s1[0]], []byte("k1"), []byte("changed"))
+	log.Infof("cp5")
 }
 
 func TestManyPartitionsOneClient2B(t *testing.T) {

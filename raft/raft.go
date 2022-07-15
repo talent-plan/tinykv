@@ -455,7 +455,7 @@ func (r *Raft) becomeLeader() {
 // on `eraftpb.proto` for what msgs should be handled
 func (r *Raft) Step(m pb.Message) error {
 	// Your Code Here (2A).
-	fmt.Printf("-step r.id: %d handle message type %s from %d to %d\n", r.id, m.MsgType, m.From, m.To)
+	//fmt.Printf("-step r.id: %d handle message type %s from %d to %d\n", r.id, m.MsgType, m.From, m.To)
 	if _, ok := r.Prs[r.id]; !ok {
 		fmt.Printf("%d not exist in r.Prs\n", r.id)
 	}
@@ -715,7 +715,7 @@ func (r *Raft) handlePropose(m pb.Message) {
 
 func (r *Raft) handleRequestVote(m pb.Message) {
 	//fmt.Printf("r.term:%d, %v\n", r.Term, m)
-	println("check2")
+	//println("check2")
 	msg := pb.Message{
 		MsgType: pb.MessageType_MsgRequestVoteResponse,
 		From:    r.id,
@@ -894,7 +894,7 @@ func (r *Raft) raiseCampaign() {
 	if len(r.Prs) == 1 {
 		r.becomeLeader()
 	}
-	println("check1")
+	//println("check1")
 	for peer := range r.Prs {
 		if r.id == peer {
 			continue
