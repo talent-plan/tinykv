@@ -144,11 +144,11 @@ func TestLeaderElectionOverwriteNewerLogs2AB(t *testing.T) {
 	// the case where older log entries are overwritten, so this test
 	// focuses on the case where the newer entries are lost).
 	n := newNetworkWithConfig(cfg,
-		entsWithConfig(cfg, 1),     // Node 1: Won first election
-		entsWithConfig(cfg, 1),     // Node 2: Got logs from node 1
-		entsWithConfig(cfg, 2),     // Node 3: Won second election
-		votedWithConfig(cfg, 3, 2), // Node 4: Voted but didn't get logs
-		votedWithConfig(cfg, 3, 2)) // Node 5: Voted but didn't get logs
+		entsWithConfig(cfg, 1, 1),     // Node 1: Won first election
+		entsWithConfig(cfg, 2, 1),     // Node 2: Got logs from node 1
+		entsWithConfig(cfg, 3, 2),     // Node 3: Won second election
+		votedWithConfig(cfg, 4, 3, 2), // Node 4: Voted but didn't get logs
+		votedWithConfig(cfg, 5, 3, 2)) // Node 5: Voted but didn't get logs
 
 	// Node 1 campaigns. The election fails because a quorum of nodes
 	// know about the election that already happened at term 2. Node 1's
@@ -1544,12 +1544,12 @@ func TestSplitVote2AA(t *testing.T) {
 	}
 }
 
-func entsWithConfig(configFunc func(*Config), terms ...uint64) *Raft {
+func entsWithConfig(configFunc func(*Config), id uint64, terms ...uint64) *Raft {
 	storage := NewMemoryStorage()
 	for i, term := range terms {
 		storage.Append([]pb.Entry{{Index: uint64(i + 1), Term: term}})
 	}
-	cfg := newTestConfig(1, []uint64{}, 5, 1, storage)
+	cfg := newTestConfig(id, []uint64{}, 5, 1, storage)
 	if configFunc != nil {
 		configFunc(cfg)
 	}
@@ -1561,10 +1561,10 @@ func entsWithConfig(configFunc func(*Config), terms ...uint64) *Raft {
 // votedWithConfig creates a raft state machine with Vote and Term set
 // to the given value but no log entries (indicating that it voted in
 // the given term but has not received any logs).
-func votedWithConfig(configFunc func(*Config), vote, term uint64) *Raft {
+func votedWithConfig(configFunc func(*Config), id, vote, term uint64) *Raft {
 	storage := NewMemoryStorage()
 	storage.SetHardState(pb.HardState{Vote: vote, Term: term})
-	cfg := newTestConfig(1, []uint64{}, 5, 1, storage)
+	cfg := newTestConfig(id, []uint64{}, 5, 1, storage)
 	if configFunc != nil {
 		configFunc(cfg)
 	}
