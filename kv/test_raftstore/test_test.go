@@ -60,7 +60,7 @@ func checkClntAppends(t *testing.T, clnt int, v string, count int) {
 		wanted := "x " + strconv.Itoa(clnt) + " " + strconv.Itoa(j) + " y"
 		off := strings.Index(v, wanted)
 		if off < 0 {
-			t.Fatalf("%v missing element %v in Append result %v", clnt, wanted, v)
+			t.Fatalf("client %v missing element %v in Append result %v", clnt, wanted, v)
 		}
 		off1 := strings.LastIndex(v, wanted)
 		if off1 != off {
