@@ -1055,6 +1055,8 @@ func TestProvideSnap2C(t *testing.T) {
 		},
 	}
 	storage := NewMemoryStorage()
+	// explicitly set snapshot index greater than 0, so that IsEmptySnap won't report an empty snap.
+	storage.snapshot.Metadata.Index = 1  // magic number.
 	sm := newTestRaft(1, []uint64{1}, 10, 1, storage)
 	sm.handleSnapshot(pb.Message{Snapshot: &s})
 
