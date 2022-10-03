@@ -571,7 +571,7 @@ func TestCommitConflictRepeat4B(t *testing.T) {
 
 // TestCommitMissingPrewrite4a tests committing a transaction which was not prewritten (i.e., a request was lost, but
 // the commit request was not).
-func TestCommitMissingPrewrite4a(t *testing.T) {
+func TestCommitMissingPrewrite4B(t *testing.T) {
 	builder := newBuilder(t)
 	cmd := builder.commitRequest([]byte{3})
 	builder.init([]kv{
