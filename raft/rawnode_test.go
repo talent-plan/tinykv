@@ -206,7 +206,7 @@ func TestRawNodeRestart2AC(t *testing.T) {
 	}
 	rd := rawNode.Ready()
 	if !reflect.DeepEqual(rd, want) {
-		t.Errorf("g = %+v,\n             w   %+v", rd, want)
+		t.Errorf("g = %#v,\n             w   %#v", rd, want)
 	}
 	rawNode.Advance(rd)
 	if rawNode.HasReady() {
@@ -242,7 +242,7 @@ func TestRawNodeRestartFromSnapshot2C(t *testing.T) {
 		t.Fatal(err)
 	}
 	if rd := rawNode.Ready(); !reflect.DeepEqual(rd, want) {
-		t.Errorf("g = %+v,\n             w   %+v", rd, want)
+		t.Errorf("g = %#v,\n             w   %#v", rd, want)
 	} else {
 		rawNode.Advance(rd)
 	}
