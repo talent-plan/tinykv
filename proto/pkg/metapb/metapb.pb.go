@@ -4,13 +4,13 @@
 package metapb
 
 import (
-	"fmt"
-	"io"
-	"math"
-
-	proto "github.com/golang/protobuf/proto"
+	fmt "fmt"
+	io "io"
+	math "math"
+	math_bits "math/bits"
 
 	_ "github.com/gogo/protobuf/gogoproto"
+	proto "github.com/golang/protobuf/proto"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -22,7 +22,7 @@ var _ = math.Inf
 // is compatible with the proto package it is being compiled against.
 // A compilation error at this line likely means your copy of the
 // proto package needs to be updated.
-const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
+const _ = proto.ProtoPackageIsVersion3 // please upgrade the proto package
 
 type StoreState int32
 
@@ -37,6 +37,7 @@ var StoreState_name = map[int32]string{
 	1: "Offline",
 	2: "Tombstone",
 }
+
 var StoreState_value = map[string]int32{
 	"Up":        0,
 	"Offline":   1,
@@ -46,8 +47,9 @@ var StoreState_value = map[string]int32{
 func (x StoreState) String() string {
 	return proto.EnumName(StoreState_name, int32(x))
 }
+
 func (StoreState) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_metapb_33de520265e54ab4, []int{0}
+	return fileDescriptor_77b4d575d5a68dda, []int{0}
 }
 
 type Cluster struct {
@@ -64,7 +66,7 @@ func (m *Cluster) Reset()         { *m = Cluster{} }
 func (m *Cluster) String() string { return proto.CompactTextString(m) }
 func (*Cluster) ProtoMessage()    {}
 func (*Cluster) Descriptor() ([]byte, []int) {
-	return fileDescriptor_metapb_33de520265e54ab4, []int{0}
+	return fileDescriptor_77b4d575d5a68dda, []int{0}
 }
 func (m *Cluster) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -74,15 +76,15 @@ func (m *Cluster) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 		return xxx_messageInfo_Cluster.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
 		return b[:n], nil
 	}
 }
-func (dst *Cluster) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Cluster.Merge(dst, src)
+func (m *Cluster) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Cluster.Merge(m, src)
 }
 func (m *Cluster) XXX_Size() int {
 	return m.Size()
@@ -121,7 +123,7 @@ func (m *Store) Reset()         { *m = Store{} }
 func (m *Store) String() string { return proto.CompactTextString(m) }
 func (*Store) ProtoMessage()    {}
 func (*Store) Descriptor() ([]byte, []int) {
-	return fileDescriptor_metapb_33de520265e54ab4, []int{1}
+	return fileDescriptor_77b4d575d5a68dda, []int{1}
 }
 func (m *Store) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -131,15 +133,15 @@ func (m *Store) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 		return xxx_messageInfo_Store.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
 		return b[:n], nil
 	}
 }
-func (dst *Store) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Store.Merge(dst, src)
+func (m *Store) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Store.Merge(m, src)
 }
 func (m *Store) XXX_Size() int {
 	return m.Size()
@@ -185,7 +187,7 @@ func (m *RegionEpoch) Reset()         { *m = RegionEpoch{} }
 func (m *RegionEpoch) String() string { return proto.CompactTextString(m) }
 func (*RegionEpoch) ProtoMessage()    {}
 func (*RegionEpoch) Descriptor() ([]byte, []int) {
-	return fileDescriptor_metapb_33de520265e54ab4, []int{2}
+	return fileDescriptor_77b4d575d5a68dda, []int{2}
 }
 func (m *RegionEpoch) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -195,15 +197,15 @@ func (m *RegionEpoch) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) 
 		return xxx_messageInfo_RegionEpoch.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
 		return b[:n], nil
 	}
 }
-func (dst *RegionEpoch) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_RegionEpoch.Merge(dst, src)
+func (m *RegionEpoch) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RegionEpoch.Merge(m, src)
 }
 func (m *RegionEpoch) XXX_Size() int {
 	return m.Size()
@@ -233,8 +235,8 @@ type Region struct {
 	// Region key range [start_key, end_key).
 	StartKey             []byte       `protobuf:"bytes,2,opt,name=start_key,json=startKey,proto3" json:"start_key,omitempty"`
 	EndKey               []byte       `protobuf:"bytes,3,opt,name=end_key,json=endKey,proto3" json:"end_key,omitempty"`
-	RegionEpoch          *RegionEpoch `protobuf:"bytes,4,opt,name=region_epoch,json=regionEpoch" json:"region_epoch,omitempty"`
-	Peers                []*Peer      `protobuf:"bytes,5,rep,name=peers" json:"peers,omitempty"`
+	RegionEpoch          *RegionEpoch `protobuf:"bytes,4,opt,name=region_epoch,json=regionEpoch,proto3" json:"region_epoch,omitempty"`
+	Peers                []*Peer      `protobuf:"bytes,5,rep,name=peers,proto3" json:"peers,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
 	XXX_unrecognized     []byte       `json:"-"`
 	XXX_sizecache        int32        `json:"-"`
@@ -244,7 +246,7 @@ func (m *Region) Reset()         { *m = Region{} }
 func (m *Region) String() string { return proto.CompactTextString(m) }
 func (*Region) ProtoMessage()    {}
 func (*Region) Descriptor() ([]byte, []int) {
-	return fileDescriptor_metapb_33de520265e54ab4, []int{3}
+	return fileDescriptor_77b4d575d5a68dda, []int{3}
 }
 func (m *Region) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -254,15 +256,15 @@ func (m *Region) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 		return xxx_messageInfo_Region.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
 		return b[:n], nil
 	}
 }
-func (dst *Region) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Region.Merge(dst, src)
+func (m *Region) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Region.Merge(m, src)
 }
 func (m *Region) XXX_Size() int {
 	return m.Size()
@@ -320,7 +322,7 @@ func (m *Peer) Reset()         { *m = Peer{} }
 func (m *Peer) String() string { return proto.CompactTextString(m) }
 func (*Peer) ProtoMessage()    {}
 func (*Peer) Descriptor() ([]byte, []int) {
-	return fileDescriptor_metapb_33de520265e54ab4, []int{4}
+	return fileDescriptor_77b4d575d5a68dda, []int{4}
 }
 func (m *Peer) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -330,15 +332,15 @@ func (m *Peer) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 		return xxx_messageInfo_Peer.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
 		return b[:n], nil
 	}
 }
-func (dst *Peer) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Peer.Merge(dst, src)
+func (m *Peer) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Peer.Merge(m, src)
 }
 func (m *Peer) XXX_Size() int {
 	return m.Size()
@@ -364,17 +366,49 @@ func (m *Peer) GetStoreId() uint64 {
 }
 
 func init() {
+	proto.RegisterEnum("metapb.StoreState", StoreState_name, StoreState_value)
 	proto.RegisterType((*Cluster)(nil), "metapb.Cluster")
 	proto.RegisterType((*Store)(nil), "metapb.Store")
 	proto.RegisterType((*RegionEpoch)(nil), "metapb.RegionEpoch")
 	proto.RegisterType((*Region)(nil), "metapb.Region")
 	proto.RegisterType((*Peer)(nil), "metapb.Peer")
-	proto.RegisterEnum("metapb.StoreState", StoreState_name, StoreState_value)
 }
+
+func init() { proto.RegisterFile("metapb.proto", fileDescriptor_77b4d575d5a68dda) }
+
+var fileDescriptor_77b4d575d5a68dda = []byte{
+	// 390 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x64, 0x52, 0xdd, 0x8a, 0xd3, 0x40,
+	0x18, 0xdd, 0x49, 0xf3, 0xd3, 0x7e, 0xc9, 0x96, 0x30, 0x0a, 0x66, 0x15, 0x42, 0x08, 0x5e, 0x04,
+	0x2f, 0x56, 0xad, 0xe0, 0xad, 0xb0, 0x8b, 0x17, 0xe2, 0x85, 0x32, 0xab, 0xde, 0x78, 0x11, 0xd2,
+	0xce, 0xd7, 0x1a, 0xdc, 0xcc, 0x84, 0x99, 0xd9, 0xa5, 0x7d, 0x13, 0x9f, 0xc1, 0x27, 0xf1, 0xd2,
+	0x47, 0x90, 0xfa, 0x22, 0x32, 0x93, 0x06, 0x0b, 0xbd, 0xcb, 0xf9, 0x4e, 0xce, 0x77, 0xce, 0x77,
+	0x18, 0x48, 0x3a, 0x34, 0x4d, 0xbf, 0xbc, 0xec, 0x95, 0x34, 0x92, 0x86, 0x03, 0x7a, 0xfc, 0x70,
+	0x23, 0x37, 0xd2, 0x8d, 0x9e, 0xdb, 0xaf, 0x81, 0x2d, 0xdf, 0x40, 0x74, 0x7d, 0x7b, 0xa7, 0x0d,
+	0x2a, 0x3a, 0x07, 0xaf, 0xe5, 0x19, 0x29, 0x48, 0xe5, 0x33, 0xaf, 0xe5, 0xf4, 0x29, 0xcc, 0xbb,
+	0x66, 0x5b, 0xf7, 0x88, 0xaa, 0x5e, 0xc9, 0x3b, 0x61, 0x32, 0xaf, 0x20, 0xd5, 0x39, 0x4b, 0xba,
+	0x66, 0xfb, 0x11, 0x51, 0x5d, 0xdb, 0x59, 0xf9, 0x15, 0x82, 0x1b, 0x23, 0x15, 0x9e, 0xc8, 0x33,
+	0x88, 0x1a, 0xce, 0x15, 0x6a, 0xed, 0x74, 0x33, 0x36, 0x42, 0x5a, 0x41, 0xa0, 0x4d, 0x63, 0x30,
+	0x9b, 0x14, 0xa4, 0x9a, 0x2f, 0xe8, 0xe5, 0x21, 0xaf, 0xdb, 0x73, 0x63, 0x19, 0x36, 0xfc, 0x50,
+	0x5e, 0x41, 0xcc, 0x70, 0xd3, 0x4a, 0xf1, 0xb6, 0x97, 0xab, 0x6f, 0xf4, 0x02, 0xa6, 0x2b, 0x29,
+	0xd6, 0xf5, 0x3d, 0xaa, 0x83, 0x51, 0x64, 0xf1, 0x17, 0x54, 0xd6, 0xed, 0x1e, 0x95, 0x6e, 0xa5,
+	0x70, 0x6e, 0x3e, 0x1b, 0x61, 0xf9, 0x93, 0x40, 0x38, 0x2c, 0x39, 0x89, 0xf8, 0x04, 0x66, 0xda,
+	0x34, 0xca, 0xd4, 0xdf, 0x71, 0xe7, 0x64, 0x09, 0x9b, 0xba, 0xc1, 0x7b, 0xdc, 0xd1, 0x47, 0x10,
+	0xa1, 0xe0, 0x8e, 0x9a, 0x38, 0x2a, 0x44, 0xc1, 0x2d, 0xf1, 0x1a, 0x12, 0xe5, 0xf6, 0xd5, 0x68,
+	0x53, 0x65, 0x7e, 0x41, 0xaa, 0x78, 0xf1, 0x60, 0xbc, 0xe2, 0x28, 0x30, 0x8b, 0xd5, 0x51, 0xfa,
+	0x12, 0x02, 0xdb, 0xa5, 0xce, 0x82, 0x62, 0x52, 0xc5, 0x8b, 0x64, 0x14, 0xd8, 0x2e, 0xd9, 0x40,
+	0x95, 0x2f, 0xc1, 0xb7, 0xf0, 0x24, 0xe9, 0x05, 0x4c, 0xb5, 0x6d, 0xa7, 0x6e, 0xf9, 0x78, 0x9f,
+	0xc3, 0xef, 0xf8, 0xb3, 0x17, 0x00, 0xff, 0x8b, 0xa3, 0x21, 0x78, 0x9f, 0xfb, 0xf4, 0x8c, 0xc6,
+	0x10, 0x7d, 0x58, 0xaf, 0x6f, 0x5b, 0x81, 0x29, 0xa1, 0xe7, 0x30, 0xfb, 0x24, 0xbb, 0xa5, 0x36,
+	0x52, 0x60, 0xea, 0x5d, 0xa5, 0xbf, 0xf6, 0x39, 0xf9, 0xbd, 0xcf, 0xc9, 0x9f, 0x7d, 0x4e, 0x7e,
+	0xfc, 0xcd, 0xcf, 0x96, 0xa1, 0x7b, 0x0c, 0xaf, 0xfe, 0x05, 0x00, 0x00, 0xff, 0xff, 0x77, 0xf7,
+	0x52, 0x80, 0x3a, 0x02, 0x00, 0x00,
+}
+
 func (m *Cluster) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -382,30 +416,36 @@ func (m *Cluster) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *Cluster) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Cluster) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.Id != 0 {
-		dAtA[i] = 0x8
-		i++
-		i = encodeVarintMetapb(dAtA, i, uint64(m.Id))
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
 	}
 	if m.MaxPeerCount != 0 {
-		dAtA[i] = 0x10
-		i++
 		i = encodeVarintMetapb(dAtA, i, uint64(m.MaxPeerCount))
+		i--
+		dAtA[i] = 0x10
 	}
-	if m.XXX_unrecognized != nil {
-		i += copy(dAtA[i:], m.XXX_unrecognized)
+	if m.Id != 0 {
+		i = encodeVarintMetapb(dAtA, i, uint64(m.Id))
+		i--
+		dAtA[i] = 0x8
 	}
-	return i, nil
+	return len(dAtA) - i, nil
 }
 
 func (m *Store) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -413,36 +453,43 @@ func (m *Store) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *Store) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Store) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.Id != 0 {
-		dAtA[i] = 0x8
-		i++
-		i = encodeVarintMetapb(dAtA, i, uint64(m.Id))
-	}
-	if len(m.Address) > 0 {
-		dAtA[i] = 0x12
-		i++
-		i = encodeVarintMetapb(dAtA, i, uint64(len(m.Address)))
-		i += copy(dAtA[i:], m.Address)
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
 	}
 	if m.State != 0 {
-		dAtA[i] = 0x18
-		i++
 		i = encodeVarintMetapb(dAtA, i, uint64(m.State))
+		i--
+		dAtA[i] = 0x18
 	}
-	if m.XXX_unrecognized != nil {
-		i += copy(dAtA[i:], m.XXX_unrecognized)
+	if len(m.Address) > 0 {
+		i -= len(m.Address)
+		copy(dAtA[i:], m.Address)
+		i = encodeVarintMetapb(dAtA, i, uint64(len(m.Address)))
+		i--
+		dAtA[i] = 0x12
 	}
-	return i, nil
+	if m.Id != 0 {
+		i = encodeVarintMetapb(dAtA, i, uint64(m.Id))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
 }
 
 func (m *RegionEpoch) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -450,30 +497,36 @@ func (m *RegionEpoch) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *RegionEpoch) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *RegionEpoch) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.ConfVer != 0 {
-		dAtA[i] = 0x8
-		i++
-		i = encodeVarintMetapb(dAtA, i, uint64(m.ConfVer))
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
 	}
 	if m.Version != 0 {
-		dAtA[i] = 0x10
-		i++
 		i = encodeVarintMetapb(dAtA, i, uint64(m.Version))
+		i--
+		dAtA[i] = 0x10
 	}
-	if m.XXX_unrecognized != nil {
-		i += copy(dAtA[i:], m.XXX_unrecognized)
+	if m.ConfVer != 0 {
+		i = encodeVarintMetapb(dAtA, i, uint64(m.ConfVer))
+		i--
+		dAtA[i] = 0x8
 	}
-	return i, nil
+	return len(dAtA) - i, nil
 }
 
 func (m *Region) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -481,59 +534,71 @@ func (m *Region) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *Region) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Region) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.Id != 0 {
-		dAtA[i] = 0x8
-		i++
-		i = encodeVarintMetapb(dAtA, i, uint64(m.Id))
-	}
-	if len(m.StartKey) > 0 {
-		dAtA[i] = 0x12
-		i++
-		i = encodeVarintMetapb(dAtA, i, uint64(len(m.StartKey)))
-		i += copy(dAtA[i:], m.StartKey)
-	}
-	if len(m.EndKey) > 0 {
-		dAtA[i] = 0x1a
-		i++
-		i = encodeVarintMetapb(dAtA, i, uint64(len(m.EndKey)))
-		i += copy(dAtA[i:], m.EndKey)
-	}
-	if m.RegionEpoch != nil {
-		dAtA[i] = 0x22
-		i++
-		i = encodeVarintMetapb(dAtA, i, uint64(m.RegionEpoch.Size()))
-		n1, err := m.RegionEpoch.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n1
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
 	}
 	if len(m.Peers) > 0 {
-		for _, msg := range m.Peers {
+		for iNdEx := len(m.Peers) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Peers[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintMetapb(dAtA, i, uint64(size))
+			}
+			i--
 			dAtA[i] = 0x2a
-			i++
-			i = encodeVarintMetapb(dAtA, i, uint64(msg.Size()))
-			n, err := msg.MarshalTo(dAtA[i:])
+		}
+	}
+	if m.RegionEpoch != nil {
+		{
+			size, err := m.RegionEpoch.MarshalToSizedBuffer(dAtA[:i])
 			if err != nil {
 				return 0, err
 			}
-			i += n
+			i -= size
+			i = encodeVarintMetapb(dAtA, i, uint64(size))
 		}
+		i--
+		dAtA[i] = 0x22
 	}
-	if m.XXX_unrecognized != nil {
-		i += copy(dAtA[i:], m.XXX_unrecognized)
+	if len(m.EndKey) > 0 {
+		i -= len(m.EndKey)
+		copy(dAtA[i:], m.EndKey)
+		i = encodeVarintMetapb(dAtA, i, uint64(len(m.EndKey)))
+		i--
+		dAtA[i] = 0x1a
 	}
-	return i, nil
+	if len(m.StartKey) > 0 {
+		i -= len(m.StartKey)
+		copy(dAtA[i:], m.StartKey)
+		i = encodeVarintMetapb(dAtA, i, uint64(len(m.StartKey)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Id != 0 {
+		i = encodeVarintMetapb(dAtA, i, uint64(m.Id))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
 }
 
 func (m *Peer) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -541,36 +606,47 @@ func (m *Peer) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *Peer) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Peer) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.Id != 0 {
-		dAtA[i] = 0x8
-		i++
-		i = encodeVarintMetapb(dAtA, i, uint64(m.Id))
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
 	}
 	if m.StoreId != 0 {
-		dAtA[i] = 0x10
-		i++
 		i = encodeVarintMetapb(dAtA, i, uint64(m.StoreId))
+		i--
+		dAtA[i] = 0x10
 	}
-	if m.XXX_unrecognized != nil {
-		i += copy(dAtA[i:], m.XXX_unrecognized)
+	if m.Id != 0 {
+		i = encodeVarintMetapb(dAtA, i, uint64(m.Id))
+		i--
+		dAtA[i] = 0x8
 	}
-	return i, nil
+	return len(dAtA) - i, nil
 }
 
 func encodeVarintMetapb(dAtA []byte, offset int, v uint64) int {
+	offset -= sovMetapb(v)
+	base := offset
 	for v >= 1<<7 {
 		dAtA[offset] = uint8(v&0x7f | 0x80)
 		v >>= 7
 		offset++
 	}
 	dAtA[offset] = uint8(v)
-	return offset + 1
+	return base
 }
 func (m *Cluster) Size() (n int) {
+	if m == nil {
+		return 0
+	}
 	var l int
 	_ = l
 	if m.Id != 0 {
@@ -586,6 +662,9 @@ func (m *Cluster) Size() (n int) {
 }
 
 func (m *Store) Size() (n int) {
+	if m == nil {
+		return 0
+	}
 	var l int
 	_ = l
 	if m.Id != 0 {
@@ -605,6 +684,9 @@ func (m *Store) Size() (n int) {
 }
 
 func (m *RegionEpoch) Size() (n int) {
+	if m == nil {
+		return 0
+	}
 	var l int
 	_ = l
 	if m.ConfVer != 0 {
@@ -620,6 +702,9 @@ func (m *RegionEpoch) Size() (n int) {
 }
 
 func (m *Region) Size() (n int) {
+	if m == nil {
+		return 0
+	}
 	var l int
 	_ = l
 	if m.Id != 0 {
@@ -650,6 +735,9 @@ func (m *Region) Size() (n int) {
 }
 
 func (m *Peer) Size() (n int) {
+	if m == nil {
+		return 0
+	}
 	var l int
 	_ = l
 	if m.Id != 0 {
@@ -665,14 +753,7 @@ func (m *Peer) Size() (n int) {
 }
 
 func sovMetapb(x uint64) (n int) {
-	for {
-		n++
-		x >>= 7
-		if x == 0 {
-			break
-		}
-	}
-	return n
+	return (math_bits.Len64(x|1) + 6) / 7
 }
 func sozMetapb(x uint64) (n int) {
 	return sovMetapb(uint64((x << 1) ^ uint64((int64(x) >> 63))))
@@ -692,7 +773,7 @@ func (m *Cluster) Unmarshal(dAtA []byte) error {
 			}
 			b := dAtA[iNdEx]
 			iNdEx++
-			wire |= (uint64(b) & 0x7F) << shift
+			wire |= uint64(b&0x7F) << shift
 			if b < 0x80 {
 				break
 			}
@@ -720,7 +801,7 @@ func (m *Cluster) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.Id |= (uint64(b) & 0x7F) << shift
+				m.Id |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -739,7 +820,7 @@ func (m *Cluster) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.MaxPeerCount |= (uint32(b) & 0x7F) << shift
+				m.MaxPeerCount |= uint32(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -750,7 +831,7 @@ func (m *Cluster) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMetapb
 			}
 			if (iNdEx + skippy) > l {
@@ -781,7 +862,7 @@ func (m *Store) Unmarshal(dAtA []byte) error {
 			}
 			b := dAtA[iNdEx]
 			iNdEx++
-			wire |= (uint64(b) & 0x7F) << shift
+			wire |= uint64(b&0x7F) << shift
 			if b < 0x80 {
 				break
 			}
@@ -809,7 +890,7 @@ func (m *Store) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.Id |= (uint64(b) & 0x7F) << shift
+				m.Id |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -828,7 +909,7 @@ func (m *Store) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				stringLen |= (uint64(b) & 0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -838,6 +919,9 @@ func (m *Store) Unmarshal(dAtA []byte) error {
 				return ErrInvalidLengthMetapb
 			}
 			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMetapb
+			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
@@ -857,7 +941,7 @@ func (m *Store) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.State |= (StoreState(b) & 0x7F) << shift
+				m.State |= StoreState(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -868,7 +952,7 @@ func (m *Store) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMetapb
 			}
 			if (iNdEx + skippy) > l {
@@ -899,7 +983,7 @@ func (m *RegionEpoch) Unmarshal(dAtA []byte) error {
 			}
 			b := dAtA[iNdEx]
 			iNdEx++
-			wire |= (uint64(b) & 0x7F) << shift
+			wire |= uint64(b&0x7F) << shift
 			if b < 0x80 {
 				break
 			}
@@ -927,7 +1011,7 @@ func (m *RegionEpoch) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.ConfVer |= (uint64(b) & 0x7F) << shift
+				m.ConfVer |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -946,7 +1030,7 @@ func (m *RegionEpoch) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.Version |= (uint64(b) & 0x7F) << shift
+				m.Version |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -957,7 +1041,7 @@ func (m *RegionEpoch) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMetapb
 			}
 			if (iNdEx + skippy) > l {
@@ -988,7 +1072,7 @@ func (m *Region) Unmarshal(dAtA []byte) error {
 			}
 			b := dAtA[iNdEx]
 			iNdEx++
-			wire |= (uint64(b) & 0x7F) << shift
+			wire |= uint64(b&0x7F) << shift
 			if b < 0x80 {
 				break
 			}
@@ -1016,7 +1100,7 @@ func (m *Region) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.Id |= (uint64(b) & 0x7F) << shift
+				m.Id |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -1035,7 +1119,7 @@ func (m *Region) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				byteLen |= (int(b) & 0x7F) << shift
+				byteLen |= int(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -1044,6 +1128,9 @@ func (m *Region) Unmarshal(dAtA []byte) error {
 				return ErrInvalidLengthMetapb
 			}
 			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMetapb
+			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
@@ -1066,7 +1153,7 @@ func (m *Region) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				byteLen |= (int(b) & 0x7F) << shift
+				byteLen |= int(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -1075,6 +1162,9 @@ func (m *Region) Unmarshal(dAtA []byte) error {
 				return ErrInvalidLengthMetapb
 			}
 			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMetapb
+			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
@@ -1097,7 +1187,7 @@ func (m *Region) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= (int(b) & 0x7F) << shift
+				msglen |= int(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -1106,6 +1196,9 @@ func (m *Region) Unmarshal(dAtA []byte) error {
 				return ErrInvalidLengthMetapb
 			}
 			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMetapb
+			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
@@ -1130,7 +1223,7 @@ func (m *Region) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= (int(b) & 0x7F) << shift
+				msglen |= int(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -1139,6 +1232,9 @@ func (m *Region) Unmarshal(dAtA []byte) error {
 				return ErrInvalidLengthMetapb
 			}
 			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMetapb
+			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
@@ -1153,7 +1249,7 @@ func (m *Region) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMetapb
 			}
 			if (iNdEx + skippy) > l {
@@ -1184,7 +1280,7 @@ func (m *Peer) Unmarshal(dAtA []byte) error {
 			}
 			b := dAtA[iNdEx]
 			iNdEx++
-			wire |= (uint64(b) & 0x7F) << shift
+			wire |= uint64(b&0x7F) << shift
 			if b < 0x80 {
 				break
 			}
@@ -1212,7 +1308,7 @@ func (m *Peer) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.Id |= (uint64(b) & 0x7F) << shift
+				m.Id |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -1231,7 +1327,7 @@ func (m *Peer) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.StoreId |= (uint64(b) & 0x7F) << shift
+				m.StoreId |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -1242,7 +1338,7 @@ func (m *Peer) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMetapb
 			}
 			if (iNdEx + skippy) > l {
@@ -1261,6 +1357,7 @@ func (m *Peer) Unmarshal(dAtA []byte) error {
 func skipMetapb(dAtA []byte) (n int, err error) {
 	l := len(dAtA)
 	iNdEx := 0
+	depth := 0
 	for iNdEx < l {
 		var wire uint64
 		for shift := uint(0); ; shift += 7 {
@@ -1292,10 +1389,8 @@ func skipMetapb(dAtA []byte) (n int, err error) {
 					break
 				}
 			}
-			return iNdEx, nil
 		case 1:
 			iNdEx += 8
-			return iNdEx, nil
 		case 2:
 			var length int
 			for shift := uint(0); ; shift += 7 {
@@ -1312,84 +1407,34 @@ func skipMetapb(dAtA []byte) (n int, err error) {
 					break
 				}
 			}
-			iNdEx += length
 			if length < 0 {
 				return 0, ErrInvalidLengthMetapb
 			}
-			return iNdEx, nil
+			iNdEx += length
 		case 3:
-			for {
-				var innerWire uint64
-				var start int = iNdEx
-				for shift := uint(0); ; shift += 7 {
-					if shift >= 64 {
-						return 0, ErrIntOverflowMetapb
-					}
-					if iNdEx >= l {
-						return 0, io.ErrUnexpectedEOF
-					}
-					b := dAtA[iNdEx]
-					iNdEx++
-					innerWire |= (uint64(b) & 0x7F) << shift
-					if b < 0x80 {
-						break
-					}
-				}
-				innerWireType := int(innerWire & 0x7)
-				if innerWireType == 4 {
-					break
-				}
-				next, err := skipMetapb(dAtA[start:])
-				if err != nil {
-					return 0, err
-				}
-				iNdEx = start + next
-			}
-			return iNdEx, nil
+			depth++
 		case 4:
-			return iNdEx, nil
+			if depth == 0 {
+				return 0, ErrUnexpectedEndOfGroupMetapb
+			}
+			depth--
 		case 5:
 			iNdEx += 4
-			return iNdEx, nil
 		default:
 			return 0, fmt.Errorf("proto: illegal wireType %d", wireType)
 		}
+		if iNdEx < 0 {
+			return 0, ErrInvalidLengthMetapb
+		}
+		if depth == 0 {
+			return iNdEx, nil
+		}
 	}
-	panic("unreachable")
+	return 0, io.ErrUnexpectedEOF
 }
 
 var (
-	ErrInvalidLengthMetapb = fmt.Errorf("proto: negative length found during unmarshaling")
-	ErrIntOverflowMetapb   = fmt.Errorf("proto: integer overflow")
+	ErrInvalidLengthMetapb        = fmt.Errorf("proto: negative length found during unmarshaling")
+	ErrIntOverflowMetapb          = fmt.Errorf("proto: integer overflow")
+	ErrUnexpectedEndOfGroupMetapb = fmt.Errorf("proto: unexpected end of group")
 )
-
-func init() { proto.RegisterFile("metapb.proto", fileDescriptor_metapb_33de520265e54ab4) }
-
-var fileDescriptor_metapb_33de520265e54ab4 = []byte{
-	// 390 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x64, 0x52, 0xdd, 0x8a, 0xd3, 0x40,
-	0x18, 0xdd, 0x49, 0xf3, 0xd3, 0x7e, 0xc9, 0x96, 0x30, 0x0a, 0x66, 0x15, 0x42, 0x08, 0x5e, 0x04,
-	0x2f, 0x56, 0xad, 0xe0, 0xad, 0xb0, 0x8b, 0x17, 0xe2, 0x85, 0x32, 0xab, 0xde, 0x78, 0x11, 0xd2,
-	0xce, 0xd7, 0x1a, 0xdc, 0xcc, 0x84, 0x99, 0xd9, 0xa5, 0x7d, 0x13, 0x9f, 0xc1, 0x27, 0xf1, 0xd2,
-	0x47, 0x90, 0xfa, 0x22, 0x32, 0x93, 0x06, 0x0b, 0xbd, 0xcb, 0xf9, 0x4e, 0xce, 0x77, 0xce, 0x77,
-	0x18, 0x48, 0x3a, 0x34, 0x4d, 0xbf, 0xbc, 0xec, 0x95, 0x34, 0x92, 0x86, 0x03, 0x7a, 0xfc, 0x70,
-	0x23, 0x37, 0xd2, 0x8d, 0x9e, 0xdb, 0xaf, 0x81, 0x2d, 0xdf, 0x40, 0x74, 0x7d, 0x7b, 0xa7, 0x0d,
-	0x2a, 0x3a, 0x07, 0xaf, 0xe5, 0x19, 0x29, 0x48, 0xe5, 0x33, 0xaf, 0xe5, 0xf4, 0x29, 0xcc, 0xbb,
-	0x66, 0x5b, 0xf7, 0x88, 0xaa, 0x5e, 0xc9, 0x3b, 0x61, 0x32, 0xaf, 0x20, 0xd5, 0x39, 0x4b, 0xba,
-	0x66, 0xfb, 0x11, 0x51, 0x5d, 0xdb, 0x59, 0xf9, 0x15, 0x82, 0x1b, 0x23, 0x15, 0x9e, 0xc8, 0x33,
-	0x88, 0x1a, 0xce, 0x15, 0x6a, 0xed, 0x74, 0x33, 0x36, 0x42, 0x5a, 0x41, 0xa0, 0x4d, 0x63, 0x30,
-	0x9b, 0x14, 0xa4, 0x9a, 0x2f, 0xe8, 0xe5, 0x21, 0xaf, 0xdb, 0x73, 0x63, 0x19, 0x36, 0xfc, 0x50,
-	0x5e, 0x41, 0xcc, 0x70, 0xd3, 0x4a, 0xf1, 0xb6, 0x97, 0xab, 0x6f, 0xf4, 0x02, 0xa6, 0x2b, 0x29,
-	0xd6, 0xf5, 0x3d, 0xaa, 0x83, 0x51, 0x64, 0xf1, 0x17, 0x54, 0xd6, 0xed, 0x1e, 0x95, 0x6e, 0xa5,
-	0x70, 0x6e, 0x3e, 0x1b, 0x61, 0xf9, 0x93, 0x40, 0x38, 0x2c, 0x39, 0x89, 0xf8, 0x04, 0x66, 0xda,
-	0x34, 0xca, 0xd4, 0xdf, 0x71, 0xe7, 0x64, 0x09, 0x9b, 0xba, 0xc1, 0x7b, 0xdc, 0xd1, 0x47, 0x10,
-	0xa1, 0xe0, 0x8e, 0x9a, 0x38, 0x2a, 0x44, 0xc1, 0x2d, 0xf1, 0x1a, 0x12, 0xe5, 0xf6, 0xd5, 0x68,
-	0x53, 0x65, 0x7e, 0x41, 0xaa, 0x78, 0xf1, 0x60, 0xbc, 0xe2, 0x28, 0x30, 0x8b, 0xd5, 0x51, 0xfa,
-	0x12, 0x02, 0xdb, 0xa5, 0xce, 0x82, 0x62, 0x52, 0xc5, 0x8b, 0x64, 0x14, 0xd8, 0x2e, 0xd9, 0x40,
-	0x95, 0x2f, 0xc1, 0xb7, 0xf0, 0x24, 0xe9, 0x05, 0x4c, 0xb5, 0x6d, 0xa7, 0x6e, 0xf9, 0x78, 0x9f,
-	0xc3, 0xef, 0xf8, 0xb3, 0x17, 0x00, 0xff, 0x8b, 0xa3, 0x21, 0x78, 0x9f, 0xfb, 0xf4, 0x8c, 0xc6,
-	0x10, 0x7d, 0x58, 0xaf, 0x6f, 0x5b, 0x81, 0x29, 0xa1, 0xe7, 0x30, 0xfb, 0x24, 0xbb, 0xa5, 0x36,
-	0x52, 0x60, 0xea, 0x5d, 0xa5, 0xbf, 0xf6, 0x39, 0xf9, 0xbd, 0xcf, 0xc9, 0x9f, 0x7d, 0x4e, 0x7e,
-	0xfc, 0xcd, 0xcf, 0x96, 0xa1, 0x7b, 0x0c, 0xaf, 0xfe, 0x05, 0x00, 0x00, 0xff, 0xff, 0x77, 0xf7,
-	0x52, 0x80, 0x3a, 0x02, 0x00, 0x00,
-}
