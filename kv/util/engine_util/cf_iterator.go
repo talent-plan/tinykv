@@ -2,7 +2,111 @@ package engine_util
 
 import (
 	"github.com/Connor1996/badger"
+	"github.com/Connor1996/badger/y"
+	"github.com/jmhodges/levigo"
 )
+
+type LdbItem struct {
+	key       []byte
+	value     []byte
+	prefixLen int
+}
+
+func (i *LdbItem) Key() []byte {
+	return i.key[i.prefixLen:]
+}
+
+func (i *LdbItem) KeyCopy(dst []byte) []byte {
+	return y.SafeCopy(dst, i.key[i.prefixLen:])
+}
+
+func (i *LdbItem) Value() ([]byte, error) {
+	return i.value, nil
+}
+
+func (i *LdbItem) ValueSize() int {
+	return len(i.value)
+}
+
+func (i *LdbItem) ValueCopy(dst []byte) ([]byte, error) {
+	return y.SafeCopy(dst, i.value), nil
+}
+
+type LdbIterator struct {
+	iter   *levigo.Iterator
+	prefix string
+}
+
+func NewLDBIterator(cf string, db *levigo.DB, roptions *levigo.ReadOptions) *LdbIterator {
+	return &LdbIterator{
+		iter:   db.NewIterator(roptions),
+		prefix: cf + "_",
+	}
+}
+
+func (it *LdbIterator) Item() DBItem {
+	return &LdbItem{
+		key:       it.iter.Key(),
+		value:     it.iter.Value(),
+		prefixLen: len(it.prefix),
+	}
+}
+
+func (it *LdbIterator) Valid() bool { return it.iter.Valid() }
+
+// func (it *BadgerIterator) ValidForPrefix(prefix []byte) bool {
+// 	return it.iter.ValidForPrefix(append([]byte(it.prefix), prefix...))
+// }
+
+func (it *LdbIterator) Close() {
+	it.iter.Close()
+}
+
+func (it *LdbIterator) Next() {
+	it.iter.Next()
+}
+
+func (it *LdbIterator) Seek(key []byte) {
+	it.iter.Seek(append([]byte(it.prefix), key...))
+	// it.iter.Seek(append([]byte(it.prefix), key...))
+}
+
+// func (it *LdbIterator) Rewind() {
+// 	it.iter.Rewind()
+// }
+
+type DBIterator interface {
+	// Item returns pointer to the current key-value pair.
+	Item() DBItem
+	// Valid returns false when iteration is done.
+	Valid() bool
+	// Next would advance the iterator by one. Always check it.Valid() after a Next()
+	// to ensure you have access to a valid it.Item().
+	Next()
+	// Seek would seek to the provided key if present. If absent, it would seek to the next smallest key
+	// greater than provided.
+	Seek([]byte)
+
+	// Close the iterator
+	Close()
+}
+
+type DBItem interface {
+	// Key returns the key.
+	Key() []byte
+	// KeyCopy returns a copy of the key of the item, writing it to dst slice.
+	// If nil is passed, or capacity of dst isn't sufficient, a new slice would be allocated and
+	// returned.
+	KeyCopy(dst []byte) []byte
+	// Value retrieves the value of the item.
+	Value() ([]byte, error)
+	// ValueSize returns the size of the value.
+	ValueSize() int
+	// ValueCopy returns a copy of the value of the item from the value log, writing it to dst slice.
+	// If nil is passed, or capacity of dst isn't sufficient, a new slice would be allocated and
+	// returned.
+	ValueCopy(dst []byte) ([]byte, error)
+}
 
 type CFItem struct {
 	item      *badger.Item
@@ -93,37 +197,4 @@ func (it *BadgerIterator) Seek(key []byte) {
 
 func (it *BadgerIterator) Rewind() {
 	it.iter.Rewind()
-}
-
-type DBIterator interface {
-	// Item returns pointer to the current key-value pair.
-	Item() DBItem
-	// Valid returns false when iteration is done.
-	Valid() bool
-	// Next would advance the iterator by one. Always check it.Valid() after a Next()
-	// to ensure you have access to a valid it.Item().
-	Next()
-	// Seek would seek to the provided key if present. If absent, it would seek to the next smallest key
-	// greater than provided.
-	Seek([]byte)
-
-	// Close the iterator
-	Close()
-}
-
-type DBItem interface {
-	// Key returns the key.
-	Key() []byte
-	// KeyCopy returns a copy of the key of the item, writing it to dst slice.
-	// If nil is passed, or capacity of dst isn't sufficient, a new slice would be allocated and
-	// returned.
-	KeyCopy(dst []byte) []byte
-	// Value retrieves the value of the item.
-	Value() ([]byte, error)
-	// ValueSize returns the size of the value.
-	ValueSize() int
-	// ValueCopy returns a copy of the value of the item from the value log, writing it to dst slice.
-	// If nil is passed, or capacity of dst isn't sufficient, a new slice would be allocated and
-	// returned.
-	ValueCopy(dst []byte) ([]byte, error)
 }
