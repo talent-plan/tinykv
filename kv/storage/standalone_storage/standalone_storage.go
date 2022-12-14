@@ -21,7 +21,7 @@ type StandAloneStorage struct {
 
 func NewStandAloneStorage(conf *config.Config) *StandAloneStorage {
 	// Your Code Here (1).
-	dbName := "./dbtest1"
+	dbName := conf.DBPath
 	opt := levigo.NewOptions()
 	ropt := levigo.NewReadOptions()
 	wopt := levigo.NewWriteOptions()
