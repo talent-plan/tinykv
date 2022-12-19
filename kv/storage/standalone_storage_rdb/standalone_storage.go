@@ -1,9 +1,11 @@
-package standalone_storage_ldb
+package standalone_storage
 
 import (
-	"fmt"
+	"errors"
+	"log"
 
-	"github.com/jmhodges/levigo"
+	"github.com/tecbot/gorocksdb"
+
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
@@ -14,26 +16,70 @@ import (
 // communicate with other nodes and all data is stored locally.
 type StandAloneStorage struct {
 	// Your Data Here (1).
-	db       *levigo.DB
-	roptions *levigo.ReadOptions
-	woptions *levigo.WriteOptions
+	db       *gorocksdb.DB
+	roptions *gorocksdb.ReadOptions
+	woptions *gorocksdb.WriteOptions
+}
+
+// opendb
+func OpenDB(conf *config.Config) (*gorocksdb.DB, error) {
+	options := gorocksdb.NewDefaultOptions()
+	options.SetCreateIfMissing(true)
+
+	bloomFilter := gorocksdb.NewBloomFilter(10)
+
+	readOptions := gorocksdb.NewDefaultReadOptions()
+	readOptions.SetFillCache(false)
+
+	rateLimiter := gorocksdb.NewRateLimiter(10000000, 10000, 10)
+	options.SetRateLimiter(rateLimiter)
+	options.SetCreateIfMissing(true)
+	options.EnableStatistics()
+	options.SetWriteBufferSize(8 * 1024)
+	options.SetMaxWriteBufferNumber(3)
+	options.SetMaxBackgroundCompactions(10)
+	// options.SetCompression(gorocksdb.SnappyCompression)
+	// options.SetCompactionStyle(gorocksdb.UniversalCompactionStyle)
+
+	options.SetHashSkipListRep(2000000, 4, 4)
+
+	blockBasedTableOptions := gorocksdb.NewDefaultBlockBasedTableOptions()
+	blockBasedTableOptions.SetBlockCache(gorocksdb.NewLRUCache(64 * 1024))
+	blockBasedTableOptions.SetFilterPolicy(bloomFilter)
+	blockBasedTableOptions.SetBlockSizeDeviation(5)
+	blockBasedTableOptions.SetBlockRestartInterval(10)
+	blockBasedTableOptions.SetBlockCacheCompressed(gorocksdb.NewLRUCache(64 * 1024))
+	blockBasedTableOptions.SetCacheIndexAndFilterBlocks(true)
+	blockBasedTableOptions.SetIndexType(gorocksdb.KHashSearchIndexType)
+
+	options.SetBlockBasedTableFactory(blockBasedTableOptions)
+	//log.Println(bloomFilter, readOptions)
+	options.SetPrefixExtractor(gorocksdb.NewFixedPrefixTransform(3))
+
+	options.SetAllowConcurrentMemtableWrites(false)
+
+	db, err := gorocksdb.OpenDb(options, conf.DBPath)
+
+	if err != nil {
+		log.Fatalln("OPEN DB error", db, err)
+		db.Close()
+		return nil, errors.New("fail to open db")
+	} else {
+		log.Println("OPEN DB success", db)
+	}
+	return db, nil
 }
 
 func NewStandAloneStorage(conf *config.Config) *StandAloneStorage {
 	// Your Code Here (1).
-	dbName := conf.DBPath
-	opt := levigo.NewOptions()
-	ropt := levigo.NewReadOptions()
-	wopt := levigo.NewWriteOptions()
-	opt.SetCreateIfMissing(true)
-	opt.SetWriteBufferSize(67108864)
-	policy := levigo.NewBloomFilter(10)
-	opt.SetFilterPolicy(policy)
-	db, err := levigo.Open(dbName, opt)
+	db, err := OpenDB(conf)
+
 	if err != nil {
-		fmt.Printf("open leveldb error!\n")
-		return nil
+		log.Println("fail to open db,", nil, db)
 	}
+
+	ropt := gorocksdb.NewDefaultReadOptions()
+	wopt := gorocksdb.NewDefaultWriteOptions()
 	s := &StandAloneStorage{
 		db,
 		ropt,
@@ -81,8 +127,8 @@ func (s *StandAloneStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) 
 }
 
 type StandAloneStorageReader struct {
-	db       *levigo.DB
-	roptions *levigo.ReadOptions
+	db       *gorocksdb.DB
+	roptions *gorocksdb.ReadOptions
 }
 
 func (sReader *StandAloneStorageReader) Close() {
@@ -92,11 +138,11 @@ func (sReader *StandAloneStorageReader) Close() {
 func (sReader *StandAloneStorageReader) GetCF(cf string, key []byte) ([]byte, error) {
 	val, err := sReader.db.Get(sReader.roptions, engine_util.KeyWithCF(cf, key))
 
-	return val, err
+	return val.Data(), err
 }
 
 func (sReader *StandAloneStorageReader) IterCF(cf string) engine_util.DBIterator {
-	return engine_util.NewLDBIterator(cf, sReader.db, sReader.roptions)
+	return engine_util.NewRDBIterator(cf, sReader.db, sReader.roptions)
 }
 
 // func (sReader *StandAloneStorageReader) GetCF(cf string, key []byte) ([]byte, error) {

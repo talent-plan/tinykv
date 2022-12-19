@@ -4,6 +4,7 @@ import (
 	"github.com/Connor1996/badger"
 	"github.com/Connor1996/badger/y"
 	"github.com/jmhodges/levigo"
+	"github.com/tecbot/gorocksdb"
 )
 
 type LdbItem struct {
@@ -34,6 +35,11 @@ func (i *LdbItem) ValueCopy(dst []byte) ([]byte, error) {
 
 type LdbIterator struct {
 	iter   *levigo.Iterator
+	prefix string
+}
+
+type RdbIterator struct {
+	iter   *gorocksdb.Iterator
 	prefix string
 }
 
@@ -74,6 +80,40 @@ func (it *LdbIterator) Seek(key []byte) {
 // func (it *LdbIterator) Rewind() {
 // 	it.iter.Rewind()
 // }
+
+func NewRDBIterator(cf string, db *gorocksdb.DB, roptions *gorocksdb.ReadOptions) *RdbIterator {
+	return &RdbIterator{
+		iter:   db.NewIterator(roptions),
+		prefix: cf + "_",
+	}
+}
+
+func (it *RdbIterator) Item() DBItem {
+	return &LdbItem{
+		key:       it.iter.Key().Data(),
+		value:     it.iter.Value().Data(),
+		prefixLen: len(it.prefix),
+	}
+}
+
+func (it *RdbIterator) Valid() bool { return it.iter.Valid() }
+
+// func (it *BadgerIterator) ValidForPrefix(prefix []byte) bool {
+// 	return it.iter.ValidForPrefix(append([]byte(it.prefix), prefix...))
+// }
+
+func (it *RdbIterator) Close() {
+	it.iter.Close()
+}
+
+func (it *RdbIterator) Next() {
+	it.iter.Next()
+}
+
+func (it *RdbIterator) Seek(key []byte) {
+	it.iter.Seek(append([]byte(it.prefix), key...))
+	// it.iter.Seek(append([]byte(it.prefix), key...))
+}
 
 type DBIterator interface {
 	// Item returns pointer to the current key-value pair.
