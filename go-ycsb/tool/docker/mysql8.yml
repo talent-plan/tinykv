@@ -1,0 +1,17 @@
+version: '2.1'
+
+services:
+  mysql:
+    image: mysql:8.0
+    ports:
+      - "3307:3306"
+    volumes:
+      - ./data/mysql8:/var/lib/mysql
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_DATABASE: "test"
+    restart: on-failure
+
+  # monitors
+  ycsb:
+    image: pingcap/go-ycsb

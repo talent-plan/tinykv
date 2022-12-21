@@ -1,0 +1,24 @@
+version: '2.1'
+
+services:
+  cassandra:
+    image: cassandra:latest
+    volumes:
+      - ./data/cassandra:/var/lib/cassandra
+    ports:
+      - "9042:9042"
+    restart: on-failure
+
+  db-init:
+    image: cassandra:latest
+    volumes:
+      - ./config/init_cassandra.sh:/init_cassandra.sh
+    entrypoint: 
+      - "/bin/bash"
+    command: /init_cassandra.sh cassandra
+    depends_on:
+      - "cassandra"
+
+  # monitors
+  ycsb:
+    image: pingcap/go-ycsb

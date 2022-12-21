@@ -1,0 +1,26 @@
+# .github/workflows/github-release-publish.yml
+name: Publish artifacts to github release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  releases-matrix:
+    name: Release Go Binary
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux, darwin]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: wangyoucao577/go-release-action@v1.28
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          goos: ${{ matrix.goos }}
+          goarch: ${{ matrix.goarch }}
+          binary_name: "./bin/go-ycsb"
+          sha256sum: true
+          asset_name: go-ycsb-${{ matrix.goos }}-${{ matrix.goarch }}
+          build_command: "make"
