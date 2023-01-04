@@ -93,7 +93,7 @@ First, the code that you should take a look at is  `RaftStorage` located in `kv/
 Then, here comes the core of TinyKV — raftstore. The structure is a little complicated, you can read the reference of TiKV to give you a better understanding of the design:
 
 - <https://pingcap.com/blog-cn/the-design-and-implementation-of-multi-raft/#raftstore>  (Chinese Version)
-- <https://pingcap.com/blog/2017-08-15-multi-raft/#raftstore> (English Version)
+- <https://pingcap.com/blog/design-and-implementation-of-multi-raft/#raftstore> (English Version)
 
 The entrance of raftstore is `Raftstore`, see `kv/raftstore/raftstore.go`.  It starts some workers to handle specific tasks asynchronously,  and most of them aren’t used now so you can just ignore them. All you need to focus on is `raftWorker`.(kv/raftstore/raft_worker.go)
 
