@@ -81,9 +81,9 @@
   - Multi-Raft
     - <https://tikv.org/deep-dive/scalability/multi-raft/>
   - Split & Merge
-    - <https://pingcap.com/blog/2017-07-20-tidbinternal3/>
+    - <https://pingcap.com/blog/tidb-internal-scheduling/>
   - Balance
-    - <https://pingcap.com/blog/2017-07-20-tidbinternal3/>
+    - <https://pingcap.com/blog/tidb-internal-scheduling/>
 - Distributed Transactions
   - Reading Materials
     - Database Internals: 5. Transaction Processing and Recovery
