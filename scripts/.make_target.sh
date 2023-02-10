@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 make $1 &> make.log
 grep FAIL make.log
