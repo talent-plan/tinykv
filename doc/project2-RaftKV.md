@@ -90,7 +90,7 @@ First, you should take a look at `RaftStorage` in `kv/storage/raft_storage/raft_
 
 `RaftStorage` creates a `Raftstore` to drive Raft.  When calling the `Reader` or `Write` function,  it actually sends a `RaftCmdRequest` defined in `proto/proto/raft_cmdpb.proto` with four basic command types(Get/Put/Delete/Snap) to raftstore by channel(the channel is `raftCh` of  `raftWorker`) and returns the response after Raft commits and applies the command. The `kvrpc.Context` parameter of `Reader` and `Write` function is useful now, it carries the Region information from the perspective of the client and is passed as the header of  `RaftCmdRequest`. The information might be incorrect or stale, so raftstore needs to check them and decides whether to propose the request.
 
-Then, here comes the core of TinyKV — raftstore. The structure is a little complicated, read the TiKV reference for details:
+Then, here comes the core of TinyKV — raftstore. The structure is a little complicated, read the TiKV reference to gain a better understanding of the design:
 
 - <https://pingcap.com/blog-cn/the-design-and-implementation-of-multi-raft/#raftstore>  (Chinese Version)
 - <https://pingcap.com/blog/design-and-implementation-of-multi-raft/#raftstore> (English Version)
