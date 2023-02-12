@@ -97,7 +97,7 @@ Then, here comes the core of TinyKV — raftstore. The structure is a little com
 
 The entrance of raftstore is `Raftstore`, see `kv/raftstore/raftstore.go`.  It starts some workers to handle specific tasks asynchronously,  most of them aren’t used now so you can just ignore them. All you need to focus on is `raftWorker`.(kv/raftstore/raft_worker.go)
 
-The whole process is divided into two parts: raft worker polls `raftCh` to get the messages, the messages including base tick to drive Raft module and Raft commands to be proposed as Raft entries; it gets and handles ready from Raft module, including send raft messages, persist the state, apply the committed entries to the state machine. Once applied, return the response to clients.
+The whole process is divided into two parts: raft worker polls `raftCh` to get the messages including base tick to drive Raft module and Raft commands to be proposed as Raft entries; it gets and handles ready from Raft module, including send raft messages, persist the state, apply the committed entries to the state machine. Once applied, return the response to clients.
 
 ### Implement peer storage
 
