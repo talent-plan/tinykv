@@ -91,6 +91,9 @@ Now you can connect to the database with an official MySQL client:
 ```bash
 mysql -u root -h 127.0.0.1 -P 4000
 ```
+## Autograding and certification
+
+Since Jun 2022, we start using [github classroom](./classroom.md) to accept labs and provide autograding timely. The github classroom invitation, the discussion Wechat/Slack group and the certification after you pass the class is provided in the [tinyKV learning class](https://talentplan.edu.pingcap.com/catalog/info/id:263)
 
 ## Contributing
 
