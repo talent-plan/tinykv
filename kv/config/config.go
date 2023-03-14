@@ -105,6 +105,6 @@ func NewTestConfig() *Config {
 		SchedulerStoreHeartbeatTickInterval: 500 * time.Millisecond,
 		RegionMaxSize:                       144 * MB,
 		RegionSplitSize:                     96 * MB,
-		DBPath:                              "./dbtest",
+		DBPath:                              "./dbtest_rdb",
 	}
 }
