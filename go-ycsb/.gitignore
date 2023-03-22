@@ -1,9 +1,0 @@
-bin
-data
-logs
-log
-.idea
-.vscode
-vendor
-tool/tool
-.DS_Store
