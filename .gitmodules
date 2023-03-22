@@ -1,0 +1,3 @@
+[submodule "go-ycsb"]
+	path = go-ycsb
+	url = git@github.com:QingyangZ/go-ycsb.git
