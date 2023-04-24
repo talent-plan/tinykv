@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -132,10 +131,10 @@ func (snapCtx *snapContext) handleApply(regionId uint64, notifier chan<- bool, s
 func (snapCtx *snapContext) cleanUpRange(regionId uint64, startKey, endKey []byte) {
 	if err := engine_util.DeleteRange(snapCtx.engines.Kv, startKey, endKey); err != nil {
 		log.Fatalf("failed to delete data in range, [regionId: %d, startKey: %s, endKey: %s, err: %v]", regionId,
-			hex.EncodeToString(startKey), hex.EncodeToString(endKey), err)
+			startKey, endKey, err)
 	} else {
 		log.Infof("succeed in deleting data in range. [regionId: %d, startKey: %s, endKey: %s]", regionId,
-			hex.EncodeToString(startKey), hex.EncodeToString(endKey))
+			startKey, endKey)
 	}
 }
 

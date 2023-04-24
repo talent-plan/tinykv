@@ -31,7 +31,7 @@ type ErrKeyNotInRegion struct {
 }
 
 func (e *ErrKeyNotInRegion) Error() string {
-	return fmt.Sprintf("key %v is not in region %v", e.Key, e.Region)
+	return fmt.Sprintf("key %s is not in region %v", e.Key, e.Region)
 }
 
 type ErrEpochNotMatch struct {
