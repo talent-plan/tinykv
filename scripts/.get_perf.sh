@@ -74,9 +74,15 @@ func TestReadWrite(t *testing.T) {
 echo "$bench_file" > kv/test_raftstore/bench_test.go
 go test ./kv/test_raftstore/ -run ReadWrite -v > bench.log
 score=$(grep QPS: bench.log | awk '{print $3}')
+rm bench.log
+
+if [ -z "$score" ]
+then
+  score=0
+fi
+
 if [ $(expr $score \> 1000) ]; then
 echo "PASS"
 else
 echo "FAILED"
 fi
-rm bench.log
