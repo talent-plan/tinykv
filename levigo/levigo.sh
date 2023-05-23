@@ -2,11 +2,11 @@
 #refer https://github.com/norton/lets/blob/master/c_src/build_deps.sh
 
 #你必须在这里设置实际的snappy以及leveldb源代码地址
-SNAPPY_SRC=/home/kvgroup/QingyangZ/kv/snappy
-LEVELDB_SRC=/home/kvgroup/QingyangZ/kv/leveldb
+SNAPPY_SRC=../snappy
+LEVELDB_SRC=../leveldb
 
-SNAPPY_DIR=/home/kvgroup/QingyangZ/kv/snappy/build
-LEVELDB_DIR=/home/kvgroup/QingyangZ/kv/leveldb/build
+SNAPPY_DIR=../snappy/build
+LEVELDB_DIR=../leveldb/build
 
 if [ ! -f $SNAPPY_DIR/libsnappy.a ]; then
     (cd $SNAPPY_SRC && \
@@ -17,7 +17,7 @@ else
     echo "skip install snappy"
 fi
 
-if [ ! -f $LEVELDB_DIR/libleveldb.so ]; then
+if [ ! -f $LEVELDB_DIR/libleveldb.a ]; then
     (cd $LEVELDB_SRC && \
         echo "echo \"PLATFORM_CFLAGS+=-I$SNAPPY_DIR/include\" >> build_config.mk" >> build_detect_platform &&
         echo "echo \"PLATFORM_CXXFLAGS+=-I$SNAPPY_DIR/include\" >> build_config.mk" >> build_detect_platform &&

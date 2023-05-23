@@ -4,3 +4,6 @@
 [submodule "leveldb"]
 	path = leveldb
 	url = https://github.com/QingyangZ/leveldb.git
+[submodule "snappy"]
+	path = snappy
+	url = https://github.com/google/snappy.git
