@@ -25,18 +25,18 @@ In this part, you will finish the implementation of LevelDB, which involves thre
 
 #### 1. Get
 The code you need to implement is in `db/db_impl.cc` and `db/version_set.cc`. 
-- Inside `db/db_impl.cc`, you need to complete the function `DBImpl::Get`(Black1.1), which searches Memtable, immutable Memtable, and SSTable until the key is found and returns the value. 
-- Inside `db/version_set.cc`, you need to complete the function `Version::ForEachOverlapping`(Black1.2) and the function `Version::Get`(Black1.3).
+- Inside `db/db_impl.cc`, you need to complete the function `DBImpl::Get`(Blank1.1), which searches Memtable, immutable Memtable, and SSTable until the key is found and returns the value. 
+- Inside `db/version_set.cc`, you need to complete the function `Version::ForEachOverlapping`(Blank1.2) and the function `Version::Get`(Blank1.3).
 
 #### 2. Compaction
 In this part, the code you need to implement is in `db/db_impl.cc` and `db/version_set.cc`. 
-- Inside `db/db_impl.cc`, you need to complete the function `DBImpl::BackgroundCompaction`(Black2.1) and the function `DBImpl::InstallCompactionResults`(Black2.2).
-- Inside `db/version_set.cc`, you need to complete the function `VersionSet::Finalize`(Black2.3) and the function `VersionSet::PickCompaction`(Black2.4)
+- Inside `db/db_impl.cc`, you need to complete the function `DBImpl::BackgroundCompaction`(Blank2.1) and the function `DBImpl::InstallCompactionResults`(Blank2.2).
+- Inside `db/version_set.cc`, you need to complete the function `VersionSet::Finalize`(Blank2.3) and the function `VersionSet::PickCompaction`(Blank2.4)
 
 #### 3. Scan
 In this part, the code you need to implement is in `db/version_set.cc` and `table/merger.cc`.
-- Inside `db/version_set.cc`, you need to complete the function `Version::AddIterators`(Black3.1).
-- Inside `table/merger.cc`, you need to complete the function `Seek`(Black3.2).
+- Inside `db/version_set.cc`, you need to complete the function `Version::AddIterators`(Blank3.1).
+- Inside `table/merger.cc`, you need to complete the function `Seek`(Blank3.2).
 
 ### Test
 
