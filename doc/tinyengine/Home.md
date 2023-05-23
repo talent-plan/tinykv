@@ -6,9 +6,12 @@ After completing this course, you will have a better understanding of LSM-tree-b
 ## Course Introduction
 TinyEngine is forked from open source [TinyKV](https://github.com/talent-plan/tinykv), a key-value storage system with the Raft consensus algorithm. TinyKV focuses on the storage layer of a distributed database system, which uses [badger](https://github.com/dgraph-io/badger), a Go library to store keys and values, as its storage engine. In order to get closer to the actual implementation of TiKV, TinyEngine plans to replace the original storage engine badger with [LevelDB](https://github.com/google/leveldb)/[RocksDB](https://github.com/facebook/rocksdb) wrapped by Golang. Therefore, please modify your implementation of project1 to use the interface of levigo(a wrapper of LevelDB) or gorocksdb(a wrapper of RocksDB) rather than badger.
 
-In this course, you need to finish the implementation of LevelDB and then implement an existing optimization method on LevelDB/RocksDB. We provide several projects in this folder, which introduce some classic and generally accepted optimization ideas presented in recent famous paper. Please choose one and implement it.
+In this course, you need to finish the implementation of LevelDB and then implement an existing optimization method on LevelDB/RocksDB. We provide a KV
+Separation project [WiscKey](https://dl.acm.org/doi/abs/10.1145/3033273) in this folder, which introduce a classic and generally accepted optimization idea presented in recent famous paper. Please implement it on LevelDB. 
 
 After completing the implementation, you need to test and evaluate your optimization. We provide go-ycsb, which can be used to evaluate database performance. If you successfully implement a project, you will get better performance in reading or writing or some other dimension. Finally, you need to chart your evaluation results and submit a report and source code. The experts will give you an appropriate score depending on your optimization results and report. 
+
+After finish this course, you can try to implement other optimizations like [DiffKV](chrome-extension://efaidnbmnnnibpcajpcglclefindmkaj/https://www.usenix.org/system/files/atc21-li-yongkun.pdf).
 
 ### LevelDB/RocksDB
 [LevelDB](https://github.com/google/leveldb)/[RocksDB](https://github.com/facebook/rocksdb) is a storage engine for server workloads on various storage media, with the initial focus on fast storage (especially Flash storage). It is a C++ library to store key-value pairs. It supports both point lookups and range scans, and provides different types of ACID guarantees.
