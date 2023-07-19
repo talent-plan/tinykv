@@ -70,8 +70,10 @@ func main() {
 		grpc.InitialConnWindowSize(1<<30),
 		grpc.MaxRecvMsgSize(10*1024*1024),
 	)
+	// 注册服务
 	tinykvpb.RegisterTinyKvServer(grpcServer, server)
 	listenAddr := conf.StoreAddr[strings.IndexByte(conf.StoreAddr, ':'):]
+	// grpc server端开启监听
 	l, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		log.Fatal(err)

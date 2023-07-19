@@ -1,7 +1,7 @@
 module github.com/pingcap-incubator/tinykv
 
 require (
-	github.com/BurntSushi/toml v0.3.1
+	github.com/BurntSushi/toml v1.2.1
 	github.com/Connor1996/badger v1.5.1-0.20220222053432-2d2cbf472c77
 	github.com/coreos/pkg v0.0.0-20180928190104-399ea9e2e55f
 	github.com/docker/go-units v0.4.0
@@ -27,7 +27,9 @@ require (
 	github.com/stretchr/testify v1.8.1
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20191023171146-3cf2f69b5738
 	go.uber.org/zap v1.14.0
-	golang.org/x/net v0.0.0-20201021035429-f5854403a974
+	golang.org/x/crypto v0.0.0-20210921155107-089bfa567519 // indirect
+	golang.org/x/net v0.10.0
+	golang.org/x/tools/gopls v0.12.2 // indirect
 	google.golang.org/grpc v1.25.1
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 )

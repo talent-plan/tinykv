@@ -70,8 +70,11 @@ func getLogLevel() (logLevel string) {
 }
 
 func NewDefaultConfig() *Config {
+	// 创建新配置
 	return &Config{
-		SchedulerAddr:            "127.0.0.1:2379",
+		// 调度器端口
+		SchedulerAddr: "127.0.0.1:2379",
+		// KV存储访问端口
 		StoreAddr:                "127.0.0.1:20160",
 		LogLevel:                 getLogLevel(),
 		Raft:                     true,
