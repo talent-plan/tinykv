@@ -469,8 +469,10 @@ func (m *RawDeleteResponse) GetError() string {
 
 type RawScanRequest struct {
 	Context  *Context `protobuf:"bytes,1,opt,name=context" json:"context,omitempty"`
+	// ScanKey的开始位置
 	StartKey []byte   `protobuf:"bytes,2,opt,name=start_key,json=startKey,proto3" json:"start_key,omitempty"`
 	// The maximum number of values read.
+	// Limit是读取的最大数量
 	Limit                uint32   `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
 	Cf                   string   `protobuf:"bytes,4,opt,name=cf,proto3" json:"cf,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
@@ -1544,6 +1546,7 @@ func (m *ResolveLockResponse) GetError() *KeyError {
 }
 
 // Either a key/value pair or an error for a particular key.
+// 注意这里的Error会保存读取时发生的错误
 type KvPair struct {
 	Error                *KeyError `protobuf:"bytes,1,opt,name=error" json:"error,omitempty"`
 	Key                  []byte    `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`

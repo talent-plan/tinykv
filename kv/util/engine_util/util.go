@@ -8,6 +8,7 @@ import (
 )
 
 func KeyWithCF(cf string, key []byte) []byte {
+	// Badger DB是支持列族的，所以这里简单的做了一个字符串拼接cf_key作为真实存入的key
 	return append([]byte(cf+"_"), key...)
 }
 
@@ -24,6 +25,7 @@ func GetCFFromTxn(txn *badger.Txn, cf string, key []byte) (val []byte, err error
 	if err != nil {
 		return nil, err
 	}
+	// 这里好像采用了写时复制的技术，防止长时间的写死锁
 	val, err = item.ValueCopy(val)
 	return
 }

@@ -29,7 +29,9 @@ var (
 )
 
 func main() {
+	// 参数解析
 	flag.Parse()
+	// TODO:追这里配置初始化的代码
 	conf := config.NewDefaultConfig()
 	if *schedulerAddr != "" {
 		conf.SchedulerAddr = *schedulerAddr
@@ -43,7 +45,7 @@ func main() {
 	if *logLevel != "" {
 		conf.LogLevel = *logLevel
 	}
-
+	// 初始化log信息
 	log.SetLevelByString(conf.LogLevel)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 	log.Infof("Server started with conf %+v", conf)
@@ -52,6 +54,7 @@ func main() {
 	if conf.Raft {
 		storage = raft_storage.NewRaftStorage(conf)
 	} else {
+		// TODO:从这里追代码
 		storage = standalone_storage.NewStandAloneStorage(conf)
 	}
 	if err := storage.Start(); err != nil {
