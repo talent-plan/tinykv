@@ -164,8 +164,37 @@ func newRaft(c *Config) *Raft {
 	if err := c.validate(); err != nil {
 		panic(err.Error())
 	}
+	hardState, conf, _ := c.Storage.InitialState()
+	raftLog := newLog(c.Storage)
+	if c.Applied > 0 {
+		raftLog.applied = c.Applied
+	}
+	peers := make(map[uint64]*Progress)
+	voteRecord := make(map[uint64]bool)
+	if c.peers == nil {
+		c.peers = conf.Nodes
+	}
+	lastIndex := raftLog.LastIndex()
+	for _, id := range c.peers {
+		if id == c.ID {
+			peers[id] = &Progress{Match: lastIndex, Next: lastIndex + 1}
+		} else {
+			peers[id] = &Progress{Next: lastIndex + 1}
+		}
+		voteRecord[id] = false
+	}
+	return &Raft{
+		id:               c.ID,
+		Term:             hardState.Term,
+		Vote:             hardState.Vote,
+		votes:            voteRecord,
+		Prs:              peers,
+		RaftLog:          raftLog,
+		electionTimeout:  c.ElectionTick,
+		heartbeatTimeout: c.HeartbeatTick,
+	}
 	// Your Code Here (2A).
-	return nil
+
 }
 
 // sendAppend sends an append RPC with new entries (if any) and the
@@ -178,21 +207,30 @@ func (r *Raft) sendAppend(to uint64) bool {
 // sendHeartbeat sends a heartbeat RPC to the given peer.
 func (r *Raft) sendHeartbeat(to uint64) {
 	// Your Code Here (2A).
+
 }
 
 // tick advances the internal logical clock by a single tick.
 func (r *Raft) tick() {
 	// Your Code Here (2A).
+
 }
 
 // becomeFollower transform this peer's state to Follower
 func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	// Your Code Here (2A).
+	r.State = StateFollower
+	r.Term = term
+	r.Lead = lead
+
 }
 
 // becomeCandidate transform this peer's state to candidate
 func (r *Raft) becomeCandidate() {
 	// Your Code Here (2A).
+	r.Term += 1
+	r.State = StateCandidate
+
 }
 
 // becomeLeader transform this peer's state to leader

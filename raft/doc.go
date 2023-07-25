@@ -21,43 +21,43 @@ The state machine is kept in sync through the use of a replicated log.
 For more details on Raft, see "In Search of an Understandable Consensus Algorithm"
 (https://ramcloud.stanford.edu/raft.pdf) by Diego Ongaro and John Ousterhout.
 
-Usage
+# Usage
 
 The primary object in raft is a Node. You either start a Node from scratch
 using raft.StartNode or start a Node from some initial state using raft.RestartNode.
 
 To start a node from scratch:
 
-  storage := raft.NewMemoryStorage()
-  c := &Config{
-    ID:              0x01,
-    ElectionTick:    10,
-    HeartbeatTick:   1,
-    Storage:         storage,
-  }
-  n := raft.StartNode(c, []raft.Peer{{ID: 0x02}, {ID: 0x03}})
+	storage := raft.NewMemoryStorage()
+	c := &Config{
+	  ID:              0x01,
+	  ElectionTick:    10,
+	  HeartbeatTick:   1,
+	  Storage:         storage,
+	}
+	n := raft.StartNode(c, []raft.Peer{{ID: 0x02}, {ID: 0x03}})
 
 To restart a node from previous state:
 
-  storage := raft.NewMemoryStorage()
+	storage := raft.NewMemoryStorage()
 
-  // recover the in-memory storage from persistent
-  // snapshot, state and entries.
-  storage.ApplySnapshot(snapshot)
-  storage.SetHardState(state)
-  storage.Append(entries)
+	// recover the in-memory storage from persistent
+	// snapshot, state and entries.
+	storage.ApplySnapshot(snapshot)
+	storage.SetHardState(state)
+	storage.Append(entries)
 
-  c := &Config{
-    ID:              0x01,
-    ElectionTick:    10,
-    HeartbeatTick:   1,
-    Storage:         storage,
-    MaxInflightMsgs: 256,
-  }
+	c := &Config{
+	  ID:              0x01,
+	  ElectionTick:    10,
+	  HeartbeatTick:   1,
+	  Storage:         storage,
+	  MaxInflightMsgs: 256,
+	}
 
-  // restart raft without peer information.
-  // peer information is already included in the storage.
-  n := raft.RestartNode(c)
+	// restart raft without peer information.
+	// peer information is already included in the storage.
+	n := raft.RestartNode(c)
 
 Now that you are holding onto a Node you have a few responsibilities:
 
@@ -109,29 +109,36 @@ represented by an abstract "tick".
 
 The total state machine handling loop will look something like this:
 
-  for {
-    select {
-    case <-s.Ticker:
-      n.Tick()
-    case rd := <-s.Node.Ready():
-      saveToStorage(rd.State, rd.Entries, rd.Snapshot)
-      send(rd.Messages)
-      if !raft.IsEmptySnap(rd.Snapshot) {
-        processSnapshot(rd.Snapshot)
-      }
-      for _, entry := range rd.CommittedEntries {
-        process(entry)
-        if entry.Type == eraftpb.EntryType_EntryConfChange {
-          var cc eraftpb.ConfChange
-          cc.Unmarshal(entry.Data)
-          s.Node.ApplyConfChange(cc)
-        }
-      }
-      s.Node.Advance()
-    case <-s.done:
-      return
-    }
-  }
+	  for {
+	    select {
+	    case <-s.Ticker:
+	      n.Tick()
+		// 处理 Ready 结构体中的更新
+	    case rd := <-s.Node.Ready():
+		  // 将状态、条目和快照保存到存储中
+	      saveToStorage(rd.State, rd.Entries, rd.Snapshot)
+		  // 向其他节点发送消息
+	      send(rd.Messages)
+		  // 如果快照不为空，则处理快照
+	      if !raft.IsEmptySnap(rd.Snapshot) {
+	        processSnapshot(rd.Snapshot)
+	      }
+		  // 处理已提交的条目
+	      for _, entry := range rd.CommittedEntries {
+	        process(entry)
+			// 单独处理配置变更
+	        if entry.Type == eraftpb.EntryType_EntryConfChange {
+	          var cc eraftpb.ConfChange
+	          cc.Unmarshal(entry.Data)
+	          s.Node.ApplyConfChange(cc)
+	        }
+	      }
+		  // 推进状态机的进度
+	      s.Node.Advance()
+	    case <-s.done:
+	      return
+	    }
+	  }
 
 To propose changes to the state machine from your node take your application
 data, serialize it into a byte slice and call:
@@ -158,7 +165,7 @@ given ID MUST be used only once even if the old node has been removed.
 This means that for example IP addresses make poor node IDs since they
 may be reused. Node IDs must be non-zero.
 
-Implementation notes
+# Implementation notes
 
 This implementation is up to date with the final Raft thesis
 (https://ramcloud.stanford.edu/~ongaro/thesis.pdf), although our
@@ -184,7 +191,7 @@ For this reason it is highly recommended to use three or more nodes in
 every cluster.
 
 MessageType
-
+// 细看
 Package raft sends and receives message in Protocol Buffer format (defined
 in eraftpb package). Each state (follower, candidate, leader) implements its
 own 'step' method ('stepFollower', 'stepCandidate', 'stepLeader') when
@@ -263,6 +270,5 @@ stale log entries:
 	'MessageType_MsgHeartbeatResponse' is a response to 'MessageType_MsgHeartbeat'. When 'MessageType_MsgHeartbeatResponse'
 	is passed to the leader's Step method, the leader knows which follower
 	responded.
-
 */
 package raft
