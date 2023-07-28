@@ -211,6 +211,7 @@ stale log entries:
 	the 'raft' struct is set as 'tickHeartbeat', and triggers the leader to
 	send periodic 'MessageType_MsgHeartbeat' messages to its followers.
 
+	// MsgPropose可以理解为client端发给raft server端的消息，给到follower需转发给Leader，Leader拿到后先放到自己的LogEntry里，然后发给所有Follower
 	'MessageType_MsgPropose' proposes to append data to its log entries. This is a special
 	type to redirect proposals to the leader. Therefore, send method overwrites
 	eraftpb.Message's term with its HardState's term to avoid attaching its

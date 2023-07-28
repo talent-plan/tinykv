@@ -10,6 +10,7 @@ require (
 	github.com/google/btree v1.0.0
 	github.com/juju/errors v0.0.0-20181118221551-089d3ea4e4d5
 	github.com/juju/testing v0.0.0-20200510222523-6c8c298c77a0 // indirect
+	github.com/kr/pretty v0.3.0 // indirect
 	github.com/onsi/ginkgo v1.12.1 // indirect
 	github.com/onsi/gomega v1.10.0 // indirect
 	github.com/opentracing/opentracing-go v1.0.2
@@ -22,18 +23,26 @@ require (
 	github.com/pingcap/tipb v0.0.0-20200212061130-c4d518eb1d60
 	github.com/pkg/errors v0.8.1
 	github.com/remyoudompheng/bigfft v0.0.0-20200410134404-eec4a21b6bb0 // indirect
+	github.com/rogpeppe/go-internal v1.9.0 // indirect
 	github.com/shirou/gopsutil/v3 v3.22.7
 	github.com/sirupsen/logrus v1.2.0
 	github.com/stretchr/testify v1.8.1
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20191023171146-3cf2f69b5738
 	go.uber.org/zap v1.14.0
-	golang.org/x/crypto v0.0.0-20210921155107-089bfa567519 // indirect
+	golang.org/x/exp v0.0.0-20220722155223-a9213eeb770e // indirect
+	golang.org/x/exp/typeparams v0.0.0-20221212164502-fae10dda9338 // indirect
 	golang.org/x/net v0.10.0
-	golang.org/x/tools/gopls v0.12.2 // indirect
+	golang.org/x/tools v0.9.4-0.20230601215739-41a7dc76dd8f // indirect
 	google.golang.org/grpc v1.25.1
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
+	honnef.co/go/tools v0.4.2 // indirect
 )
 
 go 1.13
 
-replace github.com/pingcap/tidb => github.com/pingcap-incubator/tinysql v0.0.0-20200518090433-a7d00f9e6aa7
+replace (
+	github.com/pingcap/tidb => github.com/pingcap-incubator/tinysql v0.0.0-20200518090433-a7d00f9e6aa7
+	golang.org/x/arch v0.0.0-20171004143515-077ac972c2e4 => github.com/golang/arch v0.0.0-20171004143515-077ac972c2e4
+	golang.org/x/crypto v0.0.0-20180614174826-fd5f17ee7299 => github.com/golang/crypto v0.0.0-20180614174826-fd5f17ee7299
+	golang.org/x/sys v0.0.0-20180614134839-8883426083c0 => github.com/golang/sys v0.0.0-20180614134839-8883426083c0
+)

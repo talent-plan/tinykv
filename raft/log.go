@@ -16,7 +16,6 @@ package raft
 
 import (
 	"errors"
-	"github.com/pingcap-incubator/tinykv/log"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
@@ -138,7 +137,6 @@ func (l *RaftLog) Term(i uint64) (uint64, error) {
 	}
 	firstIndex, _ := l.storage.FirstIndex()
 	if i > firstIndex+uint64(len(l.entries))-1 {
-		log.Fatalf("out of bounds index")
 		return 0, errors.New("out of bounds index")
 	}
 	if i < firstIndex {

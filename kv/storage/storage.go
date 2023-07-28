@@ -20,4 +20,3 @@ type StorageReader interface {
 	IterCF(cf string) engine_util.DBIterator
 	Close()
 }
-

@@ -90,7 +90,7 @@ func NewDefaultConfig() *Config {
 		RegionMaxSize:                       144 * MB,
 		RegionSplitSize:                     96 * MB,
 		// DBPath 如果希望持久化，而不单单测试，则要改这个路径
-		DBPath:                              "/tmp/badger",
+		DBPath: "/tmp/badger",
 	}
 }
 

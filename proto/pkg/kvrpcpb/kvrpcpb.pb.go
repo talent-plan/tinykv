@@ -468,9 +468,9 @@ func (m *RawDeleteResponse) GetError() string {
 }
 
 type RawScanRequest struct {
-	Context  *Context `protobuf:"bytes,1,opt,name=context" json:"context,omitempty"`
+	Context *Context `protobuf:"bytes,1,opt,name=context" json:"context,omitempty"`
 	// ScanKey的开始位置
-	StartKey []byte   `protobuf:"bytes,2,opt,name=start_key,json=startKey,proto3" json:"start_key,omitempty"`
+	StartKey []byte `protobuf:"bytes,2,opt,name=start_key,json=startKey,proto3" json:"start_key,omitempty"`
 	// The maximum number of values read.
 	// Limit是读取的最大数量
 	Limit                uint32   `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
