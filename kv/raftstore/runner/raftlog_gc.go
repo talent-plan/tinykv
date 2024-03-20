@@ -11,14 +11,14 @@ import (
 type RaftLogGCTask struct {
 	RaftEngine *badger.DB
 	RegionID   uint64
-	StartIdx   uint64
 	EndIdx     uint64
 }
 
 type raftLogGcTaskRes uint64
 
 type raftLogGCTaskHandler struct {
-	taskResCh chan<- raftLogGcTaskRes
+	taskResCh        chan<- raftLogGcTaskRes
+	LastCompactedIdx uint64
 }
 
 func NewRaftLogGCTaskHandler() *raftLogGCTaskHandler {
@@ -80,7 +80,8 @@ func (r *raftLogGCTaskHandler) Handle(t worker.Task) {
 		return
 	}
 	log.Debugf("execute gc log. [regionId: %d, endIndex: %d]", logGcTask.RegionID, logGcTask.EndIdx)
-	collected, err := r.gcRaftLog(logGcTask.RaftEngine, logGcTask.RegionID, logGcTask.StartIdx, logGcTask.EndIdx)
+	collected, err := r.gcRaftLog(logGcTask.RaftEngine, logGcTask.RegionID, r.LastCompactedIdx, logGcTask.EndIdx)
+	r.LastCompactedIdx += collected
 	if err != nil {
 		log.Errorf("failed to gc. [regionId: %d, collected: %d, err: %v]", logGcTask.RegionID, collected, err)
 	} else {

@@ -154,10 +154,8 @@ func (d *peerMsgHandler) ScheduleCompactLog(truncatedIndex uint64) {
 	raftLogGCTask := &runner.RaftLogGCTask{
 		RaftEngine: d.ctx.engine.Raft,
 		RegionID:   d.regionId,
-		StartIdx:   d.LastCompactedIdx,
 		EndIdx:     truncatedIndex + 1,
 	}
-	d.LastCompactedIdx = raftLogGCTask.EndIdx
 	d.ctx.raftLogGCTaskSender <- raftLogGCTask
 }
 
