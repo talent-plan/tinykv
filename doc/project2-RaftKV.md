@@ -201,7 +201,10 @@ In this stage, you may consider these errors, and others will be processed in pr
 > - You can apply the committed Raft log entries in an asynchronous way just like TiKV does. It’s not necessary, though a big challenge to improve performance.
 > - Record the callback of the command when proposing, and return the callback after applying.
 > - For the snap command response, should set badger Txn to callback explicitly.
-> - After 2A, some tests you may need to run them multiple times to find bugs
+> - After 2A, some tests you may need to run them multiple times to find bugs. The great MIT 6.824 course has posted a [blog](https://blog.josejg.com/debugging-pretty/) which presents a python script `dstest` for running multiple run of tests in parallel. It also provides a python script `dslogs` for prettifying your log output. You may need to learn the script and adjust your logging format to make the script works correctly.
+> - Each raft cmd is the data of a raft log entry. You shall marshall a raft cmd to `[]byte` and wrap it to a raft log entry. Then propose the log entry to the raft module. When a log entry is being applied, it shall be unmarshalled back to a raft cmd.
+> - Each raft cmd corresponds to one proposal. There defines a `proposals` field in `peer` struct and you shall interact with it both in `proposeRaftCommand` and `HandleRaftReady`. There also defines some helper functions you may need in `kv/raftstore/peer.go`.
+> - Keep in mind to handle errors in `proposeRaftCommand` and `HandleRaftReady`. Refer to `kv/raftstore/util/errors.go` for what errors you shall handle, although some of them you may ignore now, and refer to `kv/raftstore/cmd_resp.go` for how to bind these errors to `Resp` in `message.Callback`.
 
 ## Part C
 
