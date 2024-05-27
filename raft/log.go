@@ -18,9 +18,9 @@ import pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 
 // RaftLog manage the log entries, its struct look like:
 //
-//  snapshot/first.....applied....committed....stabled.....last
-//  --------|------------------------------------------------|
-//                            log entries
+//	snapshot/first.....applied....committed....stabled.....last
+//	--------|------------------------------------------------|
+//	                          log entries
 //
 // for simplify the RaftLog implement should manage all log entries
 // that not truncated
@@ -56,23 +56,40 @@ type RaftLog struct {
 // to the state that it just commits and applies the latest snapshot.
 func newLog(storage Storage) *RaftLog {
 	// Your Code Here (2A).
-	log := &RaftLog{
-		storage:         storage,
-		committed:       0,
-		applied:         0,
-		stabled:         0,
-		entries:         []pb.Entry{},
-		pendingSnapshot: &pb.Snapshot{},
-	}
-
 	firstIndex, err := storage.FirstIndex()
 	if err != nil {
-		panic(err) // TODO(bdarnell)
+		panic(err)
 	}
 
-	log.committed = firstIndex - 1
-	log.applied = firstIndex - 1
-	return log
+	lastIndex, err := storage.LastIndex()
+	if err != nil {
+		panic(err)
+	}
+
+	snapshot, err := storage.Snapshot()
+	if err != nil {
+		panic(err)
+	}
+
+	entries, err := storage.Entries(firstIndex, lastIndex+1)
+	if err != nil {
+		panic(err)
+	}
+	entries = append([]pb.Entry{{
+		EntryType: pb.EntryType_EntryNormal,
+		Term:      snapshot.Metadata.Term,
+		Index:     snapshot.Metadata.Index,
+		Data:      []byte{},
+	}}, entries...)
+
+	return &RaftLog{
+		storage:         storage,
+		committed:       firstIndex - 1,
+		applied:         firstIndex - 1,
+		stabled:         lastIndex,
+		entries:         entries,
+		pendingSnapshot: &snapshot,
+	}
 }
 
 // We need to compact the log entries in some point of time like
@@ -87,29 +104,104 @@ func (l *RaftLog) maybeCompact() {
 // note, this is one of the test stub functions you need to implement.
 func (l *RaftLog) allEntries() []pb.Entry {
 	// Your Code Here (2A).
-	return nil
+	if len(l.entries) == 1 {
+		return nil
+	}
+
+	return l.entries[1:]
 }
 
 // unstableEntries return all the unstable entries
 func (l *RaftLog) unstableEntries() []pb.Entry {
 	// Your Code Here (2A).
-	return nil
+	unstableStart := l.stabled + 1
+	offset := l.entries[0].Index
+
+	if int(unstableStart-offset) >= len(l.entries) {
+		return []pb.Entry{}
+	}
+
+	return l.entries[unstableStart-offset : len(l.entries)]
 }
 
 // nextEnts returns all the committed but not applied entries
 func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 	// Your Code Here (2A).
-	return nil
+	offset := l.entries[0].Index
+	if int(l.applied+1-offset) >= len(l.entries) {
+		return nil
+	}
+
+	return l.entries[l.applied+1-offset : l.committed+1-offset]
+}
+
+func (l *RaftLog) slice(lo, hi uint64) (ents []pb.Entry) {
+	if lo >= hi {
+		return nil
+	}
+
+	offset := l.entries[0].Index
+
+	if int(lo-offset) >= len(l.entries) {
+		return nil
+	}
+
+	return l.entries[lo-offset : hi-offset]
+
+}
+
+func (l *RaftLog) FirstIndex() uint64 {
+	index, err := l.storage.FirstIndex()
+	if err != nil {
+		panic(err)
+	}
+
+	return index
 }
 
 // LastIndex return the last index of the log entries
 func (l *RaftLog) LastIndex() uint64 {
 	// Your Code Here (2A).
-	return 0
+	return l.entries[0].Index + uint64(len(l.entries)) - 1
 }
 
 // Term return the term of the entry in the given index
 func (l *RaftLog) Term(i uint64) (uint64, error) {
 	// Your Code Here (2A).
-	return 0, nil
+	// the valid term range is [index of dummy entry, last index]
+	offset := l.entries[0].Index
+	i -= offset
+
+	if i >= uint64(len(l.entries)) {
+		return 0, ErrUnavailable
+	}
+
+	return l.entries[i].Term, nil
+}
+
+func (l *RaftLog) EntryAt(index uint64) (pb.Entry, bool) {
+	offset := l.entries[0].Index
+
+	index -= offset
+
+	if index >= uint64(len(l.entries)) {
+		return pb.Entry{}, false
+	}
+
+	return l.entries[index], true
+}
+
+// TODO: 考虑全部被 truncate 的情况
+func (l *RaftLog) TruncateFromIndex(index uint64) {
+	offset := l.entries[0].Index
+
+	index -= offset
+
+	l.entries = l.entries[:index]
+
+	l.stabled = min(l.stabled, index-1)
+}
+
+func (l *RaftLog) Append(entries ...pb.Entry) {
+	l.entries = append(l.entries, entries...)
 }
