@@ -184,7 +184,7 @@ func newRaft(c *Config) *Raft {
 		Prs:              map[uint64]*Progress{},
 		State:            StateFollower,
 		votes:            map[uint64]bool{},
-		msgs:             []pb.Message{},
+		msgs:             nil,
 		Lead:             None,
 		heartbeatTimeout: c.HeartbeatTick,
 		electionTimeout:  c.ElectionTick,
@@ -197,6 +197,10 @@ func newRaft(c *Config) *Raft {
 	}
 	raft.RaftLog.committed = hs.Commit
 
+	if c.Applied > 0 {
+		raft.RaftLog.applied = c.Applied
+	}
+
 	for _, peer := range c.peers {
 		raft.Prs[uint64(peer)] = &Progress{
 			Match: 0,
@@ -207,6 +211,21 @@ func newRaft(c *Config) *Raft {
 	raft.becomeFollower(raft.Term, None)
 
 	return raft
+}
+
+func (r *Raft) SoftState() *SoftState {
+	return &SoftState{
+		Lead:      r.Lead,
+		RaftState: r.State,
+	}
+}
+
+func (r *Raft) HardState() pb.HardState {
+	return pb.HardState{
+		Term:   r.Term,
+		Vote:   r.Vote,
+		Commit: r.RaftLog.committed,
+	}
 }
 
 // sendAppend sends an append RPC with new entries (if any) and the
