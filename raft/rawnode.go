@@ -70,12 +70,23 @@ type Ready struct {
 type RawNode struct {
 	Raft *Raft
 	// Your Data Here (2A).
+	PrevSoftSt *SoftState
+	PrevHardSt pb.HardState
 }
 
 // NewRawNode returns a new RawNode given configuration and a list of raft peers.
 func NewRawNode(config *Config) (*RawNode, error) {
 	// Your Code Here (2A).
-	return nil, nil
+	r := newRaft(config)
+
+	rn := &RawNode{
+		Raft: r,
+	}
+
+	rn.PrevSoftSt = r.SoftState()
+	rn.PrevHardSt = r.HardState()
+
+	return rn, nil
 }
 
 // Tick advances the internal logical clock by a single tick.
@@ -143,12 +154,45 @@ func (rn *RawNode) Step(m pb.Message) error {
 // Ready returns the current point-in-time state of this RawNode.
 func (rn *RawNode) Ready() Ready {
 	// Your Code Here (2A).
-	return Ready{}
+	ready := Ready{
+		Entries:          rn.Raft.RaftLog.unstableEntries(),
+		CommittedEntries: rn.Raft.RaftLog.nextEnts(),
+		Messages:         rn.Raft.msgs,
+	}
+
+	if softSt := rn.Raft.SoftState(); !IsSoftStateEqual(softSt, rn.PrevSoftSt) {
+		ready.SoftState = softSt
+	}
+
+	if hardSt := rn.Raft.HardState(); !IsHardStateEqual(hardSt, rn.PrevHardSt) {
+		ready.HardState = hardSt
+	}
+
+	if ready.SoftState != nil {
+		rn.PrevSoftSt = ready.SoftState
+	}
+
+	rn.Raft.msgs = nil
+	return ready
 }
 
 // HasReady called when RawNode user need to check if any Ready pending.
 func (rn *RawNode) HasReady() bool {
 	// Your Code Here (2A).
+	r := rn.Raft
+
+	if !IsSoftStateEqual(r.SoftState(), rn.PrevSoftSt) {
+		return true
+	}
+
+	if hardSt := r.HardState(); !IsEmptyHardState(hardSt) && !IsHardStateEqual(hardSt, rn.PrevHardSt) {
+		return true
+	}
+
+	if len(r.msgs) > 0 || len(r.RaftLog.unstableEntries()) > 0 || len(r.RaftLog.nextEnts()) > 0 {
+		return true
+	}
+
 	return false
 }
 
@@ -156,6 +200,21 @@ func (rn *RawNode) HasReady() bool {
 // last Ready results.
 func (rn *RawNode) Advance(rd Ready) {
 	// Your Code Here (2A).
+	if !IsEmptyHardState(rd.HardState) {
+		rn.PrevHardSt = rd.HardState
+	}
+
+	r := rn.Raft
+
+	if len(rd.Entries) > 0 {
+		r.RaftLog.stabled = max(r.RaftLog.stabled, rd.Entries[len(rd.Entries)-1].Index)
+	}
+
+	if len(rd.CommittedEntries) > 0 {
+		entry := rd.CommittedEntries[len(rd.CommittedEntries)-1]
+		r.RaftLog.applied = max(r.RaftLog.applied, entry.Index)
+	}
+
 }
 
 // GetProgress return the Progress of this node and its peers, if this
