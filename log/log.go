@@ -12,8 +12,12 @@ import (
 	"io"
 	"log"
 	"os"
-	"runtime"
 	"strings"
+)
+
+const (
+	EnableDebug = true
+	EnableColor = true
 )
 
 const (
@@ -55,7 +59,7 @@ var _log *Logger = New()
 
 func init() {
 	SetFlags(Ldate | Ltime | Lshortfile)
-	SetHighlighting(runtime.GOOS != "windows")
+	SetHighlighting(EnableColor)
 }
 
 func GlobalLogger() *log.Logger {
@@ -168,6 +172,10 @@ func (l *Logger) log(t LogType, v ...interface{}) {
 }
 
 func (l *Logger) logf(t LogType, format string, v ...interface{}) {
+	if !EnableDebug {
+		return
+	}
+
 	if l.level|LogLevel(t) != l.level {
 		return
 	}
@@ -262,7 +270,7 @@ func LogTypeToString(t LogType) (string, string) {
 	case LOG_DEBUG:
 		return "debug", "[0;36"
 	case LOG_INFO:
-		return "info", "[0;37"
+		return "info", "[0;35"
 	}
 	return "unknown", "[0;37"
 }
@@ -276,7 +284,7 @@ func NewLogger(w io.Writer, prefix string) *Logger {
 	if l := os.Getenv("LOG_LEVEL"); len(l) != 0 {
 		level = StringToLogLevel(os.Getenv("LOG_LEVEL"))
 	} else {
-		level = LOG_LEVEL_INFO
+		level = LOG_LEVEL_ALL
 	}
-	return &Logger{_log: log.New(w, prefix, LstdFlags), level: level, highlighting: true}
+	return &Logger{_log: log.New(w, prefix, LstdFlags), level: level, highlighting: EnableColor}
 }

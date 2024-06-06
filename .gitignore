@@ -5,3 +5,4 @@ unikv/unikv
 bin/*
 _tools
 /vendor
+kv/test_raftstore

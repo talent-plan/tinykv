@@ -14,7 +14,12 @@
 
 package raft
 
-import pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+import (
+	"fmt"
+	"strings"
+
+	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+)
 
 // RaftLog manage the log entries, its struct look like:
 //
@@ -66,10 +71,10 @@ func newLog(storage Storage) *RaftLog {
 		panic(err)
 	}
 
-	snapshot, err := storage.Snapshot()
-	if err != nil {
-		panic(err)
-	}
+	// snapshot, err := storage.Snapshot()
+	// if err != nil {
+	// 	panic(err)
+	// }
 
 	entries, err := storage.Entries(firstIndex, lastIndex+1)
 	if err != nil {
@@ -77,18 +82,18 @@ func newLog(storage Storage) *RaftLog {
 	}
 	entries = append([]pb.Entry{{
 		EntryType: pb.EntryType_EntryNormal,
-		Term:      snapshot.Metadata.Term,
-		Index:     snapshot.Metadata.Index,
-		Data:      []byte{},
+		// Term:      snapshot.Metadata.Term,
+		// Index:     snapshot.Metadata.Index,
+		Data: []byte{},
 	}}, entries...)
 
 	return &RaftLog{
-		storage:         storage,
-		committed:       firstIndex - 1,
-		applied:         firstIndex - 1,
-		stabled:         lastIndex,
-		entries:         entries,
-		pendingSnapshot: &snapshot,
+		storage:   storage,
+		committed: firstIndex - 1,
+		applied:   firstIndex - 1,
+		stabled:   lastIndex,
+		entries:   entries,
+		// pendingSnapshot: &snapshot,
 	}
 }
 
@@ -128,7 +133,9 @@ func (l *RaftLog) unstableEntries() []pb.Entry {
 func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 	// Your Code Here (2A).
 	offset := l.entries[0].Index
-	if int(l.applied+1-offset) >= len(l.entries) {
+
+	// TODO: 想清楚 applied > committed 的情况
+	if int(l.applied+1-offset) >= len(l.entries) || l.applied > l.committed {
 		return nil
 	}
 
@@ -162,7 +169,11 @@ func (l *RaftLog) FirstIndex() uint64 {
 // LastIndex return the last index of the log entries
 func (l *RaftLog) LastIndex() uint64 {
 	// Your Code Here (2A).
-	return l.entries[0].Index + uint64(len(l.entries)) - 1
+	if len(l.entries) == 0 {
+		panic("no entry!")
+	}
+
+	return l.entries[len(l.entries)-1].Index
 }
 
 // Term return the term of the entry in the given index
@@ -204,4 +215,15 @@ func (l *RaftLog) TruncateFromIndex(index uint64) {
 
 func (l *RaftLog) Append(entries ...pb.Entry) {
 	l.entries = append(l.entries, entries...)
+}
+
+func (l *RaftLog) String() string {
+	var entries []string
+	for i := 1; i < len(l.entries); i++ {
+		entries = append(entries, fmt.Sprintf("{Term: %v, Index: %v}", l.entries[i].Term, l.entries[i].Index))
+	}
+
+	entriesStr := strings.Join(entries, ", ")
+
+	return fmt.Sprintf("{applied: %v, committed: %v, stabled: %v, entries: [%v]}", l.applied, l.committed, l.stabled, entriesStr)
 }

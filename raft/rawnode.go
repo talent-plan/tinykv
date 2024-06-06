@@ -16,7 +16,9 @@ package raft
 
 import (
 	"errors"
+	"fmt"
 
+	"github.com/pingcap-incubator/tinykv/log"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
@@ -173,6 +175,8 @@ func (rn *RawNode) Ready() Ready {
 	}
 
 	rn.Raft.msgs = nil
+
+	log.Errorf("[id:%v term:%v] generate ready: %v", rn.Raft.id, rn.Raft.Term, ready)
 	return ready
 }
 
@@ -199,7 +203,6 @@ func (rn *RawNode) HasReady() bool {
 // Advance notifies the RawNode that the application has applied and saved progress in the
 // last Ready results.
 func (rn *RawNode) Advance(rd Ready) {
-	// Your Code Here (2A).
 	if !IsEmptyHardState(rd.HardState) {
 		rn.PrevHardSt = rd.HardState
 	}
@@ -215,6 +218,7 @@ func (rn *RawNode) Advance(rd Ready) {
 		r.RaftLog.applied = max(r.RaftLog.applied, entry.Index)
 	}
 
+	log.Errorf("[id:%v term:%v] advance to new state, applide = %v, stabled = %v",rn.Raft.id, rn.Raft.Term, r.RaftLog.applied, r.RaftLog.stabled)
 }
 
 // GetProgress return the Progress of this node and its peers, if this
@@ -232,4 +236,8 @@ func (rn *RawNode) GetProgress() map[uint64]Progress {
 // TransferLeader tries to transfer leadership to the given transferee.
 func (rn *RawNode) TransferLeader(transferee uint64) {
 	_ = rn.Raft.Step(pb.Message{MsgType: pb.MessageType_MsgTransferLeader, From: transferee})
+}
+
+func (rd Ready) String() string {
+	return fmt.Sprintf("Ready{Term: %v, Vote: %v, Commit: %v}", rd.Term, rd.Vote, rd.Commit)
 }
