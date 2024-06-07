@@ -6,6 +6,7 @@ import (
 
 	"github.com/Connor1996/badger/y"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
+	"github.com/pingcap-incubator/tinykv/kv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/runner"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
@@ -51,8 +52,10 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		d.peerStorage.SaveReadyState(&ready)
 		d.Send(d.ctx.trans, ready.Messages)
 
-		for _, entry := range ready.CommittedEntries {
-			d.applyEntry(&entry)
+		if len(ready.CommittedEntries) > 0 {
+			for _, entry := range ready.CommittedEntries {
+				d.applyEntry(&entry)
+			}
 		}
 
 		rawNode.Advance(ready)
@@ -172,7 +175,6 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry) {
 		case raft_cmdpb.CmdType_Put:
 			r := req.Put
 			kvWB.SetCF(r.Cf, r.Key, r.Value)
-
 			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
 				CmdType: raft_cmdpb.CmdType_Put,
 				Put:     &raft_cmdpb.PutResponse{},
@@ -207,26 +209,18 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry) {
 		}
 	}
 
+	d.peerStorage.applyState.AppliedIndex = entry.Index
+	kvWB.SetMeta(meta.ApplyStateKey(d.regionId), d.peerStorage.applyState)
 	kvWB.WriteToDB(d.peerStorage.Engines.Kv)
-
+	log.Infof("[id:%v term:%v] apply entry{Term: %v, Index: %v}", d.peer.RaftGroup.Raft.GetId(), d.peer.RaftGroup.Raft.Term, entry.Term, entry.Index)
 	for len(d.proposals) > 0 {
 		proposal := d.proposals[0]
 
-		if entry.Term < proposal.term {
+		if entry.Term < proposal.term || (entry.Term == proposal.term && entry.Index < proposal.index) {
 			return
 		}
 
-		if entry.Term > proposal.term {
-			proposal.cb.Done(ErrRespStaleCommand(proposal.term))
-			d.proposals = d.proposals[1:]
-			continue
-		}
-
-		if entry.Term == proposal.term && entry.Index < proposal.index {
-			return
-		}
-
-		if entry.Term == proposal.term && entry.Index > proposal.index {
+		if entry.Term > proposal.term || (entry.Term == proposal.term && entry.Index > proposal.index) {
 			proposal.cb.Done(ErrRespStaleCommand(proposal.term))
 			d.proposals = d.proposals[1:]
 			continue
@@ -236,7 +230,7 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry) {
 			if resp.Header == nil {
 				resp.Header = &raft_cmdpb.RaftResponseHeader{}
 			}
-			proposal.cb.Txn = d.peer.peerStorage.Engines.Kv.NewTransaction(true)
+			proposal.cb.Txn = d.peer.peerStorage.Engines.Kv.NewTransaction(false)
 			proposal.cb.Done(&resp)
 			d.proposals = d.proposals[1:]
 			return

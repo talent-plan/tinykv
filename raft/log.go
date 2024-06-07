@@ -80,11 +80,12 @@ func newLog(storage Storage) *RaftLog {
 	if err != nil {
 		panic(err)
 	}
+
 	entries = append([]pb.Entry{{
 		EntryType: pb.EntryType_EntryNormal,
 		// Term:      snapshot.Metadata.Term,
-		// Index:     snapshot.Metadata.Index,
-		Data: []byte{},
+		Index: firstIndex - 1,
+		Data:  []byte{},
 	}}, entries...)
 
 	return &RaftLog{
@@ -149,6 +150,8 @@ func (l *RaftLog) slice(lo, hi uint64) (ents []pb.Entry) {
 
 	offset := l.entries[0].Index
 
+	lo = max(lo, offset)
+
 	if int(lo-offset) >= len(l.entries) {
 		return nil
 	}
@@ -202,15 +205,12 @@ func (l *RaftLog) EntryAt(index uint64) (pb.Entry, bool) {
 	return l.entries[index], true
 }
 
-// TODO: 考虑全部被 truncate 的情况
 func (l *RaftLog) TruncateFromIndex(index uint64) {
 	offset := l.entries[0].Index
 
 	index -= offset
 
 	l.entries = l.entries[:index]
-
-	l.stabled = min(l.stabled, index-1)
 }
 
 func (l *RaftLog) Append(entries ...pb.Entry) {

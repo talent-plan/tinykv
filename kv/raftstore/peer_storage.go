@@ -308,8 +308,8 @@ func ClearMeta(engines *engine_util.Engines, kvWB, raftWB *engine_util.WriteBatc
 // never be committed
 func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.WriteBatch) error {
 	// Your Code Here (2B).
-	if err := raftWB.WriteToDB(ps.Engines.Raft); err != nil {
-		return err
+	if len(entries) == 0 {
+		return nil
 	}
 
 	for _, entry := range entries {
@@ -318,6 +318,9 @@ func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.Write
 		}
 	}
 
+
+	ps.raftState.LastIndex = entries[len(entries)-1].Index
+	ps.raftState.LastTerm = entries[len(entries)-1].Term
 	return nil
 }
 

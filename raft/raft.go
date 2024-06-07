@@ -222,6 +222,10 @@ func newRaft(c *Config) *Raft {
 	return raft
 }
 
+func (r *Raft) GetId() int {
+	return int(r.id)
+}
+
 func (r *Raft) SoftState() *SoftState {
 	return &SoftState{
 		Lead:      r.Lead,
@@ -483,7 +487,8 @@ func (r *Raft) send(m pb.Message) {
 	m.From = r.id
 	m.Term = r.Term
 	r.msgs = append(r.msgs, m)
-	log.Warnf("[id:%v term:%v] send %v to %v, msg: %v, current log: %v", r.id, r.Term, pb.MessageType_name[int32(m.MsgType)], m.To, ShowMsg(m), r.RaftLog)
+	log.Warnf("[id:%v term:%v] send %v to %v, msg: %v", r.id, r.Term, pb.MessageType_name[int32(m.MsgType)], m.To, ShowMsg(m))
+	// log.Warnf("[id:%v term:%v] send %v to %v, msg: %v, current log: %v", r.id, r.Term, pb.MessageType_name[int32(m.MsgType)], m.To, ShowMsg(m), r.RaftLog)
 }
 
 // Step the entrance of handle message, see `MessageType`
@@ -558,6 +563,9 @@ func (r *Raft) stepLeader(m pb.Message) error {
 		r.bcastHeartbeat()
 
 	case pb.MessageType_MsgPropose:
+		if len(m.Entries) == 0 {
+			log.Errorf("[id:%v term:%v] stepped empty MsgPropose", r.id, r.Term)
+		}
 		r.appendEntries(m.Entries...)
 		r.bcastAppendEntries()
 

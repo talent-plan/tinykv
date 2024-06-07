@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	EnableDebug = true
+	EnableDebug = false
 	EnableColor = true
 )
 
