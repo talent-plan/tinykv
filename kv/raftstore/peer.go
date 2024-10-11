@@ -85,10 +85,6 @@ type peer struct {
 	// (Used in 2B)
 	proposals []*proposal
 
-	// Index of last scheduled compacted raft log.
-	// (Used in 2C)
-	LastCompactedIdx uint64
-
 	// Cache the peers information from other stores
 	// when sending raft messages to other peers, it's used to get the store id of target peer
 	// (Used in 3B conf change)
