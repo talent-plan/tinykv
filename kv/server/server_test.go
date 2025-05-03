@@ -101,6 +101,7 @@ func TestRawPut1(t *testing.T) {
 	}
 
 	_, err := server.RawPut(nil, req)
+	assert.Nil(t, err)
 
 	got, err := Get(s, cf, []byte{99})
 	assert.Nil(t, err)
@@ -327,8 +328,8 @@ func TestIterWithRawDelete1(t *testing.T) {
 	assert.Nil(t, Set(s, cf, []byte{4}, []byte{233, 4}))
 
 	it, err := Iter(s, cf)
-	defer it.Close()
 	assert.Nil(t, err)
+	defer it.Close()
 
 	delete := &kvrpcpb.RawDeleteRequest{
 		Key: []byte{3},
