@@ -135,7 +135,6 @@ func TestGcRaftLog(t *testing.T) {
 			raftLogGcTask: &RaftLogGCTask{
 				RaftEngine: raftDb,
 				RegionID:   regionId,
-				StartIdx:   uint64(0),
 				EndIdx:     uint64(10),
 			},
 			expectedCollected: uint64(10),
@@ -147,7 +146,6 @@ func TestGcRaftLog(t *testing.T) {
 			raftLogGcTask: &RaftLogGCTask{
 				RaftEngine: raftDb,
 				RegionID:   regionId,
-				StartIdx:   uint64(0),
 				EndIdx:     uint64(50),
 			},
 			expectedCollected: uint64(40),
@@ -159,7 +157,6 @@ func TestGcRaftLog(t *testing.T) {
 			raftLogGcTask: &RaftLogGCTask{
 				RaftEngine: raftDb,
 				RegionID:   regionId,
-				StartIdx:   uint64(50),
 				EndIdx:     uint64(50),
 			},
 			expectedCollected: uint64(0),
@@ -171,7 +168,6 @@ func TestGcRaftLog(t *testing.T) {
 			raftLogGcTask: &RaftLogGCTask{
 				RaftEngine: raftDb,
 				RegionID:   regionId,
-				StartIdx:   uint64(50),
 				EndIdx:     uint64(60),
 			},
 			expectedCollected: uint64(10),
