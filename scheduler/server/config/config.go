@@ -610,7 +610,7 @@ func (c *Config) GenEmbedEtcdConfig() (*embed.Config, error) {
 	cfg.WalDir = ""
 	cfg.InitialCluster = c.InitialCluster
 	cfg.ClusterState = c.InitialClusterState
-	cfg.EnablePprof = true
+	cfg.EnablePprof = false
 	cfg.StrictReconfigCheck = !c.DisableStrictReconfigCheck
 	cfg.TickMs = uint(c.TickInterval.Duration / time.Millisecond)
 	cfg.ElectionMs = uint(c.ElectionInterval.Duration / time.Millisecond)
