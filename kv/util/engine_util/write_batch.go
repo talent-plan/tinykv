@@ -6,12 +6,20 @@ import (
 	"github.com/pingcap/errors"
 )
 
+// накапливает в себе изменения. потом атомарно применяем в WriteToDB
+// сейфпоинт нужен чтобы его установить и потом откатиться к нему, если что-то не так.
+// по дефолту откат к нулю (то же самое, что и Reset()), те все изменения сбрасываются.
+//
+//	изменения можно откатить до WriteToDB, после уже невозможно из бд, но можно из этой структуры
+//
+// после WriteToDB нужно сбросить батч, потому что он может быть применен второй раз
+// батч идемпотентный
 type WriteBatch struct {
 	entries       []*badger.Entry
 	size          int
 	safePoint     int
 	safePointSize int
-	safePointUndo int
+	safePointUndo int // нигде не юзаем, кроме как сброс
 }
 
 const (
@@ -76,7 +84,7 @@ func (wb *WriteBatch) WriteToDB(db *badger.DB) error {
 		err := db.Update(func(txn *badger.Txn) error {
 			for _, entry := range wb.entries {
 				var err1 error
-				if len(entry.Value) == 0 {
+				if len(entry.Value) == 0 { // вроде бы контракт не запрещает пустое значение, но тут строго запрещено
 					err1 = txn.Delete(entry.Key)
 				} else {
 					err1 = txn.SetEntry(entry)

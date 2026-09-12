@@ -7,7 +7,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/log"
 )
 
-// Engines keeps references to and data for the engines used by unistore.
+// Engines keeps references to data for the engines used by unistore.
 // All engines are badger key/value databases.
 // the Path fields are the filesystem path to where the data is stored.
 type Engines struct {
@@ -64,7 +64,7 @@ func (en *Engines) Destroy() error {
 }
 
 // CreateDB creates a new Badger DB on disk at path.
-func CreateDB(path string, raft bool) *badger.DB {
+func CreateDB(path string, raft bool) *badger.DB { // это пригодиться для standalone_storage.go
 	opts := badger.DefaultOptions
 	if raft {
 		// Do not need to write blob for raft engine because it will be deleted soon.

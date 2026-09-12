@@ -4,9 +4,10 @@ import (
 	"github.com/Connor1996/badger"
 )
 
+// руализует DBItem
 type CFItem struct {
 	item      *badger.Item
-	prefixLen int
+	prefixLen int // это длина нашего названия для cf
 }
 
 // String returns a string representation of Item
@@ -54,9 +55,10 @@ func (i *CFItem) UserMeta() []byte {
 	return i.item.UserMeta()
 }
 
+// реализует DBIterator
 type BadgerIterator struct {
 	iter   *badger.Iterator
-	prefix string
+	prefix string // это название нашего cf
 }
 
 func NewCFIterator(cf string, txn *badger.Txn) *BadgerIterator {

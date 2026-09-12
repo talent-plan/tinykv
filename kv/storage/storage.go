@@ -10,7 +10,9 @@ import (
 type Storage interface {
 	Start() error
 	Stop() error
+	// должен быть атомарным, те если хотя бы одна запись с ошибкой, то выкидывать ошибку
 	Write(ctx *kvrpcpb.Context, batch []Modify) error
+	// должен возвращать объект, который будет читать снэпшот. снэпшот, потому что нам нужно поддержать отсутсвие аномалий
 	Reader(ctx *kvrpcpb.Context) (StorageReader, error)
 }
 
